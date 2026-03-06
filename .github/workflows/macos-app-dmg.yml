@@ -1,0 +1,74 @@
+name: Build macOS App and DMG
+
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - "v*"
+
+jobs:
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build release binary
+        run: cargo build --release
+
+      - name: Package .app and .dmg
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          APP_NAME="Sonarpad Minimal"
+          BIN_NAME="sonarpad-minimal"
+          STAGE_DIR="dist/stage"
+          APP_DIR="${STAGE_DIR}/${APP_NAME}.app"
+          CONTENTS_DIR="${APP_DIR}/Contents"
+          MACOS_DIR="${CONTENTS_DIR}/MacOS"
+
+          mkdir -p "${MACOS_DIR}"
+          cp "target/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
+          chmod +x "${MACOS_DIR}/${APP_NAME}"
+
+          cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Sonarpad Minimal</string>
+            <key>CFBundleDisplayName</key>
+            <string>Sonarpad Minimal</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.sonarpad.minimal</string>
+            <key>CFBundleVersion</key>
+            <string>1.0.0</string>
+            <key>CFBundleShortVersionString</key>
+            <string>1.0.0</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleExecutable</key>
+            <string>Sonarpad Minimal</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>12.0</string>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          DMG_NAME="Sonarpad-Minimal-macOS.dmg"
+          mkdir -p dist
+          hdiutil create -volname "${APP_NAME}" -srcfolder "${STAGE_DIR}" -ov -format UDZO "dist/${DMG_NAME}"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-minimal-macos-dmg
+          path: dist/Sonarpad-Minimal-macOS.dmg
