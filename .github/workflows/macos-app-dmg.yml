@@ -13,7 +13,6 @@ jobs:
   build-macos:
     runs-on: macos-14
     env:
-      DEVELOPER_DIR: /Applications/Xcode_16.4.app/Contents/Developer
       CMAKE_ARGS: -DwxUSE_OPENGL=OFF
 
     steps:
@@ -24,8 +23,15 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            DEVELOPER_DIR="$(dirname "$(dirname "$(xcode-select -p)")")"
+          fi
+          echo "Using DEVELOPER_DIR=${DEVELOPER_DIR}"
           sudo xcode-select -switch "${DEVELOPER_DIR}"
           xcodebuild -version
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR}" >> "${GITHUB_ENV}"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
 
       - name: Ensure build tools (cmake + ninja)
