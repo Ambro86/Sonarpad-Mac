@@ -13,10 +13,3 @@ IBAN: IT77W0306901020100000064149
 Se possibile, indica una causale chiara, ad esempio "Sonarpad".
 
 Chiunque decida di supportare il progetto verra' ringraziato nel programma e sul repository GitHub, nella sezione sostenitori, salvo richiesta di anonimato o utilizzo di un nickname.
-
-Si ringrazia per il contributo Jiri Holzinger e Paola Vagata.
-Per la traduzione in vietnamita ringrazio Anh Duc Nguyen.
-Per la traduzione in ceco ringrazio Radek Zalud e Jiri Holzinger.
-Per la traduzione in spagnolo ringrazio Arturo Fernandez Rivas.
-Per la traduzione in serbo ringrazio Mila Kuran.
-Per la traduzione in ucraino ringrazio Ivan Shtefuriak.
