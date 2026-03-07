@@ -20,7 +20,7 @@ jobs:
             pdfium_archive: pdfium-mac-arm64.tgz
             dmg_name: Sonarpad-Minimal-macOS-AppleSilicon.dmg
             artifact_name: sonarpad-minimal-macos-dmg-apple-silicon
-          - runs_on: macos-13
+          - runs_on: macos-15-intel
             rust_target: x86_64-apple-darwin
             pdfium_archive: pdfium-mac-x64.tgz
             dmg_name: Sonarpad-Minimal-macOS-Intel.dmg
