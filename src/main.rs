@@ -3265,14 +3265,13 @@ fn main() {
             settings_action_click();
         });
 
-        let shortcut_target = text_ctrl;
         let play_action_shortcut = Rc::clone(&play_action);
         let stop_action_shortcut = Rc::clone(&stop_action);
         let save_action_shortcut = Rc::clone(&save_action);
         let settings_action_shortcut = Rc::clone(&settings_action);
         let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
         let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
-        shortcut_target.on_key_down(move |event| {
+        let shortcut_handler = move |event| {
             if let WindowEventData::Keyboard(key_event) = event {
                 let key_code = key_event.get_key_code().unwrap_or_default();
                 let unicode_key = key_event.get_unicode_key().unwrap_or_default();
@@ -3314,7 +3313,13 @@ fn main() {
                     }
                 }
             }
-        });
+        };
+
+        #[cfg(target_os = "macos")]
+        frame.on_key_down(shortcut_handler);
+
+        #[cfg(not(target_os = "macos"))]
+        text_ctrl.on_key_down(shortcut_handler);
 
         frame.show(true);
         frame.centre();
