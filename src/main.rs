@@ -460,6 +460,149 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
         .map_err(|err| format!("scrittura file {} fallita: {}", storage_path.display(), err))
 }
 
+#[cfg(target_os = "macos")]
+fn podcast_log_path() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| {
+        PathBuf::from(home)
+            .join("Documents")
+            .join("Sonarpad")
+            .join("log.txt")
+    })
+}
+
+#[cfg(target_os = "macos")]
+fn append_podcast_log(message: &str) {
+    let Some(path) = podcast_log_path() else {
+        println!("ERROR: Cartella HOME non disponibile per il log podcast");
+        return;
+    };
+
+    if let Some(parent) = path.parent()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        println!(
+            "ERROR: Creazione cartella log podcast {} fallita: {}",
+            parent.display(),
+            err
+        );
+        return;
+    }
+
+    let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let line = format!("[{timestamp}] {message}\n");
+
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    {
+        Ok(mut file) => {
+            use std::io::Write;
+
+            if let Err(err) = file.write_all(line.as_bytes()) {
+                println!(
+                    "ERROR: Scrittura log podcast {} fallita: {}",
+                    path.display(),
+                    err
+                );
+            }
+        }
+        Err(err) => {
+            println!(
+                "ERROR: Apertura log podcast {} fallita: {}",
+                path.display(),
+                err
+            );
+        }
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn append_podcast_log(_message: &str) {}
+
+fn log_podcast_player_snapshot(
+    player: &podcast_player::PodcastPlayer,
+    context: &str,
+    audio_url: &str,
+) {
+    match player.debug_snapshot() {
+        Ok(snapshot) => append_podcast_log(&format!("{context} audio_url={audio_url} {snapshot}")),
+        Err(err) => append_podcast_log(&format!(
+            "{context} audio_url={audio_url} snapshot_error={err}"
+        )),
+    }
+}
+
+fn wait_for_podcast_ready(
+    parent: &Frame,
+    player: &podcast_player::PodcastPlayer,
+    audio_url: &str,
+) -> bool {
+    let progress = ProgressDialog::builder(
+        parent,
+        "Caricamento Podcast",
+        "Preparazione stream podcast...",
+        100,
+    )
+    .with_style(ProgressDialogStyle::CanAbort | ProgressDialogStyle::Smooth)
+    .build();
+
+    for step in 0..=40 {
+        let percent = (step * 100) / 40;
+        let message = format!("Scaricamento podcast... {}%", percent);
+        if !progress.update(percent, Some(&message)) {
+            append_podcast_log(&format!("podcast_ready.cancelled audio_url={audio_url}"));
+            return false;
+        }
+
+        match player.is_ready_for_playback() {
+            Ok(true) => {
+                log_podcast_player_snapshot(player, "podcast_ready.success", audio_url);
+                progress.update(100, Some("Podcast pronto."));
+                return true;
+            }
+            Ok(false) => {
+                log_podcast_player_snapshot(player, "podcast_ready.waiting", audio_url);
+            }
+            Err(err) => {
+                append_podcast_log(&format!(
+                    "podcast_ready.snapshot_error audio_url={} error={}",
+                    audio_url, err
+                ));
+                return false;
+            }
+        }
+
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
+
+    log_podcast_player_snapshot(player, "podcast_ready.timeout", audio_url);
+    false
+}
+
+#[cfg(target_os = "macos")]
+fn open_podcast_episode_externally(url: &str) -> Result<(), String> {
+    let trimmed = url.trim();
+    if trimmed.is_empty() {
+        return Err("URL episodio podcast vuoto".to_string());
+    }
+
+    let status = std::process::Command::new("open")
+        .arg(trimmed)
+        .status()
+        .map_err(|err| format!("avvio app predefinita fallito: {}", err))?;
+
+    if status.success() {
+        append_podcast_log(&format!("external_open.success url={trimmed}"));
+        Ok(())
+    } else {
+        Err(format!(
+            "apertura URL podcast fallita con codice {:?}",
+            status.code()
+        ))
+    }
+}
+
 fn load_cached_voices() -> Option<Vec<edge_tts::VoiceInfo>> {
     let data = read_app_storage_text("voices_cache.json")?;
     serde_json::from_str(&data).ok()
@@ -1613,21 +1756,48 @@ fn stop_tts_playback(playback: &Arc<Mutex<GlobalPlayback>>) {
 
 fn stop_podcast_playback(state: &Rc<RefCell<PodcastPlaybackState>>) {
     let mut podcast_state = state.borrow_mut();
-    if let Some(player) = podcast_state.player.as_ref()
-        && let Err(err) = player.pause()
-    {
-        println!("ERROR: Pausa podcast fallita: {}", err);
+    let current_audio_url = podcast_state.current_audio_url.clone();
+    if let Some(player) = podcast_state.player.as_ref() {
+        log_podcast_player_snapshot(player, "stop_podcast.before_pause", &current_audio_url);
+        if let Err(err) = player.pause() {
+            println!("ERROR: Pausa podcast fallita: {}", err);
+            append_podcast_log(&format!(
+                "stop_podcast.pause_error audio_url={} error={}",
+                current_audio_url, err
+            ));
+        } else {
+            log_podcast_player_snapshot(player, "stop_podcast.after_pause", &current_audio_url);
+        }
     }
     podcast_state.player = None;
     podcast_state.status = PlaybackStatus::Stopped;
+    append_podcast_log(&format!(
+        "stop_podcast.completed audio_url={} status={:?}",
+        current_audio_url, podcast_state.status
+    ));
 }
 
 fn seek_podcast_playback(state: &Rc<RefCell<PodcastPlaybackState>>, offset_seconds: f64) {
     let podcast_state = state.borrow();
-    if let Some(player) = podcast_state.player.as_ref()
-        && let Err(err) = player.seek_by_seconds(offset_seconds)
-    {
-        println!("ERROR: Seek podcast fallito: {}", err);
+    if let Some(player) = podcast_state.player.as_ref() {
+        log_podcast_player_snapshot(
+            player,
+            &format!("seek_podcast.before offset_seconds={offset_seconds}"),
+            &podcast_state.current_audio_url,
+        );
+        if let Err(err) = player.seek_by_seconds(offset_seconds) {
+            println!("ERROR: Seek podcast fallito: {}", err);
+            append_podcast_log(&format!(
+                "seek_podcast.error audio_url={} offset_seconds={} error={}",
+                podcast_state.current_audio_url, offset_seconds, err
+            ));
+        } else {
+            log_podcast_player_snapshot(
+                player,
+                &format!("seek_podcast.after offset_seconds={offset_seconds}"),
+                &podcast_state.current_audio_url,
+            );
+        }
     }
 }
 
@@ -2247,11 +2417,40 @@ fn main() {
                     .and_then(|source| source.episodes.get(episode_index))
                     .cloned();
                 if let Some(episode) = episode {
-                    podcast_selection_menu.borrow_mut().selected_episode = Some(episode.clone());
                     let description = crate::reader::collapse_blank_lines(
                         &crate::reader::clean_text(&episode.description),
                     );
                     tc_menu.set_value(&format!("{}\n\n{}", episode.title.trim(), description.trim()));
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        let external_url = if !episode.audio_url.trim().is_empty() {
+                            episode.audio_url.as_str()
+                        } else {
+                            episode.link.as_str()
+                        };
+
+                        let mut playback_state = podcast_selection_menu.borrow_mut();
+                        if let Some(player) = playback_state.player.as_ref() {
+                            if let Err(err) = player.pause() {
+                                println!("ERROR: Pausa podcast fallita: {}", err);
+                            }
+                        }
+                        playback_state.player = None;
+                        playback_state.selected_episode = None;
+                        playback_state.current_audio_url.clear();
+                        playback_state.status = PlaybackStatus::Stopped;
+                        drop(playback_state);
+
+                        if let Err(err) = open_podcast_episode_externally(external_url) {
+                            println!("ERROR: Apertura esterna podcast fallita: {}", err);
+                        }
+                    }
+
+                    #[cfg(not(target_os = "macos"))]
+                    {
+                        podcast_selection_menu.borrow_mut().selected_episode = Some(episode.clone());
+                    }
                 }
             }
         });
@@ -2261,6 +2460,7 @@ fn main() {
         let pb_p = Arc::clone(&playback);
         let tc_p = text_ctrl;
         let b_p_label = btn_play;
+        let f_play = frame;
         let s_play = Arc::clone(&settings);
         let podcast_playback_play = Rc::clone(&podcast_playback);
         let play_action = Rc::new(move || {
@@ -2269,6 +2469,12 @@ fn main() {
                 && !episode.audio_url.trim().is_empty()
             {
                 stop_tts_playback(&pb_p);
+                append_podcast_log(&format!(
+                    "play_action.selected_episode title={} audio_url={} previous_status={:?}",
+                    episode.title,
+                    episode.audio_url,
+                    podcast_playback_play.borrow().status
+                ));
 
                 let mut podcast_state = podcast_playback_play.borrow_mut();
                 let needs_new_player = podcast_state.player.is_none()
@@ -2279,11 +2485,20 @@ fn main() {
                 if needs_new_player {
                     match podcast_player::PodcastPlayer::new(&episode.audio_url) {
                         Ok(player) => {
+                            log_podcast_player_snapshot(
+                                &player,
+                                "play_action.new_player",
+                                &episode.audio_url,
+                            );
                             podcast_state.player = Some(player);
                             podcast_state.current_audio_url = episode.audio_url.clone();
                         }
                         Err(err) => {
                             println!("ERROR: Avvio player podcast fallito: {}", err);
+                            append_podcast_log(&format!(
+                                "play_action.new_player_error audio_url={} error={}",
+                                episode.audio_url, err
+                            ));
                             podcast_state.status = PlaybackStatus::Stopped;
                             return;
                         }
@@ -2292,40 +2507,110 @@ fn main() {
 
                 match podcast_state.status {
                     PlaybackStatus::Playing => {
-                        if let Some(player) = podcast_state.player.as_ref()
-                            && let Err(err) = player.pause()
-                        {
-                            println!("ERROR: Pausa podcast fallita: {}", err);
-                            podcast_state.status = PlaybackStatus::Stopped;
-                            return;
+                        if let Some(player) = podcast_state.player.as_ref() {
+                            log_podcast_player_snapshot(
+                                player,
+                                "play_action.pause.before",
+                                &episode.audio_url,
+                            );
+                            if let Err(err) = player.pause() {
+                                println!("ERROR: Pausa podcast fallita: {}", err);
+                                append_podcast_log(&format!(
+                                    "play_action.pause.error audio_url={} error={}",
+                                    episode.audio_url, err
+                                ));
+                                podcast_state.status = PlaybackStatus::Stopped;
+                                return;
+                            }
+                            log_podcast_player_snapshot(
+                                player,
+                                "play_action.pause.after",
+                                &episode.audio_url,
+                            );
                         }
                         podcast_state.status = PlaybackStatus::Paused;
                         b_p_label.set_label(&play_button_label(PlaybackStatus::Paused, true));
                     }
                     PlaybackStatus::Paused => {
-                        if let Some(player) = podcast_state.player.as_ref()
-                            && let Err(err) = player.play()
-                        {
-                            println!("ERROR: Ripresa podcast fallita: {}", err);
-                            podcast_state.status = PlaybackStatus::Stopped;
-                            return;
+                        if let Some(player) = podcast_state.player.as_ref() {
+                            log_podcast_player_snapshot(
+                                player,
+                                "play_action.resume.before",
+                                &episode.audio_url,
+                            );
+                            if let Err(err) = player.play() {
+                                println!("ERROR: Ripresa podcast fallita: {}", err);
+                                append_podcast_log(&format!(
+                                    "play_action.resume.error audio_url={} error={}",
+                                    episode.audio_url, err
+                                ));
+                                podcast_state.status = PlaybackStatus::Stopped;
+                                return;
+                            }
+                            log_podcast_player_snapshot(
+                                player,
+                                "play_action.resume.after",
+                                &episode.audio_url,
+                            );
+                            if needs_new_player
+                                && !wait_for_podcast_ready(&f_play, player, &episode.audio_url)
+                            {
+                                if let Err(err) = player.pause() {
+                                    println!("ERROR: Pausa podcast dopo timeout fallita: {}", err);
+                                    append_podcast_log(&format!(
+                                        "play_action.resume.cleanup_error audio_url={} error={}",
+                                        episode.audio_url, err
+                                    ));
+                                }
+                                podcast_state.status = PlaybackStatus::Stopped;
+                                return;
+                            }
                         }
                         podcast_state.status = PlaybackStatus::Playing;
                         b_p_label.set_label(&play_button_label(PlaybackStatus::Playing, true));
                     }
                     PlaybackStatus::Stopped => {
-                        if let Some(player) = podcast_state.player.as_mut()
-                            && let Err(err) = player.play()
-                        {
-                            println!("ERROR: Riproduzione podcast fallita: {}", err);
-                            podcast_state.status = PlaybackStatus::Stopped;
-                            return;
+                        if let Some(player) = podcast_state.player.as_ref() {
+                            log_podcast_player_snapshot(
+                                player,
+                                "play_action.play.before",
+                                &episode.audio_url,
+                            );
+                            if let Err(err) = player.play() {
+                                println!("ERROR: Riproduzione podcast fallita: {}", err);
+                                append_podcast_log(&format!(
+                                    "play_action.play.error audio_url={} error={}",
+                                    episode.audio_url, err
+                                ));
+                                podcast_state.status = PlaybackStatus::Stopped;
+                                return;
+                            }
+                            log_podcast_player_snapshot(
+                                player,
+                                "play_action.play.after",
+                                &episode.audio_url,
+                            );
+                            if !wait_for_podcast_ready(&f_play, player, &episode.audio_url) {
+                                if let Err(err) = player.pause() {
+                                    println!("ERROR: Pausa podcast dopo timeout fallita: {}", err);
+                                    append_podcast_log(&format!(
+                                        "play_action.play.cleanup_error audio_url={} error={}",
+                                        episode.audio_url, err
+                                    ));
+                                }
+                                podcast_state.status = PlaybackStatus::Stopped;
+                                return;
+                            }
                         }
                         podcast_state.current_audio_url = episode.audio_url.clone();
                         podcast_state.status = PlaybackStatus::Playing;
                         b_p_label.set_label(&play_button_label(PlaybackStatus::Playing, true));
                     }
                 }
+                append_podcast_log(&format!(
+                    "play_action.completed audio_url={} new_status={:?}",
+                    episode.audio_url, podcast_state.status
+                ));
                 return;
             }
 

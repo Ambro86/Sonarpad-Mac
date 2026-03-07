@@ -24,6 +24,44 @@ mod imp {
             Ok(())
         }
 
+        pub fn debug_snapshot(&self) -> Result<String, String> {
+            ensure_main_thread()?;
+            let player_status = unsafe { self.player.status().0 };
+            let time_control_status = unsafe { self.player.timeControlStatus().0 };
+            let rate = unsafe { self.player.rate() };
+            let current_time = unsafe { self.player.currentTime().seconds() };
+            let player_error = format!("{:?}", unsafe { self.player.error() });
+
+            let (item_status, item_error) = if let Some(item) = unsafe { self.player.currentItem() }
+            {
+                (
+                    unsafe { item.status().0 },
+                    format!("{:?}", unsafe { item.error() }),
+                )
+            } else {
+                (-1, "None".to_string())
+            };
+
+            Ok(format!(
+                "player_status={player_status} time_control_status={time_control_status} rate={rate} current_time={current_time} item_status={item_status} player_error={player_error} item_error={item_error}"
+            ))
+        }
+
+        pub fn is_ready_for_playback(&self) -> Result<bool, String> {
+            ensure_main_thread()?;
+            let time_control_status = unsafe { self.player.timeControlStatus().0 };
+            let rate = unsafe { self.player.rate() };
+            let Some(item) = (unsafe { self.player.currentItem() }) else {
+                return Ok(false);
+            };
+            let item_status = unsafe { item.status().0 };
+            let buffer_empty = unsafe { item.isPlaybackBufferEmpty() };
+            let likely_to_keep_up = unsafe { item.isPlaybackLikelyToKeepUp() };
+
+            Ok(item_status == 1
+                && (time_control_status == 2 || likely_to_keep_up || (!buffer_empty && rate > 0.0)))
+        }
+
         pub fn pause(&self) -> Result<(), String> {
             ensure_main_thread()?;
             unsafe {
@@ -73,6 +111,14 @@ mod imp {
         }
 
         pub fn play(&self) -> Result<(), String> {
+            Err("Player podcast interno disponibile solo su macOS".to_string())
+        }
+
+        pub fn debug_snapshot(&self) -> Result<String, String> {
+            Err("Player podcast interno disponibile solo su macOS".to_string())
+        }
+
+        pub fn is_ready_for_playback(&self) -> Result<bool, String> {
             Err("Player podcast interno disponibile solo su macOS".to_string())
         }
 
