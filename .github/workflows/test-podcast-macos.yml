@@ -86,7 +86,7 @@ jobs:
               let bufferFull = item.isPlaybackBufferFull
               let itemError = item.error?.localizedDescription ?? "none"
               let playerError = player.error?.localizedDescription ?? "none"
-              let waitingReason = player.reasonForWaitingToPlay ?? "none"
+              let waitingReason = player.reasonForWaitingToPlay?.rawValue ?? "none"
 
               let snapshot = """
               item_status=\(itemStatus.rawValue) player_status=\(playerStatus.rawValue) \
