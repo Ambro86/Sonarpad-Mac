@@ -18,6 +18,7 @@ use std::io::Cursor;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use tokio::runtime::Runtime;
 #[cfg(any(target_os = "macos", windows))]
@@ -49,6 +50,7 @@ const ID_ARTICLES_ARTICLE_BASE: i32 = 10000;
 const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
 const PODCAST_SEEK_SECONDS: f64 = 30.0;
+const AUDIOBOOK_SAVE_THREADS: usize = 8;
 const WXK_LEFT: i32 = 314;
 const WXK_RIGHT: i32 = 316;
 #[cfg(target_os = "macos")]
@@ -93,6 +95,18 @@ struct PodcastPlaybackState {
     selected_episode: Option<podcasts::PodcastEpisode>,
     current_audio_url: String,
     status: PlaybackStatus,
+}
+
+struct SaveAudiobookState {
+    completed_chunks: usize,
+    completed: bool,
+    cancelled: bool,
+    error_message: Option<String>,
+}
+
+enum PendingSaveDialog {
+    Success,
+    Error(String),
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -333,6 +347,35 @@ fn open_donations_dialog(parent: &Frame) {
     });
     dialog.show_modal();
     dialog.destroy();
+}
+
+fn show_modeless_message_dialog(parent: &Frame, title: &str, message: &str) {
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
+        .with_size(420, 180)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let text = StaticText::builder(&panel).with_label(message).build();
+    root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 12);
+
+    let button_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let btn_ok = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label("OK")
+        .build();
+    button_row.add_spacer(1);
+    button_row.add(&btn_ok, 0, SizerFlag::All, 10);
+    root.add_sizer(&button_row, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_OK);
+    let dialog_ok = dialog;
+    btn_ok.on_click(move |_| {
+        dialog_ok.destroy();
+    });
+    dialog.show(true);
 }
 
 fn percent_encode(input: &str) -> String {
@@ -828,9 +871,9 @@ fn open_podcast_episode_externally(parent: &Frame, url: &str) -> Result<(), Stri
                 let downloaded_mb = snapshot.downloaded_bytes as f64 / (1024.0 * 1024.0);
                 (
                     fallback_percent,
-                format!("Scaricamento podcast... {:.1} MB", downloaded_mb),
-            )
-        };
+                    format!("Scaricamento podcast... {:.1} MB", downloaded_mb),
+                )
+            };
 
         if percent / 10 > last_logged_percent / 10 {
             last_logged_percent = percent;
@@ -3160,83 +3203,320 @@ fn main() {
             if dialog.show_modal() == ID_OK
                 && let Some(path) = dialog.get_path()
             {
+                append_podcast_log(&format!("audiobook_save.begin path={path}"));
                 let chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
                 let total = chunks.len();
+                append_podcast_log(&format!("audiobook_save.chunks total={total}"));
 
-                let progress = ProgressDialog::builder(
-                    &f_save,
-                    "Creazione Audiolibro",
-                    "Inizializzazione...",
-                    total as i32,
-                )
-                .with_style(
-                    ProgressDialogStyle::CanAbort
-                        | ProgressDialogStyle::AutoHide
-                        | ProgressDialogStyle::Smooth,
-                )
-                .build();
+                let progress_dialog = Dialog::builder(&f_save, "Creazione Audiolibro")
+                    .with_style(
+                        DialogStyle::Caption
+                            | DialogStyle::SystemMenu
+                            | DialogStyle::CloseBox
+                            | DialogStyle::StayOnTop,
+                    )
+                    .with_size(420, 160)
+                    .build();
+                let progress_panel = Panel::builder(&progress_dialog).build();
+                let progress_root = BoxSizer::builder(Orientation::Vertical).build();
+                let progress_label = StaticText::builder(&progress_panel)
+                    .with_label("Inizializzazione...")
+                    .build();
+                progress_root.add(
+                    &progress_label,
+                    0,
+                    SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+                    12,
+                );
+                let progress_gauge = Gauge::builder(&progress_panel)
+                    .with_range(total.max(1) as i32)
+                    .build();
+                progress_root.add(
+                    &progress_gauge,
+                    0,
+                    SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+                    12,
+                );
+                let progress_buttons = BoxSizer::builder(Orientation::Horizontal).build();
+                let progress_cancel = Button::builder(&progress_panel)
+                    .with_id(ID_CANCEL)
+                    .with_label("Annulla")
+                    .build();
+                progress_buttons.add_spacer(1);
+                progress_buttons.add(&progress_cancel, 0, SizerFlag::All, 10);
+                progress_root.add_sizer(
+                    &progress_buttons,
+                    0,
+                    SizerFlag::Expand | SizerFlag::Bottom,
+                    0,
+                );
+                progress_panel.set_sizer(progress_root, true);
+                progress_dialog.set_escape_id(ID_CANCEL);
+                progress_dialog.show(true);
 
                 let rt_save = Arc::clone(&rt_s);
                 let path_buf = PathBuf::from(path);
-
-                let progress_state = Arc::new(Mutex::new((0, false, false))); // (corrente, completato, abortito)
-                let ps_thread = Arc::clone(&progress_state);
-
+                let abort_requested = Arc::new(AtomicBool::new(false));
+                let abort_requested_thread = Arc::clone(&abort_requested);
+                let save_state = Arc::new(Mutex::new(SaveAudiobookState {
+                    completed_chunks: 0,
+                    completed: false,
+                    cancelled: false,
+                    error_message: None,
+                }));
+                let save_state_thread = Arc::clone(&save_state);
+                let chunks = Arc::new(chunks);
                 std::thread::spawn(move || {
-                    let mut full_audio = Vec::new();
-                    for (i, chunk) in chunks.into_iter().enumerate() {
-                        if ps_thread.lock().unwrap().2 {
-                            return;
-                        }
-                        if let Ok(data) = rt_save.block_on(edge_tts::synthesize_text_with_retry(
-                            &chunk, &voice, rate, pitch, volume, 3,
-                        )) {
-                            full_audio.extend(data);
-                            ps_thread.lock().unwrap().0 = i + 1;
-                        } else {
-                            ps_thread.lock().unwrap().2 = true;
+                    let next_index = Arc::new(Mutex::new(0usize));
+                    let results = Arc::new(Mutex::new(vec![None; chunks.len()]));
+                    let worker_count = chunks.len().clamp(1, AUDIOBOOK_SAVE_THREADS);
+                    let mut workers = Vec::with_capacity(worker_count);
+
+                    for _ in 0..worker_count {
+                        let rt_worker = Arc::clone(&rt_save);
+                        let chunks_worker = Arc::clone(&chunks);
+                        let next_index_worker = Arc::clone(&next_index);
+                        let results_worker = Arc::clone(&results);
+                        let save_state_worker = Arc::clone(&save_state_thread);
+                        let abort_worker = Arc::clone(&abort_requested_thread);
+                        let voice_worker = voice.clone();
+                        workers.push(std::thread::spawn(move || {
+                            loop {
+                                if abort_worker.load(Ordering::Relaxed) {
+                                    return;
+                                }
+
+                                let index = {
+                                    let mut next = next_index_worker.lock().unwrap();
+                                    if *next >= chunks_worker.len() {
+                                        return;
+                                    }
+                                    let index = *next;
+                                    *next += 1;
+                                    index
+                                };
+
+                                let chunk = chunks_worker[index].clone();
+                                match rt_worker.block_on(edge_tts::synthesize_text_with_retry(
+                                    &chunk,
+                                    &voice_worker,
+                                    rate,
+                                    pitch,
+                                    volume,
+                                    3,
+                                )) {
+                                    Ok(data) => {
+                                        results_worker.lock().unwrap()[index] = Some(data);
+                                        save_state_worker.lock().unwrap().completed_chunks += 1;
+                                    }
+                                    Err(_) => {
+                                        abort_worker.store(true, Ordering::Relaxed);
+                                        save_state_worker.lock().unwrap().error_message = Some(
+                                            "La conversione dell'audiolibro non è riuscita."
+                                                .to_string(),
+                                        );
+                                        return;
+                                    }
+                                }
+                            }
+                        }));
+                    }
+
+                    for worker in workers {
+                        if worker.join().is_err() {
+                            abort_requested_thread.store(true, Ordering::Relaxed);
+                            save_state_thread.lock().unwrap().error_message =
+                                Some("La conversione dell'audiolibro non è riuscita.".to_string());
+                            append_podcast_log("audiobook_save.worker_join_failed");
                             return;
                         }
                     }
-                    let _ = std::fs::write(&path_buf, full_audio);
-                    ps_thread.lock().unwrap().1 = true;
+
+                    if abort_requested_thread.load(Ordering::Relaxed) {
+                        save_state_thread.lock().unwrap().cancelled = true;
+                        append_podcast_log("audiobook_save.cancelled");
+                        return;
+                    }
+
+                    let mut full_audio = Vec::new();
+                    for maybe_data in results.lock().unwrap().iter_mut() {
+                        let Some(data) = maybe_data.take() else {
+                            save_state_thread.lock().unwrap().error_message =
+                                Some("La conversione dell'audiolibro non è riuscita.".to_string());
+                            return;
+                        };
+                        full_audio.extend(data);
+                    }
+
+                    if std::fs::write(&path_buf, full_audio).is_err() {
+                        save_state_thread.lock().unwrap().error_message = Some(
+                            "Il file audiolibro non è stato salvato correttamente.".to_string(),
+                        );
+                        append_podcast_log("audiobook_save.write_failed");
+                        return;
+                    }
+
+                    save_state_thread.lock().unwrap().completed = true;
+                    append_podcast_log("audiobook_save.completed");
                 });
 
-                let mut save_completed = false;
-                loop {
-                    std::thread::sleep(std::time::Duration::from_millis(100));
-
-                    let (curr, done, err) = {
-                        let ps = progress_state.lock().unwrap();
-                        (ps.0, ps.1, ps.2)
-                    };
-
-                    if err {
-                        break;
+                let progress_timer = Rc::new(Timer::new(&f_save));
+                let progress_timer_tick = Rc::clone(&progress_timer);
+                let progress_timer_handle = Rc::clone(&progress_timer);
+                let pending_dialog = Rc::new(RefCell::new(None::<PendingSaveDialog>));
+                let pending_dialog_tick = Rc::clone(&pending_dialog);
+                let progress_dialog_handle = progress_dialog;
+                let progress_dialog_close = progress_dialog;
+                let progress_dialog_destroy = progress_dialog;
+                let progress_label_tick = progress_label;
+                let progress_label_cancel = progress_label;
+                let progress_label_close = progress_label;
+                let progress_gauge_tick = progress_gauge;
+                let progress_cancel_close = progress_cancel;
+                let abort_close = Arc::clone(&abort_requested);
+                let save_state_tick = Arc::clone(&save_state);
+                let save_state_close = Arc::clone(&save_state);
+                let cancel_pending = Rc::new(RefCell::new(false));
+                let cancel_pending_tick = Rc::clone(&cancel_pending);
+                let cancel_pending_close = Rc::clone(&cancel_pending);
+                let finalizing = Rc::new(RefCell::new(false));
+                let finalizing_tick = Rc::clone(&finalizing);
+                progress_cancel.on_click(move |_| {
+                    if !*cancel_pending.borrow() {
+                        append_podcast_log("audiobook_save.cancel_requested_button");
+                        abort_requested.store(true, Ordering::Relaxed);
+                        *cancel_pending.borrow_mut() = true;
+                        progress_cancel.enable(false);
+                        progress_label_cancel.set_label("Annullamento audiolibro in corso...");
                     }
-                    if done {
-                        progress.update(total as i32, Some("Audiolibro salvato correttamente."));
-                        save_completed = true;
-                        break;
+                });
+                progress_dialog_close.on_close(move |event| {
+                    append_podcast_log("audiobook_save.progress_dialog.on_close");
+                    let state = save_state_close.lock().unwrap();
+                    let finished =
+                        state.completed || state.cancelled || state.error_message.is_some();
+                    drop(state);
+
+                    if finished {
+                        append_podcast_log("audiobook_save.progress_dialog.on_close.finished");
+                        event.skip(true);
+                        return;
                     }
 
-                    let msg = format!("Sintesi blocco {} di {}...", curr, total);
-                    if !progress.update(curr as i32, Some(&msg)) {
-                        progress_state.lock().unwrap().2 = true;
-                        break;
+                    if !*cancel_pending_close.borrow() {
+                        append_podcast_log("audiobook_save.cancel_requested_close");
+                        abort_close.store(true, Ordering::Relaxed);
+                        *cancel_pending_close.borrow_mut() = true;
+                        progress_cancel_close.enable(false);
+                        progress_label_close.set_label("Annullamento audiolibro in corso...");
                     }
-                }
 
-                if save_completed {
-                    let done_dialog = MessageDialog::builder(
-                        &f_save,
-                        "Audiolibro salvato correttamente.",
-                        "Salvataggio completato",
-                    )
-                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-                    .build();
-                    done_dialog.show_modal();
-                }
+                    event.skip(false);
+                });
+                let timer_destroy = Rc::clone(&progress_timer);
+                progress_dialog_destroy.on_destroy(move |event| {
+                    append_podcast_log("audiobook_save.progress_dialog.on_destroy");
+                    timer_destroy.stop();
+                    event.skip(true);
+                });
+                progress_timer_tick.on_tick(move |_| {
+                    if *finalizing_tick.borrow() {
+                        return;
+                    }
+
+                    let state = save_state_tick.lock().unwrap();
+                    if let Some(error_message) = state.error_message.as_ref() {
+                        *finalizing_tick.borrow_mut() = true;
+                        append_podcast_log(&format!(
+                            "audiobook_save.tick.error completed_chunks={} message={error_message}",
+                            state.completed_chunks
+                        ));
+                        progress_timer_handle.stop();
+                        progress_label_tick.set_label("Errore durante la conversione.");
+                        progress_gauge_tick.set_value(state.completed_chunks as i32);
+                        *pending_dialog_tick.borrow_mut() =
+                            Some(PendingSaveDialog::Error(error_message.clone()));
+                        append_podcast_log("audiobook_save.tick.error.destroy_progress");
+                        progress_dialog_handle.destroy();
+                        let Some(dialog) = pending_dialog_tick.borrow_mut().take() else {
+                            return;
+                        };
+                        match dialog {
+                            PendingSaveDialog::Success => {}
+                            PendingSaveDialog::Error(error_message) => {
+                                append_podcast_log(&format!(
+                                    "audiobook_save.show_error message={error_message}"
+                                ));
+                                show_modeless_message_dialog(
+                                    &f_save,
+                                    "Errore conversione",
+                                    &error_message,
+                                );
+                                append_podcast_log("audiobook_save.error_closed");
+                            }
+                        }
+                        return;
+                    }
+
+                    if state.cancelled {
+                        *finalizing_tick.borrow_mut() = true;
+                        append_podcast_log(&format!(
+                            "audiobook_save.tick.cancelled completed_chunks={}",
+                            state.completed_chunks
+                        ));
+                        progress_timer_handle.stop();
+                        progress_dialog_handle.destroy();
+                        return;
+                    }
+
+                    if state.completed {
+                        *finalizing_tick.borrow_mut() = true;
+                        append_podcast_log(&format!(
+                            "audiobook_save.tick.completed completed_chunks={}",
+                            state.completed_chunks
+                        ));
+                        progress_label_tick.set_label("Audiolibro salvato correttamente.");
+                        progress_gauge_tick.set_value(total.max(1) as i32);
+                        progress_timer_handle.stop();
+                        *pending_dialog_tick.borrow_mut() = Some(PendingSaveDialog::Success);
+                        append_podcast_log("audiobook_save.tick.completed.destroy_progress");
+                        progress_dialog_handle.destroy();
+                        let Some(dialog) = pending_dialog_tick.borrow_mut().take() else {
+                            return;
+                        };
+                        match dialog {
+                            PendingSaveDialog::Success => {
+                                append_podcast_log("audiobook_save.show_success");
+                                show_modeless_message_dialog(
+                                    &f_save,
+                                    "Salvataggio completato",
+                                    "Audiolibro salvato correttamente.",
+                                );
+                                append_podcast_log("audiobook_save.success_closed");
+                            }
+                            PendingSaveDialog::Error(_) => {}
+                        }
+                        return;
+                    }
+
+                    let current = state.completed_chunks as i32;
+                    drop(state);
+
+                    if *cancel_pending_tick.borrow() {
+                        append_podcast_log(&format!(
+                            "audiobook_save.tick.cancelling completed_chunks={current}"
+                        ));
+                        progress_label_tick.set_label("Annullamento audiolibro in corso...");
+                        progress_gauge_tick.set_value(current);
+                        return;
+                    }
+
+                    let current_display = current.min(total.max(1) as i32);
+                    let msg = format!("Sintesi blocco {} di {}...", current, total);
+                    progress_label_tick.set_label(&msg);
+                    progress_gauge_tick.set_value(current_display);
+                });
+                progress_timer.start(100, false);
             }
         });
 
