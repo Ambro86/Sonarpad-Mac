@@ -54,9 +54,10 @@ jobs:
       - name: Download DMG artifact from latest build
         uses: actions/download-artifact@v4
         with:
-          name: sonarpad-minimal-macos-dmg
+          pattern: sonarpad-minimal-macos-dmg-*
           run-id: ${{ steps.get_run.outputs.run_id }}
           path: ./release_files
+          merge-multiple: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Verify DMG file

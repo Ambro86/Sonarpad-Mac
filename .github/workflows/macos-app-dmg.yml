@@ -11,7 +11,21 @@ on:
 
 jobs:
   build-macos:
-    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runs_on: macos-14
+            rust_target: aarch64-apple-darwin
+            pdfium_archive: pdfium-mac-arm64.tgz
+            dmg_name: Sonarpad-Minimal-macOS-AppleSilicon.dmg
+            artifact_name: sonarpad-minimal-macos-dmg-apple-silicon
+          - runs_on: macos-13
+            rust_target: x86_64-apple-darwin
+            pdfium_archive: pdfium-mac-x64.tgz
+            dmg_name: Sonarpad-Minimal-macOS-Intel.dmg
+            artifact_name: sonarpad-minimal-macos-dmg-intel
+    runs-on: ${{ matrix.runs_on }}
     env:
       CMAKE_ARGS: -DwxUSE_OPENGL=OFF
 
@@ -45,12 +59,14 @@ jobs:
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
 
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
       - name: Build release binary
-        run: cargo build --release
+        run: cargo build --release --target ${{ matrix.rust_target }}
 
       - name: Download pdfium for macOS
         shell: bash
@@ -58,14 +74,14 @@ jobs:
           set -euxo pipefail
           mkdir -p dist/pdfium
           curl -L --fail \
-            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-arm64.tgz" \
-            -o dist/pdfium/pdfium-mac-arm64.tgz
-          tar -xzf dist/pdfium/pdfium-mac-arm64.tgz -C dist/pdfium
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium_archive }}" \
+            -o "dist/pdfium/${{ matrix.pdfium_archive }}"
+          tar -xzf "dist/pdfium/${{ matrix.pdfium_archive }}" -C dist/pdfium
           PDFIUM_DYLIB="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1)"
           test -n "${PDFIUM_DYLIB}"
           echo "PDFIUM_DYLIB=${PDFIUM_DYLIB}" >> "${GITHUB_ENV}"
 
-      - name: Download curl-impersonate for macOS arm64
+      - name: Download curl-impersonate for macOS
         shell: bash
         run: |
           set -euxo pipefail
@@ -106,7 +122,7 @@ jobs:
           FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
 
           mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}"
-          cp "target/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
+          cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
           chmod +x "${FRAMEWORKS_DIR}/libpdfium.dylib"
@@ -173,15 +189,14 @@ jobs:
           set -euxo pipefail
           APP_NAME="Sonarpad Minimal"
           STAGE_DIR="dist/stage"
-          DMG_NAME="Sonarpad-Minimal-macOS-AppleSilicon.dmg"
           mkdir -p dist
-          hdiutil create -volname "${APP_NAME}" -srcfolder "${STAGE_DIR}" -ov -format UDZO "dist/${DMG_NAME}"
+          hdiutil create -volname "${APP_NAME}" -srcfolder "${STAGE_DIR}" -ov -format UDZO "dist/${{ matrix.dmg_name }}"
 
       - name: Validate DMG structure
         shell: bash
         run: |
           set -euxo pipefail
-          DMG_PATH="dist/Sonarpad-Minimal-macOS-AppleSilicon.dmg"
+          DMG_PATH="dist/${{ matrix.dmg_name }}"
           MOUNT_DIR="$(mktemp -d)"
           hdiutil attach "${DMG_PATH}" -mountpoint "${MOUNT_DIR}" -nobrowse -quiet
           test -d "${MOUNT_DIR}/Sonarpad Minimal.app"
@@ -193,5 +208,5 @@ jobs:
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: sonarpad-minimal-macos-dmg
-          path: dist/Sonarpad-Minimal-macOS-AppleSilicon.dmg
+          name: ${{ matrix.artifact_name }}
+          path: dist/${{ matrix.dmg_name }}
