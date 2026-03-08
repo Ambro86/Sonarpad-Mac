@@ -2928,14 +2928,14 @@ fn main() {
         #[cfg(target_os = "macos")]
         let stop_menu_item = file_menu.append(
             ID_STOP,
-            "Ferma lettura\tCmd+.",
+            "Ferma lettura (Cmd+.)",
             "Ferma la lettura o il podcast",
             ItemKind::Normal,
         );
         #[cfg(target_os = "macos")]
         let save_menu_item = file_menu.append(
             ID_SAVE,
-            "Salva audiolibro\tCmd+Option+A",
+            "Salva audiolibro (Cmd+Option+A)",
             "Salva il testo corrente come audiolibro",
             ItemKind::Normal,
         );
