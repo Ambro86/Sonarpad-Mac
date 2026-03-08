@@ -31,6 +31,7 @@ const ID_OPEN: i32 = 101;
 const ID_EXIT: i32 = 102;
 const ID_ABOUT: i32 = 103;
 const ID_DONATIONS: i32 = 104;
+const ID_CHECK_UPDATES: i32 = 105;
 const ID_PLAY_PAUSE: i32 = 2001;
 const ID_STOP: i32 = 2003;
 const ID_SAVE: i32 = 2002;
@@ -66,6 +67,15 @@ const MOD_CMD: &str = "Ctrl";
 const MOD_ALT: &str = "Option";
 #[cfg(not(target_os = "macos"))]
 const MOD_ALT: &str = "Alt";
+
+const SONARPAD_MINIMAL_RELEASES_URL: &str =
+    "https://github.com/Ambro86/Sonarpad-Minimal/releases/latest";
+const SONARPAD_MINIMAL_RELEASES_API_URL: &str =
+    "https://api.github.com/repos/Ambro86/Sonarpad-Minimal/releases/latest";
+#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str = "https://github.com/Ambro86/Sonarpad-Minimal/releases/latest/download/Sonarpad-Minimal-macOS-AppleSilicon.dmg";
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str = "https://github.com/Ambro86/Sonarpad-Minimal/releases/latest/download/Sonarpad-Minimal-macOS-Intel.dmg";
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum PlaybackStatus {
@@ -108,6 +118,11 @@ struct SaveAudiobookState {
 enum PendingSaveDialog {
     Success,
     Error(String),
+}
+
+#[derive(Deserialize)]
+struct GithubReleaseInfo {
+    tag_name: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -457,6 +472,146 @@ fn show_modeless_message_dialog(parent: &Frame, title: &str, message: &str) {
     dialog.show(true);
 }
 
+fn show_message_dialog(parent: &Frame, title: &str, message: &str) {
+    let dialog = MessageDialog::builder(parent, message, title)
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+        .build();
+    dialog.show_modal();
+}
+
+fn confirm_delete_dialog(parent: &Frame, title: &str, message: &str) -> bool {
+    let dialog = MessageDialog::builder(parent, message, title)
+        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+        .build();
+    dialog.show_modal() == ID_YES
+}
+
+fn normalize_version_tag(tag: &str) -> String {
+    tag.trim()
+        .trim_start_matches('v')
+        .trim_start_matches('V')
+        .to_string()
+}
+
+fn parse_version_triplet(version: &str) -> Option<(u64, u64, u64)> {
+    let clean = normalize_version_tag(version);
+    let numeric = clean.split(['-', '+']).next().unwrap_or("").trim();
+    let mut parts = numeric.split('.');
+    let major = parts.next()?.parse::<u64>().ok()?;
+    let minor = parts.next().unwrap_or("0").parse::<u64>().ok()?;
+    let patch = parts.next().unwrap_or("0").parse::<u64>().ok()?;
+    Some((major, minor, patch))
+}
+
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    match (
+        parse_version_triplet(latest),
+        parse_version_triplet(current),
+    ) {
+        (Some(latest), Some(current)) => latest > current,
+        _ => normalize_version_tag(latest) != normalize_version_tag(current),
+    }
+}
+
+fn fetch_latest_release_version() -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("SonarpadMinimalUpdater")
+        .build()
+        .map_err(|err| format!("creazione client aggiornamenti fallita: {}", err))?;
+    let release = client
+        .get(SONARPAD_MINIMAL_RELEASES_API_URL)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|err| format!("download release fallito: {}", err))?
+        .json::<GithubReleaseInfo>()
+        .map_err(|err| format!("lettura release fallita: {}", err))?;
+    Ok(normalize_version_tag(&release.tag_name))
+}
+
+fn open_url_in_browser(url: &str) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let status = std::process::Command::new("/usr/bin/open")
+        .arg(url)
+        .status()
+        .map_err(|err| format!("apertura browser fallita: {}", err))?;
+
+    #[cfg(windows)]
+    let status = std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .status()
+        .map_err(|err| format!("apertura browser fallita: {}", err))?;
+
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
+    let status = std::process::Command::new("xdg-open")
+        .arg(url)
+        .status()
+        .map_err(|err| format!("apertura browser fallita: {}", err))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err(format!(
+            "apertura browser fallita con codice {:?}",
+            status.code()
+        ))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn latest_download_url_for_current_platform() -> &'static str {
+    SONARPAD_MINIMAL_MAC_DOWNLOAD_URL
+}
+
+#[cfg(not(target_os = "macos"))]
+fn latest_download_url_for_current_platform() -> &'static str {
+    SONARPAD_MINIMAL_RELEASES_URL
+}
+
+fn check_for_updates(parent: &Frame) {
+    let current_version = env!("CARGO_PKG_VERSION");
+    match fetch_latest_release_version() {
+        Ok(latest_version) => {
+            if is_newer_version(&latest_version, current_version) {
+                if let Err(err) = open_url_in_browser(latest_download_url_for_current_platform()) {
+                    show_message_dialog(
+                        parent,
+                        "Aggiornamenti",
+                        &format!(
+                            "È disponibile la versione {} ma non sono riuscito ad aprire il link.\n\n{}",
+                            latest_version, err
+                        ),
+                    );
+                }
+            } else {
+                show_message_dialog(
+                    parent,
+                    "Aggiornamenti",
+                    &format!(
+                        "Hai già l'ultima versione installata.\n\nVersione attuale: {}\nUltima versione: {}",
+                        current_version, latest_version
+                    ),
+                );
+            }
+        }
+        Err(err) => {
+            show_message_dialog(
+                parent,
+                "Aggiornamenti",
+                &format!(
+                    "Controllo aggiornamenti non riuscito.\n\nVersione attuale: {}\nErrore: {}",
+                    current_version, err
+                ),
+            );
+        }
+    }
+}
+
+fn set_progress_close_label(progress: &ProgressDialog) {
+    if let Some(button) = progress.find_window_by_id(ID_CANCEL) {
+        button.set_label("Chiudi");
+    }
+}
+
 fn percent_encode(input: &str) -> String {
     url::form_urlencoded::byte_serialize(input.as_bytes()).collect()
 }
@@ -698,6 +853,7 @@ fn wait_for_podcast_ready(
             Ok(true) => {
                 log_podcast_player_snapshot(player, "podcast_ready.success", audio_url);
                 progress.update(100, Some("Podcast pronto."));
+                set_progress_close_label(&progress);
                 return true;
             }
             Ok(false) => {
@@ -929,6 +1085,7 @@ fn open_podcast_episode_externally(parent: &Frame, url: &str) -> Result<(), Stri
                 file_path.display()
             ));
             progress.update(100, Some("Podcast scaricato."));
+            set_progress_close_label(&progress);
             break file_path;
         }
 
@@ -2613,6 +2770,12 @@ fn main() {
             "Mostra informazioni per sostenere il progetto",
             ItemKind::Normal,
         );
+        help_menu.append(
+            ID_CHECK_UPDATES,
+            "Controlla &aggiornamenti",
+            "Controlla se esiste una nuova versione",
+            ItemKind::Normal,
+        );
 
         let articles_menu = Menu::builder().build();
         rebuild_articles_menu(&articles_menu, &settings, &HashSet::new());
@@ -2778,6 +2941,8 @@ fn main() {
                 dialog.show_modal();
             } else if event.get_id() == ID_DONATIONS {
                 open_donations_dialog(&f_menu);
+            } else if event.get_id() == ID_CHECK_UPDATES {
+                check_for_updates(&f_menu);
             } else if event.get_id() == ID_ARTICLES_ADD_SOURCE {
                 if let Some((title, url)) = open_add_article_source_dialog(&f_menu) {
                     add_article_source(
@@ -2804,6 +2969,11 @@ fn main() {
             } else if event.get_id() == ID_ARTICLES_DELETE_SOURCE {
                 if let Some(source_index) =
                     open_delete_article_source_dialog(&f_menu, &settings_menu)
+                    && confirm_delete_dialog(
+                        &f_menu,
+                        "Conferma eliminazione",
+                        "Sei sicuro di eliminare l'RSS selezionato?",
+                    )
                 {
                     delete_article_source(
                         source_index,
@@ -2831,7 +3001,13 @@ fn main() {
                     );
                 }
             } else if event.get_id() == ID_PODCASTS_DELETE {
-                if let Some(source_index) = open_delete_podcast_dialog(&f_menu, &settings_menu) {
+                if let Some(source_index) = open_delete_podcast_dialog(&f_menu, &settings_menu)
+                    && confirm_delete_dialog(
+                        &f_menu,
+                        "Conferma eliminazione",
+                        "Sei sicuro di eliminare il podcast selezionato?",
+                    )
+                {
                     delete_podcast_source(source_index, &settings_menu, &podcast_menu_state_menu);
                 }
             } else if (ID_PODCASTS_CATEGORY_BASE
@@ -3149,13 +3325,15 @@ fn main() {
                             && let Ok(sink) = Sink::try_new(&handle)
                         {
                             let mut sink_arc = Arc::new(sink);
+                            let mut edge_session = None;
                             {
                                 let mut pb_lock = pb_thread.lock().unwrap();
                                 pb_lock.sink = Some(Arc::clone(&sink_arc));
                             }
 
                             // In riproduzione live usiamo chunk più piccoli per applicare prima i cambi di voce/rate/pitch/volume.
-                            let chunks = edge_tts::split_text_realtime_lazy(&text);
+                            let chunks: Vec<String> =
+                                edge_tts::split_text_realtime_lazy(&text).collect();
 
                             for chunk in chunks {
                                 let mut replay_chunk = true;
@@ -3196,13 +3374,31 @@ fn main() {
                                         (s.voice.clone(), s.rate, s.pitch, s.volume)
                                     };
 
-                                    if let Ok(data) =
-                                        rt_thread.block_on(edge_tts::synthesize_text_with_retry(
-                                            &chunk, &voice, rate, pitch, volume, 3,
-                                        ))
-                                        && let Ok(source) = Decoder::new(Cursor::new(data))
-                                    {
-                                        sink_arc.append(source);
+                                    match rt_thread.block_on(
+                                        edge_tts::synthesize_realtime_chunk_with_retry(
+                                            edge_session,
+                                            &chunk,
+                                            &voice,
+                                            rate,
+                                            pitch,
+                                            volume,
+                                            3,
+                                        ),
+                                    ) {
+                                        Ok((data, session)) => {
+                                            edge_session = session;
+                                            if data.is_empty() {
+                                                break;
+                                            }
+                                            if let Ok(source) = Decoder::new(Cursor::new(data)) {
+                                                sink_arc.append(source);
+                                            }
+                                        }
+                                        Err(err) => {
+                                            edge_session = None;
+                                            println!("ERROR: Sintesi realtime fallita: {}", err);
+                                            break;
+                                        }
                                     }
 
                                     loop {
@@ -3217,6 +3413,7 @@ fn main() {
                                                 sink_arc = Arc::new(new_sink);
                                                 pb_lock.sink = Some(Arc::clone(&sink_arc));
                                             }
+                                            edge_session = None;
                                             replay_chunk = true;
                                             break;
                                         }

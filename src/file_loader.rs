@@ -8,8 +8,16 @@ use docx_rs::{
 use encoding_rs::{Encoding, WINDOWS_1252};
 use epub::doc::EpubDoc;
 use pdfium_render::prelude::*;
+#[cfg(target_os = "macos")]
+use std::ffi::OsStr;
 use std::io::Read;
+#[cfg(target_os = "macos")]
+use std::io::Write;
 use std::path::{Path, PathBuf};
+#[cfg(target_os = "macos")]
+use std::process::{Command, Stdio};
+#[cfg(target_os = "macos")]
+use uuid::Uuid;
 
 pub fn load_any_file(path: &Path) -> Result<String> {
     let ext = path
@@ -193,6 +201,15 @@ fn extract_table_cell_text(cell: &TableCell) -> String {
 fn load_pdf(path: &Path) -> Result<String> {
     let text = extract_pdf_text_with_fallback(path)?;
     if text.trim().is_empty() {
+        #[cfg(target_os = "macos")]
+        {
+            let ocr_text = extract_pdf_text_macos_ocr(path)?;
+            if ocr_text.trim().is_empty() {
+                return Ok(String::new());
+            }
+            return Ok(normalize_pdf_paragraphs(&ocr_text));
+        }
+
         return Ok(String::new());
     }
     Ok(normalize_pdf_paragraphs(&text))
@@ -233,6 +250,166 @@ fn extract_pdf_text_pdfium(path: &Path) -> Result<String> {
     }
     Ok(out)
 }
+
+#[cfg(target_os = "macos")]
+fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
+    let script_path = write_macos_pdf_ocr_script()?;
+    let swift = macos_swift_command()
+        .ok_or_else(|| anyhow!("OCR PDF macOS non disponibile: interpreter Swift non trovato"))?;
+
+    let output = if swift.file_name() == Some(OsStr::new("xcrun")) {
+        Command::new(&swift)
+            .arg("swift")
+            .arg(&script_path)
+            .arg(path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|err| anyhow!("OCR PDF macOS fallito: {}", err))?
+    } else {
+        Command::new(&swift)
+            .arg(&script_path)
+            .arg(path)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .map_err(|err| anyhow!("OCR PDF macOS fallito: {}", err))?
+    };
+
+    if let Err(err) = std::fs::remove_file(&script_path) {
+        println!(
+            "ERROR: rimozione script OCR macOS fallita: {} ({})",
+            script_path.display(),
+            err
+        );
+    }
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let detail = if stderr.is_empty() {
+            format!("uscita {:?}", output.status.code())
+        } else {
+            stderr
+        };
+        return Err(anyhow!("OCR PDF macOS fallito: {}", detail));
+    }
+
+    Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn macos_swift_command() -> Option<PathBuf> {
+    let candidates = [
+        PathBuf::from("/usr/bin/swift"),
+        PathBuf::from("/usr/bin/xcrun"),
+    ];
+    candidates.into_iter().find(|candidate| candidate.exists())
+}
+
+#[cfg(target_os = "macos")]
+fn write_macos_pdf_ocr_script() -> Result<PathBuf> {
+    let script_path =
+        std::env::temp_dir().join(format!("sonarpad_minimal_pdf_ocr_{}.swift", Uuid::new_v4()));
+    let mut file = std::fs::File::create(&script_path)
+        .map_err(|err| anyhow!("creazione script OCR macOS fallita: {}", err))?;
+    file.write_all(MACOS_PDF_OCR_SWIFT.as_bytes())
+        .map_err(|err| anyhow!("scrittura script OCR macOS fallita: {}", err))?;
+    Ok(script_path)
+}
+
+#[cfg(target_os = "macos")]
+const MACOS_PDF_OCR_SWIFT: &str = r#"import AppKit
+import Foundation
+import PDFKit
+import Vision
+
+func appendPageText(_ text: String, to output: inout String) {
+    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else { return }
+    if !output.isEmpty {
+        output.append("\n\n")
+    }
+    output.append(trimmed)
+}
+
+func renderPageImage(_ page: PDFPage) -> CGImage? {
+    let bounds = page.bounds(for: .mediaBox)
+    let scale: CGFloat = 2.0
+    let width = max(Int(bounds.width * scale), 1)
+    let height = max(Int(bounds.height * scale), 1)
+    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
+        return nil
+    }
+    guard let context = CGContext(
+        data: nil,
+        width: width,
+        height: height,
+        bitsPerComponent: 8,
+        bytesPerRow: 0,
+        space: colorSpace,
+        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else {
+        return nil
+    }
+    context.setFillColor(NSColor.white.cgColor)
+    context.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+    context.saveGState()
+    context.translateBy(x: 0, y: CGFloat(height))
+    context.scaleBy(x: scale, y: -scale)
+    page.draw(with: .mediaBox, to: context)
+    context.restoreGState()
+    return context.makeImage()
+}
+
+func recognizePageText(_ image: CGImage) throws -> String {
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.usesLanguageCorrection = true
+    let handler = VNImageRequestHandler(cgImage: image, options: [:])
+    try handler.perform([request])
+    let observations = request.results ?? []
+    return observations
+        .compactMap { $0.topCandidates(1).first?.string }
+        .joined(separator: "\n")
+}
+
+guard CommandLine.arguments.count >= 2 else {
+    fputs("missing pdf path\n", stderr)
+    exit(2)
+}
+
+let pdfPath = CommandLine.arguments[1]
+let url = URL(fileURLWithPath: pdfPath)
+guard let document = PDFDocument(url: url) else {
+    fputs("unable to open PDF\n", stderr)
+    exit(3)
+}
+
+var output = ""
+for index in 0..<document.pageCount {
+    autoreleasepool {
+        guard let page = document.page(at: index) else {
+            return
+        }
+        if let embedded = page.string,
+           !embedded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            appendPageText(embedded, to: &output)
+            return
+        }
+        guard let image = renderPageImage(page) else {
+            return
+        }
+        do {
+            let recognized = try recognizePageText(image)
+            appendPageText(recognized, to: &output)
+        } catch {
+            fputs("vision OCR failed: \(error)\n", stderr)
+        }
+    }
+}
+
+FileHandle.standardOutput.write(output.data(using: .utf8) ?? Data())
+"#;
 
 fn bind_pdfium_library() -> Result<Box<dyn PdfiumLibraryBindings>> {
     for candidate in pdfium_library_candidates() {
