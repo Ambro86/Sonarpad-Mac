@@ -317,8 +317,33 @@ fn handle_shortcut_event(
     podcast_seek_forward: &Rc<RefCell<PodcastPlaybackState>>,
 ) {
     if let WindowEventData::Keyboard(key_event) = event {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = (play_action, stop_action, save_action, settings_action);
+            if command_shortcut_down(&key_event) && !key_event.alt_down() && !key_event.shift_down()
+            {
+                match key_event.get_key_code().unwrap_or_default() {
+                    WXK_LEFT => {
+                        if podcast_seek_back.borrow().selected_episode.is_some() {
+                            seek_podcast_playback(podcast_seek_back, -PODCAST_SEEK_SECONDS);
+                        }
+                    }
+                    WXK_RIGHT => {
+                        if podcast_seek_forward.borrow().selected_episode.is_some() {
+                            seek_podcast_playback(podcast_seek_forward, PODCAST_SEEK_SECONDS);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return;
+        }
+
+        #[cfg(not(target_os = "macos"))]
         let key_code = key_event.get_key_code().unwrap_or_default();
+        #[cfg(not(target_os = "macos"))]
         let unicode_key = key_event.get_unicode_key().unwrap_or_default();
+        #[cfg(not(target_os = "macos"))]
         if command_shortcut_down(&key_event) && !key_event.alt_down() && !key_event.shift_down() {
             match key_code {
                 76 | 108 => play_action(),
@@ -2539,6 +2564,36 @@ fn main() {
             ItemKind::Normal,
         );
         file_menu.append_separator();
+        #[cfg(target_os = "macos")]
+        let play_menu_item = file_menu.append(
+            ID_PLAY_PAUSE,
+            "Avvia o pausa lettura\tCtrl+L",
+            "Avvia o mette in pausa la lettura",
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        let stop_menu_item = file_menu.append(
+            ID_STOP,
+            "Ferma lettura\tCtrl+.",
+            "Ferma la lettura o il podcast",
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        let save_menu_item = file_menu.append(
+            ID_SAVE,
+            "Salva audiolibro\tCtrl+Alt+A",
+            "Salva il testo corrente come audiolibro",
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        let settings_menu_item = file_menu.append(
+            ID_SETTINGS,
+            "Impostazioni\tCtrl+,",
+            "Apre le impostazioni",
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        file_menu.append_separator();
         file_menu.append(
             ID_EXIT,
             "&Esci\tCtrl+Q",
@@ -3200,6 +3255,13 @@ fn main() {
         btn_play.on_click(move |_| {
             play_action_click();
         });
+        #[cfg(target_os = "macos")]
+        if let Some(item) = play_menu_item {
+            let play_action_menu = Rc::clone(&play_action);
+            item.on_click(move |_| {
+                play_action_menu();
+            });
+        }
 
         let podcast_seek_back = Rc::clone(&podcast_playback);
         btn_podcast_back.on_click(move |_| {
@@ -3231,6 +3293,13 @@ fn main() {
         btn_stop.on_click(move |_| {
             stop_action_click();
         });
+        #[cfg(target_os = "macos")]
+        if let Some(item) = stop_menu_item {
+            let stop_action_menu = Rc::clone(&stop_action);
+            item.on_click(move |_| {
+                stop_action_menu();
+            });
+        }
 
         // --- Salva con Progress Bar (Non Bloccante) ---
         let rt_s = Arc::clone(&rt);
@@ -3578,6 +3647,13 @@ fn main() {
         btn_save.on_click(move |_| {
             save_action_click();
         });
+        #[cfg(target_os = "macos")]
+        if let Some(item) = save_menu_item {
+            let save_action_menu = Rc::clone(&save_action);
+            item.on_click(move |_| {
+                save_action_menu();
+            });
+        }
 
         let frame_settings = frame;
         let settings_state = Arc::clone(&settings);
@@ -3598,6 +3674,13 @@ fn main() {
         btn_settings.on_click(move |_| {
             settings_action_click();
         });
+        #[cfg(target_os = "macos")]
+        if let Some(item) = settings_menu_item {
+            let settings_action_menu = Rc::clone(&settings_action);
+            item.on_click(move |_| {
+                settings_action_menu();
+            });
+        }
 
         #[cfg(target_os = "macos")]
         {
