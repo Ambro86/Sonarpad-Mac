@@ -18,12 +18,12 @@ jobs:
           - runs_on: macos-14
             rust_target: aarch64-apple-darwin
             pdfium_archive: pdfium-mac-arm64.tgz
-            dmg_name: Sonarpad-Minimal-macOS-AppleSilicon.dmg
+            dmg_name: Sonarpad-macOS-AppleSilicon.dmg
             artifact_name: sonarpad-minimal-macos-dmg-apple-silicon
           - runs_on: macos-15-intel
             rust_target: x86_64-apple-darwin
             pdfium_archive: pdfium-mac-x64.tgz
-            dmg_name: Sonarpad-Minimal-macOS-Intel.dmg
+            dmg_name: Sonarpad-macOS-Intel.dmg
             artifact_name: sonarpad-minimal-macos-dmg-intel
     runs-on: ${{ matrix.runs_on }}
     env:
@@ -187,6 +187,8 @@ jobs:
             exit 1
           fi
           kill "${APP_PID}" || true
+          wait "${APP_PID}" 2>/dev/null || true
+          sleep 2
 
       - name: Package DMG
         shell: bash
@@ -194,8 +196,12 @@ jobs:
           set -euxo pipefail
           APP_NAME="Sonarpad Minimal"
           STAGE_DIR="dist/stage"
+          DMG_SRC_DIR="dist/dmg-src"
           mkdir -p dist
-          hdiutil create -volname "${APP_NAME}" -srcfolder "${STAGE_DIR}" -ov -format UDZO "dist/${{ matrix.dmg_name }}"
+          rm -rf "${DMG_SRC_DIR}"
+          mkdir -p "${DMG_SRC_DIR}"
+          cp -R "${STAGE_DIR}/${APP_NAME}.app" "${DMG_SRC_DIR}/"
+          hdiutil create -volname "${APP_NAME}" -srcfolder "${DMG_SRC_DIR}" -ov -format UDZO "dist/${{ matrix.dmg_name }}"
 
       - name: Validate DMG structure
         shell: bash

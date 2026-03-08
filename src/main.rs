@@ -69,13 +69,14 @@ const MOD_ALT: &str = "Option";
 const MOD_ALT: &str = "Alt";
 
 const SONARPAD_MINIMAL_RELEASES_URL: &str =
-    "https://github.com/Ambro86/Sonarpad-Minimal/releases/latest";
+    "https://github.com/Ambro86/Sonarpad-Mac/releases/latest";
 const SONARPAD_MINIMAL_RELEASES_API_URL: &str =
-    "https://api.github.com/repos/Ambro86/Sonarpad-Minimal/releases/latest";
+    "https://api.github.com/repos/Ambro86/Sonarpad-Mac/releases/latest";
 #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str = "https://github.com/Ambro86/Sonarpad-Minimal/releases/latest/download/Sonarpad-Minimal-macOS-AppleSilicon.dmg";
+const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str = "https://github.com/Ambro86/Sonarpad-Mac/releases/latest/download/Sonarpad-macOS-AppleSilicon.dmg";
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str = "https://github.com/Ambro86/Sonarpad-Minimal/releases/latest/download/Sonarpad-Minimal-macOS-Intel.dmg";
+const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str =
+    "https://github.com/Ambro86/Sonarpad-Mac/releases/latest/download/Sonarpad-macOS-Intel.dmg";
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum PlaybackStatus {
@@ -2709,7 +2710,7 @@ fn main() {
 
     let _ = wxdragon::main(move |_| {
         let frame = Frame::builder()
-            .with_title("Sonarpad Minimal")
+            .with_title("Sonarpad")
             .with_size(Size::new(800, 700))
             .build();
 
