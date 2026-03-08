@@ -307,6 +307,47 @@ fn command_shortcut_down(key_event: &KeyboardEvent) -> bool {
     key_event.cmd_down()
 }
 
+fn handle_shortcut_event(
+    event: WindowEventData,
+    play_action: &Rc<dyn Fn()>,
+    stop_action: &Rc<dyn Fn()>,
+    save_action: &Rc<dyn Fn()>,
+    settings_action: &Rc<dyn Fn()>,
+    podcast_seek_back: &Rc<RefCell<PodcastPlaybackState>>,
+    podcast_seek_forward: &Rc<RefCell<PodcastPlaybackState>>,
+) {
+    if let WindowEventData::Keyboard(key_event) = event {
+        let key_code = key_event.get_key_code().unwrap_or_default();
+        let unicode_key = key_event.get_unicode_key().unwrap_or_default();
+        if command_shortcut_down(&key_event) && !key_event.alt_down() && !key_event.shift_down() {
+            match key_code {
+                76 | 108 => play_action(),
+                WXK_LEFT => {
+                    if podcast_seek_back.borrow().selected_episode.is_some() {
+                        seek_podcast_playback(podcast_seek_back, -PODCAST_SEEK_SECONDS);
+                    }
+                }
+                WXK_RIGHT => {
+                    if podcast_seek_forward.borrow().selected_episode.is_some() {
+                        seek_podcast_playback(podcast_seek_forward, PODCAST_SEEK_SECONDS);
+                    }
+                }
+                _ if unicode_key == 46 => stop_action(),
+                _ if unicode_key == 44 => settings_action(),
+                _ => {}
+            }
+        } else if command_shortcut_down(&key_event)
+            && key_event.alt_down()
+            && !key_event.shift_down()
+        {
+            match key_code {
+                65 | 97 => save_action(),
+                _ => {}
+            }
+        }
+    }
+}
+
 fn about_title() -> &'static str {
     "Informazioni sul programma"
 }
@@ -2865,7 +2906,7 @@ fn main() {
         let f_play = frame;
         let s_play = Arc::clone(&settings);
         let podcast_playback_play = Rc::clone(&podcast_playback);
-        let play_action = Rc::new(move || {
+        let play_action: Rc<dyn Fn()> = Rc::new(move || {
             let selected_episode = podcast_playback_play.borrow().selected_episode.clone();
             if let Some(episode) = selected_episode
                 && !episode.audio_url.trim().is_empty()
@@ -3173,7 +3214,7 @@ fn main() {
         let pb_stop = Arc::clone(&playback);
         let b_p_reset = btn_play;
         let podcast_playback_stop = Rc::clone(&podcast_playback);
-        let stop_action = Rc::new(move || {
+        let stop_action: Rc<dyn Fn()> = Rc::new(move || {
             stop_podcast_playback(&podcast_playback_stop);
             let mut pb = pb_stop.lock().unwrap();
             if let Some(ref s) = pb.sink {
@@ -3196,7 +3237,7 @@ fn main() {
         let tc_s = text_ctrl;
         let f_save = frame;
         let s_save = Arc::clone(&settings);
-        let save_action = Rc::new(move || {
+        let save_action: Rc<dyn Fn()> = Rc::new(move || {
             let text = tc_s.get_value();
             if text.trim().is_empty() {
                 return;
@@ -3543,7 +3584,7 @@ fn main() {
         let voices_state = Arc::clone(&voices_data);
         let languages_state = Arc::clone(&languages);
         let playback_state = Arc::clone(&playback);
-        let settings_action = Rc::new(move || {
+        let settings_action: Rc<dyn Fn()> = Rc::new(move || {
             open_settings_dialog(
                 &frame_settings,
                 &settings_state,
@@ -3558,70 +3599,68 @@ fn main() {
             settings_action_click();
         });
 
-        let play_action_shortcut = Rc::clone(&play_action);
-        let stop_action_shortcut = Rc::clone(&stop_action);
-        let save_action_shortcut = Rc::clone(&save_action);
-        let settings_action_shortcut = Rc::clone(&settings_action);
-        let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
-        let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
-        let shortcut_handler = move |event| {
-            if let WindowEventData::Keyboard(key_event) = event {
-                let key_code = key_event.get_key_code().unwrap_or_default();
-                let unicode_key = key_event.get_unicode_key().unwrap_or_default();
-                if command_shortcut_down(&key_event)
-                    && !key_event.alt_down()
-                    && !key_event.shift_down()
-                {
-                    match key_code {
-                        76 | 108 => play_action_shortcut(),
-                        WXK_LEFT => {
-                            if podcast_seek_back_shortcut
-                                .borrow()
-                                .selected_episode
-                                .is_some()
-                            {
-                                seek_podcast_playback(
-                                    &podcast_seek_back_shortcut,
-                                    -PODCAST_SEEK_SECONDS,
-                                );
-                            }
-                        }
-                        WXK_RIGHT => {
-                            if podcast_seek_forward_shortcut
-                                .borrow()
-                                .selected_episode
-                                .is_some()
-                            {
-                                seek_podcast_playback(
-                                    &podcast_seek_forward_shortcut,
-                                    PODCAST_SEEK_SECONDS,
-                                );
-                            }
-                        }
-                        _ if unicode_key == 46 => stop_action_shortcut(),
-                        _ if unicode_key == 44 => settings_action_shortcut(),
-                        _ => {}
-                    }
-                } else if command_shortcut_down(&key_event)
-                    && key_event.alt_down()
-                    && !key_event.shift_down()
-                {
-                    match key_code {
-                        65 | 97 => save_action_shortcut(),
-                        _ => {}
-                    }
-                }
-            }
-        };
+        #[cfg(target_os = "macos")]
+        {
+            let play_action_shortcut = Rc::clone(&play_action);
+            let stop_action_shortcut = Rc::clone(&stop_action);
+            let save_action_shortcut = Rc::clone(&save_action);
+            let settings_action_shortcut = Rc::clone(&settings_action);
+            let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
+            let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
+            frame.on_key_down(move |event| {
+                handle_shortcut_event(
+                    event,
+                    &play_action_shortcut,
+                    &stop_action_shortcut,
+                    &save_action_shortcut,
+                    &settings_action_shortcut,
+                    &podcast_seek_back_shortcut,
+                    &podcast_seek_forward_shortcut,
+                );
+            });
+        }
 
         #[cfg(target_os = "macos")]
-        frame.on_key_down(shortcut_handler);
-
-        #[cfg(target_os = "macos")]
-        text_ctrl.on_key_down(shortcut_handler);
+        {
+            let play_action_shortcut = Rc::clone(&play_action);
+            let stop_action_shortcut = Rc::clone(&stop_action);
+            let save_action_shortcut = Rc::clone(&save_action);
+            let settings_action_shortcut = Rc::clone(&settings_action);
+            let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
+            let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
+            text_ctrl.on_key_down(move |event| {
+                handle_shortcut_event(
+                    event,
+                    &play_action_shortcut,
+                    &stop_action_shortcut,
+                    &save_action_shortcut,
+                    &settings_action_shortcut,
+                    &podcast_seek_back_shortcut,
+                    &podcast_seek_forward_shortcut,
+                );
+            });
+        }
 
         #[cfg(not(target_os = "macos"))]
-        text_ctrl.on_key_down(shortcut_handler);
+        {
+            let play_action_shortcut = Rc::clone(&play_action);
+            let stop_action_shortcut = Rc::clone(&stop_action);
+            let save_action_shortcut = Rc::clone(&save_action);
+            let settings_action_shortcut = Rc::clone(&settings_action);
+            let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
+            let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
+            text_ctrl.on_key_down(move |event| {
+                handle_shortcut_event(
+                    event,
+                    &play_action_shortcut,
+                    &stop_action_shortcut,
+                    &save_action_shortcut,
+                    &settings_action_shortcut,
+                    &podcast_seek_back_shortcut,
+                    &podcast_seek_forward_shortcut,
+                );
+            });
+        }
 
         frame.show(true);
         frame.centre();
