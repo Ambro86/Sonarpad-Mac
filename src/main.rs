@@ -344,7 +344,7 @@ fn settings_button_label() -> String {
 
 #[cfg(target_os = "macos")]
 fn command_shortcut_down(key_event: &KeyboardEvent) -> bool {
-    key_event.cmd_down()
+    key_event.cmd_down() || key_event.meta_down()
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -361,13 +361,10 @@ fn handle_shortcut_event(
     if let WindowEventData::Keyboard(key_event) = event {
         #[cfg(target_os = "macos")]
         {
-            let key_code = key_event.get_key_code().unwrap_or_default();
-            let unicode_key = key_event.get_unicode_key().unwrap_or_default();
+            let _ = actions;
             if command_shortcut_down(&key_event) && !key_event.alt_down() && !key_event.shift_down()
             {
-                match key_code {
-                    _ if matches_ascii_key(key_code, unicode_key, 'l') => (actions.start)(),
-                    _ if matches_ascii_key(key_code, unicode_key, 'p') => (actions.play_pause)(),
+                match key_event.get_key_code().unwrap_or_default() {
                     WXK_LEFT => {
                         if podcast_seek_back.borrow().selected_episode.is_some() {
                             seek_podcast_playback(podcast_seek_back, -PODCAST_SEEK_SECONDS);
@@ -427,18 +424,6 @@ fn handle_shortcut_event(
             }
         }
     }
-}
-
-#[cfg(target_os = "macos")]
-fn matches_ascii_key(key_code: i32, unicode_key: i32, expected: char) -> bool {
-    let expected_upper = expected.to_ascii_uppercase() as i32;
-    let expected_lower = expected.to_ascii_lowercase() as i32;
-
-    matches!(key_code, code if code == expected_upper || code == expected_lower)
-        || matches!(
-            unicode_key,
-            code if code == expected_upper || code == expected_lower
-        )
 }
 
 fn about_title() -> &'static str {
@@ -2928,14 +2913,14 @@ fn main() {
         #[cfg(target_os = "macos")]
         let stop_menu_item = file_menu.append(
             ID_STOP,
-            "Ferma lettura (Cmd+.)",
+            "Ferma lettura\tCmd+.",
             "Ferma la lettura o il podcast",
             ItemKind::Normal,
         );
         #[cfg(target_os = "macos")]
         let save_menu_item = file_menu.append(
             ID_SAVE,
-            "Salva audiolibro (Cmd+Option+A)",
+            "Salva audiolibro\tCmd+Option+A",
             "Salva il testo corrente come audiolibro",
             ItemKind::Normal,
         );
