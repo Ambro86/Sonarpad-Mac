@@ -54,7 +54,7 @@ jobs:
       - name: Download DMG artifact from latest build
         uses: actions/download-artifact@v4
         with:
-          pattern: sonarpad-minimal-macos-dmg-*
+          pattern: sonarpad-macos-dmg-*
           run-id: ${{ steps.get_run.outputs.run_id }}
           path: ./release_files
           merge-multiple: true
@@ -76,7 +76,7 @@ jobs:
             echo "Release ${RELEASE_VERSION} already exists. Skipping creation."
           else
             gh release create "${{ env.RELEASE_VERSION }}" \
-              --title "Sonarpad Minimal Release ${{ env.RELEASE_VERSION }}" \
+              --title "Sonarpad Release ${{ env.RELEASE_VERSION }}" \
               --notes "Source build run: ${{ steps.get_run.outputs.run_id }} (${{ steps.get_run.outputs.run_sha }})"
           fi
         env:
