@@ -3073,14 +3073,14 @@ fn main() {
         #[cfg(target_os = "macos")]
         let start_menu_item = file_menu.append(
             ID_START_PLAYBACK,
-            "Avvia lettura (Cmd+L)",
+            "Avvia lettura\tCtrl+L",
             "Avvia la lettura o la riproduzione del podcast",
             ItemKind::Normal,
         );
         #[cfg(target_os = "macos")]
         let play_menu_item = file_menu.append(
             ID_PLAY_PAUSE,
-            "Pausa o riprendi lettura (Cmd+P)",
+            "Pausa o riprendi lettura\tCtrl+P",
             "Mette in pausa o riprende la lettura",
             ItemKind::Normal,
         );
@@ -3094,7 +3094,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         let save_menu_item = file_menu.append(
             ID_SAVE,
-            "Salva audiolibro (Cmd+Option+A)",
+            "Salva audiolibro\tCtrl+Alt+A",
             "Salva il testo corrente come audiolibro",
             ItemKind::Normal,
         );
