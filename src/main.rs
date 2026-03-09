@@ -3087,7 +3087,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         let stop_menu_item = file_menu.append(
             ID_STOP,
-            "Ferma lettura (Cmd+.)",
+            "Ferma lettura\tCtrl+.",
             "Ferma la lettura o il podcast",
             ItemKind::Normal,
         );
