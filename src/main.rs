@@ -411,6 +411,17 @@ fn handle_shortcut_event(
                 return;
             }
 
+            if pending_command_period_sequence
+                && key_code == WXK_MAC_COMMAND
+                && command_shortcut_down(key_event)
+            {
+                set_mac_pending_command_period_sequence(false);
+                set_mac_pending_command_shortcut(false);
+                append_podcast_log("mac_shortcut.trigger stop_sequence_command");
+                (actions.stop)();
+                return;
+            }
+
             if key_code == WXK_MAC_COMMAND && command_shortcut_down(key_event) {
                 set_mac_pending_command_shortcut(true);
                 append_podcast_log("mac_shortcut.command_latched");
