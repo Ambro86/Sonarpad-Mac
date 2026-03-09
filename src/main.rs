@@ -109,6 +109,18 @@ struct GlobalPlayback {
     status: PlaybackStatus,
     download_finished: bool,
     refresh_requested: bool,
+    generation: u64,
+    cached_tts: Option<TtsPlaybackCache>,
+}
+
+#[derive(Clone)]
+struct TtsPlaybackCache {
+    text: String,
+    voice: String,
+    rate: i32,
+    pitch: i32,
+    volume: i32,
+    chunks: Vec<Vec<u8>>,
 }
 
 struct ArticleMenuState {
@@ -2647,6 +2659,7 @@ fn stop_tts_playback(playback: &Arc<Mutex<GlobalPlayback>>) {
     pb.status = PlaybackStatus::Stopped;
     pb.refresh_requested = false;
     pb.download_finished = false;
+    pb.generation = pb.generation.wrapping_add(1);
 }
 
 fn stop_podcast_playback(state: &Rc<RefCell<PodcastPlaybackState>>) {
@@ -3000,6 +3013,8 @@ fn main() {
         status: PlaybackStatus::Stopped,
         download_finished: false,
         refresh_requested: false,
+        generation: 0,
+        cached_tts: None,
     }));
 
     if let Some(cached_voices) = load_cached_voices() {
@@ -3707,103 +3722,165 @@ fn main() {
             }
 
             stop_podcast_playback(&podcast_playback_start);
-            let mut pb = pb_p_start.lock().unwrap();
-            if pb.status != PlaybackStatus::Stopped {
-                return;
+            let previous_status = {
+                let pb = pb_p_start.lock().unwrap();
+                pb.status
+            };
+            if previous_status != PlaybackStatus::Stopped {
+                append_podcast_log(&format!(
+                    "start_action.tts_restart previous_status={:?}",
+                    previous_status
+                ));
+                stop_tts_playback(&pb_p_start);
             }
-
             let text = tc_p_start.get_value();
             if text.trim().is_empty() {
+                append_podcast_log("start_action.text_empty");
                 return;
             }
+            let (voice, rate, pitch, volume) = {
+                let s = s_play_start.lock().unwrap();
+                (s.voice.clone(), s.rate, s.pitch, s.volume)
+            };
+            let mut pb = pb_p_start.lock().unwrap();
+            append_podcast_log(&format!(
+                "start_action.tts_begin chars={} trimmed_chars={}",
+                text.len(),
+                text.trim().len()
+            ));
 
             pb.status = PlaybackStatus::Playing;
             pb.download_finished = false;
             pb.refresh_requested = false;
+            pb.generation = pb.generation.wrapping_add(1);
+            let playback_generation = pb.generation;
+            let cached_tts = pb.cached_tts.clone();
+            drop(pb);
 
-            let rt_thread = Arc::clone(&rt_p_start);
             let pb_thread = Arc::clone(&pb_p_start);
-            let s_thread = Arc::clone(&s_play_start);
+            if let Some(cached) = cached_tts.filter(|cached| {
+                cached.text == text
+                    && cached.voice == voice
+                    && cached.rate == rate
+                    && cached.pitch == pitch
+                    && cached.volume == volume
+            }) {
+                std::thread::spawn(move || {
+                    append_podcast_log("start_action.tts_cache_hit");
+                    let Ok((_stream, handle)) = OutputStream::try_default() else {
+                        let mut pb_lock = pb_thread.lock().unwrap();
+                        if pb_lock.generation == playback_generation {
+                            append_podcast_log("start_action.audio_output_failed");
+                            pb_lock.status = PlaybackStatus::Stopped;
+                            pb_lock.sink = None;
+                        }
+                        return;
+                    };
+                    let Ok(sink) = Sink::try_new(&handle) else {
+                        let mut pb_lock = pb_thread.lock().unwrap();
+                        if pb_lock.generation == playback_generation {
+                            append_podcast_log("start_action.audio_sink_failed");
+                            pb_lock.status = PlaybackStatus::Stopped;
+                            pb_lock.sink = None;
+                        }
+                        return;
+                    };
 
-            std::thread::spawn(move || {
-                if let Ok((_stream, handle)) = OutputStream::try_default()
-                    && let Ok(sink) = Sink::try_new(&handle)
-                {
-                    let mut sink_arc = Arc::new(sink);
-                    let mut edge_session = None;
+                    let sink_arc = Arc::new(sink);
                     {
                         let mut pb_lock = pb_thread.lock().unwrap();
+                        if pb_lock.generation != playback_generation {
+                            return;
+                        }
                         pb_lock.sink = Some(Arc::clone(&sink_arc));
+                        pb_lock.download_finished = true;
                     }
 
-                    let chunks: Vec<String> = edge_tts::split_text_realtime_lazy(&text).collect();
-
-                    for chunk in chunks {
-                        let mut replay_chunk = true;
-                        while replay_chunk {
-                            replay_chunk = false;
-                            loop {
-                                {
-                                    let mut pb_lock = pb_thread.lock().unwrap();
-                                    if pb_lock.status == PlaybackStatus::Stopped {
-                                        break;
-                                    }
-                                    if pb_lock.refresh_requested {
-                                        pb_lock.refresh_requested = false;
-                                        if let Ok(new_sink) = Sink::try_new(&handle) {
-                                            sink_arc = Arc::new(new_sink);
-                                            pb_lock.sink = Some(Arc::clone(&sink_arc));
-                                        }
-                                    }
-                                }
-                                if sink_arc.len() < 1 {
-                                    break;
-                                }
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                            }
-
+                    for (chunk_index, data) in cached.chunks.into_iter().enumerate() {
+                        {
+                            let pb_lock = pb_thread.lock().unwrap();
+                            if pb_lock.generation != playback_generation
+                                || pb_lock.status == PlaybackStatus::Stopped
                             {
-                                let pb_lock = pb_thread.lock().unwrap();
-                                if pb_lock.status == PlaybackStatus::Stopped {
-                                    break;
-                                }
+                                return;
                             }
+                        }
+                        if let Ok(source) = Decoder::new(Cursor::new(data)) {
+                            sink_arc.append(source);
+                        } else {
+                            append_podcast_log(&format!(
+                                "start_action.decoder_failed index={}",
+                                chunk_index
+                            ));
+                        }
+                    }
 
-                            let (voice, rate, pitch, volume) = {
-                                let s = s_thread.lock().unwrap();
-                                (s.voice.clone(), s.rate, s.pitch, s.volume)
-                            };
+                    append_podcast_log("start_action.tts_download_finished");
+                    loop {
+                        std::thread::sleep(std::time::Duration::from_millis(200));
+                        let mut pb_lock = pb_thread.lock().unwrap();
+                        if pb_lock.generation != playback_generation {
+                            break;
+                        }
+                        if pb_lock.status == PlaybackStatus::Stopped {
+                            append_podcast_log("start_action.tts_loop_stopped");
+                            break;
+                        }
+                        if sink_arc.empty() && pb_lock.download_finished {
+                            pb_lock.status = PlaybackStatus::Stopped;
+                            pb_lock.sink = None;
+                            append_podcast_log("start_action.tts_completed");
+                            break;
+                        }
+                    }
+                });
+                return;
+            }
 
-                            match rt_thread.block_on(
-                                edge_tts::synthesize_realtime_chunk_with_retry(
-                                    edge_session,
-                                    &chunk,
-                                    &voice,
-                                    rate,
-                                    pitch,
-                                    volume,
-                                    3,
-                                ),
-                            ) {
-                                Ok((data, session)) => {
-                                    edge_session = session;
-                                    if data.is_empty() {
-                                        break;
-                                    }
-                                    if let Ok(source) = Decoder::new(Cursor::new(data)) {
-                                        sink_arc.append(source);
-                                    }
-                                }
-                                Err(err) => {
-                                    edge_session = None;
-                                    println!("ERROR: Sintesi realtime fallita: {}", err);
-                                    break;
-                                }
-                            }
+            let rt_thread = Arc::clone(&rt_p_start);
 
-                            loop {
-                                std::thread::sleep(std::time::Duration::from_millis(60));
+            std::thread::spawn(move || {
+                append_podcast_log("start_action.tts_thread_started");
+                let Ok((_stream, handle)) = OutputStream::try_default() else {
+                    let mut pb_lock = pb_thread.lock().unwrap();
+                    if pb_lock.generation == playback_generation {
+                        append_podcast_log("start_action.audio_output_failed");
+                        pb_lock.status = PlaybackStatus::Stopped;
+                        pb_lock.sink = None;
+                    }
+                    return;
+                };
+                let Ok(sink) = Sink::try_new(&handle) else {
+                    let mut pb_lock = pb_thread.lock().unwrap();
+                    if pb_lock.generation == playback_generation {
+                        append_podcast_log("start_action.audio_sink_failed");
+                        pb_lock.status = PlaybackStatus::Stopped;
+                        pb_lock.sink = None;
+                    }
+                    return;
+                };
+
+                let mut sink_arc = Arc::new(sink);
+                let mut edge_session = None;
+                {
+                    let mut pb_lock = pb_thread.lock().unwrap();
+                    pb_lock.sink = Some(Arc::clone(&sink_arc));
+                }
+
+                let chunks: Vec<String> = edge_tts::split_text_realtime_lazy(&text).collect();
+                let mut cached_chunks = Vec::with_capacity(chunks.len());
+                append_podcast_log(&format!("start_action.tts_chunks total={}", chunks.len()));
+
+                for (chunk_index, chunk) in chunks.into_iter().enumerate() {
+                    let mut replay_chunk = true;
+                    while replay_chunk {
+                        replay_chunk = false;
+                        loop {
+                            {
                                 let mut pb_lock = pb_thread.lock().unwrap();
+                                if pb_lock.generation != playback_generation {
+                                    break;
+                                }
                                 if pb_lock.status == PlaybackStatus::Stopped {
                                     break;
                                 }
@@ -3813,33 +3890,136 @@ fn main() {
                                         sink_arc = Arc::new(new_sink);
                                         pb_lock.sink = Some(Arc::clone(&sink_arc));
                                     }
-                                    edge_session = None;
-                                    replay_chunk = true;
+                                }
+                            }
+                            if sink_arc.len() < 1 {
+                                break;
+                            }
+                            std::thread::sleep(std::time::Duration::from_millis(100));
+                        }
+
+                        {
+                            let pb_lock = pb_thread.lock().unwrap();
+                            if pb_lock.generation != playback_generation {
+                                break;
+                            }
+                            if pb_lock.status == PlaybackStatus::Stopped {
+                                break;
+                            }
+                        }
+
+                        append_podcast_log(&format!(
+                            "start_action.tts_chunk_request index={} voice={} rate={} pitch={} volume={}",
+                            chunk_index, voice, rate, pitch, volume
+                        ));
+                        match rt_thread.block_on(edge_tts::synthesize_realtime_chunk_with_retry(
+                            edge_session,
+                            &chunk,
+                            &voice,
+                            rate,
+                            pitch,
+                            volume,
+                            40,
+                        )) {
+                            Ok((data, session)) => {
+                                edge_session = session;
+                                if data.is_empty() {
+                                    append_podcast_log(&format!(
+                                        "start_action.tts_chunk_empty index={}",
+                                        chunk_index
+                                    ));
                                     break;
                                 }
-                                if sink_arc.empty() {
-                                    break;
+                                append_podcast_log(&format!(
+                                    "start_action.tts_chunk_ok index={} bytes={}",
+                                    chunk_index,
+                                    data.len()
+                                ));
+                                cached_chunks.push(data.clone());
+                                if let Ok(source) = Decoder::new(Cursor::new(data)) {
+                                    sink_arc.append(source);
+                                } else {
+                                    append_podcast_log(&format!(
+                                        "start_action.decoder_failed index={}",
+                                        chunk_index
+                                    ));
                                 }
+                            }
+                            Err(err) => {
+                                edge_session = None;
+                                let mut pb_lock = pb_thread.lock().unwrap();
+                                if pb_lock.generation == playback_generation {
+                                    println!("ERROR: Sintesi realtime fallita: {}", err);
+                                    append_podcast_log(&format!(
+                                        "start_action.tts_chunk_error index={} error={}",
+                                        chunk_index, err
+                                    ));
+                                    pb_lock.status = PlaybackStatus::Stopped;
+                                    pb_lock.sink = None;
+                                }
+                                break;
+                            }
+                        }
+
+                        loop {
+                            std::thread::sleep(std::time::Duration::from_millis(60));
+                            let mut pb_lock = pb_thread.lock().unwrap();
+                            if pb_lock.generation != playback_generation {
+                                break;
+                            }
+                            if pb_lock.status == PlaybackStatus::Stopped {
+                                break;
+                            }
+                            if pb_lock.refresh_requested {
+                                pb_lock.refresh_requested = false;
+                                if let Ok(new_sink) = Sink::try_new(&handle) {
+                                    sink_arc = Arc::new(new_sink);
+                                    pb_lock.sink = Some(Arc::clone(&sink_arc));
+                                }
+                                edge_session = None;
+                                replay_chunk = true;
+                                break;
+                            }
+                            if sink_arc.empty() {
+                                break;
                             }
                         }
                     }
+                }
 
-                    {
-                        let mut pb_lock = pb_thread.lock().unwrap();
+                {
+                    let mut pb_lock = pb_thread.lock().unwrap();
+                    if pb_lock.generation == playback_generation {
                         pb_lock.download_finished = true;
+                        pb_lock.cached_tts = Some(TtsPlaybackCache {
+                            text,
+                            voice,
+                            rate,
+                            pitch,
+                            volume,
+                            chunks: cached_chunks,
+                        });
+                    } else {
+                        return;
                     }
+                }
+                append_podcast_log("start_action.tts_download_finished");
 
-                    loop {
-                        std::thread::sleep(std::time::Duration::from_millis(200));
-                        let mut pb_lock = pb_thread.lock().unwrap();
-                        if pb_lock.status == PlaybackStatus::Stopped {
-                            break;
-                        }
-                        if sink_arc.empty() && pb_lock.download_finished {
-                            pb_lock.status = PlaybackStatus::Stopped;
-                            pb_lock.sink = None;
-                            break;
-                        }
+                loop {
+                    std::thread::sleep(std::time::Duration::from_millis(200));
+                    let mut pb_lock = pb_thread.lock().unwrap();
+                    if pb_lock.generation != playback_generation {
+                        break;
+                    }
+                    if pb_lock.status == PlaybackStatus::Stopped {
+                        append_podcast_log("start_action.tts_loop_stopped");
+                        break;
+                    }
+                    if sink_arc.empty() && pb_lock.download_finished {
+                        pb_lock.status = PlaybackStatus::Stopped;
+                        pb_lock.sink = None;
+                        append_podcast_log("start_action.tts_completed");
+                        break;
                     }
                 }
             });

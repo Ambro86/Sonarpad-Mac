@@ -21,6 +21,12 @@ pub const VOICE_LIST_URL: &str =
     "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list";
 pub const EDGE_TTS_MAX_BYTES: usize = 800;
 pub const EDGE_TTS_REALTIME_MAX_BYTES: usize = EDGE_TTS_MAX_BYTES;
+const EDGE_TTS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
+const EDGE_TTS_READ_TIMEOUT: Duration = Duration::from_secs(3);
+
+fn retry_backoff_delay(attempt: usize) -> Duration {
+    Duration::from_millis((500 * attempt as u64).min(3_000))
+}
 
 type EdgeSocket = WebSocketStream<MaybeTlsStream<TcpStream>>;
 type EdgeSocketWriter = futures_util::stream::SplitSink<EdgeSocket, Message>;
@@ -80,7 +86,7 @@ pub async fn synthesize_text_with_retry(
                 );
                 last_err = e;
                 if attempt < max_retries {
-                    tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                    tokio::time::sleep(retry_backoff_delay(attempt)).await;
                 }
             }
         }
@@ -150,7 +156,12 @@ pub async fn synthesize_text_chunk(
         "X-Timestamp:{}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{{\"context\":{{\"synthesis\":{{\"audio\":{{\"metadataoptions\":{{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}}}}}",
         get_date_string()
     );
-    write.send(Message::Text(config_msg.into())).await?;
+    tokio::time::timeout(
+        EDGE_TTS_SEND_TIMEOUT,
+        write.send(Message::Text(config_msg.into())),
+    )
+    .await
+    .map_err(|_| anyhow!("speech.config send timeout"))??;
 
     let lang = voice.split('-').collect::<Vec<_>>();
     let lang = if lang.len() >= 3 {
@@ -174,10 +185,21 @@ pub async fn synthesize_text_chunk(
         get_date_string(),
         ssml
     );
-    write.send(Message::Text(ssml_msg.into())).await?;
+    tokio::time::timeout(
+        EDGE_TTS_SEND_TIMEOUT,
+        write.send(Message::Text(ssml_msg.into())),
+    )
+    .await
+    .map_err(|_| anyhow!("SSML send timeout"))??;
 
     let mut audio_data = Vec::new();
-    while let Some(msg) = read.next().await {
+    loop {
+        let maybe_msg = tokio::time::timeout(EDGE_TTS_READ_TIMEOUT, read.next())
+            .await
+            .map_err(|_| anyhow!("audio read timeout"))?;
+        let Some(msg) = maybe_msg else {
+            break;
+        };
         let msg = msg?;
         match msg {
             Message::Text(t) => {
@@ -232,7 +254,12 @@ impl EdgeRealtimeSession {
             "X-Timestamp:{}\r\nContent-Type:application/json; charset=utf-8\r\nPath:speech.config\r\n\r\n{{\"context\":{{\"synthesis\":{{\"audio\":{{\"metadataoptions\":{{\"sentenceBoundaryEnabled\":\"false\",\"wordBoundaryEnabled\":\"false\"}},\"outputFormat\":\"audio-24khz-48kbitrate-mono-mp3\"}}}}}}}}",
             get_date_string()
         );
-        write.send(Message::Text(config_msg.into())).await?;
+        tokio::time::timeout(
+            EDGE_TTS_SEND_TIMEOUT,
+            write.send(Message::Text(config_msg.into())),
+        )
+        .await
+        .map_err(|_| anyhow!("Realtime speech.config send timeout"))??;
 
         Ok(Self { write, read })
     }
@@ -272,10 +299,21 @@ impl EdgeRealtimeSession {
             get_date_string(),
             ssml
         );
-        self.write.send(Message::Text(ssml_msg.into())).await?;
+        tokio::time::timeout(
+            EDGE_TTS_SEND_TIMEOUT,
+            self.write.send(Message::Text(ssml_msg.into())),
+        )
+        .await
+        .map_err(|_| anyhow!("Realtime SSML send timeout"))??;
 
         let mut audio_data = Vec::new();
-        while let Some(msg) = self.read.next().await {
+        loop {
+            let maybe_msg = tokio::time::timeout(EDGE_TTS_READ_TIMEOUT, self.read.next())
+                .await
+                .map_err(|_| anyhow!("Realtime audio read timeout"))?;
+            let Some(msg) = maybe_msg else {
+                break;
+            };
             let msg = msg?;
             match msg {
                 Message::Text(t) => {
@@ -315,7 +353,7 @@ pub async fn synthesize_realtime_chunk_with_retry(
                 Err(err) => {
                     last_err = err;
                     if attempt < max_retries {
-                        tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                        tokio::time::sleep(retry_backoff_delay(attempt)).await;
                     }
                     continue;
                 }
@@ -345,7 +383,7 @@ pub async fn synthesize_realtime_chunk_with_retry(
                 last_err = err;
                 session = None;
                 if attempt < max_retries {
-                    tokio::time::sleep(Duration::from_millis(500 * attempt as u64)).await;
+                    tokio::time::sleep(retry_backoff_delay(attempt)).await;
                 }
             }
         }
