@@ -860,6 +860,8 @@ fn load_file_with_progress(parent: &Frame, path: &Path) -> Result<String, String
         std::thread::sleep(std::time::Duration::from_millis(100));
         if let Some(result) = state.lock().unwrap().take() {
             let _ = progress.update(100, Some("Documento caricato."));
+            progress.destroy();
+            show_message_dialog(parent, "Apertura documento", "Documento caricato.");
             return result;
         }
 
