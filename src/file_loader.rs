@@ -200,17 +200,18 @@ fn extract_table_cell_text(cell: &TableCell) -> String {
 
 fn load_pdf(path: &Path) -> Result<String> {
     let text = extract_pdf_text_with_fallback(path)?;
-    if text.trim().is_empty() {
-        #[cfg(target_os = "macos")]
-        {
-            let ocr_text = extract_pdf_text_macos_ocr(path)?;
-            if ocr_text.trim().is_empty() {
-                return Ok(String::new());
-            }
-            let repaired_text = repair_pdf_text_encoding(&ocr_text);
-            return Ok(normalize_pdf_paragraphs(&repaired_text));
+    #[cfg(target_os = "macos")]
+    if should_attempt_macos_pdf_ocr(&text) {
+        let ocr_text = extract_pdf_text_macos_ocr(path)?;
+        if ocr_text.trim().is_empty() {
+            return Ok(String::new());
         }
+        let repaired_text = repair_pdf_text_encoding(&ocr_text);
+        return Ok(normalize_pdf_paragraphs(&repaired_text));
+    }
 
+    #[cfg(not(target_os = "macos"))]
+    if text.trim().is_empty() {
         return Ok(String::new());
     }
     let repaired_text = repair_pdf_text_encoding(&text);
@@ -298,6 +299,42 @@ fn should_use_repaired_pdf_text(current: &str, repaired: &str) -> bool {
     let repaired_western = western_european_char_score(repaired);
 
     repaired_western > current_western || repaired_mojibake + 2 <= current_mojibake
+}
+
+#[cfg(target_os = "macos")]
+fn should_attempt_macos_pdf_ocr(text: &str) -> bool {
+    text.trim().is_empty() || !is_probably_meaningful_pdf_text(text)
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn is_probably_meaningful_pdf_text(text: &str) -> bool {
+    let mut visible = 0usize;
+    let mut controls = 0usize;
+    let mut alnum = 0usize;
+
+    for ch in text.chars() {
+        if ch.is_whitespace() {
+            continue;
+        }
+        if ch.is_control() {
+            controls += 1;
+            continue;
+        }
+        visible += 1;
+        if ch.is_alphanumeric() {
+            alnum += 1;
+        }
+    }
+
+    if visible == 0 {
+        return false;
+    }
+    if controls > visible / 8 {
+        return false;
+    }
+
+    let alnum_ratio = alnum as f32 / visible as f32;
+    alnum >= 24 || (visible >= 12 && alnum_ratio >= 0.55)
 }
 
 #[cfg(target_os = "macos")]
@@ -814,6 +851,23 @@ fn looks_like_list_item(line: &str) -> bool {
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_probably_meaningful_pdf_text;
+
+    #[test]
+    fn pdf_text_heuristic_accepts_normal_text() {
+        let text = "Modulo compilato da Mario Rossi.\nCodice fiscale RSSMRA80A01H501U.\nFirma del richiedente.";
+        assert!(is_probably_meaningful_pdf_text(text));
+    }
+
+    #[test]
+    fn pdf_text_heuristic_rejects_scan_garbage() {
+        let text = "x\u{0003}?\u{0010}&?\u{0007}??\\\\???\n.?\\?\\\0?\u{000B}\t?\nendstream";
+        assert!(!is_probably_meaningful_pdf_text(text));
+    }
 }
 
 fn looks_like_rtf(bytes: &[u8]) -> bool {

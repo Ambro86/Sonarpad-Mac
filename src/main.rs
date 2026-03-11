@@ -96,10 +96,10 @@ const SONARPAD_MINIMAL_RELEASES_URL: &str =
     "https://github.com/Ambro86/Sonarpad-Mac/releases/latest";
 const SONARPAD_MINIMAL_RELEASES_API_URL: &str =
     "https://api.github.com/repos/Ambro86/Sonarpad-Mac/releases/latest";
-#[cfg(all(target_os = "macos", target_arch = "aarch64"))]
-const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str = "https://github.com/Ambro86/Sonarpad-Mac/releases/latest/download/Sonarpad-macOS-AppleSilicon.dmg";
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
-const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL: &str =
+#[cfg(target_os = "macos")]
+const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_APPLE_SILICON: &str = "https://github.com/Ambro86/Sonarpad-Mac/releases/latest/download/Sonarpad-macOS-AppleSilicon.dmg";
+#[cfg(target_os = "macos")]
+const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_INTEL: &str =
     "https://github.com/Ambro86/Sonarpad-Mac/releases/latest/download/Sonarpad-macOS-Intel.dmg";
 
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -956,12 +956,69 @@ fn open_url_in_browser(url: &str) -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 fn latest_download_url_for_current_platform() -> &'static str {
-    SONARPAD_MINIMAL_MAC_DOWNLOAD_URL
+    if mac_has_apple_silicon_cpu() {
+        SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_APPLE_SILICON
+    } else {
+        SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_INTEL
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
 fn latest_download_url_for_current_platform() -> &'static str {
     SONARPAD_MINIMAL_RELEASES_URL
+}
+
+#[cfg(target_os = "macos")]
+fn mac_has_apple_silicon_cpu() -> bool {
+    if let Some(value) = run_macos_sysctl("hw.optional.arm64")
+        && parse_macos_sysctl_bool(&value)
+    {
+        return true;
+    }
+
+    if let Some(value) = run_macos_sysctl("sysctl.proc_translated")
+        && parse_macos_sysctl_bool(&value)
+    {
+        return true;
+    }
+
+    cfg!(target_arch = "aarch64")
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_sysctl(name: &str) -> Option<String> {
+    let output = std::process::Command::new("sysctl")
+        .args(["-n", name])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
+#[cfg(any(target_os = "macos", test))]
+fn parse_macos_sysctl_bool(value: &str) -> bool {
+    matches!(value.trim(), "1" | "true" | "yes")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::parse_macos_sysctl_bool;
+
+    #[test]
+    fn parse_macos_sysctl_bool_accepts_true_values() {
+        assert!(parse_macos_sysctl_bool("1"));
+        assert!(parse_macos_sysctl_bool(" true "));
+        assert!(parse_macos_sysctl_bool("yes"));
+    }
+
+    #[test]
+    fn parse_macos_sysctl_bool_rejects_false_values() {
+        assert!(!parse_macos_sysctl_bool("0"));
+        assert!(!parse_macos_sysctl_bool("false"));
+        assert!(!parse_macos_sysctl_bool(""));
+    }
 }
 
 fn check_for_updates(parent: &Frame) {
