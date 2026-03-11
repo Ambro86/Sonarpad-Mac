@@ -48,8 +48,11 @@ const ID_ARTICLES_ADD_SOURCE: i32 = 2100;
 const ID_ARTICLES_DELETE_SOURCE: i32 = 2101;
 const ID_ARTICLES_EDIT_SOURCE: i32 = 2102;
 const ID_ARTICLES_REORDER_SOURCES: i32 = 2103;
+const ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY: i32 = 2104;
 const ID_PODCASTS_ADD: i32 = 2300;
 const ID_PODCASTS_DELETE: i32 = 2301;
+const ID_PODCASTS_REORDER_SOURCES: i32 = 2302;
+const ID_PODCASTS_SORT_SOURCES_ALPHABETICALLY: i32 = 2303;
 const ID_PODCAST_DIALOG_OPEN: i32 = 4101;
 const ID_PODCAST_DIALOG_SAVE_AS: i32 = 4102;
 const ID_PODCASTS_CATEGORY_BASE: i32 = 2400;
@@ -686,6 +689,13 @@ fn show_modeless_message_dialog(parent: &Frame, title: &str, message: &str) {
 }
 
 fn show_message_dialog(parent: &Frame, title: &str, message: &str) {
+    let dialog = MessageDialog::builder(parent, message, title)
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+        .build();
+    dialog.show_modal();
+}
+
+fn show_message_subdialog(parent: &Dialog, title: &str, message: &str) {
     let dialog = MessageDialog::builder(parent, message, title)
         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
         .build();
@@ -1691,6 +1701,12 @@ fn rebuild_articles_menu(
         "Riordina le fonti RSS salvate",
         ItemKind::Normal,
     );
+    let _ = articles_menu.append(
+        ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY,
+        "Riordina le fonti alfabeticamente",
+        "Riordina alfabeticamente tutte le fonti RSS salvate",
+        ItemKind::Normal,
+    );
     articles_menu.append_separator();
 
     let sources = settings.lock().unwrap().article_sources.clone();
@@ -1813,6 +1829,18 @@ fn rebuild_podcasts_menu(
         ID_PODCASTS_DELETE,
         "Elimina podcast...",
         "Elimina un podcast salvato",
+        ItemKind::Normal,
+    );
+    let _ = podcasts_menu.append(
+        ID_PODCASTS_REORDER_SOURCES,
+        "Riordina podcast...",
+        "Riordina manualmente i podcast salvati",
+        ItemKind::Normal,
+    );
+    let _ = podcasts_menu.append(
+        ID_PODCASTS_SORT_SOURCES_ALPHABETICALLY,
+        "Riordina i podcast alfabeticamente",
+        "Riordina alfabeticamente tutti i podcast salvati",
         ItemKind::Normal,
     );
     podcasts_menu.append_separator();
@@ -2178,6 +2206,56 @@ fn save_reordered_article_sources(
     article_menu_state.lock().unwrap().dirty = true;
 }
 
+fn save_reordered_podcast_sources(
+    reordered_sources: Vec<podcasts::PodcastSource>,
+    settings: &Arc<Mutex<Settings>>,
+    podcast_menu_state: &Arc<Mutex<PodcastMenuState>>,
+) {
+    let mut locked = settings.lock().unwrap();
+    locked.podcast_sources = reordered_sources;
+    locked.save();
+    podcast_menu_state.lock().unwrap().dirty = true;
+}
+
+fn sort_article_sources_alphabetically(
+    settings: &Arc<Mutex<Settings>>,
+    article_menu_state: &Arc<Mutex<ArticleMenuState>>,
+) {
+    let mut locked = settings.lock().unwrap();
+    locked.article_sources.sort_by(|left, right| {
+        let left_label = article_source_label(left);
+        let right_label = article_source_label(right);
+        normalized_sort_key(&left_label)
+            .cmp(&normalized_sort_key(&right_label))
+            .then_with(|| left.url.cmp(&right.url))
+    });
+    locked.save();
+    article_menu_state.lock().unwrap().dirty = true;
+}
+
+fn article_source_label(source: &articles::ArticleSource) -> String {
+    if source.title.trim().is_empty() {
+        source.url.clone()
+    } else {
+        source.title.clone()
+    }
+}
+
+fn podcast_source_label(source: &podcasts::PodcastSource) -> String {
+    if source.title.trim().is_empty() {
+        source.url.clone()
+    } else {
+        source.title.clone()
+    }
+}
+
+fn normalized_sort_key(label: &str) -> String {
+    label
+        .trim()
+        .trim_start_matches(|ch: char| !ch.is_alphanumeric())
+        .to_lowercase()
+}
+
 fn add_podcast_source(
     result: podcasts::PodcastSearchResult,
     settings: &Arc<Mutex<Settings>>,
@@ -2212,6 +2290,22 @@ fn add_podcast_source(
     }
 
     refresh_single_podcast_source(normalized_url, rt, settings, podcast_menu_state);
+}
+
+fn sort_podcast_sources_alphabetically(
+    settings: &Arc<Mutex<Settings>>,
+    podcast_menu_state: &Arc<Mutex<PodcastMenuState>>,
+) {
+    let mut locked = settings.lock().unwrap();
+    locked.podcast_sources.sort_by(|left, right| {
+        let left_label = podcast_source_label(left);
+        let right_label = podcast_source_label(right);
+        normalized_sort_key(&left_label)
+            .cmp(&normalized_sort_key(&right_label))
+            .then_with(|| left.url.cmp(&right.url))
+    });
+    locked.save();
+    podcast_menu_state.lock().unwrap().dirty = true;
 }
 
 fn delete_podcast_source(
@@ -2721,11 +2815,7 @@ fn open_reorder_article_sources_dialog(
             choice.clear();
             let current_sources = working_sources.borrow();
             for source in current_sources.iter() {
-                let label = if source.title.trim().is_empty() {
-                    source.url.clone()
-                } else {
-                    source.title.clone()
-                };
+                let label = article_source_label(source);
                 choice.append(&label);
             }
             let max_index = current_sources.len().saturating_sub(1);
@@ -2749,11 +2839,19 @@ fn open_reorder_article_sources_dialog(
     let selected_index_up = Rc::clone(&selected_index);
     let working_sources_up = Rc::clone(&working_sources);
     let refresh_choice_up = Rc::clone(&refresh_choice);
+    let dialog_up = dialog;
     move_up_button.on_click(move |_| {
         let current_index = *selected_index_up.borrow();
         if current_index == 0 {
             return;
         }
+        let (moved_label, target_label) = {
+            let sources = working_sources_up.borrow();
+            (
+                article_source_label(&sources[current_index]),
+                article_source_label(&sources[current_index - 1]),
+            )
+        };
         {
             let mut sources = working_sources_up.borrow_mut();
             sources.swap(current_index, current_index - 1);
@@ -2761,18 +2859,31 @@ fn open_reorder_article_sources_dialog(
         let new_index = current_index - 1;
         *selected_index_up.borrow_mut() = new_index;
         refresh_choice_up(&choice_source_up, new_index);
+        show_message_subdialog(
+            &dialog_up,
+            "Fonte spostata",
+            &format!("{moved_label} è stata spostata sopra {target_label}."),
+        );
     });
 
     let choice_source_down = choice_source;
     let selected_index_down = Rc::clone(&selected_index);
     let working_sources_down = Rc::clone(&working_sources);
     let refresh_choice_down = Rc::clone(&refresh_choice);
+    let dialog_down = dialog;
     move_down_button.on_click(move |_| {
         let current_index = *selected_index_down.borrow();
         let len = working_sources_down.borrow().len();
         if current_index + 1 >= len {
             return;
         }
+        let (moved_label, target_label) = {
+            let sources = working_sources_down.borrow();
+            (
+                article_source_label(&sources[current_index]),
+                article_source_label(&sources[current_index + 1]),
+            )
+        };
         {
             let mut sources = working_sources_down.borrow_mut();
             sources.swap(current_index, current_index + 1);
@@ -2780,6 +2891,161 @@ fn open_reorder_article_sources_dialog(
         let new_index = current_index + 1;
         *selected_index_down.borrow_mut() = new_index;
         refresh_choice_down(&choice_source_down, new_index);
+        show_message_subdialog(
+            &dialog_down,
+            "Fonte spostata",
+            &format!("{moved_label} è stata spostata sotto {target_label}."),
+        );
+    });
+
+    dialog.set_affirmative_id(ID_OK);
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        Some(working_sources.borrow().clone())
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
+fn open_reorder_podcast_sources_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+) -> Option<Vec<podcasts::PodcastSource>> {
+    let sources = settings.lock().unwrap().podcast_sources.clone();
+    if sources.len() < 2 {
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, "Riordina podcast")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 220)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let working_sources = Rc::new(RefCell::new(sources));
+
+    let source_row = BoxSizer::builder(Orientation::Horizontal).build();
+    source_row.add(
+        &StaticText::builder(&panel).with_label("Podcast:").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_source = Choice::builder(&panel).build();
+    source_row.add(&choice_source, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&source_row, 0, SizerFlag::Expand, 0);
+
+    let action_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let move_up_button = Button::builder(&panel).with_label("Sposta su").build();
+    let move_down_button = Button::builder(&panel).with_label("Sposta giù").build();
+    action_row.add(&move_up_button, 1, SizerFlag::All, 5);
+    action_row.add(&move_down_button, 1, SizerFlag::All, 5);
+    root.add_sizer(&action_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label("OK")
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    let refresh_choice = Rc::new({
+        let working_sources = Rc::clone(&working_sources);
+        move |choice: &Choice, selected_index: usize| {
+            choice.clear();
+            let current_sources = working_sources.borrow();
+            for source in current_sources.iter() {
+                choice.append(&podcast_source_label(source));
+            }
+            let max_index = current_sources.len().saturating_sub(1);
+            choice.set_selection(selected_index.min(max_index) as u32);
+        }
+    });
+
+    refresh_choice(&choice_source, 0);
+
+    let selected_index = Rc::new(RefCell::new(0usize));
+
+    let choice_source_evt = choice_source;
+    let selected_index_evt = Rc::clone(&selected_index);
+    choice_source.on_selection_changed(move |_| {
+        if let Some(selection) = choice_source_evt.get_selection() {
+            *selected_index_evt.borrow_mut() = selection as usize;
+        }
+    });
+
+    let choice_source_up = choice_source;
+    let selected_index_up = Rc::clone(&selected_index);
+    let working_sources_up = Rc::clone(&working_sources);
+    let refresh_choice_up = Rc::clone(&refresh_choice);
+    let dialog_up = dialog;
+    move_up_button.on_click(move |_| {
+        let current_index = *selected_index_up.borrow();
+        if current_index == 0 {
+            return;
+        }
+        let (moved_label, target_label) = {
+            let sources = working_sources_up.borrow();
+            (
+                podcast_source_label(&sources[current_index]),
+                podcast_source_label(&sources[current_index - 1]),
+            )
+        };
+        {
+            let mut sources = working_sources_up.borrow_mut();
+            sources.swap(current_index, current_index - 1);
+        }
+        let new_index = current_index - 1;
+        *selected_index_up.borrow_mut() = new_index;
+        refresh_choice_up(&choice_source_up, new_index);
+        show_message_subdialog(
+            &dialog_up,
+            "Podcast spostato",
+            &format!("{moved_label} è stato spostato sopra {target_label}."),
+        );
+    });
+
+    let choice_source_down = choice_source;
+    let selected_index_down = Rc::clone(&selected_index);
+    let working_sources_down = Rc::clone(&working_sources);
+    let refresh_choice_down = Rc::clone(&refresh_choice);
+    let dialog_down = dialog;
+    move_down_button.on_click(move |_| {
+        let current_index = *selected_index_down.borrow();
+        let len = working_sources_down.borrow().len();
+        if current_index + 1 >= len {
+            return;
+        }
+        let (moved_label, target_label) = {
+            let sources = working_sources_down.borrow();
+            (
+                podcast_source_label(&sources[current_index]),
+                podcast_source_label(&sources[current_index + 1]),
+            )
+        };
+        {
+            let mut sources = working_sources_down.borrow_mut();
+            sources.swap(current_index, current_index + 1);
+        }
+        let new_index = current_index + 1;
+        *selected_index_down.borrow_mut() = new_index;
+        refresh_choice_down(&choice_source_down, new_index);
+        show_message_subdialog(
+            &dialog_down,
+            "Podcast spostato",
+            &format!("{moved_label} è stato spostato sotto {target_label}."),
+        );
     });
 
     dialog.set_affirmative_id(ID_OK);
@@ -3550,6 +3816,13 @@ fn main() {
                         &article_menu_state_menu,
                     );
                 }
+            } else if event.get_id() == ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY {
+                sort_article_sources_alphabetically(&settings_menu, &article_menu_state_menu);
+                show_message_dialog(
+                    &f_menu,
+                    "Fonti riordinate",
+                    "Le fonti degli articoli sono state riordinate alfabeticamente.",
+                );
             } else if event.get_id() == ID_PODCASTS_ADD {
                 if let Some(result) = open_add_podcast_dialog(&f_menu, &rt_articles_menu) {
                     add_podcast_source(
@@ -3569,6 +3842,23 @@ fn main() {
                 {
                     delete_podcast_source(source_index, &settings_menu, &podcast_menu_state_menu);
                 }
+            } else if event.get_id() == ID_PODCASTS_REORDER_SOURCES {
+                if let Some(reordered_sources) =
+                    open_reorder_podcast_sources_dialog(&f_menu, &settings_menu)
+                {
+                    save_reordered_podcast_sources(
+                        reordered_sources,
+                        &settings_menu,
+                        &podcast_menu_state_menu,
+                    );
+                }
+            } else if event.get_id() == ID_PODCASTS_SORT_SOURCES_ALPHABETICALLY {
+                sort_podcast_sources_alphabetically(&settings_menu, &podcast_menu_state_menu);
+                show_message_dialog(
+                    &f_menu,
+                    "Podcast riordinati",
+                    "I podcast salvati sono stati riordinati alfabeticamente.",
+                );
             } else if let Some((category_index, result_index)) =
                 decode_podcast_category_podcast_menu_id(event.get_id())
             {

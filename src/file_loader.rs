@@ -207,12 +207,14 @@ fn load_pdf(path: &Path) -> Result<String> {
             if ocr_text.trim().is_empty() {
                 return Ok(String::new());
             }
-            return Ok(normalize_pdf_paragraphs(&ocr_text));
+            let repaired_text = repair_pdf_text_encoding(&ocr_text);
+            return Ok(normalize_pdf_paragraphs(&repaired_text));
         }
 
         return Ok(String::new());
     }
-    Ok(normalize_pdf_paragraphs(&text))
+    let repaired_text = repair_pdf_text_encoding(&text);
+    Ok(normalize_pdf_paragraphs(&repaired_text))
 }
 
 fn extract_pdf_text_with_fallback(path: &Path) -> Result<String> {
@@ -249,6 +251,53 @@ fn extract_pdf_text_pdfium(path: &Path) -> Result<String> {
         }
     }
     Ok(out)
+}
+
+fn repair_pdf_text_encoding(text: &str) -> String {
+    let Some(repaired) = try_repair_pdf_utf8_mojibake(text) else {
+        return text.to_string();
+    };
+    if should_use_repaired_pdf_text(text, &repaired) {
+        repaired
+    } else {
+        text.to_string()
+    }
+}
+
+fn try_repair_pdf_utf8_mojibake(text: &str) -> Option<String> {
+    let (encoded, _, had_errors) = WINDOWS_1252.encode(text);
+    if had_errors {
+        return None;
+    }
+    String::from_utf8(encoded.into_owned()).ok()
+}
+
+fn should_use_repaired_pdf_text(current: &str, repaired: &str) -> bool {
+    if current == repaired {
+        return false;
+    }
+
+    let current_mojibake = mojibake_latin1_score(current) + mojibake_cp1252_symbol_score(current);
+    if current_mojibake == 0 {
+        return false;
+    }
+
+    let repaired_mojibake =
+        mojibake_latin1_score(repaired) + mojibake_cp1252_symbol_score(repaired);
+    if repaired_mojibake >= current_mojibake {
+        return false;
+    }
+
+    let current_replacements = current.chars().filter(|&ch| ch == '\u{FFFD}').count();
+    let repaired_replacements = repaired.chars().filter(|&ch| ch == '\u{FFFD}').count();
+    if repaired_replacements > current_replacements {
+        return false;
+    }
+
+    let current_western = western_european_char_score(current);
+    let repaired_western = western_european_char_score(repaired);
+
+    repaired_western > current_western || repaired_mojibake + 2 <= current_mojibake
 }
 
 #[cfg(target_os = "macos")]
@@ -554,6 +603,150 @@ fn normalize_pdf_paragraphs(text: &str) -> String {
     }
     flush_pdf_paragraph(&mut out, &mut current);
     out
+}
+
+fn western_european_char_score(text: &str) -> usize {
+    text.chars()
+        .filter(|ch| {
+            matches!(
+                ch,
+                'à' | 'è'
+                    | 'ì'
+                    | 'ò'
+                    | 'ù'
+                    | 'À'
+                    | 'È'
+                    | 'Ì'
+                    | 'Ò'
+                    | 'Ù'
+                    | 'á'
+                    | 'é'
+                    | 'í'
+                    | 'ó'
+                    | 'ú'
+                    | 'Á'
+                    | 'É'
+                    | 'Í'
+                    | 'Ó'
+                    | 'Ú'
+                    | 'â'
+                    | 'ê'
+                    | 'î'
+                    | 'ô'
+                    | 'û'
+                    | 'Â'
+                    | 'Ê'
+                    | 'Î'
+                    | 'Ô'
+                    | 'Û'
+                    | 'ã'
+                    | 'õ'
+                    | 'Ã'
+                    | 'Õ'
+                    | 'ç'
+                    | 'Ç'
+                    | 'ñ'
+                    | 'Ñ'
+            )
+        })
+        .count()
+}
+
+fn mojibake_latin1_score(text: &str) -> usize {
+    text.chars()
+        .filter(|ch| {
+            matches!(
+                ch,
+                'Â' | 'Ã'
+                    | 'Ä'
+                    | 'Å'
+                    | 'Æ'
+                    | 'Ç'
+                    | 'Ð'
+                    | 'Ñ'
+                    | 'Ò'
+                    | 'Ó'
+                    | 'Ô'
+                    | 'Õ'
+                    | 'Ö'
+                    | '×'
+                    | 'Ø'
+                    | 'Ù'
+                    | 'Ú'
+                    | 'Û'
+                    | 'Ü'
+                    | 'Ý'
+                    | 'Þ'
+                    | 'ß'
+                    | 'à'
+                    | 'á'
+                    | 'â'
+                    | 'ã'
+                    | 'ä'
+                    | 'å'
+                    | 'æ'
+                    | 'ç'
+                    | 'è'
+                    | 'é'
+                    | 'ê'
+                    | 'ë'
+                    | 'ì'
+                    | 'í'
+                    | 'î'
+                    | 'ï'
+                    | 'ð'
+                    | 'ñ'
+                    | 'ò'
+                    | 'ó'
+                    | 'ô'
+                    | 'õ'
+                    | 'ö'
+                    | 'ø'
+                    | 'ù'
+                    | 'ú'
+                    | 'û'
+                    | 'ü'
+                    | 'ý'
+                    | 'þ'
+                    | 'ÿ'
+            )
+        })
+        .count()
+}
+
+fn mojibake_cp1252_symbol_score(text: &str) -> usize {
+    text.chars()
+        .filter(|ch| {
+            matches!(
+                ch,
+                '‚' | 'ƒ'
+                    | '„'
+                    | '…'
+                    | '†'
+                    | '‡'
+                    | 'ˆ'
+                    | '‰'
+                    | 'Š'
+                    | '‹'
+                    | 'Œ'
+                    | 'Ž'
+                    | '‘'
+                    | '’'
+                    | '“'
+                    | '”'
+                    | '•'
+                    | '–'
+                    | '—'
+                    | '˜'
+                    | '™'
+                    | 'š'
+                    | '›'
+                    | 'œ'
+                    | 'ž'
+                    | 'Ÿ'
+            )
+        })
+        .count()
 }
 
 fn flush_pdf_paragraph(out: &mut String, current: &mut String) {
