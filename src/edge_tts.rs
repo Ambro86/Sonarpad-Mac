@@ -19,7 +19,7 @@ pub const WSS_URL_BASE: &str =
     "wss://speech.platform.bing.com/consumer/speech/synthesize/readaloud/edge/v1";
 pub const VOICE_LIST_URL: &str =
     "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list";
-pub const EDGE_TTS_MAX_BYTES: usize = 800;
+pub const EDGE_TTS_MAX_BYTES: usize = 1800;
 pub const EDGE_TTS_REALTIME_MAX_BYTES: usize = EDGE_TTS_MAX_BYTES;
 const EDGE_TTS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const EDGE_TTS_READ_TIMEOUT: Duration = Duration::from_secs(3);
