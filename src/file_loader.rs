@@ -544,7 +544,7 @@ func recognizeText(from imageUrl: URL) throws -> String {
 
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
-    request.recognitionLanguages = ["it-IT", "en-US"]
+    request.recognitionLanguages = ["it-IT"]
     request.usesLanguageCorrection = true
 
     let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
@@ -558,13 +558,30 @@ func recognizeText(from imageUrl: URL) throws -> String {
     }
 
     let sorted = observations.sorted { lhs, rhs in
-        if abs(lhs.0.midY - rhs.0.midY) > 0.02 {
+        if abs(lhs.0.midY - rhs.0.midY) > 0.015 {
             return lhs.0.midY > rhs.0.midY
         }
         return lhs.0.minX < rhs.0.minX
     }
 
-    return sorted.map(\.1).joined(separator: "\n")
+    var lines: [[(CGRect, String)]] = []
+    for observation in sorted {
+        if let lastIndex = lines.indices.last {
+            let lastMidY = lines[lastIndex][0].0.midY
+            if abs(lastMidY - observation.0.midY) <= 0.015 {
+                lines[lastIndex].append(observation)
+                continue
+            }
+        }
+        lines.append([observation])
+    }
+
+    let mergedLines = lines.map { line -> String in
+        let sortedLine = line.sorted { lhs, rhs in lhs.0.minX < rhs.0.minX }
+        return sortedLine.map(\.1).joined(separator: " ")
+    }
+
+    return mergedLines.joined(separator: "\n")
 }
 
 guard CommandLine.arguments.count >= 2 else {
