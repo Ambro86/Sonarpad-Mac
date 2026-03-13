@@ -199,21 +199,39 @@ fn extract_table_cell_text(cell: &TableCell) -> String {
 }
 
 fn load_pdf(path: &Path) -> Result<String> {
+    log_pdf_debug(&format!("start path={}", path.display()));
     let text = extract_pdf_text_with_fallback(path)?;
     #[cfg(target_os = "macos")]
+    log_pdf_debug(&format!(
+        "raw_extraction length={} meaningful={}",
+        text.len(),
+        is_probably_meaningful_pdf_text(&text)
+    ));
+    #[cfg(not(target_os = "macos"))]
+    log_pdf_debug(&format!("raw_extraction length={}", text.len()));
+    #[cfg(target_os = "macos")]
     if should_attempt_macos_pdf_ocr(&text) {
+        log_pdf_debug(&format!(
+            "macos_ocr.selected reason={}",
+            macos_pdf_ocr_reason(&text)
+        ));
         let ocr_text = extract_pdf_text_macos_ocr(path)?;
         if ocr_text.trim().is_empty() {
+            log_pdf_debug("macos_ocr.completed length=0");
             return Ok(String::new());
         }
+        log_pdf_debug(&format!("macos_ocr.completed length={}", ocr_text.len()));
         let repaired_text = repair_pdf_text_encoding(&ocr_text);
         return Ok(normalize_pdf_paragraphs(&repaired_text));
     }
 
     #[cfg(not(target_os = "macos"))]
     if text.trim().is_empty() {
+        log_pdf_debug("raw_extraction.empty");
         return Ok(String::new());
     }
+    #[cfg(target_os = "macos")]
+    log_pdf_debug("macos_ocr.skipped using_raw_pdf_text=true");
     let repaired_text = repair_pdf_text_encoding(&text);
     Ok(normalize_pdf_paragraphs(&repaired_text))
 }
@@ -306,6 +324,15 @@ fn should_attempt_macos_pdf_ocr(text: &str) -> bool {
     text.trim().is_empty() || !is_probably_meaningful_pdf_text(text)
 }
 
+#[cfg(target_os = "macos")]
+fn macos_pdf_ocr_reason(text: &str) -> &'static str {
+    if text.trim().is_empty() {
+        "raw_text_empty"
+    } else {
+        "raw_text_not_meaningful"
+    }
+}
+
 #[cfg(any(target_os = "macos", test))]
 fn is_probably_meaningful_pdf_text(text: &str) -> bool {
     let mut visible = 0usize;
@@ -370,12 +397,20 @@ fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
         );
     }
 
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    for line in stderr
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        log_pdf_debug(&format!("macos_helper {line}"));
+    }
+
     if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        let detail = if stderr.is_empty() {
+        let detail = if stderr.trim().is_empty() {
             format!("uscita {:?}", output.status.code())
         } else {
-            stderr
+            stderr.trim().to_string()
         };
         return Err(anyhow!("OCR PDF macOS fallito: {}", detail));
     }
@@ -408,6 +443,10 @@ const MACOS_PDF_OCR_SWIFT: &str = r#"import AppKit
 import Foundation
 import PDFKit
 import Vision
+
+func logInfo(_ message: String) {
+    fputs("PDF macOS: \(message)\n", stderr)
+}
 
 func appendPageText(_ text: String, pageNumber: Int, to output: inout String) {
     let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -466,13 +505,34 @@ func preprocessImageForOCR(_ image: CGImage) -> CGImage? {
     return context.createCGImage(boosted, from: boosted.extent)
 }
 
+func observationSortKey(_ observation: VNRecognizedTextObservation) -> (CGFloat, CGFloat) {
+    // Vision uses a normalized coordinate system with origin at bottom-left.
+    // Sort top-to-bottom, then left-to-right to mimic screen OCR tools like VOCR.
+    let top = 1.0 - observation.boundingBox.maxY
+    let left = observation.boundingBox.minX
+    return (top, left)
+}
+
+func sortObservationsForReading(_ observations: [VNRecognizedTextObservation]) -> [VNRecognizedTextObservation] {
+    let lineTolerance: CGFloat = 0.02
+    return observations.sorted { lhs, rhs in
+        let leftKey = observationSortKey(lhs)
+        let rightKey = observationSortKey(rhs)
+        if abs(leftKey.0 - rightKey.0) <= lineTolerance {
+            return leftKey.1 < rightKey.1
+        }
+        return leftKey.0 < rightKey.0
+    }
+}
+
 func recognizePageText(_ image: CGImage) throws -> String {
     let request = VNRecognizeTextRequest()
     request.recognitionLevel = .accurate
     request.usesLanguageCorrection = true
+    request.minimumTextHeight = 0.0
     let handler = VNImageRequestHandler(cgImage: image, options: [:])
     try handler.perform([request])
-    let observations = request.results ?? []
+    let observations = sortObservationsForReading(request.results ?? [])
     return observations
         .compactMap { $0.topCandidates(1).first?.string }
         .joined(separator: "\n")
@@ -494,21 +554,20 @@ var output = ""
 for index in 0..<document.pageCount {
     autoreleasepool {
         guard let page = document.page(at: index) else {
-            return
-        }
-        if let embedded = page.string,
-           !embedded.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-            appendPageText(embedded, pageNumber: index + 1, to: &output)
+            logInfo("page=\(index + 1) missing_page")
             return
         }
         guard let image = renderPageImage(page) else {
+            logInfo("page=\(index + 1) render_failed")
             return
         }
         guard let processedImage = preprocessImageForOCR(image) else {
+            logInfo("page=\(index + 1) preprocess_failed")
             return
         }
         do {
             let recognized = try recognizePageText(processedImage)
+            logInfo("page=\(index + 1) source=vision_ocr_vocr_style length=\(recognized.count)")
             appendPageText(recognized, pageNumber: index + 1, to: &output)
         } catch {
             fputs("vision OCR failed: \(error)\n", stderr)
@@ -641,6 +700,14 @@ fn normalize_pdf_paragraphs(text: &str) -> String {
     flush_pdf_paragraph(&mut out, &mut current);
     out
 }
+
+#[cfg(any(target_os = "macos", windows))]
+fn log_pdf_debug(message: &str) {
+    crate::append_podcast_log(&format!("PDF: {message}"));
+}
+
+#[cfg(not(any(target_os = "macos", windows)))]
+fn log_pdf_debug(_message: &str) {}
 
 fn western_european_char_score(text: &str) -> usize {
     text.chars()

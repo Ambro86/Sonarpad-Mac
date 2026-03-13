@@ -400,17 +400,6 @@ fn handle_shortcut_event(
             let unicode_key = key_event.get_unicode_key().unwrap_or_default();
             let pending_command_shortcut = mac_pending_command_shortcut_active();
             let pending_command_period_sequence = mac_pending_command_period_sequence_active();
-            append_podcast_log(&format!(
-                "mac_shortcut.key_down key_code={} unicode_key={} cmd_down={} meta_down={} alt_down={} shift_down={} pending_cmd={} pending_cmd_period_seq={}",
-                key_code,
-                unicode_key,
-                key_event.cmd_down(),
-                key_event.meta_down(),
-                key_event.alt_down(),
-                key_event.shift_down(),
-                pending_command_shortcut,
-                pending_command_period_sequence
-            ));
             if key_code == WXK_MAC_CMD_PERIOD_PREFIX {
                 set_mac_pending_command_period_sequence(true);
                 append_podcast_log("mac_shortcut.cmd_period_prefix_latched");
@@ -504,7 +493,6 @@ fn handle_shortcut_event(
                 (actions.stop)();
                 return;
             }
-            append_podcast_log("mac_shortcut.pass_through");
             event.skip(true);
             return;
         }
