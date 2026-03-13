@@ -442,7 +442,6 @@ fn write_macos_pdf_ocr_script() -> Result<PathBuf> {
 const MACOS_PDF_OCR_SWIFT: &str = r#"import AppKit
 import Foundation
 import PDFKit
-import Vision
 
 func logInfo(_ message: String) {
     fputs("PDF macOS: \(message)\n", stderr)
@@ -456,236 +455,6 @@ func appendPageText(_ text: String, pageNumber: Int, to output: inout String) {
     }
     output.append("Pagina \(pageNumber)\n")
     output.append(trimmed)
-}
-
-func renderPageImage(_ page: PDFPage) -> CGImage? {
-    let bounds = page.bounds(for: .mediaBox)
-    let scale: CGFloat = 3.0
-    let width = max(Int(bounds.width * scale), 1)
-    let height = max(Int(bounds.height * scale), 1)
-    guard let colorSpace = CGColorSpace(name: CGColorSpace.sRGB) else {
-        return nil
-    }
-    guard let context = CGContext(
-        data: nil,
-        width: width,
-        height: height,
-        bitsPerComponent: 8,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
-    ) else {
-        return nil
-    }
-    context.setFillColor(NSColor.white.cgColor)
-    context.fill(CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-    context.saveGState()
-    context.translateBy(x: 0, y: CGFloat(height))
-    context.scaleBy(x: scale, y: -scale)
-    page.draw(with: .mediaBox, to: context)
-    context.restoreGState()
-    return context.makeImage()
-}
-
-func preprocessImageForOCR(_ image: CGImage) -> CGImage? {
-    let ciImage = CIImage(cgImage: image)
-    let grayscale = ciImage.applyingFilter(
-        "CIColorControls",
-        parameters: [
-            kCIInputSaturationKey: 0.0,
-            kCIInputContrastKey: 1.35,
-            kCIInputBrightnessKey: 0.02
-        ]
-    )
-    let boosted = grayscale.applyingFilter(
-        "CIExposureAdjust",
-        parameters: [kCIInputEVKey: 0.3]
-    )
-    let context = CIContext(options: nil)
-    return context.createCGImage(boosted, from: boosted.extent)
-}
-
-func rotateImage(_ image: CGImage, quarterTurns: Int) -> CGImage? {
-    let normalizedTurns = ((quarterTurns % 4) + 4) % 4
-    if normalizedTurns == 0 {
-        return image
-    }
-
-    let width = image.width
-    let height = image.height
-    let outputWidth = normalizedTurns % 2 == 0 ? width : height
-    let outputHeight = normalizedTurns % 2 == 0 ? height : width
-    guard let colorSpace = image.colorSpace ?? CGColorSpace(name: CGColorSpace.sRGB) else {
-        return nil
-    }
-    guard let context = CGContext(
-        data: nil,
-        width: outputWidth,
-        height: outputHeight,
-        bitsPerComponent: image.bitsPerComponent,
-        bytesPerRow: 0,
-        space: colorSpace,
-        bitmapInfo: image.bitmapInfo.rawValue
-    ) else {
-        return nil
-    }
-
-    switch normalizedTurns {
-    case 1:
-        context.translateBy(x: CGFloat(outputWidth), y: 0)
-        context.rotate(by: .pi / 2)
-    case 2:
-        context.translateBy(x: CGFloat(outputWidth), y: CGFloat(outputHeight))
-        context.rotate(by: .pi)
-    case 3:
-        context.translateBy(x: 0, y: CGFloat(outputHeight))
-        context.rotate(by: -.pi / 2)
-    default:
-        break
-    }
-
-    context.draw(image, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-    return context.makeImage()
-}
-
-func observationSortKey(_ observation: VNRecognizedTextObservation) -> (CGFloat, CGFloat) {
-    // Vision uses a normalized coordinate system with origin at bottom-left.
-    // Sort top-to-bottom, then left-to-right to mimic screen OCR tools like VOCR.
-    let top = 1.0 - observation.boundingBox.maxY
-    let left = observation.boundingBox.minX
-    return (top, left)
-}
-
-func sortObservationsForReading(_ observations: [VNRecognizedTextObservation]) -> [VNRecognizedTextObservation] {
-    let lineTolerance: CGFloat = 0.02
-    return observations.sorted { lhs, rhs in
-        let leftKey = observationSortKey(lhs)
-        let rightKey = observationSortKey(rhs)
-        if abs(leftKey.0 - rightKey.0) <= lineTolerance {
-            return leftKey.1 < rightKey.1
-        }
-        return leftKey.0 < rightKey.0
-    }
-}
-
-func joinObservationsForReading(_ observations: [VNRecognizedTextObservation]) -> String {
-    let sorted = sortObservationsForReading(observations)
-    guard !sorted.isEmpty else { return "" }
-
-    let lineTolerance: CGFloat = 0.02
-    var lines: [[VNRecognizedTextObservation]] = []
-    var currentLine: [VNRecognizedTextObservation] = []
-    var currentTop: CGFloat?
-
-    for observation in sorted {
-        let key = observationSortKey(observation)
-        if let top = currentTop, abs(top - key.0) > lineTolerance, !currentLine.isEmpty {
-            lines.append(currentLine)
-            currentLine = []
-        }
-        if currentLine.isEmpty {
-            currentTop = key.0
-        }
-        currentLine.append(observation)
-    }
-
-    if !currentLine.isEmpty {
-        lines.append(currentLine)
-    }
-
-    return lines
-        .map { line in
-            line.sorted { observationSortKey($0).1 < observationSortKey($1).1 }
-                .compactMap { $0.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-                .joined(separator: " ")
-        }
-        .filter { !$0.isEmpty }
-        .joined(separator: "\n")
-}
-
-func recognizeTextObservations(_ image: CGImage, languages: [String]) throws -> [VNRecognizedTextObservation] {
-    let request = VNRecognizeTextRequest()
-    request.recognitionLevel = .accurate
-    request.usesLanguageCorrection = true
-    request.minimumTextHeight = 0.0
-    request.recognitionLanguages = languages
-    let handler = VNImageRequestHandler(cgImage: image, options: [:])
-    try handler.perform([request])
-    return request.results ?? []
-}
-
-func cropObservationImage(_ image: CGImage, observation: VNRecognizedTextObservation) -> CGImage? {
-    let width = CGFloat(image.width)
-    let height = CGFloat(image.height)
-    let box = observation.boundingBox
-    let paddingX = max(box.width * 0.08, 0.005)
-    let paddingY = max(box.height * 0.18, 0.005)
-    let minX = max(0.0, box.minX - paddingX)
-    let maxX = min(1.0, box.maxX + paddingX)
-    let minY = max(0.0, box.minY - paddingY)
-    let maxY = min(1.0, box.maxY + paddingY)
-    let rect = CGRect(
-        x: minX * width,
-        y: (1.0 - maxY) * height,
-        width: max(1.0, (maxX - minX) * width),
-        height: max(1.0, (maxY - minY) * height)
-    ).integral
-    return image.cropping(to: rect)
-}
-
-func recognizeTextByBlocks(_ image: CGImage, languages: [String]) throws -> String {
-    let observations = try recognizeTextObservations(image, languages: languages)
-    guard !observations.isEmpty else { return "" }
-    let sorted = sortObservationsForReading(observations)
-    var pieces: [((CGFloat, CGFloat), String)] = []
-
-    for observation in sorted {
-        if let cropped = cropObservationImage(image, observation: observation),
-           let croppedObservation = try? recognizeTextObservations(cropped, languages: languages),
-           !croppedObservation.isEmpty
-        {
-            let text = joinObservationsForReading(croppedObservation)
-            if !text.isEmpty {
-                pieces.append((observationSortKey(observation), text))
-                continue
-            }
-        }
-        if let text = observation.topCandidates(1).first?.string.trimmingCharacters(in: .whitespacesAndNewlines),
-           !text.isEmpty
-        {
-            pieces.append((observationSortKey(observation), text))
-        }
-    }
-
-    let lineTolerance: CGFloat = 0.02
-    var lines: [[((CGFloat, CGFloat), String)]] = []
-    var currentLine: [((CGFloat, CGFloat), String)] = []
-    var currentTop: CGFloat?
-
-    for piece in pieces {
-        if let top = currentTop, abs(top - piece.0.0) > lineTolerance, !currentLine.isEmpty {
-            lines.append(currentLine)
-            currentLine = []
-        }
-        if currentLine.isEmpty {
-            currentTop = piece.0.0
-        }
-        currentLine.append(piece)
-    }
-
-    if !currentLine.isEmpty {
-        lines.append(currentLine)
-    }
-
-    return lines
-        .map { line in
-            line.sorted { $0.0.1 < $1.0.1 }
-                .map { $0.1 }
-                .joined(separator: " ")
-        }
-        .filter { !$0.isEmpty }
-        .joined(separator: "\n")
 }
 
 func textQualityScore(_ text: String) -> Int {
@@ -703,37 +472,35 @@ func textQualityScore(_ text: String) -> Int {
     return markerScore * 40 + letters - digits * 2 - punctuation * 4
 }
 
-func recognizeBestPageText(_ image: CGImage) throws -> (String, String, Int) {
-    let languageCandidates = [
-        ("it_only", ["it-IT"]),
-        ("it_en", ["it-IT", "en-US"])
-    ]
-    let rotationCandidates = [
-        ("rot0", 0),
-        ("rot90", 1),
-        ("rot180", 2),
-        ("rot270", 3)
-    ]
+func cleanedText(_ text: String?) -> String {
+    guard let text else { return "" }
+    return text
+        .replacingOccurrences(of: "\u{00a0}", with: " ")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+}
 
+func bestPageText(_ page: PDFPage) -> (String, String, Int)? {
     var bestText = ""
-    var bestSource = "vision_ocr_vocr_style"
+    var bestSource = "pdfkit_none"
     var bestScore = Int.min
 
-    for (rotationLabel, turns) in rotationCandidates {
-        guard let candidateImage = rotateImage(image, quarterTurns: turns) else {
-            continue
-        }
-        for (languageLabel, languages) in languageCandidates {
-            let recognized = try recognizeTextByBlocks(candidateImage, languages: languages)
-            let score = textQualityScore(recognized)
-            if score > bestScore {
-                bestText = recognized
-                bestSource = "vision_ocr_vocr_style_\(rotationLabel)_\(languageLabel)"
-                bestScore = score
-            }
+    let candidates: [(String, String)] = [
+        ("pdfkit_attributed_string", cleanedText(page.attributedString?.string)),
+        ("pdfkit_media_selection", cleanedText(page.selection(for: page.bounds(for: .mediaBox))?.string)),
+        ("pdfkit_crop_selection", cleanedText(page.selection(for: page.bounds(for: .cropBox))?.string)),
+        ("pdfkit_page_string", cleanedText(page.string))
+    ]
+
+    for (source, text) in candidates where !text.isEmpty {
+        let score = textQualityScore(text)
+        if score > bestScore {
+            bestText = text
+            bestSource = source
+            bestScore = score
         }
     }
 
+    guard !bestText.isEmpty else { return nil }
     return (bestText, bestSource, bestScore)
 }
 
@@ -756,20 +523,11 @@ for index in 0..<document.pageCount {
             logInfo("page=\(index + 1) missing_page")
             return
         }
-        guard let image = renderPageImage(page) else {
-            logInfo("page=\(index + 1) render_failed")
-            return
-        }
-        guard let processedImage = preprocessImageForOCR(image) else {
-            logInfo("page=\(index + 1) preprocess_failed")
-            return
-        }
-        do {
-            let (recognized, source, score) = try recognizeBestPageText(processedImage)
+        if let (recognized, source, score) = bestPageText(page) {
             logInfo("page=\(index + 1) source=\(source) length=\(recognized.count) score=\(score)")
             appendPageText(recognized, pageNumber: index + 1, to: &output)
-        } catch {
-            fputs("vision OCR failed: \(error)\n", stderr)
+        } else {
+            logInfo("page=\(index + 1) source=pdfkit_none length=0 score=0")
         }
     }
 }
