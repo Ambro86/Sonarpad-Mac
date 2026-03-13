@@ -366,28 +366,25 @@ fn is_probably_meaningful_pdf_text(text: &str) -> bool {
 
 #[cfg(target_os = "macos")]
 fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
+    let image_dir = render_pdf_pages_for_macos_ocr(path)?;
+    let mut image_paths = collect_macos_ocr_image_paths(&image_dir)?;
     let script_path = write_macos_pdf_ocr_script()?;
     let swift = macos_swift_command()
         .ok_or_else(|| anyhow!("OCR PDF macOS non disponibile: interpreter Swift non trovato"))?;
 
-    let output = if swift.file_name() == Some(OsStr::new("xcrun")) {
-        Command::new(&swift)
-            .arg("swift")
-            .arg(&script_path)
-            .arg(path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|err| anyhow!("OCR PDF macOS fallito: {}", err))?
-    } else {
-        Command::new(&swift)
-            .arg(&script_path)
-            .arg(path)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .map_err(|err| anyhow!("OCR PDF macOS fallito: {}", err))?
-    };
+    let mut command = Command::new(&swift);
+    if swift.file_name() == Some(OsStr::new("xcrun")) {
+        command.arg("swift");
+    }
+    command.arg(&script_path);
+    for image_path in &image_paths {
+        command.arg(image_path);
+    }
+    let output = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| anyhow!("OCR PDF macOS fallito: {}", err))?;
 
     if let Err(err) = std::fs::remove_file(&script_path) {
         println!(
@@ -396,6 +393,14 @@ fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
             err
         );
     }
+    if let Err(err) = std::fs::remove_dir_all(&image_dir) {
+        println!(
+            "ERROR: rimozione immagini OCR macOS fallita: {} ({})",
+            image_dir.display(),
+            err
+        );
+    }
+    image_paths.clear();
 
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     for line in stderr
@@ -416,6 +421,53 @@ fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn render_pdf_pages_for_macos_ocr(path: &Path) -> Result<PathBuf> {
+    let bindings = bind_pdfium_library()?;
+    let pdfium = Pdfium::new(bindings);
+    let document = pdfium
+        .load_pdf_from_file(path, None)
+        .map_err(|err| anyhow!("pdfium render OCR load failed: {err}"))?;
+    let image_dir =
+        std::env::temp_dir().join(format!("sonarpad_minimal_pdfium_ocr_{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&image_dir)
+        .map_err(|err| anyhow!("creazione cartella immagini OCR macOS fallita: {}", err))?;
+
+    for (page_index, page) in document.pages().iter().enumerate() {
+        let bitmap = page
+            .render_with_config(
+                &PdfRenderConfig::new()
+                    .set_target_width(2200)
+                    .render_form_data(true)
+                    .use_lcd_text_rendering(true)
+                    .use_print_quality(true),
+            )
+            .map_err(|err| anyhow!("pdfium render OCR pagina {} fallito: {err}", page_index + 1))?;
+        let image = bitmap.as_image();
+        let image_path = image_dir.join(format!("page_{:04}.png", page_index + 1));
+        image.save(&image_path).map_err(|err| {
+            anyhow!(
+                "salvataggio immagine OCR macOS pagina {} fallito: {}",
+                page_index + 1,
+                err
+            )
+        })?;
+    }
+
+    Ok(image_dir)
+}
+
+#[cfg(target_os = "macos")]
+fn collect_macos_ocr_image_paths(image_dir: &Path) -> Result<Vec<PathBuf>> {
+    let mut image_paths = std::fs::read_dir(image_dir)
+        .map_err(|err| anyhow!("lettura cartella immagini OCR macOS fallita: {}", err))?
+        .map(|entry| entry.map(|entry| entry.path()))
+        .collect::<std::result::Result<Vec<_>, _>>()
+        .map_err(|err| anyhow!("enumerazione immagini OCR macOS fallita: {}", err))?;
+    image_paths.sort();
+    Ok(image_paths)
 }
 
 #[cfg(target_os = "macos")]
@@ -442,6 +494,7 @@ fn write_macos_pdf_ocr_script() -> Result<PathBuf> {
 const MACOS_PDF_OCR_SWIFT: &str = r#"import AppKit
 import Foundation
 import PDFKit
+import Vision
 
 func logInfo(_ message: String) {
     fputs("PDF macOS: \(message)\n", stderr)
@@ -479,55 +532,56 @@ func cleanedText(_ text: String?) -> String {
         .trimmingCharacters(in: .whitespacesAndNewlines)
 }
 
-func bestPageText(_ page: PDFPage) -> (String, String, Int)? {
-    var bestText = ""
-    var bestSource = "pdfkit_none"
-    var bestScore = Int.min
-
-    let candidates: [(String, String)] = [
-        ("pdfkit_attributed_string", cleanedText(page.attributedString?.string)),
-        ("pdfkit_media_selection", cleanedText(page.selection(for: page.bounds(for: .mediaBox))?.string)),
-        ("pdfkit_crop_selection", cleanedText(page.selection(for: page.bounds(for: .cropBox))?.string)),
-        ("pdfkit_page_string", cleanedText(page.string))
-    ]
-
-    for (source, text) in candidates where !text.isEmpty {
-        let score = textQualityScore(text)
-        if score > bestScore {
-            bestText = text
-            bestSource = source
-            bestScore = score
-        }
+func recognizeText(from imageUrl: URL) throws -> String {
+    guard let image = NSImage(contentsOf: imageUrl) else {
+        throw NSError(domain: "SonarpadOCR", code: 2, userInfo: [NSLocalizedDescriptionKey: "unable to load image"])
+    }
+    guard let tiff = image.tiffRepresentation,
+          let bitmap = NSBitmapImageRep(data: tiff),
+          let cgImage = bitmap.cgImage else {
+        throw NSError(domain: "SonarpadOCR", code: 3, userInfo: [NSLocalizedDescriptionKey: "unable to build cgimage"])
     }
 
-    guard !bestText.isEmpty else { return nil }
-    return (bestText, bestSource, bestScore)
+    let request = VNRecognizeTextRequest()
+    request.recognitionLevel = .accurate
+    request.recognitionLanguages = ["it-IT", "en-US"]
+    request.usesLanguageCorrection = true
+
+    let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+    try handler.perform([request])
+
+    let observations = (request.results ?? []).compactMap { observation -> (CGRect, String)? in
+        guard let candidate = observation.topCandidates(1).first else { return nil }
+        let text = cleanedText(candidate.string)
+        guard !text.isEmpty else { return nil }
+        return (observation.boundingBox, text)
+    }
+
+    let sorted = observations.sorted { lhs, rhs in
+        if abs(lhs.0.midY - rhs.0.midY) > 0.02 {
+            return lhs.0.midY > rhs.0.midY
+        }
+        return lhs.0.minX < rhs.0.minX
+    }
+
+    return sorted.map(\.1).joined(separator: "\n")
 }
 
 guard CommandLine.arguments.count >= 2 else {
-    fputs("missing pdf path\n", stderr)
+    fputs("missing image paths\n", stderr)
     exit(2)
 }
 
-let pdfPath = CommandLine.arguments[1]
-let url = URL(fileURLWithPath: pdfPath)
-guard let document = PDFDocument(url: url) else {
-    fputs("unable to open PDF\n", stderr)
-    exit(3)
-}
-
 var output = ""
-for index in 0..<document.pageCount {
+for (index, imagePath) in CommandLine.arguments.dropFirst().enumerated() {
     autoreleasepool {
-        guard let page = document.page(at: index) else {
-            logInfo("page=\(index + 1) missing_page")
-            return
-        }
-        if let (recognized, source, score) = bestPageText(page) {
-            logInfo("page=\(index + 1) source=\(source) length=\(recognized.count) score=\(score)")
+        do {
+            let recognized = try recognizeText(from: URL(fileURLWithPath: imagePath))
+            let score = textQualityScore(recognized)
+            logInfo("page=\(index + 1) source=pdfium_vision length=\(recognized.count) score=\(score)")
             appendPageText(recognized, pageNumber: index + 1, to: &output)
-        } else {
-            logInfo("page=\(index + 1) source=pdfkit_none length=0 score=0")
+        } catch {
+            logInfo("page=\(index + 1) source=pdfium_vision_error length=0 score=0 detail=\(error.localizedDescription)")
         }
     }
 }
