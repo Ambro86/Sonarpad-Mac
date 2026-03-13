@@ -3,6 +3,9 @@ name: Create Release (macOS)
 on:
   workflow_dispatch:
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   create-release:
     name: Create Release from Latest DMG Artifact
@@ -91,3 +94,4 @@ jobs:
           done
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+

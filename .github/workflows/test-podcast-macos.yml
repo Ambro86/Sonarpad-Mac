@@ -9,6 +9,9 @@ on:
         type: string
         default: https://anchor.fm/s/4d843d00/podcast/play/26931264/https%3A%2F%2Fd3ctxlq1ktw2nl.cloudfront.net%2Fstaging%2F2021-02-19%2Fc7b3e24649c330346138184e123d5966.m4a
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   probe-podcast:
     runs-on: macos-latest
@@ -127,3 +130,4 @@ jobs:
           SWIFT
 
           swift /tmp/podcast_probe.swift
+

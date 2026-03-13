@@ -9,6 +9,9 @@ on:
     tags:
       - "v*"
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   build-macos:
     strategy:
@@ -197,11 +200,28 @@ jobs:
           APP_NAME="Sonarpad"
           STAGE_DIR="dist/stage"
           DMG_SRC_DIR="dist/dmg-src"
+          DMG_PATH="dist/${{ matrix.dmg_name }}"
+          TMP_DMG_PATH="dist/${{ matrix.artifact_name }}-tmp.dmg"
           mkdir -p dist
+          rm -f "${DMG_PATH}" "${TMP_DMG_PATH}"
+          hdiutil detach "/Volumes/${APP_NAME}" -force 2>/dev/null || true
+          sleep 2
           rm -rf "${DMG_SRC_DIR}"
           mkdir -p "${DMG_SRC_DIR}"
           cp -R "${STAGE_DIR}/${APP_NAME}.app" "${DMG_SRC_DIR}/"
-          hdiutil create -volname "${APP_NAME}" -srcfolder "${DMG_SRC_DIR}" -ov -format UDZO "dist/${{ matrix.dmg_name }}"
+          lsof +D "${DMG_SRC_DIR}" || true
+          for attempt in 1 2; do
+            if hdiutil create -volname "${APP_NAME}" -srcfolder "${DMG_SRC_DIR}" -ov -format UDZO "${TMP_DMG_PATH}"; then
+              mv -f "${TMP_DMG_PATH}" "${DMG_PATH}"
+              exit 0
+            fi
+            if [ "${attempt}" -eq 2 ]; then
+              exit 1
+            fi
+            rm -f "${TMP_DMG_PATH}"
+            hdiutil detach "/Volumes/${APP_NAME}" -force 2>/dev/null || true
+            sleep 3
+          done
 
       - name: Validate DMG structure
         shell: bash
@@ -239,3 +259,5 @@ jobs:
         with:
           name: ${{ matrix.artifact_name }}
           path: dist/${{ matrix.dmg_name }}
+
+
