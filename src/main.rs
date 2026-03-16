@@ -2603,10 +2603,24 @@ fn refresh_all_article_sources(
         for source in sources {
             match rt_refresh.block_on(articles::fetch_source(&source)) {
                 Ok(updated) => {
-                    if updated.items != source.items || updated.title != source.title {
+                    let should_preserve_existing_items =
+                        updated.items.is_empty() && !source.items.is_empty();
+                    let effective_source = if should_preserve_existing_items {
+                        append_podcast_log(&format!(
+                            "articles_refresh.keep_existing_items url={} previous_items={}",
+                            source.url,
+                            source.items.len()
+                        ));
+                        source.clone()
+                    } else {
+                        updated
+                    };
+                    if effective_source.items != source.items
+                        || effective_source.title != source.title
+                    {
                         changed = true;
                     }
-                    updated_sources.push(updated);
+                    updated_sources.push(effective_source);
                 }
                 Err(err) => {
                     println!(
@@ -2662,8 +2676,16 @@ fn refresh_single_article_source(
                         .iter_mut()
                         .find(|existing| existing.url.eq_ignore_ascii_case(&source_url))
                     {
-                        *existing = updated;
-                        locked.save();
+                        if updated.items.is_empty() && !existing.items.is_empty() {
+                            append_podcast_log(&format!(
+                                "article_refresh.keep_existing_items url={} previous_items={}",
+                                source_url,
+                                existing.items.len()
+                            ));
+                        } else {
+                            *existing = updated;
+                            locked.save();
+                        }
                     }
                 }
                 Err(err) => {
@@ -4753,11 +4775,19 @@ fn main() {
                     .get(source_index)
                     .and_then(|source| source.items.get(item_index))
                     .cloned();
-                if let Some(item) = item
-                    && let Ok(text) = rt_articles_menu.block_on(articles::fetch_article_text(&item))
-                {
-                    podcast_selection_menu.borrow_mut().selected_episode = None;
-                    tc_menu.set_value(&text);
+                if let Some(item) = item {
+                    match rt_articles_menu.block_on(articles::fetch_article_text(&item)) {
+                        Ok(text) if !text.trim().is_empty() => {
+                            podcast_selection_menu.borrow_mut().selected_episode = None;
+                            tc_menu.set_value(&text);
+                        }
+                        Ok(_) | Err(_) => {
+                            append_podcast_log(&format!(
+                                "article_menu.keep_existing_text title={} link={}",
+                                item.title, item.link
+                            ));
+                        }
+                    }
                 }
             }
         });

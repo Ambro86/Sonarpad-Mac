@@ -1,0 +1,297 @@
+name: Build macOS Catalina Intel App and DMG
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - "v*"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build-macos-catalina:
+    runs-on: macos-15-intel
+    env:
+      CMAKE_ARGS: -DwxUSE_OPENGL=OFF
+      MACOSX_DEPLOYMENT_TARGET: "10.15"
+      CMAKE_OSX_DEPLOYMENT_TARGET: "10.15"
+      CFLAGS: -mmacosx-version-min=10.15
+      CXXFLAGS: -mmacosx-version-min=10.15
+      LDFLAGS: -mmacosx-version-min=10.15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode and SDK
+        shell: bash
+        run: |
+          set -euxo pipefail
+          if [ -d "/Applications/Xcode.app/Contents/Developer" ]; then
+            DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+          else
+            DEVELOPER_DIR="$(dirname "$(dirname "$(xcode-select -p)")")"
+          fi
+          echo "Using DEVELOPER_DIR=${DEVELOPER_DIR}"
+          sudo xcode-select -switch "${DEVELOPER_DIR}"
+          xcodebuild -version
+          echo "DEVELOPER_DIR=${DEVELOPER_DIR}" >> "${GITHUB_ENV}"
+          echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
+
+      - name: Ensure build tools (cmake + ninja + ffmpeg)
+        shell: bash
+        run: |
+          set -euxo pipefail
+          brew update
+          brew install cmake ninja ffmpeg
+          cmake --version
+          ninja --version
+          ffmpeg -version
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+
+      - name: Cache Rust build
+        uses: Swatinem/rust-cache@v2
+
+      - name: Build release binary
+        shell: bash
+        run: |
+          set -euxo pipefail
+          cargo build --release --target x86_64-apple-darwin
+
+      - name: Download pdfium for macOS Intel
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/pdfium
+          curl -L --fail \
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz" \
+            -o "dist/pdfium/pdfium-mac-x64.tgz"
+          tar -xzf "dist/pdfium/pdfium-mac-x64.tgz" -C dist/pdfium
+          PDFIUM_DYLIB="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1)"
+          test -n "${PDFIUM_DYLIB}"
+          echo "PDFIUM_DYLIB=${PDFIUM_DYLIB}" >> "${GITHUB_ENV}"
+
+      - name: Download curl-impersonate for macOS
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/curl-cffi
+          python3 -m pip download \
+            --no-deps \
+            --only-binary=:all: \
+            --dest dist/curl-cffi \
+            curl_cffi
+          python3 - <<'PY'
+          import zipfile
+          from pathlib import Path
+
+          wheel_path = next(Path("dist/curl-cffi").glob("*.whl"))
+          extract_dir = Path("dist/curl-cffi/extracted")
+          extract_dir.mkdir(parents=True, exist_ok=True)
+          with zipfile.ZipFile(wheel_path) as wheel:
+              wheel.extractall(extract_dir)
+          dylibs = sorted(str(path) for path in extract_dir.rglob("*.dylib"))
+          if not dylibs:
+              raise SystemExit("No .dylib files found inside curl_cffi wheel")
+          print("Extracted dylibs:")
+          for dylib in dylibs:
+              print(dylib)
+          PY
+
+      - name: Package .app and .dmg
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          APP_NAME="Sonarpad"
+          BIN_NAME="sonarpad-minimal"
+          STAGE_DIR="dist/stage"
+          APP_DIR="${STAGE_DIR}/${APP_NAME}.app"
+          CONTENTS_DIR="${APP_DIR}/Contents"
+          MACOS_DIR="${CONTENTS_DIR}/MacOS"
+          FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
+          RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+          FFMPEG_DIR="${RESOURCES_DIR}/ffmpeg"
+          FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
+          FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
+
+          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
+          cp "target/x86_64-apple-darwin/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
+          chmod +x "${MACOS_DIR}/${APP_NAME}"
+          cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
+          chmod +x "${FRAMEWORKS_DIR}/libpdfium.dylib"
+          find "dist/curl-cffi/extracted" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' dylib; do
+            dylib_name="$(basename "${dylib}")"
+            cp "${dylib}" "${FRAMEWORKS_DIR}/${dylib_name}"
+            chmod +x "${FRAMEWORKS_DIR}/${dylib_name}"
+          done
+          cp "$(which ffmpeg)" "${FFMPEG_BIN_DIR}/ffmpeg"
+          chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
+
+          copy_ffmpeg_deps() {
+            local binary="$1"
+            local dep_target="$2"
+            otool -L "${binary}" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+              case "${dep}" in
+                /System/*|/usr/lib/*|'')
+                  continue
+                  ;;
+              esac
+              local dep_name
+              dep_name="$(basename "${dep}")"
+              local copied="${FFMPEG_LIB_DIR}/${dep_name}"
+              if [ ! -f "${copied}" ]; then
+                cp -L "${dep}" "${copied}"
+                chmod +x "${copied}"
+                install_name_tool -id "@loader_path/${dep_name}" "${copied}" || true
+                copy_ffmpeg_deps "${copied}" "@loader_path"
+              fi
+              install_name_tool -change "${dep}" "${dep_target}/${dep_name}" "${binary}" || true
+            done
+          }
+
+          copy_ffmpeg_deps "${FFMPEG_BIN_DIR}/ffmpeg" "@executable_path/../lib"
+
+          cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>Sonarpad</string>
+            <key>CFBundleDisplayName</key>
+            <string>Sonarpad</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.sonarpad.minimal</string>
+            <key>CFBundleVersion</key>
+            <string>0.2.1</string>
+            <key>CFBundleShortVersionString</key>
+            <string>0.2.1</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>CFBundleExecutable</key>
+            <string>Sonarpad</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>10.15</string>
+            <key>NSAppTransportSecurity</key>
+            <dict>
+              <key>NSAllowsArbitraryLoadsForMedia</key>
+              <true/>
+            </dict>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          PLIST
+
+          codesign --force --deep --sign - "${APP_DIR}"
+          plutil -lint "${CONTENTS_DIR}/Info.plist"
+          codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+
+      - name: Smoke test app launch
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_BIN="dist/stage/Sonarpad.app/Contents/MacOS/Sonarpad"
+          LOG_FILE="$(mktemp)"
+          "${APP_BIN}" >"${LOG_FILE}" 2>&1 &
+          APP_PID=$!
+          sleep 5
+          if ! kill -0 "${APP_PID}" 2>/dev/null; then
+            echo "App exited too early during smoke test."
+            cat "${LOG_FILE}"
+            exit 1
+          fi
+          kill "${APP_PID}" || true
+          wait "${APP_PID}" 2>/dev/null || true
+          sleep 2
+
+      - name: Validate Catalina deployment target
+        shell: bash
+        run: |
+          set -euxo pipefail
+
+          check_minos() {
+            local binary="$1"
+            local expected="$2"
+            local output
+            output="$(vtool -show-build "${binary}" 2>/dev/null || true)"
+            echo "${output}"
+            if ! echo "${output}" | grep -q "minos ${expected}"; then
+              echo "Expected minos ${expected} for ${binary}"
+              exit 1
+            fi
+          }
+
+          APP_BIN="dist/stage/Sonarpad.app/Contents/MacOS/Sonarpad"
+          check_minos "${APP_BIN}" "10.15"
+          check_minos "dist/stage/Sonarpad.app/Contents/Frameworks/libpdfium.dylib" "10.15"
+          check_minos "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg" "10.15"
+
+          find "dist/stage/Sonarpad.app/Contents/Frameworks" -type f -name '*.dylib' -print0 | \
+            while IFS= read -r -d '' dylib; do
+              check_minos "${dylib}" "10.15"
+            done
+
+          find "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/lib" -type f -name '*.dylib' -print0 | \
+            while IFS= read -r -d '' dylib; do
+              check_minos "${dylib}" "10.15"
+            done
+
+      - name: Package DMG
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          STAGE_DIR="dist/stage"
+          DMG_SRC_DIR="dist/dmg-src"
+          DMG_PATH="dist/Sonarpad-macOS-Intel-Catalina.dmg"
+          TMP_DMG_PATH="dist/sonarpad-macos-dmg-intel-catalina-tmp.dmg"
+          mkdir -p dist
+          rm -f "${DMG_PATH}" "${TMP_DMG_PATH}"
+          hdiutil detach "/Volumes/${APP_NAME}" -force 2>/dev/null || true
+          sleep 2
+          rm -rf "${DMG_SRC_DIR}"
+          mkdir -p "${DMG_SRC_DIR}"
+          cp -R "${STAGE_DIR}/${APP_NAME}.app" "${DMG_SRC_DIR}/"
+          lsof +D "${DMG_SRC_DIR}" || true
+          for attempt in 1 2; do
+            if hdiutil create -volname "${APP_NAME}" -srcfolder "${DMG_SRC_DIR}" -ov -format UDZO "${TMP_DMG_PATH}"; then
+              mv -f "${TMP_DMG_PATH}" "${DMG_PATH}"
+              exit 0
+            fi
+            if [ "${attempt}" -eq 2 ]; then
+              exit 1
+            fi
+            rm -f "${TMP_DMG_PATH}"
+            hdiutil detach "/Volumes/${APP_NAME}" -force 2>/dev/null || true
+            sleep 3
+          done
+
+      - name: Validate DMG structure
+        shell: bash
+        run: |
+          set -euxo pipefail
+          DMG_PATH="dist/Sonarpad-macOS-Intel-Catalina.dmg"
+          MOUNT_DIR="$(mktemp -d)"
+          hdiutil attach "${DMG_PATH}" -mountpoint "${MOUNT_DIR}" -nobrowse -quiet
+          test -d "${MOUNT_DIR}/Sonarpad.app"
+          test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks/libpdfium.dylib"
+          test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
+          find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name 'libcurl*.dylib' | grep .
+          codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
+          hdiutil detach "${MOUNT_DIR}" -quiet
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-dmg-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.dmg
