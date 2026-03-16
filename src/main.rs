@@ -8,6 +8,8 @@ mod podcast_player;
 mod podcasts;
 mod reader;
 
+use docx_rs::{Docx, Paragraph, Run};
+use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
 use rodio::{Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
 #[cfg(target_os = "macos")]
@@ -20,6 +22,7 @@ use std::io::Cursor;
 #[cfg(any(target_os = "macos", windows))]
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::rc::Rc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -43,6 +46,7 @@ const ID_PLAY_PAUSE: i32 = 2001;
 const ID_STOP: i32 = 2003;
 const ID_SAVE: i32 = 2002;
 const ID_SETTINGS: i32 = 2004;
+const ID_SAVE_TEXT: i32 = 2007;
 const ID_PODCAST_BACKWARD: i32 = 2005;
 const ID_PODCAST_FORWARD: i32 = 2006;
 const ID_ARTICLES_ADD_SOURCE: i32 = 2100;
@@ -310,6 +314,8 @@ struct UiStrings {
     menu_help: String,
     menu_open: String,
     menu_open_help: String,
+    menu_save_text: String,
+    menu_save_text_help: String,
     #[cfg(target_os = "macos")]
     menu_start: String,
     #[cfg(target_os = "macos")]
@@ -391,10 +397,15 @@ struct UiStrings {
     audiobook_saved_ok: String,
     save_completed_title: String,
     cancelling_audiobook: String,
+    audiobook_ffmpeg_missing: String,
+    audiobook_m4b_conversion_failed: String,
     podcast_downloaded_title: String,
     podcast_downloaded_message: String,
     open: String,
     save_as: String,
+    save_text_title: String,
+    text_file_not_saved: String,
+    text_saved_ok: String,
     close: String,
     open_document_title: String,
     analyzing_document: String,
@@ -612,6 +623,7 @@ fn refresh_localized_main_ui(
         }
 
         update_menu_item_label(&menubar, ID_OPEN, &ui.menu_open);
+        update_menu_item_label(&menubar, ID_SAVE_TEXT, &ui.menu_save_text);
         update_menu_item_label(&menubar, ID_EXIT, &ui.menu_exit);
         update_menu_item_label(&menubar, ID_ABOUT, &ui.menu_about);
         update_menu_item_label(&menubar, ID_DONATIONS, &ui.menu_donations);
@@ -676,6 +688,22 @@ fn handle_shortcut_event(
             let unicode_key = key_event.get_unicode_key().unwrap_or_default();
             let pending_command_shortcut = mac_pending_command_shortcut_active();
             let pending_command_period_sequence = mac_pending_command_period_sequence_active();
+
+            let is_standard_edit_shortcut = command_shortcut_down(key_event)
+                && !key_event.alt_down()
+                && ((matches_ascii_key(key_code, unicode_key, 'c')
+                    || matches_ascii_key(key_code, unicode_key, 'v')
+                    || matches_ascii_key(key_code, unicode_key, 'x')
+                    || matches_ascii_key(key_code, unicode_key, 'a')
+                    || matches_ascii_key(key_code, unicode_key, 'z'))
+                    || (key_event.shift_down() && matches_ascii_key(key_code, unicode_key, 'z')));
+            if is_standard_edit_shortcut {
+                set_mac_pending_command_period_sequence(false);
+                set_mac_pending_command_shortcut(false);
+                event.skip(true);
+                return;
+            }
+
             if key_code == WXK_MAC_CMD_PERIOD_PREFIX {
                 set_mac_pending_command_period_sequence(true);
                 append_podcast_log("mac_shortcut.cmd_period_prefix_latched");
@@ -966,6 +994,289 @@ fn show_message_subdialog(parent: &Dialog, title: &str, message: &str) {
         .build();
     localize_standard_dialog_buttons(&dialog);
     dialog.show_modal();
+}
+
+fn write_docx_text(path: &Path, text: &str) -> Result<(), String> {
+    let file = std::fs::File::create(path)
+        .map_err(|err| format!("salvataggio file {} fallito: {}", path.display(), err))?;
+    let mut docx = Docx::new();
+    for line in text.split('\n') {
+        let line = line.strip_suffix('\r').unwrap_or(line);
+        let paragraph = if line.is_empty() {
+            Paragraph::new()
+        } else {
+            Paragraph::new().add_run(Run::new().add_text(line))
+        };
+        docx = docx.add_paragraph(paragraph);
+    }
+    docx.build()
+        .pack(file)
+        .map_err(|err| format!("salvataggio DOCX {} fallito: {}", path.display(), err))
+}
+
+fn estimate_max_chars(page_width: f32, margin: f32, font_size: f32) -> usize {
+    let usable_mm = page_width - (margin * 2.0);
+    let avg_char_mm = (font_size * 0.3528) * 0.5;
+    let estimate = (usable_mm / avg_char_mm) as usize;
+    estimate.clamp(60, 110)
+}
+
+fn wrap_words(text: &str, max_chars: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.len() + 1 + word.len() <= max_chars {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(current);
+            current = word.to_string();
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
+}
+
+fn write_pdf_text(path: &Path, title: &str, text: &str) -> Result<(), String> {
+    let page_width = Mm(210.0);
+    let page_height = Mm(297.0);
+    let margin: f32 = 18.0;
+    let header_height: f32 = 18.0;
+    let body_font_size: f32 = 12.0;
+    let header_font_size: f32 = 14.0;
+    let line_height: f32 = 14.0;
+    let max_chars = estimate_max_chars(page_width.0, margin, body_font_size);
+    let title = if title.trim().is_empty() {
+        "Sonarpad"
+    } else {
+        title
+    };
+
+    let mut lines = Vec::new();
+    for raw_line in text.lines() {
+        let line = raw_line.trim_end_matches('\r');
+        if line.trim().is_empty() {
+            lines.push(String::new());
+        } else {
+            lines.extend(wrap_words(line, max_chars));
+        }
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+
+    let content_top = page_height.0 - margin - header_height;
+    let content_bottom = margin;
+    let mut page_contents: Vec<Vec<String>> = Vec::new();
+    let mut current_page = Vec::new();
+    let mut y = content_top;
+    for line in lines {
+        if y < content_bottom + line_height {
+            page_contents.push(current_page);
+            current_page = Vec::new();
+            y = content_top;
+        }
+        current_page.push(line);
+        y -= line_height;
+    }
+    if !current_page.is_empty() {
+        page_contents.push(current_page);
+    }
+
+    let mut pdf_pages = Vec::with_capacity(page_contents.len());
+    for page_lines in page_contents {
+        let mut ops = Vec::new();
+        let header_y = page_height.0 - margin - 8.0;
+        ops.push(Op::StartTextSection);
+        ops.push(Op::SetTextCursor {
+            pos: Point::new(Mm(margin), Mm(header_y)),
+        });
+        ops.push(Op::SetFontSizeBuiltinFont {
+            size: Pt(header_font_size),
+            font: BuiltinFont::HelveticaBold,
+        });
+        ops.push(Op::WriteTextBuiltinFont {
+            items: vec![TextItem::Text(title.to_string())],
+            font: BuiltinFont::HelveticaBold,
+        });
+        ops.push(Op::EndTextSection);
+
+        let mut current_y = content_top;
+        for line in page_lines {
+            if line.is_empty() {
+                current_y -= line_height;
+                continue;
+            }
+            ops.push(Op::StartTextSection);
+            ops.push(Op::SetTextCursor {
+                pos: Point::new(Mm(margin), Mm(current_y)),
+            });
+            ops.push(Op::SetFontSizeBuiltinFont {
+                size: Pt(body_font_size),
+                font: BuiltinFont::Helvetica,
+            });
+            ops.push(Op::WriteTextBuiltinFont {
+                items: vec![TextItem::Text(line)],
+                font: BuiltinFont::Helvetica,
+            });
+            ops.push(Op::EndTextSection);
+            current_y -= line_height;
+        }
+
+        pdf_pages.push(PdfPage::new(page_width, page_height, ops));
+    }
+
+    let mut doc = PdfDocument::new(title);
+    let bytes = doc
+        .with_pages(pdf_pages)
+        .save(&PdfSaveOptions::default(), &mut Vec::new());
+    std::fs::write(path, bytes)
+        .map_err(|err| format!("salvataggio PDF {} fallito: {}", path.display(), err))
+}
+
+fn bundled_ffmpeg_dir() -> Option<PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    let contents_dir = exe_path.parent()?.parent()?;
+    let bundle_dir = contents_dir.join("Resources").join("ffmpeg");
+    if bundle_dir.is_dir() {
+        Some(bundle_dir)
+    } else {
+        None
+    }
+}
+
+fn ffmpeg_executable_path() -> Option<PathBuf> {
+    if let Some(bundle_dir) = bundled_ffmpeg_dir() {
+        let candidate = bundle_dir.join("bin").join(if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        });
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+    None
+}
+
+fn convert_mp3_to_m4b(
+    source_mp3: &Path,
+    output_m4b: &Path,
+    bitrate_kbps: u32,
+) -> Result<(), String> {
+    let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| {
+        PathBuf::from(if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        })
+    });
+    let mut command = Command::new(&ffmpeg_path);
+    command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-y")
+        .arg("-fflags")
+        .arg("+genpts")
+        .arg("-i")
+        .arg(source_mp3)
+        .arg("-vn")
+        .arg("-c:a")
+        .arg("aac")
+        .arg("-b:a")
+        .arg(format!("{bitrate_kbps}k"))
+        .arg("-ar")
+        .arg("48000")
+        .arg("-movflags")
+        .arg("+faststart")
+        .arg("-f")
+        .arg("ipod")
+        .arg(output_m4b);
+
+    if let Some(bundle_dir) = bundled_ffmpeg_dir() {
+        let bundle_lib = bundle_dir.join("lib");
+        if bundle_lib.is_dir() {
+            command.env("DYLD_LIBRARY_PATH", &bundle_lib);
+            command.env("DYLD_FALLBACK_LIBRARY_PATH", &bundle_lib);
+        }
+    }
+
+    let output = command.output().map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            "__FFMPEG_MISSING__".to_string()
+        } else {
+            format!("avvio FFmpeg fallito: {err}")
+        }
+    })?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            Err("FFmpeg ha restituito un errore durante la conversione M4B.".to_string())
+        } else {
+            Err(stderr)
+        }
+    }
+}
+
+fn save_current_text(parent: &Frame, text: &str) {
+    if text.trim().is_empty() {
+        return;
+    }
+
+    let ui = current_ui_strings();
+    let dialog = FileDialog::builder(parent)
+        .with_message(&ui.save_text_title)
+        .with_wildcard("TXT (*.txt)|*.txt|DOCX (*.docx)|*.docx|PDF (*.pdf)|*.pdf")
+        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+        .build();
+
+    if dialog.show_modal() != ID_OK {
+        return;
+    }
+
+    let Some(path) = dialog.get_path() else {
+        return;
+    };
+
+    let mut path_buf = PathBuf::from(path);
+    if path_buf.extension().is_none() {
+        path_buf.set_extension("txt");
+    }
+
+    let result = match path_buf
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.to_ascii_lowercase())
+        .as_deref()
+    {
+        Some("docx") => write_docx_text(&path_buf, text),
+        Some("pdf") => {
+            let title = path_buf
+                .file_stem()
+                .and_then(|stem| stem.to_str())
+                .unwrap_or("Sonarpad");
+            write_pdf_text(&path_buf, title, text)
+        }
+        _ => std::fs::write(&path_buf, text)
+            .map_err(|err| format!("salvataggio file {} fallito: {}", path_buf.display(), err)),
+    };
+
+    match result {
+        Ok(()) => show_modeless_message_dialog(parent, &ui.save_completed_title, &ui.text_saved_ok),
+        Err(err) => show_modeless_message_dialog(
+            parent,
+            &ui.save_text_title,
+            &format!("{} ({err})", ui.text_file_not_saved),
+        ),
+    }
 }
 
 fn prompt_downloaded_podcast_action(parent: &Frame) -> PodcastDownloadAction {
@@ -1574,12 +1885,7 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
 fn podcast_log_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        return std::env::var_os("HOME").map(|home| {
-            PathBuf::from(home)
-                .join("Documents")
-                .join("Sonarpad")
-                .join("log.txt")
-        });
+        return app_storage_dir().map(|dir| dir.join("log.txt"));
     }
 
     #[cfg(windows)]
@@ -3960,6 +4266,20 @@ fn main() {
 
         let file_menu = Menu::builder().build();
         file_menu.append(ID_OPEN, &ui.menu_open, &ui.menu_open_help, ItemKind::Normal);
+        #[cfg(target_os = "macos")]
+        let save_text_menu_item = file_menu.append(
+            ID_SAVE_TEXT,
+            &ui.menu_save_text,
+            &ui.menu_save_text_help,
+            ItemKind::Normal,
+        );
+        #[cfg(not(target_os = "macos"))]
+        file_menu.append(
+            ID_SAVE_TEXT,
+            &ui.menu_save_text,
+            &ui.menu_save_text_help,
+            ItemKind::Normal,
+        );
         file_menu.append_separator();
         #[cfg(target_os = "macos")]
         let start_menu_item = file_menu.append(
@@ -4204,6 +4524,8 @@ fn main() {
                         tc_menu.set_value(&c);
                     }
                 }
+            } else if event.get_id() == ID_SAVE_TEXT {
+                save_current_text(&f_menu, &tc_menu.get_value());
             } else if event.get_id() == ID_EXIT {
                 f_menu.close(true);
             } else if event.get_id() == ID_ABOUT {
@@ -5046,6 +5368,14 @@ fn main() {
         let tc_s = text_ctrl;
         let f_save = frame;
         let s_save = Arc::clone(&settings);
+        #[cfg(target_os = "macos")]
+        let tc_save_text = text_ctrl;
+        #[cfg(target_os = "macos")]
+        let f_save_text = frame;
+        #[cfg(target_os = "macos")]
+        let save_text_action: Rc<dyn Fn()> = Rc::new(move || {
+            save_current_text(&f_save_text, &tc_save_text.get_value());
+        });
         let save_action: Rc<dyn Fn()> = Rc::new(move || {
             let ui = current_ui_strings();
             let text = tc_s.get_value();
@@ -5057,10 +5387,14 @@ fn main() {
                 let s = s_save.lock().unwrap();
                 (s.voice.clone(), s.rate, s.pitch, s.volume)
             };
+            let audiobook_file_not_saved = ui.audiobook_file_not_saved.clone();
+            let audiobook_conversion_failed = ui.audiobook_conversion_failed.clone();
+            let audiobook_ffmpeg_missing = ui.audiobook_ffmpeg_missing.clone();
+            let audiobook_m4b_conversion_failed = ui.audiobook_m4b_conversion_failed.clone();
 
             let dialog = FileDialog::builder(&f_save)
                 .with_message(&ui.save_audiobook_title)
-                .with_wildcard("File MP3 (*.mp3)|*.mp3")
+                .with_wildcard("MP3 (*.mp3)|*.mp3|M4B (*.m4b)|*.m4b")
                 .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
                 .build();
 
@@ -5119,7 +5453,10 @@ fn main() {
                 progress_dialog.show(true);
 
                 let rt_save = Arc::clone(&rt_s);
-                let path_buf = PathBuf::from(path);
+                let mut path_buf = PathBuf::from(path);
+                if path_buf.extension().is_none() {
+                    path_buf.set_extension("mp3");
+                }
                 let abort_requested = Arc::new(AtomicBool::new(false));
                 let abort_requested_thread = Arc::clone(&abort_requested);
                 let save_state = Arc::new(Mutex::new(SaveAudiobookState {
@@ -5144,6 +5481,8 @@ fn main() {
                         let save_state_worker = Arc::clone(&save_state_thread);
                         let abort_worker = Arc::clone(&abort_requested_thread);
                         let voice_worker = voice.clone();
+                        let audiobook_conversion_failed_worker =
+                            audiobook_conversion_failed.clone();
                         workers.push(std::thread::spawn(move || {
                             loop {
                                 if abort_worker.load(Ordering::Relaxed) {
@@ -5182,7 +5521,7 @@ fn main() {
                                         ));
                                         abort_worker.store(true, Ordering::Relaxed);
                                         save_state_worker.lock().unwrap().error_message =
-                                            Some(ui.audiobook_conversion_failed.clone());
+                                            Some(audiobook_conversion_failed_worker.clone());
                                         return;
                                     }
                                 }
@@ -5194,7 +5533,7 @@ fn main() {
                         if worker.join().is_err() {
                             abort_requested_thread.store(true, Ordering::Relaxed);
                             save_state_thread.lock().unwrap().error_message =
-                                Some(ui.audiobook_conversion_failed.clone());
+                                Some(audiobook_conversion_failed.clone());
                             append_podcast_log("audiobook_save.worker_join_failed");
                             return;
                         }
@@ -5211,15 +5550,48 @@ fn main() {
                         let Some(data) = maybe_data.take() else {
                             append_podcast_log("audiobook_save.missing_chunk_data");
                             save_state_thread.lock().unwrap().error_message =
-                                Some(ui.audiobook_conversion_failed.clone());
+                                Some(audiobook_conversion_failed.clone());
                             return;
                         };
                         full_audio.extend(data);
                     }
 
-                    if std::fs::write(&path_buf, full_audio).is_err() {
+                    let is_m4b = path_buf
+                        .extension()
+                        .and_then(|ext| ext.to_str())
+                        .is_some_and(|ext| ext.eq_ignore_ascii_case("m4b"));
+
+                    if is_m4b {
+                        let temp_mp3 = std::env::temp_dir()
+                            .join(format!("sonarpad-minimal-audiobook-{}.mp3", Uuid::new_v4()));
+                        if std::fs::write(&temp_mp3, &full_audio).is_err() {
+                            save_state_thread.lock().unwrap().error_message =
+                                Some(audiobook_file_not_saved.clone());
+                            append_podcast_log("audiobook_save.temp_mp3_write_failed");
+                            return;
+                        }
+                        let convert_result = convert_mp3_to_m4b(&temp_mp3, &path_buf, 128);
+                        if let Err(remove_err) = std::fs::remove_file(&temp_mp3) {
+                            append_podcast_log(&format!(
+                                "audiobook_save.temp_mp3_cleanup_failed error={remove_err}"
+                            ));
+                        }
+                        if let Err(err) = convert_result {
+                            let user_message = if err == "__FFMPEG_MISSING__" {
+                                audiobook_ffmpeg_missing.clone()
+                            } else {
+                                format!("{audiobook_m4b_conversion_failed} ({err})")
+                            };
+                            save_state_thread.lock().unwrap().error_message = Some(user_message);
+                            append_podcast_log(&format!(
+                                "audiobook_save.m4b_conversion_failed error={err}"
+                            ));
+                            let _ = std::fs::remove_file(&path_buf);
+                            return;
+                        }
+                    } else if std::fs::write(&path_buf, full_audio).is_err() {
                         save_state_thread.lock().unwrap().error_message =
-                            Some(ui.audiobook_file_not_saved.clone());
+                            Some(audiobook_file_not_saved.clone());
                         append_podcast_log("audiobook_save.write_failed");
                         return;
                     }
@@ -5393,6 +5765,13 @@ fn main() {
             save_action_click();
         });
         #[cfg(target_os = "macos")]
+        if let Some(item) = save_text_menu_item {
+            let save_text_action_menu = Rc::clone(&save_text_action);
+            item.on_click(move |_| {
+                save_text_action_menu();
+            });
+        }
+        #[cfg(target_os = "macos")]
         if let Some(item) = save_menu_item {
             let save_action_menu = Rc::clone(&save_action);
             item.on_click(move |_| {
@@ -5455,12 +5834,14 @@ fn main() {
             let play_action_menu = Rc::clone(&play_action);
             let stop_action_menu = Rc::clone(&stop_action);
             let save_action_menu = Rc::clone(&save_action);
+            let save_text_action_menu = Rc::clone(&save_text_action);
             let settings_action_menu = Rc::clone(&settings_action);
             frame.on_menu(move |event| match event.get_id() {
                 ID_START_PLAYBACK => start_action_menu(),
                 ID_PLAY_PAUSE => play_action_menu(),
                 ID_STOP => stop_action_menu(),
                 ID_SAVE => save_action_menu(),
+                ID_SAVE_TEXT => save_text_action_menu(),
                 ID_SETTINGS => settings_action_menu(),
                 _ => {}
             });

@@ -27,6 +27,8 @@
   "menu_help": "&Aiuto",
   "menu_open": "&Apri...\tCtrl+O",
   "menu_open_help": "Apri un documento",
+  "menu_save_text": "Salva testo...",
+  "menu_save_text_help": "Salva il testo corrente in un file TXT, DOCX o PDF",
   "menu_start": "Avvia lettura\tCtrl+L",
   "menu_start_help": "Avvia la lettura o la riproduzione del podcast",
   "menu_play_pause": "Pausa o riprendi lettura\tCtrl+P",
@@ -99,10 +101,15 @@
   "audiobook_saved_ok": "Audiolibro salvato correttamente.",
   "save_completed_title": "Salvataggio completato",
   "cancelling_audiobook": "Annullamento audiolibro in corso...",
+  "audiobook_ffmpeg_missing": "FFmpeg non è presente nel bundle dell'app, quindi il salvataggio in M4B non è disponibile.",
+  "audiobook_m4b_conversion_failed": "La conversione dell'audiolibro in M4B non è riuscita.",
   "podcast_downloaded_title": "Podcast scaricato",
   "podcast_downloaded_message": "L'episodio podcast e' stato scaricato.",
   "open": "Apri",
   "save_as": "Salva con nome...",
+  "save_text_title": "Salva testo",
+  "text_file_not_saved": "Il file non è stato salvato correttamente.",
+  "text_saved_ok": "Testo salvato correttamente.",
   "close": "Chiudi",
   "open_document_title": "Apertura documento",
   "analyzing_document": "Analisi documento...",
@@ -110,3 +117,6 @@
   "document_loaded": "Documento caricato.",
   "about_message": "Sonarpad Minimal è una versione essenziale di Sonarpad con supporto multi-formato. Apre file TXT, PDF, DOC, DOCX, EPUB, RTF, HTML e fogli di calcolo; legge il testo con sintesi vocale, crea audiolibri MP3, importa articoli e podcast e supporta la riproduzione dei podcast. Versione: {version}. Autore: Ambrogio Riili."
 }
+
+
+

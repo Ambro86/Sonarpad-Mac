@@ -133,6 +133,24 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
         return Err("URL fonte vuoto".to_string());
     }
 
+    let reqwest_bytes = fetch_feed_bytes_via_reqwest(&url).await;
+    if let Ok(bytes) = reqwest_bytes.as_ref()
+        && let Ok((title, items)) = parse_feed_bytes(bytes.clone(), &source.title)
+    {
+        return Ok(ArticleSource { title, url, items });
+    }
+
+    let curl_url = url.clone();
+    let curl_bytes = tokio::task::spawn_blocking(move || {
+        crate::curl_client::CurlClient::fetch_url_impersonated(&curl_url)
+    })
+    .await
+    .map_err(|err| err.to_string())??;
+    let (title, items) = parse_feed_bytes(curl_bytes, &source.title)?;
+    Ok(ArticleSource { title, url, items })
+}
+
+async fn fetch_feed_bytes_via_reqwest(url: &str) -> Result<Vec<u8>, String> {
     let client = reqwest::Client::builder()
         .user_agent(
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 \
@@ -145,7 +163,7 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
         .map_err(|err| err.to_string())?;
 
     let bytes = client
-        .get(&url)
+        .get(url)
         .send()
         .await
         .map_err(|err| err.to_string())?
@@ -155,8 +173,7 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
         .await
         .map_err(|err| err.to_string())?;
 
-    let (title, items) = parse_feed_bytes(bytes.to_vec(), &source.title)?;
-    Ok(ArticleSource { title, url, items })
+    Ok(bytes.to_vec())
 }
 
 pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {

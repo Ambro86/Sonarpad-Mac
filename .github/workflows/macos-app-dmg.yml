@@ -51,14 +51,15 @@ jobs:
           echo "DEVELOPER_DIR=${DEVELOPER_DIR}" >> "${GITHUB_ENV}"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
 
-      - name: Ensure build tools (cmake + ninja)
+      - name: Ensure build tools (cmake + ninja + ffmpeg)
         shell: bash
         run: |
           set -euxo pipefail
           brew update
-          brew install cmake ninja
+          brew install cmake ninja ffmpeg
           cmake --version
           ninja --version
+          ffmpeg -version
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -123,8 +124,12 @@ jobs:
           CONTENTS_DIR="${APP_DIR}/Contents"
           MACOS_DIR="${CONTENTS_DIR}/MacOS"
           FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
+          RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+          FFMPEG_DIR="${RESOURCES_DIR}/ffmpeg"
+          FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
+          FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
 
-          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}"
+          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
@@ -134,6 +139,32 @@ jobs:
             cp "${dylib}" "${FRAMEWORKS_DIR}/${dylib_name}"
             chmod +x "${FRAMEWORKS_DIR}/${dylib_name}"
           done
+          cp "$(which ffmpeg)" "${FFMPEG_BIN_DIR}/ffmpeg"
+          chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
+
+          copy_ffmpeg_deps() {
+            local binary="$1"
+            local dep_target="$2"
+            otool -L "${binary}" | tail -n +2 | awk '{print $1}' | while read -r dep; do
+              case "${dep}" in
+                /System/*|/usr/lib/*|'')
+                  continue
+                  ;;
+              esac
+              local dep_name
+              dep_name="$(basename "${dep}")"
+              local copied="${FFMPEG_LIB_DIR}/${dep_name}"
+              if [ ! -f "${copied}" ]; then
+                cp -L "${dep}" "${copied}"
+                chmod +x "${copied}"
+                install_name_tool -id "@loader_path/${dep_name}" "${copied}" || true
+                copy_ffmpeg_deps "${copied}" "@loader_path"
+              fi
+              install_name_tool -change "${dep}" "${dep_target}/${dep_name}" "${binary}" || true
+            done
+          }
+
+          copy_ffmpeg_deps "${FFMPEG_BIN_DIR}/ffmpeg" "@executable_path/../lib"
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -232,6 +263,7 @@ jobs:
           hdiutil attach "${DMG_PATH}" -mountpoint "${MOUNT_DIR}" -nobrowse -quiet
           test -d "${MOUNT_DIR}/Sonarpad.app"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks/libpdfium.dylib"
+          test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name 'libcurl*.dylib' | grep .
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet
