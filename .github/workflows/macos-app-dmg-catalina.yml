@@ -73,13 +73,29 @@ jobs:
           mkdir -p dist/pdfium
           rm -rf dist/pdfium/*
 
-          check_minos() {
+          version_le() {
+            [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]
+          }
+
+          check_max_macos_version() {
             local binary="$1"
-            local expected="$2"
+            local max_supported="$2"
             local output
+            local found_version
             output="$(vtool -show-build "${binary}" 2>/dev/null || true)"
             echo "${output}"
-            echo "${output}" | grep -q "minos ${expected}"
+            found_version="$(
+              echo "${output}" | sed -n 's/.*minos \([0-9][0-9.]*\).*/\1/p' | head -n 1
+            )"
+            if [ -z "${found_version}" ]; then
+              found_version="$(
+                echo "${output}" | sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p' | head -n 1
+              )"
+            fi
+            if [ -z "${found_version}" ]; then
+              return 1
+            fi
+            version_le "${found_version}" "${max_supported}"
           }
 
           candidate_urls=(
@@ -108,7 +124,7 @@ jobs:
             if [ -z "${candidate_dylib}" ]; then
               continue
             fi
-            if check_minos "${candidate_dylib}" "10.15"; then
+            if check_max_macos_version "${candidate_dylib}" "10.15"; then
               PDFIUM_DYLIB="${candidate_dylib}"
               break
             fi
@@ -272,32 +288,45 @@ jobs:
         run: |
           set -euxo pipefail
 
-          check_minos() {
+          version_le() {
+            [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]
+          }
+
+          check_max_macos_version() {
             local binary="$1"
-            local expected="$2"
+            local max_supported="$2"
             local output
+            local found_version
             output="$(vtool -show-build "${binary}" 2>/dev/null || true)"
             echo "${output}"
-            if ! echo "${output}" | grep -q "minos ${expected}"; then
-              echo "Expected minos ${expected} for ${binary}"
+            found_version="$(
+              echo "${output}" | sed -n 's/.*minos \([0-9][0-9.]*\).*/\1/p' | head -n 1
+            )"
+            if [ -z "${found_version}" ]; then
+              found_version="$(
+                echo "${output}" | sed -n 's/.*version \([0-9][0-9.]*\).*/\1/p' | head -n 1
+              )"
+            fi
+            if [ -z "${found_version}" ] || ! version_le "${found_version}" "${max_supported}"; then
+              echo "Expected macOS deployment <= ${max_supported} for ${binary}"
               exit 1
             fi
           }
 
           APP_BIN="dist/stage/Sonarpad.app/Contents/MacOS/Sonarpad"
-          check_minos "${APP_BIN}" "10.15"
-          check_minos "dist/stage/Sonarpad.app/Contents/Frameworks/libpdfium.dylib" "10.15"
-          check_minos "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg" "10.15"
+          check_max_macos_version "${APP_BIN}" "10.15"
+          check_max_macos_version "dist/stage/Sonarpad.app/Contents/Frameworks/libpdfium.dylib" "10.15"
+          check_max_macos_version "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg" "10.15"
 
           find "dist/stage/Sonarpad.app/Contents/Frameworks" -type f -name '*.dylib' -print0 | \
             while IFS= read -r -d '' dylib; do
-              check_minos "${dylib}" "10.15"
+              check_max_macos_version "${dylib}" "10.15"
             done
 
           if [ -d "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/lib" ]; then
             find "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/lib" -type f -name '*.dylib' -print0 | \
               while IFS= read -r -d '' dylib; do
-                check_minos "${dylib}" "10.15"
+                check_max_macos_version "${dylib}" "10.15"
               done
           fi
 

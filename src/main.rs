@@ -81,7 +81,7 @@ const WXK_MAC_CMD_PERIOD_PREFIX: i32 = 396;
 #[cfg(target_os = "macos")]
 const WXK_MAC_CMD_PERIOD_SUFFIX: i32 = 315;
 #[cfg(target_os = "macos")]
-const APP_STORAGE_DIR_NAME: &str = "Sonarpad Minimal";
+const APP_STORAGE_DIR_NAME: &str = "Sonarpad";
 
 #[cfg(target_os = "macos")]
 thread_local! {
