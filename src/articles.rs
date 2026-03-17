@@ -197,6 +197,9 @@ pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {
         }
     }
 
+    let mut best_profile = String::new();
+    let mut best_result = None::<crate::reader::ArticleContent>;
+
     match fetch_article_text_via_reqwest(&url, item).await {
         Ok(reqwest_article) => {
             let should_retry = should_retry_with_impersonation(
@@ -211,7 +214,13 @@ pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {
                 extracted_len(&reqwest_article.article.content),
                 should_retry
             ));
+            best_profile = "reqwest".to_string();
+            best_result = Some(reqwest_article.article.clone());
             if !should_retry {
+                crate::append_podcast_log(&format!(
+                    "article_fetch.selected_profile url={} profile=reqwest",
+                    url
+                ));
                 return Ok(format_article_text(&reqwest_article.article));
             }
         }
@@ -225,53 +234,92 @@ pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {
 
     let curl_url = url.clone();
     let curl_item = item.clone();
-    let curl_article =
-        tokio::task::spawn_blocking(move || fetch_article_text_via_curl(&curl_url, &curl_item))
-            .await
-            .map_err(|err| err.to_string())??;
-    let curl_should_retry = should_retry_with_impersonation(
-        &curl_article.html,
-        &curl_article.article,
-        item.description.trim(),
-    );
-    crate::append_podcast_log(&format!(
-        "article_fetch.curl url={} title={} content_len={} retry={}",
-        url,
-        curl_article.article.title,
-        extracted_len(&curl_article.article.content),
-        curl_should_retry
-    ));
-    if !curl_should_retry {
-        return Ok(format_article_text(&curl_article.article));
-    }
+    let curl_article = match tokio::task::spawn_blocking(move || {
+        fetch_article_text_via_curl(&curl_url, &curl_item)
+    })
+    .await
+    .map_err(|err| err.to_string())?
+    {
+        Ok(curl_article) => {
+            let curl_should_retry = should_retry_with_impersonation(
+                &curl_article.html,
+                &curl_article.article,
+                item.description.trim(),
+            );
+            crate::append_podcast_log(&format!(
+                "article_fetch.curl url={} title={} content_len={} retry={}",
+                url,
+                curl_article.article.title,
+                extracted_len(&curl_article.article.content),
+                curl_should_retry
+            ));
+            if best_result.as_ref().is_none_or(|best| {
+                extracted_len(&curl_article.article.content) > extracted_len(&best.content)
+            }) {
+                best_profile = "curl".to_string();
+                best_result = Some(curl_article.article.clone());
+            }
+            if !curl_should_retry {
+                crate::append_podcast_log(&format!(
+                    "article_fetch.selected_profile url={} profile=curl",
+                    url
+                ));
+                return Ok(format_article_text(&curl_article.article));
+            }
+            Some(curl_article)
+        }
+        Err(err) => {
+            crate::append_podcast_log(&format!(
+                "article_fetch.curl_failed url={} error={err}",
+                url
+            ));
+            None
+        }
+    };
 
     let iphone_url = url.clone();
     let iphone_item = item.clone();
-    let iphone_article = tokio::task::spawn_blocking(move || {
+    match tokio::task::spawn_blocking(move || {
         fetch_article_text_via_iphone_curl(&iphone_url, &iphone_item)
     })
     .await
-    .map_err(|err| err.to_string())??;
-    crate::append_podcast_log(&format!(
-        "article_fetch.iphone url={} title={} content_len={}",
-        url,
-        iphone_article.article.title,
-        extracted_len(&iphone_article.article.content)
-    ));
-
-    if extracted_len(&iphone_article.article.content) > extracted_len(&curl_article.article.content)
+    .map_err(|err| err.to_string())?
     {
+        Ok(iphone_article) => {
+            crate::append_podcast_log(&format!(
+                "article_fetch.iphone url={} title={} content_len={}",
+                url,
+                iphone_article.article.title,
+                extracted_len(&iphone_article.article.content)
+            ));
+            let iphone_len = extracted_len(&iphone_article.article.content);
+            let curl_len = curl_article
+                .as_ref()
+                .map_or(0, |article| extracted_len(&article.article.content));
+            if iphone_len > curl_len {
+                crate::append_podcast_log(&format!(
+                    "article_fetch.selected_profile url={} profile=iphone",
+                    url
+                ));
+                return Ok(format_article_text(&iphone_article.article));
+            }
+        }
+        Err(err) => {
+            crate::append_podcast_log(&format!(
+                "article_fetch.iphone_failed url={} error={err}",
+                url
+            ));
+        }
+    }
+
+    if let Some(article) = best_result {
         crate::append_podcast_log(&format!(
-            "article_fetch.selected_profile url={} profile=iphone",
-            url
+            "article_fetch.selected_profile url={} profile={} fallback=true",
+            url, best_profile
         ));
-        Ok(format_article_text(&iphone_article.article))
+        Ok(format_article_text(&article))
     } else {
-        crate::append_podcast_log(&format!(
-            "article_fetch.selected_profile url={} profile=curl",
-            url
-        ));
-        Ok(format_article_text(&curl_article.article))
+        Err("Impossibile scaricare l'articolo".to_string())
     }
 }
 

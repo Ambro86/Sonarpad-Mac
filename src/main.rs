@@ -882,6 +882,8 @@ fn mac_native_file_dialog_open() -> bool {
 #[cfg(target_os = "macos")]
 fn set_mac_native_file_dialog_open(open: bool) {
     MAC_NATIVE_FILE_DIALOG_OPEN.store(open, Ordering::Relaxed);
+    set_mac_pending_command_period_sequence(false);
+    set_mac_pending_command_shortcut(false);
 }
 
 #[cfg(target_os = "macos")]

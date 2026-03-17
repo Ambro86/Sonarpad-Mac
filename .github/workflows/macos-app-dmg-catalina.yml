@@ -232,6 +232,7 @@ jobs:
           FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
           FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
 
+          rm -rf "${APP_DIR}" "${FFMPEG_DIR}"
           mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
           cp "target/x86_64-apple-darwin/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
