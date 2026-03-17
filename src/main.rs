@@ -49,6 +49,18 @@ const ID_SETTINGS: i32 = 2004;
 const ID_SAVE_TEXT: i32 = 2007;
 const ID_PODCAST_BACKWARD: i32 = 2005;
 const ID_PODCAST_FORWARD: i32 = 2006;
+#[cfg(target_os = "macos")]
+const ID_EDIT_UNDO: i32 = 5007;
+#[cfg(target_os = "macos")]
+const ID_EDIT_REDO: i32 = 5008;
+#[cfg(target_os = "macos")]
+const ID_EDIT_CUT: i32 = 5031;
+#[cfg(target_os = "macos")]
+const ID_EDIT_COPY: i32 = 5032;
+#[cfg(target_os = "macos")]
+const ID_EDIT_PASTE: i32 = 5033;
+#[cfg(target_os = "macos")]
+const ID_EDIT_SELECT_ALL: i32 = 5037;
 const ID_ARTICLES_ADD_SOURCE: i32 = 2100;
 const ID_ARTICLES_DELETE_SOURCE: i32 = 2101;
 const ID_ARTICLES_EDIT_SOURCE: i32 = 2102;
@@ -309,6 +321,8 @@ struct UiStrings {
     button_back_30: String,
     button_forward_30: String,
     menu_file: String,
+    #[cfg(target_os = "macos")]
+    menu_edit: String,
     menu_articles: String,
     menu_podcasts: String,
     menu_help: String,
@@ -336,6 +350,30 @@ struct UiStrings {
     menu_settings: String,
     #[cfg(target_os = "macos")]
     menu_settings_help: String,
+    #[cfg(target_os = "macos")]
+    menu_undo: String,
+    #[cfg(target_os = "macos")]
+    menu_undo_help: String,
+    #[cfg(target_os = "macos")]
+    menu_redo: String,
+    #[cfg(target_os = "macos")]
+    menu_redo_help: String,
+    #[cfg(target_os = "macos")]
+    menu_cut: String,
+    #[cfg(target_os = "macos")]
+    menu_cut_help: String,
+    #[cfg(target_os = "macos")]
+    menu_copy: String,
+    #[cfg(target_os = "macos")]
+    menu_copy_help: String,
+    #[cfg(target_os = "macos")]
+    menu_paste: String,
+    #[cfg(target_os = "macos")]
+    menu_paste_help: String,
+    #[cfg(target_os = "macos")]
+    menu_select_all: String,
+    #[cfg(target_os = "macos")]
+    menu_select_all_help: String,
     menu_exit: String,
     menu_exit_help: String,
     menu_about: String,
@@ -615,6 +653,15 @@ fn refresh_localized_main_ui(
     let (btn_save, btn_settings, btn_podcast_back, btn_podcast_forward) = buttons;
 
     if let Some(menubar) = frame.get_menu_bar() {
+        #[cfg(target_os = "macos")]
+        if menubar.get_menu_count() >= 5 {
+            menubar.set_menu_label(0, &ui.menu_file);
+            menubar.set_menu_label(1, &ui.menu_edit);
+            menubar.set_menu_label(2, &ui.menu_articles);
+            menubar.set_menu_label(3, &ui.menu_podcasts);
+            menubar.set_menu_label(4, &ui.menu_help);
+        }
+        #[cfg(not(target_os = "macos"))]
         if menubar.get_menu_count() >= 4 {
             menubar.set_menu_label(0, &ui.menu_file);
             menubar.set_menu_label(1, &ui.menu_articles);
@@ -631,6 +678,12 @@ fn refresh_localized_main_ui(
 
         #[cfg(target_os = "macos")]
         {
+            update_menu_item_label(&menubar, ID_EDIT_UNDO, &ui.menu_undo);
+            update_menu_item_label(&menubar, ID_EDIT_REDO, &ui.menu_redo);
+            update_menu_item_label(&menubar, ID_EDIT_CUT, &ui.menu_cut);
+            update_menu_item_label(&menubar, ID_EDIT_COPY, &ui.menu_copy);
+            update_menu_item_label(&menubar, ID_EDIT_PASTE, &ui.menu_paste);
+            update_menu_item_label(&menubar, ID_EDIT_SELECT_ALL, &ui.menu_select_all);
             update_menu_item_label(&menubar, ID_START_PLAYBACK, &ui.menu_start);
             update_menu_item_label(&menubar, ID_PLAY_PAUSE, &ui.menu_play_pause);
             update_menu_item_label(&menubar, ID_STOP, &ui.menu_stop);
@@ -4304,6 +4357,54 @@ fn main() {
         #[cfg(target_os = "macos")]
         file_menu.append_separator();
         file_menu.append(ID_EXIT, &ui.menu_exit, &ui.menu_exit_help, ItemKind::Normal);
+        #[cfg(target_os = "macos")]
+        let edit_menu = Menu::builder().build();
+        #[cfg(target_os = "macos")]
+        edit_menu.append(
+            ID_EDIT_UNDO,
+            &ui.menu_undo,
+            &ui.menu_undo_help,
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        edit_menu.append(
+            ID_EDIT_REDO,
+            &ui.menu_redo,
+            &ui.menu_redo_help,
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        edit_menu.append_separator();
+        #[cfg(target_os = "macos")]
+        edit_menu.append(
+            ID_EDIT_CUT,
+            &ui.menu_cut,
+            &ui.menu_cut_help,
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        edit_menu.append(
+            ID_EDIT_COPY,
+            &ui.menu_copy,
+            &ui.menu_copy_help,
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        edit_menu.append(
+            ID_EDIT_PASTE,
+            &ui.menu_paste,
+            &ui.menu_paste_help,
+            ItemKind::Normal,
+        );
+        #[cfg(target_os = "macos")]
+        edit_menu.append_separator();
+        #[cfg(target_os = "macos")]
+        edit_menu.append(
+            ID_EDIT_SELECT_ALL,
+            &ui.menu_select_all,
+            &ui.menu_select_all_help,
+            ItemKind::Normal,
+        );
         let help_menu = Menu::builder().build();
         help_menu.append(
             ID_ABOUT,
@@ -4339,6 +4440,15 @@ fn main() {
         let podcasts_menu_timer = Menu::from(podcasts_menu.as_const_ptr());
         let podcasts_menu_settings = Menu::from(podcasts_menu.as_const_ptr());
 
+        #[cfg(target_os = "macos")]
+        let menubar = MenuBar::builder()
+            .append(file_menu, &ui.menu_file)
+            .append(edit_menu, &ui.menu_edit)
+            .append(articles_menu, &ui.menu_articles)
+            .append(podcasts_menu, &ui.menu_podcasts)
+            .append(help_menu, &ui.menu_help)
+            .build();
+        #[cfg(not(target_os = "macos"))]
         let menubar = MenuBar::builder()
             .append(file_menu, &ui.menu_file)
             .append(articles_menu, &ui.menu_articles)
