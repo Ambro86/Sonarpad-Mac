@@ -1,5 +1,6 @@
 use encoding_rs::{Encoding, WINDOWS_1252};
 use feed_rs::parser;
+use scraper::{Html, Selector};
 use serde::{Deserialize, Serialize};
 use std::io::Cursor;
 #[cfg(target_os = "macos")]
@@ -140,14 +141,50 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
         return Ok(ArticleSource { title, url, items });
     }
 
+    if let Ok(bytes) = reqwest_bytes {
+        for feed_link in extract_feed_links(&decode_html_bytes(&bytes), &url) {
+            if let Ok(feed_bytes) = fetch_feed_bytes_via_reqwest(&feed_link).await
+                && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
+                && !items.is_empty()
+            {
+                return Ok(ArticleSource { title, url, items });
+            }
+        }
+    }
+
     let curl_url = url.clone();
     let curl_bytes = tokio::task::spawn_blocking(move || {
         crate::curl_client::CurlClient::fetch_url_impersonated(&curl_url)
     })
     .await
     .map_err(|err| err.to_string())??;
-    let (title, items) = parse_feed_bytes(curl_bytes, &source.title)?;
-    Ok(ArticleSource { title, url, items })
+    if let Ok((title, items)) = parse_feed_bytes(curl_bytes.clone(), &source.title) {
+        return Ok(ArticleSource { title, url, items });
+    }
+
+    for feed_link in extract_feed_links(&decode_html_bytes(&curl_bytes), &url) {
+        if let Ok(feed_bytes) = fetch_feed_bytes_via_reqwest(&feed_link).await
+            && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
+            && !items.is_empty()
+        {
+            return Ok(ArticleSource { title, url, items });
+        }
+
+        let feed_link_curl = feed_link.clone();
+        let feed_bytes = tokio::task::spawn_blocking(move || {
+            crate::curl_client::CurlClient::fetch_url_impersonated(&feed_link_curl)
+        })
+        .await
+        .map_err(|err| err.to_string())?;
+        if let Ok(feed_bytes) = feed_bytes
+            && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
+            && !items.is_empty()
+        {
+            return Ok(ArticleSource { title, url, items });
+        }
+    }
+
+    Err("Parsing feed fallito".to_string())
 }
 
 async fn fetch_feed_bytes_via_reqwest(url: &str) -> Result<Vec<u8>, String> {
@@ -730,6 +767,41 @@ fn canonicalize_url(input: &str) -> String {
     }
 }
 
+fn extract_feed_links(html: &str, base_url: &str) -> Vec<String> {
+    let mut links = Vec::new();
+    let document = Html::parse_document(html);
+    if let Ok(selector) = Selector::parse("link[rel~='alternate'][href]") {
+        for element in document.select(&selector) {
+            if let Some(type_attr) = element.value().attr("type") {
+                let media_type = type_attr.to_ascii_lowercase();
+                if (media_type.contains("rss")
+                    || media_type.contains("atom")
+                    || media_type.contains("xml"))
+                    && let Some(href) = element.value().attr("href")
+                {
+                    if let Ok(base) = Url::parse(base_url)
+                        && let Ok(joined) = base.join(href)
+                    {
+                        links.push(joined.to_string());
+                    } else if href.starts_with("http://") || href.starts_with("https://") {
+                        links.push(href.to_string());
+                    }
+                }
+            }
+        }
+    }
+    links.sort_by_key(|link| {
+        let lower = link.to_ascii_lowercase();
+        (
+            lower.contains("/comments/feed"),
+            lower.contains("comments"),
+            lower.clone(),
+        )
+    });
+    links.dedup();
+    links
+}
+
 fn detect_charset_label_from_html(bytes: &[u8]) -> Option<String> {
     let probe_len = bytes.len().min(16 * 1024);
     let probe = String::from_utf8_lossy(&bytes[..probe_len]).to_ascii_lowercase();
@@ -834,4 +906,39 @@ fn decode_basic_html_entities(s: &str) -> String {
         }
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn fetch_source_discovers_feed_from_html_page() {
+        let source = ArticleSource {
+            title: "sdag".to_string(),
+            url: "https://ascensione.net/".to_string(),
+            items: Vec::new(),
+        };
+
+        let fetched = fetch_source(&source)
+            .await
+            .unwrap_or_else(|err| panic!("fetch_source failed: {err}"));
+
+        assert!(
+            !fetched.items.is_empty(),
+            "expected discovered feed items for {}",
+            source.url
+        );
+        assert!(
+            fetched
+                .items
+                .iter()
+                .any(|item| item.link.contains("ascensione.net/")),
+            "expected at least one ascensione article link"
+        );
+        assert!(
+            !fetched.title.to_ascii_lowercase().contains("comment"),
+            "should not pick the comments feed"
+        );
+    }
 }

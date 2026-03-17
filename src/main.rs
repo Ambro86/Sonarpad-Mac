@@ -37,6 +37,7 @@ const ID_EXIT: i32 = 102;
 const ID_ABOUT: i32 = 103;
 const ID_DONATIONS: i32 = 104;
 const ID_CHECK_UPDATES: i32 = 105;
+const ID_CHANGELOG: i32 = 106;
 const ID_START_PLAYBACK: i32 = 2000;
 const ID_PLAY_PAUSE: i32 = 2001;
 const ID_STOP: i32 = 2003;
@@ -377,9 +378,12 @@ struct UiStrings {
     menu_about_help: String,
     menu_donations: String,
     menu_donations_help: String,
+    menu_changelog: String,
+    menu_changelog_help: String,
     menu_updates: String,
     menu_updates_help: String,
     updates_title: String,
+    changelog_title: String,
     podcast_error_title: String,
     yes: String,
     add_source: String,
@@ -434,6 +438,8 @@ struct UiStrings {
     cancelling_audiobook: String,
     audiobook_ffmpeg_missing: String,
     audiobook_m4b_conversion_failed: String,
+    audiobook_m4a_conversion_failed: String,
+    audiobook_wav_conversion_failed: String,
     podcast_downloaded_title: String,
     podcast_downloaded_message: String,
     open: String,
@@ -677,6 +683,7 @@ fn refresh_localized_main_ui(
         update_menu_item_label(&menubar, ID_EXIT, &ui.menu_exit);
         update_menu_item_label(&menubar, ID_ABOUT, &ui.menu_about);
         update_menu_item_label(&menubar, ID_DONATIONS, &ui.menu_donations);
+        update_menu_item_label(&menubar, ID_CHANGELOG, &ui.menu_changelog);
         update_menu_item_label(&menubar, ID_CHECK_UPDATES, &ui.menu_updates);
 
         #[cfg(target_os = "macos")]
@@ -880,6 +887,74 @@ fn about_message() -> String {
         .replace("{version}", env!("CARGO_PKG_VERSION"))
 }
 
+fn changelog_message() -> String {
+    if Settings::load().ui_language == "it" {
+        format!(
+            "Sonarpad Minimal {}\n\n\
+Versione 0.2.5\n\
+- Nuove finestre di salvataggio personalizzate per testo e audiolibri su macOS.\n\
+- I campi nome file ora accettano correttamente Cmd+V, Cmd+A e gli altri comandi di editing.\n\
+- Il programma ricorda ultima cartella e ultimo formato usati per salvataggio testo e audiolibri.\n\
+- Aggiunto il salvataggio audiolibri anche in formato M4A e WAV.\n\
+- Migliorata la gestione delle fonti articoli inserite come siti: scoperta del feed dalla pagina e correzione del feed commenti.\n\
+- Workflow release macOS aggiornato per includere anche l'artifact Catalina.\n\n\
+Versione 0.2.4\n\
+- Miglioramenti importanti all'OCR PDF su macOS con passaggio a pdfium e fallback piu robusti.\n\
+- Aggiunto export M4B su macOS e affinato il salvataggio testo.\n\
+- Migliorata la gestione delle fonti articoli e la protezione del refresh quando una fonte restituisce zero elementi.\n\
+- Ottimizzata la sintesi Edge TTS con chunking e retry piu affidabili.\n\
+- Aggiunta e poi raffinata la pipeline Catalina per build e packaging macOS.\n\n\
+Versione 0.2.2\n\
+- Migliorato il caricamento dei PDF su macOS con feedback piu chiaro e dialogo finale esplicito.\n\
+- Ordinamento alfabetico delle fonti articoli.\n\
+- Riparazioni al testo PDF e miglioramenti generali di localizzazione.\n\n\
+Versione 0.2.1\n\
+- Stabilizzati shortcut e menu macOS per avvio, pausa, stop e salvataggio.\n\
+- Migliorata l'apertura esterna degli episodi podcast su macOS.\n\
+- Corretta la persistenza delle impostazioni macOS.\n\
+- Rafforzate le workflow di build Intel/macOS e la gestione di Xcode.\n\n\
+Versione 0.2.0\n\
+- Prima release macOS di Sonarpad Minimal.\n\
+- Supporto lettura testo, articoli e podcast con sintesi vocale.\n\
+- Supporto PDF OCR su macOS, download aggiornamenti e pacchetti DMG dedicati.\n\
+- Categorie podcast gerarchiche e primi shortcut globali/macOS.",
+            env!("CARGO_PKG_VERSION")
+        )
+    } else {
+        format!(
+            "Sonarpad Minimal {}\n\n\
+Version 0.2.5\n\
+- New custom save dialogs for text and audiobooks on macOS.\n\
+- Filename fields now correctly accept Cmd+V, Cmd+A, and standard editing shortcuts.\n\
+- The app now remembers the last folder and format used for text and audiobook saves.\n\
+- Added audiobook saving in M4A and WAV format.\n\
+- Improved article sources added as websites: feed discovery from the page and comments-feed fix.\n\
+- macOS release workflow updated to include the Catalina artifact as well.\n\n\
+Version 0.2.4\n\
+- Major macOS PDF OCR improvements with the move to pdfium and stronger fallbacks.\n\
+- Added M4B export on macOS and improved text saving.\n\
+- Improved article source handling and protected refresh when a source returns zero items.\n\
+- Improved Edge TTS chunking and retry behavior.\n\
+- Added and refined the Catalina build and packaging pipeline.\n\n\
+Version 0.2.2\n\
+- Improved macOS PDF loading with clearer feedback and an explicit completion dialog.\n\
+- Added alphabetical sorting for article sources.\n\
+- Improved PDF text repair and localization.\n\n\
+Version 0.2.1\n\
+- Stabilized macOS shortcuts and menu actions for start, pause, stop, and save.\n\
+- Improved external podcast episode opening on macOS.\n\
+- Fixed macOS settings persistence.\n\
+- Hardened Intel/macOS build workflows and Xcode selection.\n\n\
+Version 0.2.0\n\
+- First macOS release of Sonarpad Minimal.\n\
+- Text reading, articles, and podcast support with speech synthesis.\n\
+- macOS PDF OCR support, update downloads, and dedicated DMG packages.\n\
+- Hierarchical podcast categories and the first macOS shortcut work.",
+            env!("CARGO_PKG_VERSION")
+        )
+    }
+}
+
 fn donations_title() -> &'static str {
     &current_ui_strings().donations_title
 }
@@ -904,6 +979,40 @@ fn open_donations_dialog(parent: &Frame) {
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
     text.set_value(donations_message());
+    root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let button_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let btn_ok = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&current_ui_strings().ok)
+        .build();
+    button_row.add_spacer(1);
+    button_row.add(&btn_ok, 0, SizerFlag::All, 10);
+    root.add_sizer(&button_row, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK);
+    let dialog_ok = dialog;
+    btn_ok.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn open_changelog_dialog(parent: &Frame) {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.changelog_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(720, 560)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let text = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
+        .build();
+    text.set_value(&changelog_message());
     root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
     let button_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -1186,6 +1295,102 @@ fn convert_mp3_to_m4b(
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         if stderr.is_empty() {
             Err("FFmpeg ha restituito un errore durante la conversione M4B.".to_string())
+        } else {
+            Err(stderr)
+        }
+    }
+}
+
+fn convert_mp3_to_m4a(
+    source_mp3: &Path,
+    output_m4a: &Path,
+    bitrate_kbps: u32,
+) -> Result<(), String> {
+    let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| {
+        PathBuf::from(if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        })
+    });
+    let mut command = Command::new(&ffmpeg_path);
+    command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-y")
+        .arg("-fflags")
+        .arg("+genpts")
+        .arg("-i")
+        .arg(source_mp3)
+        .arg("-vn")
+        .arg("-c:a")
+        .arg("aac")
+        .arg("-b:a")
+        .arg(format!("{bitrate_kbps}k"))
+        .arg("-ar")
+        .arg("48000")
+        .arg("-movflags")
+        .arg("+faststart")
+        .arg(output_m4a);
+
+    let output = command.output().map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            "__FFMPEG_MISSING__".to_string()
+        } else {
+            format!("avvio FFmpeg fallito: {err}")
+        }
+    })?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            Err("FFmpeg ha restituito un errore durante la conversione M4A.".to_string())
+        } else {
+            Err(stderr)
+        }
+    }
+}
+
+fn convert_mp3_to_wav(source_mp3: &Path, output_wav: &Path) -> Result<(), String> {
+    let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| {
+        PathBuf::from(if cfg!(windows) {
+            "ffmpeg.exe"
+        } else {
+            "ffmpeg"
+        })
+    });
+    let mut command = Command::new(&ffmpeg_path);
+    command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-y")
+        .arg("-i")
+        .arg(source_mp3)
+        .arg("-vn")
+        .arg("-c:a")
+        .arg("pcm_s16le")
+        .arg("-ar")
+        .arg("44100")
+        .arg(output_wav);
+
+    let output = command.output().map_err(|err| {
+        if err.kind() == std::io::ErrorKind::NotFound {
+            "__FFMPEG_MISSING__".to_string()
+        } else {
+            format!("avvio FFmpeg fallito: {err}")
+        }
+    })?;
+
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        if stderr.is_empty() {
+            Err("FFmpeg ha restituito un errore durante la conversione WAV.".to_string())
         } else {
             Err(stderr)
         }
@@ -1496,12 +1701,24 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     let format_choice = Choice::builder(&panel).build();
     format_choice.append("MP3");
     format_choice.append("M4B");
+    format_choice.append("M4A");
+    format_choice.append("WAV");
     format_choice.set_selection(
         if settings_snapshot
             .last_audiobook_format
             .eq_ignore_ascii_case("m4b")
         {
             1
+        } else if settings_snapshot
+            .last_audiobook_format
+            .eq_ignore_ascii_case("m4a")
+        {
+            2
+        } else if settings_snapshot
+            .last_audiobook_format
+            .eq_ignore_ascii_case("wav")
+        {
+            3
         } else {
             0
         },
@@ -1628,6 +1845,8 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
 
         let extension = match format_choice_save.get_selection() {
             Some(1) => "m4b",
+            Some(2) => "m4a",
+            Some(3) => "wav",
             _ => "mp3",
         };
         let mut path = folder.join(filename);
@@ -4746,6 +4965,12 @@ fn main() {
             ItemKind::Normal,
         );
         help_menu.append(
+            ID_CHANGELOG,
+            &ui.menu_changelog,
+            &ui.menu_changelog_help,
+            ItemKind::Normal,
+        );
+        help_menu.append(
             ID_CHECK_UPDATES,
             &ui.menu_updates,
             &ui.menu_updates_help,
@@ -4970,6 +5195,8 @@ fn main() {
                 dialog.show_modal();
             } else if event.get_id() == ID_DONATIONS {
                 open_donations_dialog(&f_menu);
+            } else if event.get_id() == ID_CHANGELOG {
+                open_changelog_dialog(&f_menu);
             } else if event.get_id() == ID_CHECK_UPDATES {
                 check_for_updates(&f_menu);
             } else if event.get_id() == ID_ARTICLES_ADD_SOURCE {
@@ -5835,6 +6062,8 @@ fn main() {
             let audiobook_conversion_failed = ui.audiobook_conversion_failed.clone();
             let audiobook_ffmpeg_missing = ui.audiobook_ffmpeg_missing.clone();
             let audiobook_m4b_conversion_failed = ui.audiobook_m4b_conversion_failed.clone();
+            let audiobook_m4a_conversion_failed = ui.audiobook_m4a_conversion_failed.clone();
+            let audiobook_wav_conversion_failed = ui.audiobook_wav_conversion_failed.clone();
 
             if let Some(path_buf) = prompt_audiobook_save_path(&f_save, &s_save) {
                 let path = path_buf.to_string_lossy().into_owned();
@@ -5989,14 +6218,16 @@ fn main() {
                         full_audio.extend(data);
                     }
 
-                    let is_m4b = path_buf
+                    let extension = path_buf
                         .extension()
                         .and_then(|ext| ext.to_str())
-                        .is_some_and(|ext| ext.eq_ignore_ascii_case("m4b"));
+                        .map(|ext| ext.to_ascii_lowercase())
+                        .unwrap_or_else(|| "mp3".to_string());
 
-                    if is_m4b {
+                    if extension == "m4b" || extension == "m4a" || extension == "wav" {
                         append_podcast_log(&format!(
-                            "audiobook_save.m4b_conversion_start path={}",
+                            "audiobook_save.transcode_start format={} path={}",
+                            extension,
                             path_buf.display()
                         ));
                         let temp_mp3 = std::env::temp_dir()
@@ -6007,27 +6238,40 @@ fn main() {
                             append_podcast_log("audiobook_save.temp_mp3_write_failed");
                             return;
                         }
-                        let convert_result = convert_mp3_to_m4b(&temp_mp3, &path_buf, 128);
+                        let convert_result = match extension.as_str() {
+                            "m4b" => convert_mp3_to_m4b(&temp_mp3, &path_buf, 128),
+                            "m4a" => convert_mp3_to_m4a(&temp_mp3, &path_buf, 128),
+                            "wav" => convert_mp3_to_wav(&temp_mp3, &path_buf),
+                            _ => Ok(()),
+                        };
                         if let Err(remove_err) = std::fs::remove_file(&temp_mp3) {
                             append_podcast_log(&format!(
                                 "audiobook_save.temp_mp3_cleanup_failed error={remove_err}"
                             ));
                         }
                         if let Err(err) = convert_result {
+                            let base_message = match extension.as_str() {
+                                "m4b" => audiobook_m4b_conversion_failed.clone(),
+                                "m4a" => audiobook_m4a_conversion_failed.clone(),
+                                "wav" => audiobook_wav_conversion_failed.clone(),
+                                _ => audiobook_conversion_failed.clone(),
+                            };
                             let user_message = if err == "__FFMPEG_MISSING__" {
                                 audiobook_ffmpeg_missing.clone()
                             } else {
-                                format!("{audiobook_m4b_conversion_failed} ({err})")
+                                format!("{base_message} ({err})")
                             };
                             save_state_thread.lock().unwrap().error_message = Some(user_message);
                             append_podcast_log(&format!(
-                                "audiobook_save.m4b_conversion_failed error={err}"
+                                "audiobook_save.transcode_failed format={} error={err}",
+                                extension
                             ));
                             let _ = std::fs::remove_file(&path_buf);
                             return;
                         }
                         append_podcast_log(&format!(
-                            "audiobook_save.m4b_conversion_completed path={}",
+                            "audiobook_save.transcode_completed format={} path={}",
+                            extension,
                             path_buf.display()
                         ));
                     } else if std::fs::write(&path_buf, full_audio).is_err() {

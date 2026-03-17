@@ -58,9 +58,12 @@
   "menu_about_help": "Mostra informazioni sul programma",
   "menu_donations": "&Donazioni",
   "menu_donations_help": "Mostra informazioni per sostenere il progetto",
+  "menu_changelog": "&Changelog",
+  "menu_changelog_help": "Mostra la cronologia delle versioni",
   "menu_updates": "Controlla &aggiornamenti",
   "menu_updates_help": "Controlla se esiste una nuova versione",
   "updates_title": "Aggiornamenti",
+  "changelog_title": "Changelog",
   "podcast_error_title": "Errore podcast",
   "yes": "Sì",
   "add_source": "Aggiungi fonte",
@@ -114,8 +117,10 @@
   "audiobook_saved_ok": "Audiolibro salvato correttamente.",
   "save_completed_title": "Salvataggio completato",
   "cancelling_audiobook": "Annullamento audiolibro in corso...",
-  "audiobook_ffmpeg_missing": "FFmpeg non è presente nel bundle dell'app, quindi il salvataggio in M4B non è disponibile.",
+  "audiobook_ffmpeg_missing": "FFmpeg non è presente nel bundle dell'app, quindi il salvataggio in M4B, M4A o WAV non è disponibile.",
   "audiobook_m4b_conversion_failed": "La conversione dell'audiolibro in M4B non è riuscita.",
+  "audiobook_m4a_conversion_failed": "La conversione dell'audiolibro in M4A non è riuscita.",
+  "audiobook_wav_conversion_failed": "La conversione dell'audiolibro in WAV non è riuscita.",
   "podcast_downloaded_title": "Podcast scaricato",
   "podcast_downloaded_message": "L'episodio podcast e' stato scaricato.",
   "open": "Apri",
@@ -135,7 +140,7 @@
   "analyzing_document": "Analisi documento...",
   "analyzing_pdf": "Analisi PDF in corso...",
   "document_loaded": "Documento caricato.",
-  "about_message": "Sonarpad Minimal è una versione essenziale di Sonarpad con supporto multi-formato. Apre file TXT, PDF, DOC, DOCX, EPUB, RTF, HTML e fogli di calcolo; legge il testo con sintesi vocale, crea audiolibri MP3, importa articoli e podcast e supporta la riproduzione dei podcast. Versione: {version}. Autore: Ambrogio Riili."
+  "about_message": "Sonarpad Per Mac è una versione essenziale di Sonarpad con supporto multi-formato. Apre file TXT, PDF, DOC, DOCX, EPUB, RTF, HTML e fogli di calcolo; legge il testo con sintesi vocale, crea audiolibri MP3, importa articoli e podcast e supporta la riproduzione dei podcast. Versione: {version}. Autore: Ambrogio Riili."
 }
 
 

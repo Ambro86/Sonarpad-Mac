@@ -58,9 +58,12 @@
   "menu_about_help": "Show program information",
   "menu_donations": "&Donations",
   "menu_donations_help": "Show information to support the project",
+  "menu_changelog": "&Changelog",
+  "menu_changelog_help": "Show version history",
   "menu_updates": "Check for &updates",
   "menu_updates_help": "Check whether a new version is available",
   "updates_title": "Updates",
+  "changelog_title": "Changelog",
   "podcast_error_title": "Podcast error",
   "yes": "Yes",
   "add_source": "Add source",
@@ -114,8 +117,10 @@
   "audiobook_saved_ok": "Audiobook saved successfully.",
   "save_completed_title": "Save completed",
   "cancelling_audiobook": "Cancelling audiobook...",
-  "audiobook_ffmpeg_missing": "FFmpeg is not bundled with the app, so M4B export is not available.",
+  "audiobook_ffmpeg_missing": "FFmpeg is not bundled with the app, so M4B, M4A, or WAV export is not available.",
   "audiobook_m4b_conversion_failed": "M4B audiobook conversion failed.",
+  "audiobook_m4a_conversion_failed": "M4A audiobook conversion failed.",
+  "audiobook_wav_conversion_failed": "WAV audiobook conversion failed.",
   "podcast_downloaded_title": "Podcast downloaded",
   "podcast_downloaded_message": "The podcast episode has been downloaded.",
   "open": "Open",
@@ -135,7 +140,7 @@
   "analyzing_document": "Analyzing document...",
   "analyzing_pdf": "Analyzing PDF...",
   "document_loaded": "Document loaded.",
-  "about_message": "Sonarpad Minimal is an essential edition of Sonarpad with multi-format support. It opens TXT, PDF, DOC, DOCX, EPUB, RTF, HTML, and spreadsheet files; reads text with speech synthesis, creates MP3 audiobooks, imports articles and podcasts, and supports podcast playback. Version: {version}. Author: Ambrogio Riili."
+  "about_message": "Sonarpad Per Mac is an essential edition of Sonarpad with multi-format support. It opens TXT, PDF, DOC, DOCX, EPUB, RTF, HTML, and spreadsheet files; reads text with speech synthesis, creates MP3 audiobooks, imports articles and podcasts, and supports podcast playback. Version: {version}. Author: Ambrogio Riili."
 }
 
 
