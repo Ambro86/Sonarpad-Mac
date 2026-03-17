@@ -12,8 +12,6 @@ use docx_rs::{Docx, Paragraph, Run};
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
 use rodio::{Decoder, OutputStream, Sink};
 use serde::{Deserialize, Serialize};
-#[cfg(target_os = "macos")]
-use std::cell::RefCell as ThreadRefCell;
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -27,8 +25,6 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-#[cfg(target_os = "macos")]
-use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 #[cfg(any(target_os = "macos", windows))]
 use uuid::Uuid;
@@ -87,16 +83,9 @@ const AUDIOBOOK_SAVE_THREADS: usize = 8;
 const WXK_LEFT: i32 = 314;
 const WXK_RIGHT: i32 = 316;
 #[cfg(target_os = "macos")]
-const WXK_MAC_CMD_PERIOD_PREFIX: i32 = 396;
-#[cfg(target_os = "macos")]
 const WXK_MAC_CMD_PERIOD_SUFFIX: i32 = 315;
 #[cfg(target_os = "macos")]
 const APP_STORAGE_DIR_NAME: &str = "Sonarpad";
-
-#[cfg(target_os = "macos")]
-thread_local! {
-    static MAC_PENDING_COMMAND_PERIOD_SEQUENCE_AT: ThreadRefCell<Option<Instant>> = const { ThreadRefCell::new(None) };
-}
 
 #[cfg(target_os = "macos")]
 static MAC_NATIVE_FILE_DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
@@ -738,14 +727,12 @@ fn handle_shortcut_event(
         #[cfg(target_os = "macos")]
         {
             if mac_native_file_dialog_open() {
-                set_mac_pending_command_period_sequence(false);
                 event.skip(true);
                 return;
             }
 
             let key_code = key_event.get_key_code().unwrap_or_default();
             let unicode_key = key_event.get_unicode_key().unwrap_or_default();
-            let pending_command_period_sequence = mac_pending_command_period_sequence_active();
 
             let is_standard_edit_shortcut = command_shortcut_down(key_event)
                 && !key_event.alt_down()
@@ -756,21 +743,11 @@ fn handle_shortcut_event(
                     || matches_ascii_key(key_code, unicode_key, 'z'))
                     || (key_event.shift_down() && matches_ascii_key(key_code, unicode_key, 'z')));
             if is_standard_edit_shortcut {
-                set_mac_pending_command_period_sequence(false);
-                event.skip(true);
                 return;
             }
 
-            if key_code == WXK_MAC_CMD_PERIOD_PREFIX {
-                set_mac_pending_command_period_sequence(true);
-                append_podcast_log("mac_shortcut.cmd_period_prefix_latched");
-                event.skip(true);
-                return;
-            }
-
-            if pending_command_period_sequence && command_shortcut_down(key_event) {
-                set_mac_pending_command_period_sequence(false);
-                append_podcast_log("mac_shortcut.trigger stop_sequence_command");
+            if command_shortcut_down(key_event) && key_code == WXK_MAC_CMD_PERIOD_SUFFIX {
+                append_podcast_log("mac_shortcut.trigger stop_suffix");
                 (actions.stop)();
                 return;
             }
@@ -821,13 +798,6 @@ fn handle_shortcut_event(
             {
                 append_podcast_log("mac_shortcut.trigger save");
                 (actions.save)();
-                return;
-            }
-
-            if pending_command_period_sequence && key_code == WXK_MAC_CMD_PERIOD_SUFFIX {
-                set_mac_pending_command_period_sequence(false);
-                append_podcast_log("mac_shortcut.trigger stop_sequence");
-                (actions.stop)();
                 return;
             }
             event.skip(true);
@@ -889,31 +859,6 @@ fn mac_native_file_dialog_open() -> bool {
 #[cfg(target_os = "macos")]
 fn set_mac_native_file_dialog_open(open: bool) {
     MAC_NATIVE_FILE_DIALOG_OPEN.store(open, Ordering::Relaxed);
-    set_mac_pending_command_period_sequence(false);
-}
-
-#[cfg(target_os = "macos")]
-fn mac_pending_command_period_sequence_active() -> bool {
-    const MAC_PENDING_COMMAND_PERIOD_SEQUENCE_WINDOW: Duration = Duration::from_millis(500);
-
-    MAC_PENDING_COMMAND_PERIOD_SEQUENCE_AT.with(|pending| {
-        let mut pending = pending.borrow_mut();
-        if let Some(at) = *pending {
-            if at.elapsed() <= MAC_PENDING_COMMAND_PERIOD_SEQUENCE_WINDOW {
-                return true;
-            }
-            *pending = None;
-        }
-        false
-    })
-}
-
-#[cfg(target_os = "macos")]
-fn set_mac_pending_command_period_sequence(active: bool) {
-    MAC_PENDING_COMMAND_PERIOD_SEQUENCE_AT.with(|pending| {
-        let mut pending = pending.borrow_mut();
-        *pending = if active { Some(Instant::now()) } else { None };
-    });
 }
 
 fn about_title() -> &'static str {
