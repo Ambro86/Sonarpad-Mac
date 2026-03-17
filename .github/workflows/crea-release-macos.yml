@@ -104,11 +104,10 @@ jobs:
           if gh release view "${{ env.RELEASE_VERSION }}" >/dev/null 2>&1; then
             echo "Release ${RELEASE_VERSION} already exists. Skipping creation."
           else
+            release_notes=$'Main macOS build run: ${{ steps.get_runs.outputs.main_run_id }} (${{ steps.get_runs.outputs.main_run_sha }})\n\nCatalina macOS build run: ${{ steps.get_runs.outputs.catalina_run_id }} (${{ steps.get_runs.outputs.catalina_run_sha }})'
             gh release create "${{ env.RELEASE_VERSION }}" \
               --title "Sonarpad Release ${{ env.RELEASE_VERSION }}" \
-              --notes "Main macOS build run: ${{ steps.get_runs.outputs.main_run_id }} (${{ steps.get_runs.outputs.main_run_sha }})
-
-Catalina macOS build run: ${{ steps.get_runs.outputs.catalina_run_id }} (${{ steps.get_runs.outputs.catalina_run_sha }})"
+              --notes "$release_notes"
           fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
