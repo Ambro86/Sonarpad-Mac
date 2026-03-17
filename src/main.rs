@@ -75,8 +75,6 @@ const AUDIOBOOK_SAVE_THREADS: usize = 8;
 const WXK_LEFT: i32 = 314;
 const WXK_RIGHT: i32 = 316;
 #[cfg(target_os = "macos")]
-const WXK_MAC_COMMAND: i32 = 308;
-#[cfg(target_os = "macos")]
 const WXK_MAC_CMD_PERIOD_PREFIX: i32 = 396;
 #[cfg(target_os = "macos")]
 const WXK_MAC_CMD_PERIOD_SUFFIX: i32 = 315;
@@ -85,7 +83,6 @@ const APP_STORAGE_DIR_NAME: &str = "Sonarpad";
 
 #[cfg(target_os = "macos")]
 thread_local! {
-    static MAC_PENDING_COMMAND_SHORTCUT_AT: ThreadRefCell<Option<Instant>> = const { ThreadRefCell::new(None) };
     static MAC_PENDING_COMMAND_PERIOD_SEQUENCE_AT: ThreadRefCell<Option<Instant>> = const { ThreadRefCell::new(None) };
 }
 
@@ -689,14 +686,12 @@ fn handle_shortcut_event(
         {
             if mac_native_file_dialog_open() {
                 set_mac_pending_command_period_sequence(false);
-                set_mac_pending_command_shortcut(false);
                 event.skip(true);
                 return;
             }
 
             let key_code = key_event.get_key_code().unwrap_or_default();
             let unicode_key = key_event.get_unicode_key().unwrap_or_default();
-            let pending_command_shortcut = mac_pending_command_shortcut_active();
             let pending_command_period_sequence = mac_pending_command_period_sequence_active();
 
             let is_standard_edit_shortcut = command_shortcut_down(key_event)
@@ -709,7 +704,6 @@ fn handle_shortcut_event(
                     || (key_event.shift_down() && matches_ascii_key(key_code, unicode_key, 'z')));
             if is_standard_edit_shortcut {
                 set_mac_pending_command_period_sequence(false);
-                set_mac_pending_command_shortcut(false);
                 event.skip(true);
                 return;
             }
@@ -721,27 +715,15 @@ fn handle_shortcut_event(
                 return;
             }
 
-            if pending_command_period_sequence
-                && key_code == WXK_MAC_COMMAND
-                && command_shortcut_down(key_event)
-            {
+            if pending_command_period_sequence && command_shortcut_down(key_event) {
                 set_mac_pending_command_period_sequence(false);
-                set_mac_pending_command_shortcut(false);
                 append_podcast_log("mac_shortcut.trigger stop_sequence_command");
                 (actions.stop)();
                 return;
             }
 
-            if key_code == WXK_MAC_COMMAND && command_shortcut_down(key_event) {
-                set_mac_pending_command_shortcut(true);
-                append_podcast_log("mac_shortcut.command_latched");
-                event.skip(true);
-                return;
-            }
-
             if command_shortcut_down(key_event) && !key_event.alt_down() && !key_event.shift_down()
             {
-                set_mac_pending_command_shortcut(false);
                 match key_code {
                     _ if matches_ascii_key(key_code, unicode_key, 'l') => {
                         append_podcast_log("mac_shortcut.trigger start");
@@ -784,20 +766,8 @@ fn handle_shortcut_event(
                 && !key_event.shift_down()
                 && matches_ascii_key(key_code, unicode_key, 'a')
             {
-                set_mac_pending_command_shortcut(false);
                 append_podcast_log("mac_shortcut.trigger save");
                 (actions.save)();
-                return;
-            }
-
-            if pending_command_shortcut
-                && !key_event.alt_down()
-                && !key_event.shift_down()
-                && matches_ascii_key(key_code, unicode_key, '.')
-            {
-                set_mac_pending_command_shortcut(false);
-                append_podcast_log("mac_shortcut.trigger stop_latched");
-                (actions.stop)();
                 return;
             }
 
@@ -859,22 +829,6 @@ fn matches_ascii_key(key_code: i32, unicode_key: i32, expected: char) -> bool {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_pending_command_shortcut_active() -> bool {
-    const MAC_PENDING_COMMAND_SHORTCUT_WINDOW: Duration = Duration::from_millis(1500);
-
-    MAC_PENDING_COMMAND_SHORTCUT_AT.with(|pending| {
-        let mut pending = pending.borrow_mut();
-        if let Some(at) = *pending {
-            if at.elapsed() <= MAC_PENDING_COMMAND_SHORTCUT_WINDOW {
-                return true;
-            }
-            *pending = None;
-        }
-        false
-    })
-}
-
-#[cfg(target_os = "macos")]
 fn mac_native_file_dialog_open() -> bool {
     MAC_NATIVE_FILE_DIALOG_OPEN.load(Ordering::Relaxed)
 }
@@ -883,15 +837,6 @@ fn mac_native_file_dialog_open() -> bool {
 fn set_mac_native_file_dialog_open(open: bool) {
     MAC_NATIVE_FILE_DIALOG_OPEN.store(open, Ordering::Relaxed);
     set_mac_pending_command_period_sequence(false);
-    set_mac_pending_command_shortcut(false);
-}
-
-#[cfg(target_os = "macos")]
-fn set_mac_pending_command_shortcut(active: bool) {
-    MAC_PENDING_COMMAND_SHORTCUT_AT.with(|pending| {
-        let mut pending = pending.borrow_mut();
-        *pending = if active { Some(Instant::now()) } else { None };
-    });
 }
 
 #[cfg(target_os = "macos")]
@@ -1219,14 +1164,6 @@ fn convert_mp3_to_m4b(
         .arg("-f")
         .arg("ipod")
         .arg(output_m4b);
-
-    if let Some(bundle_dir) = bundled_ffmpeg_dir() {
-        let bundle_lib = bundle_dir.join("lib");
-        if bundle_lib.is_dir() {
-            command.env("DYLD_LIBRARY_PATH", &bundle_lib);
-            command.env("DYLD_FALLBACK_LIBRARY_PATH", &bundle_lib);
-        }
-    }
 
     let output = command.output().map_err(|err| {
         if err.kind() == std::io::ErrorKind::NotFound {

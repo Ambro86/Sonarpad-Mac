@@ -51,15 +51,15 @@ jobs:
           echo "DEVELOPER_DIR=${DEVELOPER_DIR}" >> "${GITHUB_ENV}"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
 
-      - name: Ensure build tools (cmake + ninja + ffmpeg)
+      - name: Ensure build tools (cmake + ninja + nasm)
         shell: bash
         run: |
           set -euxo pipefail
           brew update
-          brew install cmake ninja ffmpeg
+          brew install cmake ninja nasm
           cmake --version
           ninja --version
-          ffmpeg -version
+          nasm -v
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -84,6 +84,61 @@ jobs:
           PDFIUM_DYLIB="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1)"
           test -n "${PDFIUM_DYLIB}"
           echo "PDFIUM_DYLIB=${PDFIUM_DYLIB}" >> "${GITHUB_ENV}"
+
+      - name: Build bundled ffmpeg from source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/ffmpeg-src dist/ffmpeg-build dist/ffmpeg-install
+          curl -L --fail \
+            "https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz" \
+            -o "dist/ffmpeg-src/ffmpeg-8.0.1.tar.xz"
+          tar -xf "dist/ffmpeg-src/ffmpeg-8.0.1.tar.xz" -C dist/ffmpeg-build
+          cd "dist/ffmpeg-build/ffmpeg-8.0.1"
+          if [ "${{ matrix.rust_target }}" = "aarch64-apple-darwin" ]; then
+            FFMPEG_ARCH="arm64"
+          else
+            FFMPEG_ARCH="x86_64"
+          fi
+          ./configure \
+            --prefix="$(pwd)/../../ffmpeg-install" \
+            --cc=clang \
+            --arch="${FFMPEG_ARCH}" \
+            --target-os=darwin \
+            --disable-everything \
+            --disable-autodetect \
+            --disable-avdevice \
+            --disable-swscale \
+            --disable-network \
+            --disable-iconv \
+            --disable-bzlib \
+            --disable-lzma \
+            --disable-sdl2 \
+            --disable-securetransport \
+            --disable-videotoolbox \
+            --disable-audiotoolbox \
+            --disable-debug \
+            --disable-doc \
+            --disable-programs \
+            --enable-ffmpeg \
+            --disable-shared \
+            --enable-static \
+            --enable-protocol=file \
+            --enable-demuxer=mov \
+            --enable-demuxer=mp3 \
+            --enable-muxer=ipod \
+            --enable-muxer=mp4 \
+            --enable-parser=mpegaudio \
+            --enable-decoder=aac \
+            --enable-decoder=mp3 \
+            --enable-encoder=aac \
+            --enable-filter=atrim \
+            --enable-filter=aresample \
+            --enable-filter=anull
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+          "../../ffmpeg-install/bin/ffmpeg" -version
+          otool -L "../../ffmpeg-install/bin/ffmpeg"
 
       - name: Download curl-impersonate for macOS
         shell: bash
@@ -129,6 +184,7 @@ jobs:
           FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
           FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
 
+          rm -rf "${APP_DIR}" "${FFMPEG_DIR}"
           mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
@@ -139,32 +195,9 @@ jobs:
             cp "${dylib}" "${FRAMEWORKS_DIR}/${dylib_name}"
             chmod +x "${FRAMEWORKS_DIR}/${dylib_name}"
           done
-          cp "$(which ffmpeg)" "${FFMPEG_BIN_DIR}/ffmpeg"
+          cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
-
-          copy_ffmpeg_deps() {
-            local binary="$1"
-            local dep_target="$2"
-            otool -L "${binary}" | tail -n +2 | awk '{print $1}' | while read -r dep; do
-              case "${dep}" in
-                /System/*|/usr/lib/*|'')
-                  continue
-                  ;;
-              esac
-              local dep_name
-              dep_name="$(basename "${dep}")"
-              local copied="${FFMPEG_LIB_DIR}/${dep_name}"
-              if [ ! -f "${copied}" ]; then
-                cp -L "${dep}" "${copied}"
-                chmod +x "${copied}"
-                install_name_tool -id "@loader_path/${dep_name}" "${copied}" || true
-                copy_ffmpeg_deps "${copied}" "@loader_path"
-              fi
-              install_name_tool -change "${dep}" "${dep_target}/${dep_name}" "${binary}" || true
-            done
-          }
-
-          copy_ffmpeg_deps "${FFMPEG_BIN_DIR}/ffmpeg" "@executable_path/../lib"
+          otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>

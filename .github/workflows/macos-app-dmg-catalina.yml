@@ -156,7 +156,6 @@ jobs:
             --disable-autodetect \
             --disable-avdevice \
             --disable-swscale \
-            --disable-postproc \
             --disable-network \
             --disable-iconv \
             --disable-bzlib \
