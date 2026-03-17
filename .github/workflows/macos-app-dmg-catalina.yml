@@ -43,14 +43,15 @@ jobs:
           echo "DEVELOPER_DIR=${DEVELOPER_DIR}" >> "${GITHUB_ENV}"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
 
-      - name: Ensure build tools (cmake + ninja)
+      - name: Ensure build tools (cmake + ninja + nasm)
         shell: bash
         run: |
           set -euxo pipefail
           brew update
-          brew install cmake ninja
+          brew install cmake ninja nasm
           cmake --version
           ninja --version
+          nasm -v
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
