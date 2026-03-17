@@ -23,6 +23,7 @@ jobs:
       CXXFLAGS: -mmacosx-version-min=10.15
       LDFLAGS: -mmacosx-version-min=10.15
       FFMPEG_VERSION: "8.0.1"
+      CURL_CFFI_VERSION: "0.13.0"
 
     steps:
       - name: Checkout
@@ -61,6 +62,20 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache Catalina pdfium
+        uses: actions/cache@v4
+        with:
+          path: dist/pdfium
+          key: ${{ runner.os }}-catalina-pdfium-v3
+
+      - name: Cache Catalina ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: |
+            dist/ffmpeg-src
+            dist/ffmpeg-install
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v3
+
       - name: Build release binary
         shell: bash
         run: |
@@ -72,7 +87,6 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/pdfium
-          rm -rf dist/pdfium/*
 
           version_le() {
             [ "$(printf '%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]
@@ -98,6 +112,14 @@ jobs:
             fi
             version_le "${found_version}" "${max_supported}"
           }
+
+          cached_dylib="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1 || true)"
+          if [ -n "${cached_dylib}" ] && check_max_macos_version "${cached_dylib}" "10.15"; then
+            echo "PDFIUM_DYLIB=${cached_dylib}" >> "${GITHUB_ENV}"
+            exit 0
+          fi
+
+          rm -rf dist/pdfium/*
 
           candidate_urls=(
             "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz"
@@ -139,9 +161,23 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/ffmpeg-src dist/ffmpeg-build dist/ffmpeg-install
-          curl -L --fail \
-            "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
-            -o "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+          if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
+            otool -L "dist/ffmpeg-install/bin/ffmpeg"
+            if ! otool -L "dist/ffmpeg-install/bin/ffmpeg" \
+              | tail -n +2 \
+              | awk '{print $1}' \
+              | grep -vE '^(/System/|/usr/lib/|@)'; then
+              "dist/ffmpeg-install/bin/ffmpeg" -version
+              exit 0
+            fi
+          fi
+          rm -rf dist/ffmpeg-install dist/ffmpeg-build
+          mkdir -p dist/ffmpeg-build dist/ffmpeg-install
+          if [ ! -f "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then
+            curl -L --fail \
+              "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+              -o "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+          fi
           tar -xf "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" -C dist/ffmpeg-build
           cd "dist/ffmpeg-build/ffmpeg-${FFMPEG_VERSION}"
           ./configure \
@@ -192,11 +228,12 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/curl-cffi
+          rm -rf dist/curl-cffi/*
           python3 -m pip download \
             --no-deps \
             --only-binary=:all: \
             --dest dist/curl-cffi \
-            curl_cffi
+            "curl_cffi==${CURL_CFFI_VERSION}"
           python3 - <<'PY'
           import zipfile
           from pathlib import Path

@@ -69,6 +69,26 @@ jobs:
       - name: Cache Rust build
         uses: Swatinem/rust-cache@v2
 
+      - name: Cache macOS pdfium
+        uses: actions/cache@v4
+        with:
+          path: dist/pdfium
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-pdfium-${{ matrix.pdfium_archive }}-v1
+
+      - name: Cache macOS ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: |
+            dist/ffmpeg-src
+            dist/ffmpeg-install
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v1
+
+      - name: Cache macOS curl-cffi
+        uses: actions/cache@v4
+        with:
+          path: dist/curl-cffi
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-curl-cffi-v1
+
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.rust_target }}
 
@@ -77,10 +97,15 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/pdfium
-          curl -L --fail \
-            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium_archive }}" \
-            -o "dist/pdfium/${{ matrix.pdfium_archive }}"
-          tar -xzf "dist/pdfium/${{ matrix.pdfium_archive }}" -C dist/pdfium
+          PDFIUM_DYLIB="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1 || true)"
+          if [ -z "${PDFIUM_DYLIB}" ]; then
+            rm -rf dist/pdfium/*
+            curl -L --fail \
+              "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/${{ matrix.pdfium_archive }}" \
+              -o "dist/pdfium/${{ matrix.pdfium_archive }}"
+            tar -xzf "dist/pdfium/${{ matrix.pdfium_archive }}" -C dist/pdfium
+            PDFIUM_DYLIB="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1)"
+          fi
           PDFIUM_DYLIB="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1)"
           test -n "${PDFIUM_DYLIB}"
           echo "PDFIUM_DYLIB=${PDFIUM_DYLIB}" >> "${GITHUB_ENV}"
@@ -90,9 +115,17 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/ffmpeg-src dist/ffmpeg-build dist/ffmpeg-install
-          curl -L --fail \
-            "https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz" \
-            -o "dist/ffmpeg-src/ffmpeg-8.0.1.tar.xz"
+          if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
+            "dist/ffmpeg-install/bin/ffmpeg" -version
+            exit 0
+          fi
+          rm -rf dist/ffmpeg-build dist/ffmpeg-install
+          mkdir -p dist/ffmpeg-build dist/ffmpeg-install
+          if [ ! -f "dist/ffmpeg-src/ffmpeg-8.0.1.tar.xz" ]; then
+            curl -L --fail \
+              "https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz" \
+              -o "dist/ffmpeg-src/ffmpeg-8.0.1.tar.xz"
+          fi
           tar -xf "dist/ffmpeg-src/ffmpeg-8.0.1.tar.xz" -C dist/ffmpeg-build
           cd "dist/ffmpeg-build/ffmpeg-8.0.1"
           if [ "${{ matrix.rust_target }}" = "aarch64-apple-darwin" ]; then
@@ -145,11 +178,14 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/curl-cffi
-          python3 -m pip download \
-            --no-deps \
-            --only-binary=:all: \
-            --dest dist/curl-cffi \
-            curl_cffi
+          if ! find "dist/curl-cffi" -type f -name '*.whl' | grep . >/dev/null; then
+            rm -rf dist/curl-cffi/*
+            python3 -m pip download \
+              --no-deps \
+              --only-binary=:all: \
+              --dest dist/curl-cffi \
+              curl_cffi
+          fi
           python3 - <<'PY'
           import zipfile
           from pathlib import Path
