@@ -151,26 +151,41 @@ jobs:
             --extra-cflags="-mmacosx-version-min=10.15" \
             --extra-cxxflags="-mmacosx-version-min=10.15" \
             --extra-ldflags="-mmacosx-version-min=10.15" \
+            --disable-everything \
             --disable-autodetect \
+            --disable-avdevice \
+            --disable-swscale \
+            --disable-postproc \
+            --disable-network \
+            --disable-iconv \
+            --disable-bzlib \
+            --disable-lzma \
+            --disable-sdl2 \
+            --disable-securetransport \
+            --disable-videotoolbox \
+            --disable-audiotoolbox \
             --disable-debug \
             --disable-doc \
             --disable-programs \
             --enable-ffmpeg \
-            --disable-network \
             --disable-shared \
             --enable-static \
             --enable-protocol=file \
+            --enable-demuxer=mov \
             --enable-demuxer=mp3 \
             --enable-muxer=ipod \
             --enable-muxer=mp4 \
             --enable-parser=mpegaudio \
+            --enable-decoder=aac \
             --enable-decoder=mp3 \
             --enable-encoder=aac \
+            --enable-filter=atrim \
             --enable-filter=aresample \
             --enable-filter=anull
           make -j"$(sysctl -n hw.ncpu)"
           make install
           "../../ffmpeg-install/bin/ffmpeg" -version
+          otool -L "../../ffmpeg-install/bin/ffmpeg"
 
       - name: Download curl-impersonate for macOS
         shell: bash
@@ -228,6 +243,7 @@ jobs:
           done
           cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
+          otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -317,6 +333,13 @@ jobs:
           check_max_macos_version "${APP_BIN}" "10.15"
           check_max_macos_version "dist/stage/Sonarpad.app/Contents/Frameworks/libpdfium.dylib" "10.15"
           check_max_macos_version "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg" "10.15"
+          if otool -L "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg" \
+            | tail -n +2 \
+            | awk '{print $1}' \
+            | grep -vE '^(/System/|/usr/lib/|@)'; then
+            echo "Catalina ffmpeg still has non-system dynamic dependencies"
+            exit 1
+          fi
 
           find "dist/stage/Sonarpad.app/Contents/Frameworks" -type f -name '*.dylib' -print0 | \
             while IFS= read -r -d '' dylib; do

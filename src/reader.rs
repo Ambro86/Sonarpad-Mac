@@ -863,8 +863,54 @@ pub fn reader_mode_extract(html_content: &str) -> Option<ArticleContent> {
     {
         final_content = format!("Link esterno: {url}");
     }
+    if html_content.contains("macitynet.it")
+        && (final_content.trim().len() < 120 || count_sentences(&final_content) < 2)
+        && let Some(macity_content) = extract_macity_article_text(html_content, title.trim())
+        && macity_content.len() > final_content.len()
+    {
+        final_content = macity_content;
+    }
     Some(ArticleContent {
         title: title.trim().to_string(),
         content: final_content,
     })
+}
+
+fn extract_macity_article_text(html_content: &str, title: &str) -> Option<String> {
+    let rendered = html2text::from_read(html_content.as_bytes(), 100).ok()?;
+    let stop_markers = [
+        "Segui Macitynet su Google News",
+        "Offerte Apple e Tecnologia",
+        "Tutte le offerte ancora attive",
+        "Classifiche speciali",
+        "Articoli correlati",
+        "Potrebbe interessarti anche",
+    ];
+    let mut lines = Vec::new();
+    let mut started = title.trim().is_empty();
+    for raw_line in rendered.lines() {
+        let line = raw_line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if !started {
+            if line == title.trim() || line.contains(title.trim()) {
+                started = true;
+            }
+            continue;
+        }
+        if stop_markers.iter().any(|marker| line.contains(marker)) {
+            break;
+        }
+        if line.len() < 2 {
+            continue;
+        }
+        lines.push(line.to_string());
+    }
+    let content = collapse_blank_lines(&lines.join("\n\n"));
+    if content.trim().len() < 120 {
+        None
+    } else {
+        Some(content)
+    }
 }

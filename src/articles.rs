@@ -189,18 +189,38 @@ pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {
                 .await
                 .map_err(|err| err.to_string())?
         {
+            crate::append_podcast_log(&format!(
+                "article_fetch.google_news_resolved original={} resolved={}",
+                url, resolved_url
+            ));
             url = resolved_url;
         }
     }
 
-    if let Ok(reqwest_article) = fetch_article_text_via_reqwest(&url, item).await
-        && !should_retry_with_impersonation(
-            &reqwest_article.html,
-            &reqwest_article.article,
-            item.description.trim(),
-        )
-    {
-        return Ok(format_article_text(&reqwest_article.article));
+    match fetch_article_text_via_reqwest(&url, item).await {
+        Ok(reqwest_article) => {
+            let should_retry = should_retry_with_impersonation(
+                &reqwest_article.html,
+                &reqwest_article.article,
+                item.description.trim(),
+            );
+            crate::append_podcast_log(&format!(
+                "article_fetch.reqwest url={} title={} content_len={} retry={}",
+                url,
+                reqwest_article.article.title,
+                extracted_len(&reqwest_article.article.content),
+                should_retry
+            ));
+            if !should_retry {
+                return Ok(format_article_text(&reqwest_article.article));
+            }
+        }
+        Err(err) => {
+            crate::append_podcast_log(&format!(
+                "article_fetch.reqwest_failed url={} error={err}",
+                url
+            ));
+        }
     }
 
     let curl_url = url.clone();
@@ -209,11 +229,19 @@ pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {
         tokio::task::spawn_blocking(move || fetch_article_text_via_curl(&curl_url, &curl_item))
             .await
             .map_err(|err| err.to_string())??;
-    if !should_retry_with_impersonation(
+    let curl_should_retry = should_retry_with_impersonation(
         &curl_article.html,
         &curl_article.article,
         item.description.trim(),
-    ) {
+    );
+    crate::append_podcast_log(&format!(
+        "article_fetch.curl url={} title={} content_len={} retry={}",
+        url,
+        curl_article.article.title,
+        extracted_len(&curl_article.article.content),
+        curl_should_retry
+    ));
+    if !curl_should_retry {
         return Ok(format_article_text(&curl_article.article));
     }
 
@@ -224,11 +252,25 @@ pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {
     })
     .await
     .map_err(|err| err.to_string())??;
+    crate::append_podcast_log(&format!(
+        "article_fetch.iphone url={} title={} content_len={}",
+        url,
+        iphone_article.article.title,
+        extracted_len(&iphone_article.article.content)
+    ));
 
     if extracted_len(&iphone_article.article.content) > extracted_len(&curl_article.article.content)
     {
+        crate::append_podcast_log(&format!(
+            "article_fetch.selected_profile url={} profile=iphone",
+            url
+        ));
         Ok(format_article_text(&iphone_article.article))
     } else {
+        crate::append_podcast_log(&format!(
+            "article_fetch.selected_profile url={} profile=curl",
+            url
+        ));
         Ok(format_article_text(&curl_article.article))
     }
 }
