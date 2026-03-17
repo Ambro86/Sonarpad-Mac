@@ -23,7 +23,7 @@ jobs:
       CXXFLAGS: -mmacosx-version-min=10.15
       LDFLAGS: -mmacosx-version-min=10.15
       FFMPEG_VERSION: "8.0.1"
-      CURL_CFFI_VERSION: "0.13.0"
+      CURL_CFFI_VERSION: "0.7.0"
 
     steps:
       - name: Checkout
@@ -250,6 +250,11 @@ jobs:
           for dylib in dylibs:
               print(dylib)
           PY
+          find "dist/curl-cffi/extracted" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' dylib; do
+            echo "===== CURL DYLIB: ${dylib} ====="
+            vtool -show-build "${dylib}" || true
+            otool -L "${dylib}" || true
+          done
 
       - name: Package .app and .dmg
         shell: bash
