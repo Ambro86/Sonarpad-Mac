@@ -193,12 +193,13 @@ pub async fn fetch_article_text(item: &ArticleItem) -> Result<String, String> {
         }
     }
 
-    let reqwest_article = fetch_article_text_via_reqwest(&url, item).await?;
-    if !should_retry_with_impersonation(
-        &reqwest_article.html,
-        &reqwest_article.article,
-        item.description.trim(),
-    ) {
+    if let Ok(reqwest_article) = fetch_article_text_via_reqwest(&url, item).await
+        && !should_retry_with_impersonation(
+            &reqwest_article.html,
+            &reqwest_article.article,
+            item.description.trim(),
+        )
+    {
         return Ok(format_article_text(&reqwest_article.article));
     }
 

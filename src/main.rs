@@ -90,6 +90,9 @@ thread_local! {
 }
 
 #[cfg(target_os = "macos")]
+static MAC_NATIVE_FILE_DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
+
+#[cfg(target_os = "macos")]
 const MOD_CMD: &str = "Cmd";
 #[cfg(not(target_os = "macos"))]
 const MOD_CMD: &str = "Ctrl";
@@ -684,6 +687,13 @@ fn handle_shortcut_event(
     if let WindowEventData::Keyboard(key_event) = &event {
         #[cfg(target_os = "macos")]
         {
+            if mac_native_file_dialog_open() {
+                set_mac_pending_command_period_sequence(false);
+                set_mac_pending_command_shortcut(false);
+                event.skip(true);
+                return;
+            }
+
             let key_code = key_event.get_key_code().unwrap_or_default();
             let unicode_key = key_event.get_unicode_key().unwrap_or_default();
             let pending_command_shortcut = mac_pending_command_shortcut_active();
@@ -862,6 +872,16 @@ fn mac_pending_command_shortcut_active() -> bool {
         }
         false
     })
+}
+
+#[cfg(target_os = "macos")]
+fn mac_native_file_dialog_open() -> bool {
+    MAC_NATIVE_FILE_DIALOG_OPEN.load(Ordering::Relaxed)
+}
+
+#[cfg(target_os = "macos")]
+fn set_mac_native_file_dialog_open(open: bool) {
+    MAC_NATIVE_FILE_DIALOG_OPEN.store(open, Ordering::Relaxed);
 }
 
 #[cfg(target_os = "macos")]
@@ -1238,7 +1258,13 @@ fn save_current_text(parent: &Frame, text: &str) {
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
         .build();
 
-    if dialog.show_modal() != ID_OK {
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+
+    if dialog_result != ID_OK {
         return;
     }
 
@@ -1357,7 +1383,13 @@ fn save_downloaded_podcast_file(
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
         .build();
 
-    if dialog.show_modal() != ID_OK {
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+
+    if dialog_result != ID_OK {
         return Ok(());
     }
 
@@ -4532,7 +4564,12 @@ fn main() {
             let ui = current_ui_strings();
             if event.get_id() == ID_OPEN {
                 let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm|Tutti|*.*").build();
-                if dialog.show_modal() == ID_OK
+                #[cfg(target_os = "macos")]
+                set_mac_native_file_dialog_open(true);
+                let dialog_result = dialog.show_modal();
+                #[cfg(target_os = "macos")]
+                set_mac_native_file_dialog_open(false);
+                if dialog_result == ID_OK
                     && let Some(path) = dialog.get_path()
                 {
                     let path = Path::new(&path);
@@ -5428,9 +5465,16 @@ fn main() {
                 .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
                 .build();
 
-            if dialog.show_modal() == ID_OK
+            #[cfg(target_os = "macos")]
+            set_mac_native_file_dialog_open(true);
+            let dialog_result = dialog.show_modal();
+            #[cfg(target_os = "macos")]
+            set_mac_native_file_dialog_open(false);
+
+            if dialog_result == ID_OK
                 && let Some(path) = dialog.get_path()
             {
+                let selected_filter_index = dialog.get_filter_index();
                 append_podcast_log(&format!("audiobook_save.begin path={path}"));
                 let chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
                 let total = chunks.len();
@@ -5485,7 +5529,11 @@ fn main() {
                 let rt_save = Arc::clone(&rt_s);
                 let mut path_buf = PathBuf::from(path);
                 if path_buf.extension().is_none() {
-                    path_buf.set_extension("mp3");
+                    if selected_filter_index == 1 {
+                        path_buf.set_extension("m4b");
+                    } else {
+                        path_buf.set_extension("mp3");
+                    }
                 }
                 let abort_requested = Arc::new(AtomicBool::new(false));
                 let abort_requested_thread = Arc::clone(&abort_requested);
@@ -5592,6 +5640,10 @@ fn main() {
                         .is_some_and(|ext| ext.eq_ignore_ascii_case("m4b"));
 
                     if is_m4b {
+                        append_podcast_log(&format!(
+                            "audiobook_save.m4b_conversion_start path={}",
+                            path_buf.display()
+                        ));
                         let temp_mp3 = std::env::temp_dir()
                             .join(format!("sonarpad-minimal-audiobook-{}.mp3", Uuid::new_v4()));
                         if std::fs::write(&temp_mp3, &full_audio).is_err() {
@@ -5619,6 +5671,10 @@ fn main() {
                             let _ = std::fs::remove_file(&path_buf);
                             return;
                         }
+                        append_podcast_log(&format!(
+                            "audiobook_save.m4b_conversion_completed path={}",
+                            path_buf.display()
+                        ));
                     } else if std::fs::write(&path_buf, full_audio).is_err() {
                         save_state_thread.lock().unwrap().error_message =
                             Some(audiobook_file_not_saved.clone());
