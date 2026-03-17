@@ -724,6 +724,7 @@ fn handle_shortcut_event(
                     || matches_ascii_key(key_code, unicode_key, 'z'))
                     || (key_event.shift_down() && matches_ascii_key(key_code, unicode_key, 'z')));
             if is_standard_edit_shortcut {
+                event.skip(true);
                 return;
             }
 
