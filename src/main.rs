@@ -418,6 +418,13 @@ struct UiStrings {
     podcast_downloaded_message: String,
     open: String,
     save_as: String,
+    save_filename_label: String,
+    save_format_label: String,
+    save_folder_label: String,
+    choose_folder: String,
+    save_filename_empty: String,
+    save_folder_not_selected: String,
+    overwrite_existing_file: String,
     save_text_title: String,
     text_file_not_saved: String,
     text_saved_ok: String,
@@ -1222,6 +1229,210 @@ fn save_current_text(parent: &Frame, text: &str) {
             &format!("{} ({err})", ui.text_file_not_saved),
         ),
     }
+}
+
+fn default_audiobook_save_folder() -> PathBuf {
+    let Some(home) = std::env::var_os("HOME").map(PathBuf::from) else {
+        return PathBuf::new();
+    };
+
+    let documents = home.join("Documents");
+    if documents.is_dir() { documents } else { home }
+}
+
+fn prompt_audiobook_save_path(parent: &Frame) -> Option<PathBuf> {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.save_audiobook_title)
+        .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
+        .with_size(520, 250)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let name_label = StaticText::builder(&panel)
+        .with_label(&ui.save_filename_label)
+        .build();
+    root.add(
+        &name_label,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let name_ctrl = TextCtrl::builder(&panel).build();
+    root.add(
+        &name_ctrl,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let format_label = StaticText::builder(&panel)
+        .with_label(&ui.save_format_label)
+        .build();
+    root.add(
+        &format_label,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let format_choice = Choice::builder(&panel).build();
+    format_choice.append("MP3");
+    format_choice.append("M4B");
+    format_choice.set_selection(0);
+    root.add(
+        &format_choice,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let folder_label = StaticText::builder(&panel)
+        .with_label(&ui.save_folder_label)
+        .build();
+    root.add(
+        &folder_label,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let initial_folder = default_audiobook_save_folder();
+    let folder_display = StaticText::builder(&panel)
+        .with_label(&initial_folder.to_string_lossy())
+        .build();
+    root.add(
+        &folder_display,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let choose_folder_button = Button::builder(&panel)
+        .with_label(&ui.choose_folder)
+        .build();
+    root.add(
+        &choose_folder_button,
+        0,
+        SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let save_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.save_as)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let selected_folder = Rc::new(RefCell::new(initial_folder));
+    let selected_path = Rc::new(RefCell::new(None::<PathBuf>));
+
+    let dialog_choose = dialog;
+    let folder_display_choose = folder_display;
+    let selected_folder_choose = Rc::clone(&selected_folder);
+    choose_folder_button.on_click(move |_| {
+        let ui = current_ui_strings();
+        let default_path = selected_folder_choose
+            .borrow()
+            .to_string_lossy()
+            .into_owned();
+        let dir_dialog =
+            DirDialog::builder(&dialog_choose, &ui.choose_folder, &default_path).build();
+
+        #[cfg(target_os = "macos")]
+        set_mac_native_file_dialog_open(true);
+        let dialog_result = dir_dialog.show_modal();
+        #[cfg(target_os = "macos")]
+        set_mac_native_file_dialog_open(false);
+
+        if dialog_result != ID_OK {
+            return;
+        }
+
+        if let Some(path) = dir_dialog.get_path() {
+            let folder = PathBuf::from(path);
+            folder_display_choose.set_label(&folder.to_string_lossy());
+            *selected_folder_choose.borrow_mut() = folder;
+        }
+    });
+
+    let dialog_save = dialog;
+    let name_ctrl_save = name_ctrl;
+    let format_choice_save = format_choice;
+    let selected_folder_save = Rc::clone(&selected_folder);
+    let selected_path_save = Rc::clone(&selected_path);
+    save_button.on_click(move |_| {
+        let ui = current_ui_strings();
+        let filename = sanitize_filename(&name_ctrl_save.get_value());
+        if filename.is_empty() {
+            show_message_subdialog(
+                &dialog_save,
+                &ui.save_audiobook_title,
+                &ui.save_filename_empty,
+            );
+            return;
+        }
+
+        let folder = selected_folder_save.borrow().clone();
+        if folder.as_os_str().is_empty() {
+            show_message_subdialog(
+                &dialog_save,
+                &ui.save_audiobook_title,
+                &ui.save_folder_not_selected,
+            );
+            return;
+        }
+
+        let extension = match format_choice_save.get_selection() {
+            Some(1) => "m4b",
+            _ => "mp3",
+        };
+        let mut path = folder.join(filename);
+        path.set_extension(extension);
+
+        if path.exists() {
+            let overwrite_dialog = MessageDialog::builder(
+                &dialog_save,
+                &ui.overwrite_existing_file,
+                &ui.save_audiobook_title,
+            )
+            .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
+            .build();
+            localize_standard_dialog_buttons(&overwrite_dialog);
+            if overwrite_dialog.show_modal() != ID_YES {
+                return;
+            }
+        }
+
+        *selected_path_save.borrow_mut() = Some(path);
+        dialog_save.end_modal(ID_OK);
+    });
+
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| {
+        dialog_cancel.end_modal(ID_CANCEL);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        selected_path.borrow().clone()
+    } else {
+        None
+    };
+    dialog.destroy();
+    result
 }
 
 fn prompt_downloaded_podcast_action(parent: &Frame) -> PodcastDownloadAction {
@@ -5386,22 +5597,8 @@ fn main() {
             let audiobook_ffmpeg_missing = ui.audiobook_ffmpeg_missing.clone();
             let audiobook_m4b_conversion_failed = ui.audiobook_m4b_conversion_failed.clone();
 
-            let dialog = FileDialog::builder(&f_save)
-                .with_message(&ui.save_audiobook_title)
-                .with_wildcard("MP3 (*.mp3)|*.mp3|M4B (*.m4b)|*.m4b")
-                .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
-                .build();
-
-            #[cfg(target_os = "macos")]
-            set_mac_native_file_dialog_open(true);
-            let dialog_result = dialog.show_modal();
-            #[cfg(target_os = "macos")]
-            set_mac_native_file_dialog_open(false);
-
-            if dialog_result == ID_OK
-                && let Some(path) = dialog.get_path()
-            {
-                let selected_filter_index = dialog.get_filter_index();
+            if let Some(path_buf) = prompt_audiobook_save_path(&f_save) {
+                let path = path_buf.to_string_lossy().into_owned();
                 append_podcast_log(&format!("audiobook_save.begin path={path}"));
                 let chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
                 let total = chunks.len();
@@ -5454,14 +5651,6 @@ fn main() {
                 progress_dialog.show(true);
 
                 let rt_save = Arc::clone(&rt_s);
-                let mut path_buf = PathBuf::from(path);
-                if path_buf.extension().is_none() {
-                    if selected_filter_index == 1 {
-                        path_buf.set_extension("m4b");
-                    } else {
-                        path_buf.set_extension("mp3");
-                    }
-                }
                 let abort_requested = Arc::new(AtomicBool::new(false));
                 let abort_requested_thread = Arc::clone(&abort_requested);
                 let save_state = Arc::new(Mutex::new(SaveAudiobookState {
