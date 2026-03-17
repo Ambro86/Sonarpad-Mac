@@ -10,13 +10,13 @@ mod reader;
 
 use docx_rs::{Docx, Paragraph, Run};
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
-use rodio::{Decoder, OutputStream, Sink};
+use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::Cursor;
+use std::io::{BufReader, Cursor};
 #[cfg(any(target_os = "macos", windows))]
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
@@ -1355,48 +1355,26 @@ fn convert_mp3_to_m4a(
 }
 
 fn convert_mp3_to_wav(source_mp3: &Path, output_wav: &Path) -> Result<(), String> {
-    let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| {
-        PathBuf::from(if cfg!(windows) {
-            "ffmpeg.exe"
-        } else {
-            "ffmpeg"
-        })
-    });
-    let mut command = Command::new(&ffmpeg_path);
-    command
-        .arg("-hide_banner")
-        .arg("-loglevel")
-        .arg("error")
-        .arg("-y")
-        .arg("-i")
-        .arg(source_mp3)
-        .arg("-vn")
-        .arg("-f")
-        .arg("wav")
-        .arg("-c:a")
-        .arg("pcm_s16le")
-        .arg("-ar")
-        .arg("44100")
-        .arg(output_wav);
-
-    let output = command.output().map_err(|err| {
-        if err.kind() == std::io::ErrorKind::NotFound {
-            "__FFMPEG_MISSING__".to_string()
-        } else {
-            format!("avvio FFmpeg fallito: {err}")
-        }
-    })?;
-
-    if output.status.success() {
-        Ok(())
-    } else {
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-        if stderr.is_empty() {
-            Err("FFmpeg ha restituito un errore durante la conversione WAV.".to_string())
-        } else {
-            Err(stderr)
-        }
+    let input = std::fs::File::open(source_mp3)
+        .map_err(|err| format!("apertura MP3 temporaneo fallita: {err}"))?;
+    let source = Decoder::new(BufReader::new(input))
+        .map_err(|err| format!("decodifica MP3 fallita: {err}"))?;
+    let spec = hound::WavSpec {
+        channels: source.channels(),
+        sample_rate: source.sample_rate(),
+        bits_per_sample: 16,
+        sample_format: hound::SampleFormat::Int,
+    };
+    let mut writer = hound::WavWriter::create(output_wav, spec)
+        .map_err(|err| format!("creazione WAV fallita: {err}"))?;
+    for sample in source.convert_samples::<i16>() {
+        writer
+            .write_sample(sample)
+            .map_err(|err| format!("scrittura WAV fallita: {err}"))?;
     }
+    writer
+        .finalize()
+        .map_err(|err| format!("finalizzazione WAV fallita: {err}"))
 }
 
 fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Option<PathBuf> {

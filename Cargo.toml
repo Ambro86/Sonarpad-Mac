@@ -19,6 +19,7 @@ rand = "0.8"
 sha2 = "0.10"
 url = "2.5"
 rodio = "0.20"
+hound = "3.5"
 docx-rs = "0.4"
 pdf-extract = "0.10"
 pdfium-render = { version = "0.8.37", default-features = false, features = ["pdfium_latest", "thread_safe", "image_latest"] }
