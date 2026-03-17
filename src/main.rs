@@ -890,7 +890,7 @@ fn about_message() -> String {
 fn changelog_message() -> String {
     if Settings::load().ui_language == "it" {
         format!(
-            "Sonarpad Minimal {}\n\n\
+            "Sonarpad Per Mac {}\n\n\
 Versione 0.2.5\n\
 - Nuove finestre di salvataggio personalizzate per testo e audiolibri su macOS.\n\
 - I campi nome file ora accettano correttamente Cmd+V, Cmd+A e gli altri comandi di editing.\n\
@@ -914,7 +914,7 @@ Versione 0.2.1\n\
 - Corretta la persistenza delle impostazioni macOS.\n\
 - Rafforzate le workflow di build Intel/macOS e la gestione di Xcode.\n\n\
 Versione 0.2.0\n\
-- Prima release macOS di Sonarpad Minimal.\n\
+- Prima release macOS di Sonarpad Per Mac.\n\
 - Supporto lettura testo, articoli e podcast con sintesi vocale.\n\
 - Supporto PDF OCR su macOS, download aggiornamenti e pacchetti DMG dedicati.\n\
 - Categorie podcast gerarchiche e primi shortcut globali/macOS.",
@@ -922,7 +922,7 @@ Versione 0.2.0\n\
         )
     } else {
         format!(
-            "Sonarpad Minimal {}\n\n\
+            "Sonarpad Per Mac {}\n\n\
 Version 0.2.5\n\
 - New custom save dialogs for text and audiobooks on macOS.\n\
 - Filename fields now correctly accept Cmd+V, Cmd+A, and standard editing shortcuts.\n\
@@ -946,7 +946,7 @@ Version 0.2.1\n\
 - Fixed macOS settings persistence.\n\
 - Hardened Intel/macOS build workflows and Xcode selection.\n\n\
 Version 0.2.0\n\
-- First macOS release of Sonarpad Minimal.\n\
+- First macOS release of Sonarpad Per Mac.\n\
 - Text reading, articles, and podcast support with speech synthesis.\n\
 - macOS PDF OCR support, update downloads, and dedicated DMG packages.\n\
 - Hierarchical podcast categories and the first macOS shortcut work.",
@@ -1371,6 +1371,8 @@ fn convert_mp3_to_wav(source_mp3: &Path, output_wav: &Path) -> Result<(), String
         .arg("-i")
         .arg(source_mp3)
         .arg("-vn")
+        .arg("-f")
+        .arg("wav")
         .arg("-c:a")
         .arg("pcm_s16le")
         .arg("-ar")
