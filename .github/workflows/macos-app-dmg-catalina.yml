@@ -22,6 +22,7 @@ jobs:
       CFLAGS: -mmacosx-version-min=10.15
       CXXFLAGS: -mmacosx-version-min=10.15
       LDFLAGS: -mmacosx-version-min=10.15
+      FFMPEG_VERSION: "8.0.1"
 
     steps:
       - name: Checkout
@@ -42,15 +43,14 @@ jobs:
           echo "DEVELOPER_DIR=${DEVELOPER_DIR}" >> "${GITHUB_ENV}"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
 
-      - name: Ensure build tools (cmake + ninja + ffmpeg)
+      - name: Ensure build tools (cmake + ninja)
         shell: bash
         run: |
           set -euxo pipefail
           brew update
-          brew install cmake ninja ffmpeg
+          brew install cmake ninja
           cmake --version
           ninja --version
-          ffmpeg -version
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -66,18 +66,95 @@ jobs:
           set -euxo pipefail
           cargo build --release --target x86_64-apple-darwin
 
-      - name: Download pdfium for macOS Intel
+      - name: Download Catalina-compatible pdfium for macOS Intel
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p dist/pdfium
-          curl -L --fail \
-            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz" \
-            -o "dist/pdfium/pdfium-mac-x64.tgz"
-          tar -xzf "dist/pdfium/pdfium-mac-x64.tgz" -C dist/pdfium
-          PDFIUM_DYLIB="$(find dist/pdfium -type f -name 'libpdfium.dylib' | head -n 1)"
+          rm -rf dist/pdfium/*
+
+          check_minos() {
+            local binary="$1"
+            local expected="$2"
+            local output
+            output="$(vtool -show-build "${binary}" 2>/dev/null || true)"
+            echo "${output}"
+            echo "${output}" | grep -q "minos ${expected}"
+          }
+
+          candidate_urls=(
+            "https://github.com/bblanchon/pdfium-binaries/releases/latest/download/pdfium-mac-x64.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6996/pdfium-mac-x64.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6668/pdfium-mac-x64.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6372/pdfium-mac-x64.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F6169/pdfium-mac-x64.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F5921/pdfium-mac-x64.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F5713/pdfium-mac-x64.tgz"
+            "https://github.com/bblanchon/pdfium-binaries/releases/download/chromium%2F5418/pdfium-mac-x64.tgz"
+          )
+
+          PDFIUM_DYLIB=""
+          for candidate_url in "${candidate_urls[@]}"; do
+            archive_path="dist/pdfium/candidate.tgz"
+            extract_dir="dist/pdfium/extracted"
+            rm -f "${archive_path}"
+            rm -rf "${extract_dir}"
+            mkdir -p "${extract_dir}"
+            if ! curl -L --fail "${candidate_url}" -o "${archive_path}"; then
+              continue
+            fi
+            tar -xzf "${archive_path}" -C "${extract_dir}"
+            candidate_dylib="$(find "${extract_dir}" -type f -name 'libpdfium.dylib' | head -n 1)"
+            if [ -z "${candidate_dylib}" ]; then
+              continue
+            fi
+            if check_minos "${candidate_dylib}" "10.15"; then
+              PDFIUM_DYLIB="${candidate_dylib}"
+              break
+            fi
+          done
+
           test -n "${PDFIUM_DYLIB}"
           echo "PDFIUM_DYLIB=${PDFIUM_DYLIB}" >> "${GITHUB_ENV}"
+
+      - name: Build Catalina-compatible ffmpeg from source
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/ffmpeg-src dist/ffmpeg-build dist/ffmpeg-install
+          curl -L --fail \
+            "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
+            -o "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+          tar -xf "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" -C dist/ffmpeg-build
+          cd "dist/ffmpeg-build/ffmpeg-${FFMPEG_VERSION}"
+          ./configure \
+            --prefix="$(pwd)/../../ffmpeg-install" \
+            --cc=clang \
+            --arch=x86_64 \
+            --target-os=darwin \
+            --extra-cflags="-mmacosx-version-min=10.15" \
+            --extra-cxxflags="-mmacosx-version-min=10.15" \
+            --extra-ldflags="-mmacosx-version-min=10.15" \
+            --disable-autodetect \
+            --disable-debug \
+            --disable-doc \
+            --disable-programs \
+            --enable-ffmpeg \
+            --disable-network \
+            --disable-shared \
+            --enable-static \
+            --enable-protocol=file \
+            --enable-demuxer=mp3 \
+            --enable-muxer=ipod \
+            --enable-muxer=mp4 \
+            --enable-parser=mpegaudio \
+            --enable-decoder=mp3 \
+            --enable-encoder=aac \
+            --enable-filter=aresample \
+            --enable-filter=anull
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+          "../../ffmpeg-install/bin/ffmpeg" -version
 
       - name: Download curl-impersonate for macOS
         shell: bash
@@ -133,32 +210,8 @@ jobs:
             cp "${dylib}" "${FRAMEWORKS_DIR}/${dylib_name}"
             chmod +x "${FRAMEWORKS_DIR}/${dylib_name}"
           done
-          cp "$(which ffmpeg)" "${FFMPEG_BIN_DIR}/ffmpeg"
+          cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
-
-          copy_ffmpeg_deps() {
-            local binary="$1"
-            local dep_target="$2"
-            otool -L "${binary}" | tail -n +2 | awk '{print $1}' | while read -r dep; do
-              case "${dep}" in
-                /System/*|/usr/lib/*|'')
-                  continue
-                  ;;
-              esac
-              local dep_name
-              dep_name="$(basename "${dep}")"
-              local copied="${FFMPEG_LIB_DIR}/${dep_name}"
-              if [ ! -f "${copied}" ]; then
-                cp -L "${dep}" "${copied}"
-                chmod +x "${copied}"
-                install_name_tool -id "@loader_path/${dep_name}" "${copied}" || true
-                copy_ffmpeg_deps "${copied}" "@loader_path"
-              fi
-              install_name_tool -change "${dep}" "${dep_target}/${dep_name}" "${binary}" || true
-            done
-          }
-
-          copy_ffmpeg_deps "${FFMPEG_BIN_DIR}/ffmpeg" "@executable_path/../lib"
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -241,10 +294,12 @@ jobs:
               check_minos "${dylib}" "10.15"
             done
 
-          find "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/lib" -type f -name '*.dylib' -print0 | \
-            while IFS= read -r -d '' dylib; do
-              check_minos "${dylib}" "10.15"
-            done
+          if [ -d "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/lib" ]; then
+            find "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/lib" -type f -name '*.dylib' -print0 | \
+              while IFS= read -r -d '' dylib; do
+                check_minos "${dylib}" "10.15"
+              done
+          fi
 
       - name: Package DMG
         shell: bash
