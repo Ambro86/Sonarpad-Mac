@@ -70,6 +70,9 @@ const ID_PODCASTS_EPISODE_BASE: i32 = 30000;
 const ID_PODCASTS_CATEGORY_PODCAST_BASE: i32 = 27000;
 const ID_RADIO_SEARCH: i32 = 2350;
 const ID_RADIO_DELETE_FAVORITE: i32 = 2351;
+const ID_RADIO_ADD: i32 = 2352;
+const ID_RADIO_EDIT_FAVORITE: i32 = 2353;
+const ID_RADIO_REORDER_FAVORITES: i32 = 2354;
 const ID_RADIO_FAVORITE_BASE: i32 = 6000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
@@ -79,9 +82,6 @@ const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
 const PODCAST_SEEK_SECONDS: f64 = 30.0;
 
-thread_local! {
-    static RADIO_SEARCH_DIALOG: RefCell<Option<Dialog>> = const { RefCell::new(None) };
-}
 const AUDIOBOOK_SAVE_THREADS: usize = 8;
 const WXK_LEFT: i32 = 314;
 const WXK_RIGHT: i32 = 316;
@@ -170,6 +170,8 @@ struct RadioMenuState {
     failed_languages: HashSet<String>,
     stations_by_language: HashMap<String, Vec<RadioStation>>,
     station_ids: HashMap<i32, RadioFavorite>,
+    open_search_requested: bool,
+    search_ever_opened: bool,
 }
 
 struct PodcastPlaybackState {
@@ -600,6 +602,15 @@ struct UiStrings {
     analyzing_pdf: String,
     document_loaded: String,
     about_message: String,
+    add_radio: String,
+    add_radio_title: String,
+    edit_radio: String,
+    edit_radio_title: String,
+    reorder_radios: String,
+    radio_favorites: String,
+    delete_radio_favorite: String,
+    radio_label: String,
+    radio_url_label: String,
 }
 
 fn parse_ui_strings(data: &str) -> UiStrings {
@@ -1226,6 +1237,20 @@ fn show_message_subdialog(parent: &Dialog, title: &str, message: &str) {
         .build();
     localize_standard_dialog_buttons(&dialog);
     dialog.show_modal();
+}
+
+fn reorder_feedback_message(moved_label: &str, target_label: &str, moved_up: bool) -> String {
+    if Settings::load().ui_language == "it" {
+        if moved_up {
+            format!("{moved_label} ora e' sopra {target_label}.")
+        } else {
+            format!("{moved_label} ora e' sotto {target_label}.")
+        }
+    } else if moved_up {
+        format!("{moved_label} is now above {target_label}.")
+    } else {
+        format!("{moved_label} is now below {target_label}.")
+    }
 }
 
 fn write_docx_text(path: &Path, text: &str) -> Result<(), String> {
@@ -2608,11 +2633,200 @@ fn radio_label(favorite: &RadioFavorite) -> String {
     } else {
         favorite.name.clone()
     };
-    format!(
-        "{} ({})",
-        display_name,
-        radio_menu_entry_label(&favorite.language_code)
-    )
+    if favorite.language_code == "custom" || favorite.language_code == "it" {
+        display_name
+    } else {
+        format!(
+            "{} ({})",
+            display_name,
+            radio_menu_entry_label(&favorite.language_code)
+        )
+    }
+}
+
+fn open_add_radio_dialog(parent: &Frame) -> Option<(String, String)> {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.add_radio_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 220)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let title_row = BoxSizer::builder(Orientation::Horizontal).build();
+    title_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.title_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let title_ctrl = TextCtrl::builder(&panel).build();
+    title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
+
+    let url_row = BoxSizer::builder(Orientation::Horizontal).build();
+    url_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.radio_url_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let url_ctrl = TextCtrl::builder(&panel).build();
+    url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let result = if dialog.show_modal() == ID_OK {
+        let title = title_ctrl.get_value().trim().to_string();
+        let url = url_ctrl.get_value().trim().to_string();
+        if title.is_empty() || url.is_empty() {
+            None
+        } else {
+            Some((title, url))
+        }
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
+fn open_edit_radio_favorite_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+) -> Option<(usize, String, String)> {
+    let ui = current_ui_strings();
+    let favorites = settings.lock().unwrap().radio_favorites.clone();
+    if favorites.is_empty() {
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, &ui.edit_radio_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 260)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let radio_row = BoxSizer::builder(Orientation::Horizontal).build();
+    radio_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.radio_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_favorite = Choice::builder(&panel).build();
+    for favorite in &favorites {
+        choice_favorite.append(&radio_label(favorite));
+    }
+    choice_favorite.set_selection(0);
+    radio_row.add(&choice_favorite, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&radio_row, 0, SizerFlag::Expand, 0);
+
+    let title_row = BoxSizer::builder(Orientation::Horizontal).build();
+    title_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.title_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let title_ctrl = TextCtrl::builder(&panel).build();
+    title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
+
+    let url_row = BoxSizer::builder(Orientation::Horizontal).build();
+    url_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.radio_url_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let url_ctrl = TextCtrl::builder(&panel).build();
+    url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
+
+    let selected_index = Rc::new(RefCell::new(0usize));
+    if let Some(favorite) = favorites.first() {
+        title_ctrl.set_value(&favorite.name);
+        url_ctrl.set_value(&favorite.stream_url);
+    }
+
+    let title_ctrl_evt = title_ctrl;
+    let url_ctrl_evt = url_ctrl;
+    let choice_favorite_evt = choice_favorite;
+    let favorites_evt = favorites.clone();
+    let selected_index_evt = Rc::clone(&selected_index);
+    choice_favorite.on_selection_changed(move |_| {
+        if let Some(selection) = choice_favorite_evt.get_selection() {
+            let selection = selection as usize;
+            *selected_index_evt.borrow_mut() = selection;
+            if let Some(favorite) = favorites_evt.get(selection) {
+                title_ctrl_evt.set_value(&favorite.name);
+                url_ctrl_evt.set_value(&favorite.stream_url);
+            }
+        }
+    });
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let result = if dialog.show_modal() == ID_OK {
+        let title = title_ctrl.get_value().trim().to_string();
+        let url = url_ctrl.get_value().trim().to_string();
+        if title.is_empty() || url.is_empty() {
+            None
+        } else {
+            Some((*selected_index.borrow(), title, url))
+        }
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
 }
 
 fn open_delete_radio_favorite_dialog(
@@ -2625,7 +2839,7 @@ fn open_delete_radio_favorite_dialog(
         return None;
     }
 
-    let dialog = Dialog::builder(parent, "Elimina dai preferiti")
+    let dialog = Dialog::builder(parent, &ui.delete_radio_favorite)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(560, 160)
         .build();
@@ -2634,7 +2848,9 @@ fn open_delete_radio_favorite_dialog(
 
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     row.add(
-        &StaticText::builder(&panel).with_label("Radio").build(),
+        &StaticText::builder(&panel)
+            .with_label(&ui.radio_label)
+            .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -2682,32 +2898,171 @@ fn open_delete_radio_favorite_dialog(
     result
 }
 
+fn open_reorder_radio_favorites_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+) -> Option<Vec<RadioFavorite>> {
+    let ui = current_ui_strings();
+    let favorites = settings.lock().unwrap().radio_favorites.clone();
+    if favorites.len() < 2 {
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, &ui.reorder_radios)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 220)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let working_favorites = Rc::new(RefCell::new(favorites));
+
+    let radio_row = BoxSizer::builder(Orientation::Horizontal).build();
+    radio_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.radio_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_favorite = Choice::builder(&panel).build();
+    radio_row.add(&choice_favorite, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&radio_row, 0, SizerFlag::Expand, 0);
+
+    let action_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let move_up_button = Button::builder(&panel).with_label(&ui.move_up).build();
+    let move_down_button = Button::builder(&panel).with_label(&ui.move_down).build();
+    action_row.add(&move_up_button, 1, SizerFlag::All, 5);
+    action_row.add(&move_down_button, 1, SizerFlag::All, 5);
+    root.add_sizer(&action_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    let refresh_choice = Rc::new({
+        let working_favorites = Rc::clone(&working_favorites);
+        move |choice: &Choice, selected_index: usize| {
+            choice.clear();
+            let current_favorites = working_favorites.borrow();
+            for favorite in current_favorites.iter() {
+                choice.append(&radio_label(favorite));
+            }
+            let max_index = current_favorites.len().saturating_sub(1);
+            choice.set_selection(selected_index.min(max_index) as u32);
+        }
+    });
+
+    refresh_choice(&choice_favorite, 0);
+
+    let selected_index = Rc::new(RefCell::new(0usize));
+
+    let choice_favorite_evt = choice_favorite;
+    let selected_index_evt = Rc::clone(&selected_index);
+    choice_favorite.on_selection_changed(move |_| {
+        if let Some(selection) = choice_favorite_evt.get_selection() {
+            *selected_index_evt.borrow_mut() = selection as usize;
+        }
+    });
+
+    let choice_favorite_up = choice_favorite;
+    let selected_index_up = Rc::clone(&selected_index);
+    let working_favorites_up = Rc::clone(&working_favorites);
+    let refresh_choice_up = Rc::clone(&refresh_choice);
+    let dialog_up = dialog;
+    move_up_button.on_click(move |_| {
+        let current_index = *selected_index_up.borrow();
+        if current_index == 0 {
+            return;
+        }
+        let (moved_label, target_label) = {
+            let favorites = working_favorites_up.borrow();
+            (
+                radio_label(&favorites[current_index]),
+                radio_label(&favorites[current_index - 1]),
+            )
+        };
+        {
+            let mut favorites = working_favorites_up.borrow_mut();
+            favorites.swap(current_index, current_index - 1);
+        }
+        let new_index = current_index - 1;
+        *selected_index_up.borrow_mut() = new_index;
+        refresh_choice_up(&choice_favorite_up, new_index);
+        show_message_subdialog(
+            &dialog_up,
+            &ui.reorder_radios,
+            &reorder_feedback_message(&moved_label, &target_label, true),
+        );
+    });
+
+    let choice_favorite_down = choice_favorite;
+    let selected_index_down = Rc::clone(&selected_index);
+    let working_favorites_down = Rc::clone(&working_favorites);
+    let refresh_choice_down = Rc::clone(&refresh_choice);
+    let dialog_down = dialog;
+    move_down_button.on_click(move |_| {
+        let current_index = *selected_index_down.borrow();
+        let len = working_favorites_down.borrow().len();
+        if current_index + 1 >= len {
+            return;
+        }
+        let (moved_label, target_label) = {
+            let favorites = working_favorites_down.borrow();
+            (
+                radio_label(&favorites[current_index]),
+                radio_label(&favorites[current_index + 1]),
+            )
+        };
+        {
+            let mut favorites = working_favorites_down.borrow_mut();
+            favorites.swap(current_index, current_index + 1);
+        }
+        let new_index = current_index + 1;
+        *selected_index_down.borrow_mut() = new_index;
+        refresh_choice_down(&choice_favorite_down, new_index);
+        show_message_subdialog(
+            &dialog_down,
+            &ui.reorder_radios,
+            &reorder_feedback_message(&moved_label, &target_label, false),
+        );
+    });
+
+    dialog.set_affirmative_id(ID_OK);
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        Some(working_favorites.borrow().clone())
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
 fn open_radio_search_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
     radio_menu_state: &Arc<Mutex<RadioMenuState>>,
 ) {
-    append_podcast_log("radio_search_dialog.enter");
-    let existing_dialog = RADIO_SEARCH_DIALOG.with(|slot| *slot.borrow());
-    if let Some(dialog) = existing_dialog {
-        if dialog.is_valid() {
-            append_podcast_log("radio_search_dialog.raise_existing");
-            dialog.raise();
-            dialog.set_focus();
-            return;
-        }
-        RADIO_SEARCH_DIALOG.with(|slot| {
-            *slot.borrow_mut() = None;
-        });
-    }
+    println!("DEBUG: Radio Search Dialog v5 - Enter");
+    append_podcast_log("radio_search_dialog.enter_v5");
 
     let ui_language = Settings::load().ui_language;
     let languages = radio_menu_languages();
-    let stations_by_language = radio_menu_state
-        .lock()
-        .unwrap()
-        .stations_by_language
-        .clone();
+
+    println!("DEBUG: Radio Search Dialog - Building");
     let dialog = Dialog::builder(parent, "Cerca radio")
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 260)
@@ -2724,7 +3079,9 @@ fn open_radio_search_dialog(
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    let keyword_ctrl = TextCtrl::builder(&panel).build();
+    let keyword_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
     search_row.add(&keyword_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
@@ -2745,8 +3102,13 @@ fn open_radio_search_dialog(
     for (_, label) in &languages {
         choice_language.append(label);
     }
-    choice_language
-        .set_selection(default_radio_language_selection(&languages, &stations_by_language) as u32);
+
+    println!("DEBUG: Radio Search Dialog v5 - Getting initial selection");
+    let initial_selection = {
+        let state = radio_menu_state.lock().unwrap();
+        default_radio_language_selection(&languages, &state.stations_by_language) as u32
+    };
+    choice_language.set_selection(initial_selection);
     language_row.add(&choice_language, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&language_row, 0, SizerFlag::Expand, 0);
 
@@ -2759,6 +3121,7 @@ fn open_radio_search_dialog(
         })
         .build();
     let button_search = Button::builder(&panel)
+        .with_id(ID_OK)
         .with_label(if ui_language == "it" {
             "Ricerca"
         } else {
@@ -2781,21 +3144,17 @@ fn open_radio_search_dialog(
     panel.set_sizer(root, true);
     dialog.set_affirmative_id(ID_OK);
     dialog.set_escape_id(ID_CANCEL);
-    RADIO_SEARCH_DIALOG.with(|slot| {
-        *slot.borrow_mut() = Some(dialog);
-    });
-    dialog.on_destroy(move |event| {
-        RADIO_SEARCH_DIALOG.with(|slot| {
-            *slot.borrow_mut() = None;
-        });
-        event.skip(true);
-    });
 
     let gather_results = Rc::new({
         let languages = languages.clone();
-        let stations_by_language = stations_by_language.clone();
+        let radio_menu_state_search = Arc::clone(radio_menu_state);
         move |language_selection: usize, keyword: &str, show_all: bool| {
             let mut results = Vec::<RadioFavorite>::new();
+            let stations_by_language = {
+                let state = radio_menu_state_search.lock().unwrap();
+                state.stations_by_language.clone()
+            };
+
             if let Some((language_code, _)) = languages.get(language_selection)
                 && let Some(stations) = stations_by_language.get(language_code)
             {
@@ -2829,17 +3188,16 @@ fn open_radio_search_dialog(
 
     let choice_language_all = choice_language;
     let keyword_ctrl_all = keyword_ctrl;
-    let dialog_show_all = dialog;
-    let parent_show_all = *parent;
+    let parent_results = *parent;
     let settings_show_all = Arc::clone(settings);
     let radio_menu_state_show_all = Arc::clone(radio_menu_state);
     let gather_results_show_all = Rc::clone(&gather_results);
     button_show_all.on_click(move |_| {
+        append_podcast_log("radio_search_dialog.show_all_clicked");
         let selection = choice_language_all.get_selection().unwrap_or(0) as usize;
         let results = gather_results_show_all(selection, &keyword_ctrl_all.get_value(), true);
-        dialog_show_all.raise();
         open_radio_results_dialog(
-            &parent_show_all,
+            &parent_results,
             &settings_show_all,
             &radio_menu_state_show_all,
             &results,
@@ -2850,11 +3208,12 @@ fn open_radio_search_dialog(
     let keyword_ctrl_search = keyword_ctrl;
     let dialog_search = dialog;
     let ui_language_search = ui_language.clone();
-    let parent_search = *parent;
+    let parent_results_search = *parent;
     let settings_search = Arc::clone(settings);
     let radio_menu_state_search = Arc::clone(radio_menu_state);
     let gather_results_search = Rc::clone(&gather_results);
-    button_search.on_click(move |_| {
+    let perform_search = Rc::new(move || {
+        append_podcast_log("radio_search_dialog.perform_search");
         let selection = choice_language_search.get_selection().unwrap_or(0) as usize;
         let keyword = keyword_ctrl_search.get_value();
         if keyword.trim().is_empty() {
@@ -2870,25 +3229,71 @@ fn open_radio_search_dialog(
             return;
         }
         let results = gather_results_search(selection, &keyword, false);
-        dialog_search.raise();
         open_radio_results_dialog(
-            &parent_search,
+            &parent_results_search,
             &settings_search,
             &radio_menu_state_search,
             &results,
         );
     });
 
+    let perform_search_button = Rc::clone(&perform_search);
+    button_search.on_click(move |_| {
+        append_podcast_log("radio_search_dialog.search_clicked");
+        perform_search_button();
+    });
+
+    let perform_search_enter = Rc::clone(&perform_search);
+    keyword_ctrl.on_text_enter(move |_| {
+        append_podcast_log("radio_search_dialog.keyword_enter");
+        perform_search_enter();
+    });
+
     let dialog_close = dialog;
     button_close.on_click(move |_| {
-        dialog_close.destroy();
+        append_podcast_log("radio_search_dialog.close_clicked");
+        dialog_close.end_modal(ID_CANCEL);
     });
 
     dialog.centre();
-    dialog.raise();
     keyword_ctrl.set_focus();
-    append_podcast_log("radio_search_dialog.show");
-    dialog.show(true);
+    println!("DEBUG: Radio Search Dialog v5 - Show Modal");
+    append_podcast_log("radio_search_dialog.show_modal_v5");
+    dialog.layout();
+    dialog.fit();
+    panel.layout();
+
+    let start_time = std::time::Instant::now();
+    let result_code = dialog.show_modal();
+    let elapsed = start_time.elapsed();
+
+    println!(
+        "DEBUG: Radio Search Dialog v5 - Returned code={} in {:?}",
+        result_code, elapsed
+    );
+    append_podcast_log(&format!(
+        "radio_search_dialog.modal_returned v5 code={} elapsed={:?}",
+        result_code, elapsed
+    ));
+
+    dialog.destroy();
+
+    // Logica di auto-retry suggerita dall'utente:
+    // Se è la prima volta che apriamo il dialogo E si è chiuso in meno di 300ms, riproviamo una volta sola.
+    let should_retry = {
+        let mut state = radio_menu_state.lock().unwrap();
+        let is_first_time = !state.search_ever_opened;
+        state.search_ever_opened = true;
+        is_first_time && elapsed.as_millis() < 300
+    };
+
+    if should_retry {
+        println!("DEBUG: First attempt failed (instant close), retrying once...");
+        append_podcast_log("radio_search_dialog.auto_retry_triggered");
+        // Piccolo ritardo per far respirare il sistema
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        open_radio_search_dialog(parent, settings, radio_menu_state);
+    }
 }
 
 fn open_radio_results_dialog(
@@ -3956,16 +4361,10 @@ fn normalize_settings_data(settings: &mut Settings) {
     settings.radio_favorites.retain(|favorite| {
         !favorite.name.trim().is_empty() && !favorite.stream_url.trim().is_empty()
     });
-    settings.radio_favorites.sort_by(|left, right| {
-        left.name
-            .to_lowercase()
-            .cmp(&right.name.to_lowercase())
-            .then_with(|| left.name.cmp(&right.name))
-            .then_with(|| left.stream_url.cmp(&right.stream_url))
-    });
+    let mut seen_stream_urls = HashSet::new();
     settings
         .radio_favorites
-        .dedup_by(|left, right| left.stream_url == right.stream_url);
+        .retain(|favorite| seen_stream_urls.insert(favorite.stream_url.clone()));
 }
 
 fn is_removed_default_article_source(url: &str) -> bool {
@@ -4228,6 +4627,24 @@ fn rebuild_radio_menu(
     }
 
     let _ = radio_menu.append(ID_RADIO_SEARCH, "Cerca...", "Cerca radio", ItemKind::Normal);
+    let _ = radio_menu.append(
+        ID_RADIO_ADD,
+        &format!("{}...", ui.add_radio),
+        &ui.add_radio,
+        ItemKind::Normal,
+    );
+    let _ = radio_menu.append(
+        ID_RADIO_EDIT_FAVORITE,
+        &format!("{}...", ui.edit_radio),
+        &ui.edit_radio,
+        ItemKind::Normal,
+    );
+    let _ = radio_menu.append(
+        ID_RADIO_REORDER_FAVORITES,
+        &format!("{}...", ui.reorder_radios),
+        &ui.reorder_radios,
+        ItemKind::Normal,
+    );
 
     let favorites_menu = Menu::builder().build();
     let mut station_ids = HashMap::new();
@@ -4247,22 +4664,11 @@ fn rebuild_radio_menu(
             station_ids.insert(menu_id, favorite.clone());
         }
     }
-    let favorites_label = if ui_language == "it" {
-        "Preferite"
-    } else {
-        "Favorites"
-    };
-    let _ = radio_menu.append_submenu(favorites_menu, favorites_label, favorites_label);
-
-    let delete_label = if ui_language == "it" {
-        "Elimina dai preferiti..."
-    } else {
-        "Remove from favorites..."
-    };
+    let _ = radio_menu.append_submenu(favorites_menu, &ui.radio_favorites, &ui.radio_favorites);
     let _ = radio_menu.append(
         ID_RADIO_DELETE_FAVORITE,
-        delete_label,
-        delete_label,
+        &format!("{}...", ui.delete_radio_favorite),
+        &ui.delete_radio_favorite,
         ItemKind::Normal,
     );
 
@@ -4864,6 +5270,18 @@ fn save_reordered_podcast_sources(
     locked.podcast_sources = reordered_sources;
     locked.save();
     podcast_menu_state.lock().unwrap().dirty = true;
+}
+
+fn save_reordered_radio_favorites(
+    reordered_favorites: Vec<RadioFavorite>,
+    settings: &Arc<Mutex<Settings>>,
+    radio_menu_state: &Arc<Mutex<RadioMenuState>>,
+) {
+    let mut locked = settings.lock().unwrap();
+    locked.radio_favorites = reordered_favorites;
+    normalize_settings_data(&mut locked);
+    locked.save();
+    radio_menu_state.lock().unwrap().dirty = true;
 }
 
 fn sort_article_sources_alphabetically(
@@ -5528,7 +5946,7 @@ fn open_reorder_article_sources_dialog(
         show_message_subdialog(
             &dialog_up,
             &ui.reorder_sources,
-            &format!("{moved_label} -> {target_label}"),
+            &reorder_feedback_message(&moved_label, &target_label, true),
         );
     });
 
@@ -5560,7 +5978,7 @@ fn open_reorder_article_sources_dialog(
         show_message_subdialog(
             &dialog_down,
             &ui.reorder_sources,
-            &format!("{moved_label} -> {target_label}"),
+            &reorder_feedback_message(&moved_label, &target_label, false),
         );
     });
 
@@ -5681,7 +6099,7 @@ fn open_reorder_podcast_sources_dialog(
         show_message_subdialog(
             &dialog_up,
             &ui.reorder_podcasts,
-            &format!("{moved_label} -> {target_label}"),
+            &reorder_feedback_message(&moved_label, &target_label, true),
         );
     });
 
@@ -5713,7 +6131,7 @@ fn open_reorder_podcast_sources_dialog(
         show_message_subdialog(
             &dialog_down,
             &ui.reorder_podcasts,
-            &format!("{moved_label} -> {target_label}"),
+            &reorder_feedback_message(&moved_label, &target_label, false),
         );
     });
 
@@ -6165,6 +6583,8 @@ fn main() {
         failed_languages: HashSet::new(),
         stations_by_language: initial_radio_stations,
         station_ids: HashMap::new(),
+        open_search_requested: false,
+        search_ever_opened: false,
     }));
     let podcast_playback = Rc::new(RefCell::new(PodcastPlaybackState {
         player: None,
@@ -6394,6 +6814,7 @@ fn main() {
         let radio_menu_state_timer = Arc::clone(&radio_menu_state);
         let podcast_playback_timer = Rc::clone(&podcast_playback);
         let timer_tick = Rc::clone(&timer);
+        let frame_timer = frame;
 
         timer_tick.on_tick(move |_| {
             let tts_status = pb_timer.lock().unwrap().status;
@@ -6471,6 +6892,20 @@ fn main() {
             };
             if radio_menu_dirty {
                 rebuild_radio_menu(&radio_menu_timer, &settings_timer, &radio_menu_state_timer);
+            }
+
+            let open_search = {
+                let mut state = radio_menu_state_timer.lock().unwrap();
+                if state.open_search_requested {
+                    state.open_search_requested = false;
+                    true
+                } else {
+                    false
+                }
+            };
+            if open_search {
+                println!("DEBUG: Opening Radio Search Dialog from Timer");
+                open_radio_search_dialog(&frame_timer, &settings_timer, &radio_menu_state_timer);
             }
         });
         timer.start(200, false);
@@ -6670,8 +7105,59 @@ fn main() {
                     &ui.sorted_podcasts_message,
                 );
             } else if event.get_id() == ID_RADIO_SEARCH {
-                append_podcast_log("menu.radio_search.clicked");
-                open_radio_search_dialog(&f_menu, &settings_menu, &radio_menu_state_menu);
+                println!("DEBUG: Menu Cerca radio cliccato - setting request flag");
+                append_podcast_log("menu.radio_search.clicked_set_flag");
+                radio_menu_state_menu.lock().unwrap().open_search_requested = true;
+            } else if event.get_id() == ID_RADIO_ADD {
+                if let Some((title, url)) = open_add_radio_dialog(&f_menu) {
+                    let mut settings = settings_menu.lock().unwrap();
+                    let favorite = RadioFavorite {
+                        name: title,
+                        stream_url: url,
+                        language_code: "custom".to_string(), // Possiamo usare un codice custom o it di default
+                    };
+                    if !settings.radio_favorites.iter().any(|f| f.stream_url == favorite.stream_url) {
+                        settings.radio_favorites.push(favorite);
+                        normalize_settings_data(&mut settings);
+                        settings.save();
+                        drop(settings);
+                        radio_menu_state_menu.lock().unwrap().dirty = true;
+                    }
+                }
+            } else if event.get_id() == ID_RADIO_EDIT_FAVORITE {
+                if let Some((index, title, url)) =
+                    open_edit_radio_favorite_dialog(&f_menu, &settings_menu)
+                {
+                    let updated = {
+                        let mut settings = settings_menu.lock().unwrap();
+                        if index < settings.radio_favorites.len() {
+                            let language_code = settings.radio_favorites[index].language_code.clone();
+                            settings.radio_favorites[index] = RadioFavorite {
+                                language_code,
+                                name: title,
+                                stream_url: url,
+                            };
+                            normalize_settings_data(&mut settings);
+                            settings.save();
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if updated {
+                        radio_menu_state_menu.lock().unwrap().dirty = true;
+                    }
+                }
+            } else if event.get_id() == ID_RADIO_REORDER_FAVORITES {
+                if let Some(reordered_favorites) =
+                    open_reorder_radio_favorites_dialog(&f_menu, &settings_menu)
+                {
+                    save_reordered_radio_favorites(
+                        reordered_favorites,
+                        &settings_menu,
+                        &radio_menu_state_menu,
+                    );
+                }
             } else if event.get_id() == ID_RADIO_DELETE_FAVORITE {
                 if let Some(index) = open_delete_radio_favorite_dialog(&f_menu, &settings_menu) {
                     let removed = {

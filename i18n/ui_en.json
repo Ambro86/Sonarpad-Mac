@@ -154,5 +154,14 @@
   "no_radios_available": "No radio stations available",
   "wait_loading_radios": "Please wait while radio stations are loading",
   "radio_load_failed": "Unable to load radio stations",
-  "radio_open_failed": "Unable to open the radio station.\n\n{err}"
+  "radio_open_failed": "Unable to open the radio station.\n\n{err}",
+  "add_radio": "Add radio",
+  "add_radio_title": "Add radio to favorites",
+  "edit_radio": "Edit radio",
+  "edit_radio_title": "Edit favorite radio",
+  "reorder_radios": "Reorder radios",
+  "radio_favorites": "Favorites",
+  "delete_radio_favorite": "Remove from favorites",
+  "radio_label": "Radio:",
+  "radio_url_label": "Stream URL:"
 }
