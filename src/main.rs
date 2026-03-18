@@ -3190,7 +3190,7 @@ fn open_radio_search_dialog(
 
     let choice_language_all = choice_language;
     let keyword_ctrl_all = keyword_ctrl;
-    let parent_results = *parent;
+    let dialog_show_all = dialog;
     let settings_show_all = Arc::clone(settings);
     let radio_menu_state_show_all = Arc::clone(radio_menu_state);
     let gather_results_show_all = Rc::clone(&gather_results);
@@ -3199,7 +3199,7 @@ fn open_radio_search_dialog(
         let selection = choice_language_all.get_selection().unwrap_or(0) as usize;
         let results = gather_results_show_all(selection, &keyword_ctrl_all.get_value(), true);
         open_radio_results_dialog(
-            &parent_results,
+            &dialog_show_all,
             &settings_show_all,
             &radio_menu_state_show_all,
             &results,
@@ -3210,7 +3210,6 @@ fn open_radio_search_dialog(
     let keyword_ctrl_search = keyword_ctrl;
     let dialog_search = dialog;
     let ui_language_search = ui_language.clone();
-    let parent_results_search = *parent;
     let settings_search = Arc::clone(settings);
     let radio_menu_state_search = Arc::clone(radio_menu_state);
     let gather_results_search = Rc::clone(&gather_results);
@@ -3232,7 +3231,7 @@ fn open_radio_search_dialog(
         }
         let results = gather_results_search(selection, &keyword, false);
         open_radio_results_dialog(
-            &parent_results_search,
+            &dialog_search,
             &settings_search,
             &radio_menu_state_search,
             &results,
@@ -3299,7 +3298,7 @@ fn open_radio_search_dialog(
 }
 
 fn open_radio_results_dialog(
-    parent: &Frame,
+    parent: &Dialog,
     settings: &Arc<Mutex<Settings>>,
     radio_menu_state: &Arc<Mutex<RadioMenuState>>,
     results: &[RadioFavorite],
@@ -3328,7 +3327,7 @@ fn open_radio_results_dialog(
     }
 
     if results.is_empty() {
-        show_message_dialog(
+        show_message_subdialog(
             parent,
             "Radio",
             if ui_language == "it" {
@@ -3340,6 +3339,7 @@ fn open_radio_results_dialog(
         return;
     }
 
+    append_podcast_log("radio_results_dialog.enter");
     let dialog = Dialog::builder(parent, "Risultati radio")
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(700, 190)
@@ -3529,7 +3529,11 @@ fn open_radio_results_dialog(
         dialog_close.end_modal(ID_CANCEL);
     });
 
-    dialog.show_modal();
+    append_podcast_log("radio_results_dialog.show_modal");
+    let result_code = dialog.show_modal();
+    append_podcast_log(&format!(
+        "radio_results_dialog.modal_returned code={result_code}"
+    ));
     dialog.destroy();
 }
 
