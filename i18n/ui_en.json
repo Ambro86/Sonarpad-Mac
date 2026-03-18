@@ -70,6 +70,8 @@
   "edit_source": "Edit source",
   "delete_source": "Delete source",
   "reorder_sources": "Reorder sources",
+  "import_sources": "Import RSS",
+  "export_sources": "Export RSS",
   "add_podcast": "Add podcast",
   "delete_podcast": "Delete podcast",
   "reorder_podcasts": "Reorder podcasts",
@@ -85,6 +87,12 @@
   "confirm_delete_podcast_message": "Are you sure you want to delete the selected podcast?",
   "sorted_articles_title": "Sort sources alphabetically",
   "sorted_articles_message": "Article sources have been sorted alphabetically.",
+  "imported_articles_title": "RSS import",
+  "imported_articles_message": "Article sources imported:",
+  "exported_articles_title": "RSS export",
+  "exported_articles_message": "Article sources exported:",
+  "import_articles_error_title": "RSS import error",
+  "export_articles_error_title": "RSS export error",
   "sorted_podcasts_title": "Sort podcasts alphabetically",
   "sorted_podcasts_message": "Podcasts have been sorted alphabetically.",
   "loading_articles": "Loading articles...",
@@ -140,8 +148,11 @@
   "analyzing_document": "Analyzing document...",
   "analyzing_pdf": "Analyzing PDF...",
   "document_loaded": "Document loaded.",
-  "about_message": "Sonarpad Per Mac is an essential edition of Sonarpad with multi-format support. It opens TXT, PDF, DOC, DOCX, EPUB, RTF, HTML, and spreadsheet files; reads text with speech synthesis, creates MP3 audiobooks, imports articles and podcasts, and supports podcast playback. Version: {version}. Author: Ambrogio Riili."
+  "about_message": "Sonarpad Per Mac is an essential edition of Sonarpad with multi-format support. It opens TXT, PDF, DOC, DOCX, EPUB, RTF, HTML, and spreadsheet files; reads text with speech synthesis, creates MP3 audiobooks, imports articles and podcasts, and supports podcast playback. Version: {version}. Author: Ambrogio Riili.",
+  "menu_radio": "&Radio",
+  "loading_radios": "Loading radio stations...",
+  "no_radios_available": "No radio stations available",
+  "wait_loading_radios": "Please wait while radio stations are loading",
+  "radio_load_failed": "Unable to load radio stations",
+  "radio_open_failed": "Unable to open the radio station.\n\n{err}"
 }
-
-
-

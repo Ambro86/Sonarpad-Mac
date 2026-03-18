@@ -10,6 +10,8 @@ mod reader;
 
 use docx_rs::{Docx, Paragraph, Run};
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
+use quick_xml::Reader;
+use quick_xml::events::Event;
 use rodio::{Decoder, OutputStream, Sink, Source};
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -25,6 +27,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 use tokio::runtime::Runtime;
 #[cfg(any(target_os = "macos", windows))]
 use uuid::Uuid;
@@ -51,6 +54,8 @@ const ID_ARTICLES_DELETE_SOURCE: i32 = 2101;
 const ID_ARTICLES_EDIT_SOURCE: i32 = 2102;
 const ID_ARTICLES_REORDER_SOURCES: i32 = 2103;
 const ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY: i32 = 2104;
+const ID_ARTICLES_IMPORT_SOURCES: i32 = 2105;
+const ID_ARTICLES_EXPORT_SOURCES: i32 = 2106;
 const ID_PODCASTS_ADD: i32 = 2300;
 const ID_PODCASTS_DELETE: i32 = 2301;
 const ID_PODCASTS_REORDER_SOURCES: i32 = 2302;
@@ -63,11 +68,20 @@ const ID_PODCASTS_CATEGORY_BASE: i32 = 2400;
 const ID_PODCASTS_SOURCE_BASE: i32 = 2600;
 const ID_PODCASTS_EPISODE_BASE: i32 = 30000;
 const ID_PODCASTS_CATEGORY_PODCAST_BASE: i32 = 27000;
+const ID_RADIO_SEARCH: i32 = 2350;
+const ID_RADIO_DELETE_FAVORITE: i32 = 2351;
+const ID_RADIO_FAVORITE_BASE: i32 = 6000;
+const RADIO_BROWSER_LIMIT: &str = "100000";
+const RADIO_RESULTS_PAGE_SIZE: usize = 25;
 const ID_ARTICLES_SOURCE_BASE: i32 = 2200;
 const ID_ARTICLES_ARTICLE_BASE: i32 = 10000;
 const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
 const PODCAST_SEEK_SECONDS: f64 = 30.0;
+
+thread_local! {
+    static RADIO_SEARCH_DIALOG: RefCell<Option<Dialog>> = const { RefCell::new(None) };
+}
 const AUDIOBOOK_SAVE_THREADS: usize = 8;
 const WXK_LEFT: i32 = 314;
 const WXK_RIGHT: i32 = 316;
@@ -137,6 +151,27 @@ struct PodcastMenuState {
     category_loading: HashSet<u32>,
 }
 
+#[derive(Clone, Deserialize)]
+struct RadioStation {
+    name: String,
+    stream_url: String,
+}
+
+#[derive(Clone, Serialize, Deserialize)]
+struct RadioFavorite {
+    language_code: String,
+    name: String,
+    stream_url: String,
+}
+
+struct RadioMenuState {
+    dirty: bool,
+    loading_languages: HashSet<String>,
+    failed_languages: HashSet<String>,
+    stations_by_language: HashMap<String, Vec<RadioStation>>,
+    station_ids: HashMap<i32, RadioFavorite>,
+}
+
 struct PodcastPlaybackState {
     player: Option<podcast_player::PodcastPlayer>,
     selected_episode: Option<podcasts::PodcastEpisode>,
@@ -188,6 +223,8 @@ struct Settings {
     article_sources: Vec<articles::ArticleSource>,
     #[serde(default)]
     podcast_sources: Vec<podcasts::PodcastSource>,
+    #[serde(default)]
+    radio_favorites: Vec<RadioFavorite>,
     #[serde(default = "default_audiobook_format")]
     last_audiobook_format: String,
     #[serde(default)]
@@ -204,7 +241,7 @@ impl Settings {
             && let Ok(mut settings) = serde_json::from_str::<Settings>(&data)
         {
             settings.ui_language = normalize_ui_language(&settings.ui_language);
-            normalize_article_sources(&mut settings);
+            normalize_settings_data(&mut settings);
             return settings;
         }
         let mut settings = Settings {
@@ -216,12 +253,13 @@ impl Settings {
             volume: 100,
             article_sources: articles::default_italian_sources(),
             podcast_sources: Vec::new(),
+            radio_favorites: Vec::new(),
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
             last_text_save_dir: String::new(),
         };
-        normalize_article_sources(&mut settings);
+        normalize_settings_data(&mut settings);
         settings
     }
 
@@ -294,6 +332,97 @@ fn normalize_ui_language(value: &str) -> String {
     }
 }
 
+fn system_language_code() -> String {
+    for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
+        if let Ok(value) = std::env::var(key)
+            && let Some(code) = parse_language_code(&value)
+        {
+            return code;
+        }
+    }
+
+    #[cfg(target_os = "macos")]
+    if let Some(locale) = macos_system_locale()
+        && let Some(code) = parse_language_code(&locale)
+    {
+        return code;
+    }
+
+    Settings::load().ui_language
+}
+
+fn parse_language_code(value: &str) -> Option<String> {
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let code = trimmed
+        .split(['-', '_', '.', '@'])
+        .next()
+        .unwrap_or("")
+        .trim()
+        .to_lowercase();
+    if code.is_empty() { None } else { Some(code) }
+}
+
+fn radio_menu_languages() -> Vec<(String, String)> {
+    let mut items = vec![
+        ("it".to_string(), get_language_name("it")),
+        ("en".to_string(), get_language_name("en")),
+        (
+            "country:de".to_string(),
+            radio_menu_entry_label("country:de"),
+        ),
+        (
+            "country:ch".to_string(),
+            radio_menu_entry_label("country:ch"),
+        ),
+        ("es".to_string(), get_language_name("es")),
+        ("pt".to_string(), get_language_name("pt")),
+        ("sv".to_string(), get_language_name("sv")),
+        ("vi".to_string(), get_language_name("vi")),
+        ("cs".to_string(), get_language_name("cs")),
+        ("pl".to_string(), get_language_name("pl")),
+        ("fr".to_string(), get_language_name("fr")),
+        ("sr".to_string(), get_language_name("sr")),
+        ("uk".to_string(), get_language_name("uk")),
+        ("lt".to_string(), get_language_name("lt")),
+        ("ru".to_string(), get_language_name("ru")),
+        ("zh".to_string(), get_language_name("zh")),
+    ];
+
+    let preferred = system_language_code();
+    if let Some(index) = items.iter().position(|(code, _)| *code == preferred) {
+        let item = items.remove(index);
+        items.insert(0, item);
+    } else {
+        items.insert(0, (preferred.clone(), get_language_name(&preferred)));
+    }
+
+    items
+}
+
+fn radio_menu_entry_label(code: &str) -> String {
+    match code {
+        "country:de" => {
+            if Settings::load().ui_language == "it" {
+                "Germania".to_string()
+            } else {
+                "Germany".to_string()
+            }
+        }
+        "country:ch" => {
+            if Settings::load().ui_language == "it" {
+                "Svizzera".to_string()
+            } else {
+                "Switzerland".to_string()
+            }
+        }
+        _ => get_language_name(code),
+    }
+}
+
 #[derive(Deserialize)]
 struct UiStrings {
     settings_title: String,
@@ -323,6 +452,7 @@ struct UiStrings {
     menu_edit: String,
     menu_articles: String,
     menu_podcasts: String,
+    menu_radio: String,
     menu_help: String,
     menu_open: String,
     menu_open_help: String,
@@ -390,6 +520,8 @@ struct UiStrings {
     edit_source: String,
     delete_source: String,
     reorder_sources: String,
+    import_sources: String,
+    export_sources: String,
     add_podcast: String,
     delete_podcast: String,
     reorder_podcasts: String,
@@ -405,6 +537,12 @@ struct UiStrings {
     confirm_delete_podcast_message: String,
     sorted_articles_title: String,
     sorted_articles_message: String,
+    imported_articles_title: String,
+    imported_articles_message: String,
+    exported_articles_title: String,
+    exported_articles_message: String,
+    import_articles_error_title: String,
+    export_articles_error_title: String,
     sorted_podcasts_title: String,
     sorted_podcasts_message: String,
     loading_articles: String,
@@ -420,6 +558,8 @@ struct UiStrings {
     no_episodes_available: String,
     wait_loading_episodes: String,
     refresh_podcast_for_episodes: String,
+    no_radios_available: String,
+    radio_open_failed: String,
     save_podcast_episode: String,
     podcast_loading_title: String,
     podcast_ready: String,
@@ -649,33 +789,41 @@ fn update_menu_item_label(menubar: &MenuBar, id: i32, label: &str) {
     }
 }
 
+type MainMenuStates<'a> = (
+    &'a Arc<Mutex<ArticleMenuState>>,
+    &'a Arc<Mutex<PodcastMenuState>>,
+    &'a Arc<Mutex<RadioMenuState>>,
+);
+
 fn refresh_localized_main_ui(
     frame: &Frame,
     settings: &Arc<Mutex<Settings>>,
-    menus: (&Menu, &Menu),
-    menu_states: (&Arc<Mutex<ArticleMenuState>>, &Arc<Mutex<PodcastMenuState>>),
+    menus: (&Menu, &Menu, &Menu),
+    menu_states: MainMenuStates<'_>,
     buttons: (&Button, &Button, &Button, &Button),
 ) {
     let ui_language = settings.lock().unwrap().ui_language.clone();
     let ui = ui_strings(&ui_language);
-    let (articles_menu, podcasts_menu) = menus;
-    let (article_menu_state, podcast_menu_state) = menu_states;
+    let (articles_menu, podcasts_menu, radio_menu) = menus;
+    let (article_menu_state, podcast_menu_state, radio_menu_state) = menu_states;
     let (btn_save, btn_settings, btn_podcast_back, btn_podcast_forward) = buttons;
 
     if let Some(menubar) = frame.get_menu_bar() {
         #[cfg(target_os = "macos")]
-        if menubar.get_menu_count() >= 4 {
+        if menubar.get_menu_count() >= 5 {
             menubar.set_menu_label(0, &ui.menu_file);
             menubar.set_menu_label(1, &ui.menu_articles);
             menubar.set_menu_label(2, &ui.menu_podcasts);
-            menubar.set_menu_label(3, &ui.menu_help);
+            menubar.set_menu_label(3, &ui.menu_radio);
+            menubar.set_menu_label(4, &ui.menu_help);
         }
         #[cfg(not(target_os = "macos"))]
-        if menubar.get_menu_count() >= 4 {
+        if menubar.get_menu_count() >= 5 {
             menubar.set_menu_label(0, &ui.menu_file);
             menubar.set_menu_label(1, &ui.menu_articles);
             menubar.set_menu_label(2, &ui.menu_podcasts);
-            menubar.set_menu_label(3, &ui.menu_help);
+            menubar.set_menu_label(3, &ui.menu_radio);
+            menubar.set_menu_label(4, &ui.menu_help);
         }
 
         update_menu_item_label(&menubar, ID_OPEN, &ui.menu_open);
@@ -714,6 +862,7 @@ fn refresh_localized_main_ui(
         &category_results,
         &category_loading,
     );
+    rebuild_radio_menu(radio_menu, settings, radio_menu_state);
 
     btn_save.set_label(&save_button_label());
     btn_settings.set_label(&settings_button_label());
@@ -2135,6 +2284,848 @@ fn open_url_in_browser(url: &str) -> Result<(), String> {
     }
 }
 
+#[derive(Deserialize)]
+struct RadioBrowserStation {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    url: String,
+    #[serde(default)]
+    url_resolved: String,
+}
+
+fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>, String> {
+    const RADIO_BROWSER_MIRRORS: [&str; 3] = [
+        "https://de1.api.radio-browser.info",
+        "https://fi1.api.radio-browser.info",
+        "https://at1.api.radio-browser.info",
+    ];
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("Sonarpad Radio/1.0")
+        .build()
+        .map_err(|err| err.to_string())?;
+    let mut last_error = None;
+    let mut stations = None;
+    let mut query = vec![
+        ("hidebroken", "true"),
+        ("order", "clickcount"),
+        ("reverse", "true"),
+        ("limit", RADIO_BROWSER_LIMIT),
+    ];
+    if let Some(country_code) = language_code.strip_prefix("country:") {
+        query.push(("countrycode", country_code));
+    } else {
+        let language = radio_browser_language_name(language_code);
+        query.push(("language", language));
+        query.push(("languageExact", "true"));
+    }
+
+    for mirror in RADIO_BROWSER_MIRRORS {
+        match client
+            .get(format!("{mirror}/json/stations/search"))
+            .query(&query)
+            .send()
+            .and_then(|response| response.error_for_status())
+        {
+            Ok(response) => match response.json::<Vec<RadioBrowserStation>>() {
+                Ok(value) => {
+                    stations = Some(value);
+                    break;
+                }
+                Err(err) => last_error = Some(err.to_string()),
+            },
+            Err(err) => last_error = Some(err.to_string()),
+        }
+    }
+
+    let stations = stations
+        .ok_or_else(|| last_error.unwrap_or_else(|| "radio browser request failed".to_string()))?;
+
+    let stations = stations
+        .into_iter()
+        .filter_map(|station| {
+            let stream_url = if station.url_resolved.trim().is_empty() {
+                station.url.trim().to_string()
+            } else {
+                station.url_resolved.trim().to_string()
+            };
+            if stream_url.is_empty() {
+                return None;
+            }
+
+            let name = if station.name.trim().is_empty() {
+                stream_url.clone()
+            } else {
+                station.name.replace('&', "")
+            };
+            Some(RadioStation { name, stream_url })
+        })
+        .collect::<Vec<RadioStation>>();
+
+    Ok(normalize_radio_stations(stations))
+}
+
+fn radio_browser_language_name(language_code: &str) -> &str {
+    match language_code {
+        "cs" => "czech",
+        "en" => "english",
+        "es" => "spanish",
+        "fr" => "french",
+        "it" => "italian",
+        "lt" => "lithuanian",
+        "pl" => "polish",
+        "pt" => "portuguese",
+        "ru" => "russian",
+        "sr" => "serbian",
+        "sv" => "swedish",
+        "uk" => "ukrainian",
+        "vi" => "vietnamese",
+        "zh" => "chinese",
+        _ => language_code,
+    }
+}
+
+fn normalize_radio_stations(mut stations: Vec<RadioStation>) -> Vec<RadioStation> {
+    stations
+        .retain(|station| !station.name.trim().is_empty() && !station.stream_url.trim().is_empty());
+    for station in &mut stations {
+        station.name = station
+            .name
+            .replace('&', "")
+            .replace('\t', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        if canonical_radio_name(&station.name) == "rai radio tutta italiana" {
+            station.name = "Rai Radio Tutta Italiana".to_string();
+        }
+        station.stream_url = normalize_radio_stream_url(&station.name, &station.stream_url);
+    }
+    stations.retain(|station| {
+        let canonical = canonical_radio_name(&station.name);
+        canonical != "rai" && canonical != "rai radio tutta italiana"
+    });
+    stations.sort_by(|left, right| {
+        radio_name_priority(&left.name)
+            .cmp(&radio_name_priority(&right.name))
+            .then_with(|| left.name.len().cmp(&right.name.len()))
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.stream_url.cmp(&right.stream_url))
+    });
+    stations.dedup_by(|left, right| {
+        canonical_radio_name(&left.name) == canonical_radio_name(&right.name)
+            || left.stream_url == right.stream_url
+    });
+    stations
+}
+
+fn merge_radio_stations_preserving_local(
+    local_stations: &[RadioStation],
+    fetched_stations: Vec<RadioStation>,
+) -> Vec<RadioStation> {
+    let mut merged = local_stations.to_vec();
+    let mut seen_names = local_stations
+        .iter()
+        .map(|station| canonical_radio_name(&station.name))
+        .collect::<HashSet<String>>();
+    let mut seen_urls = local_stations
+        .iter()
+        .map(|station| station.stream_url.clone())
+        .collect::<HashSet<String>>();
+
+    for station in fetched_stations {
+        let canonical_name = canonical_radio_name(&station.name);
+        if seen_names.contains(&canonical_name) || seen_urls.contains(&station.stream_url) {
+            continue;
+        }
+
+        seen_names.insert(canonical_name);
+        seen_urls.insert(station.stream_url.clone());
+        merged.push(station);
+    }
+
+    merged.sort_by(|left, right| {
+        radio_name_priority(&left.name)
+            .cmp(&radio_name_priority(&right.name))
+            .then_with(|| left.name.len().cmp(&right.name.len()))
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.stream_url.cmp(&right.stream_url))
+    });
+    merged
+}
+
+fn embedded_radio_stations() -> HashMap<String, Vec<RadioStation>> {
+    let stations = serde_json::from_str::<HashMap<String, Vec<RadioStation>>>(include_str!(
+        "../i18n/radio.json"
+    ))
+    .expect("invalid embedded radio json");
+
+    stations
+        .into_iter()
+        .map(|(language_code, entries)| (language_code, normalize_radio_stations(entries)))
+        .collect()
+}
+
+fn radio_favorite_menu_id(index: usize) -> i32 {
+    ID_RADIO_FAVORITE_BASE + index as i32
+}
+
+fn favorite_from_station(language_code: &str, station: &RadioStation) -> RadioFavorite {
+    RadioFavorite {
+        language_code: language_code.to_string(),
+        name: station.name.clone(),
+        stream_url: station.stream_url.clone(),
+    }
+}
+
+fn normalized_radio_name(value: &str) -> String {
+    value
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn canonical_radio_name(value: &str) -> String {
+    let mut normalized = normalized_radio_name(value);
+    if let Some(rest) = normalized.strip_prefix("radio rai ") {
+        normalized = format!("rai radio {rest}");
+    }
+    normalized = normalized
+        .replace("rai radiouno", "rai radio 1")
+        .replace("rai radiodue", "rai radio 2")
+        .replace("rai radiotre", "rai radio 3")
+        .replace("rai radio1", "rai radio 1")
+        .replace("rai radio2", "rai radio 2")
+        .replace("rai radio3", "rai radio 3")
+        .replace("rai radio uno", "rai radio 1")
+        .replace("rai radio due", "rai radio 2")
+        .replace("rai radio tre", "rai radio 3");
+    normalized
+}
+
+fn normalize_radio_stream_url(name: &str, stream_url: &str) -> String {
+    let canonical_name = canonical_radio_name(name);
+    if canonical_name == "radio24 il sole 24 ore"
+        || canonical_name == "radio 24 il sole 24 ore"
+        || canonical_name == "radio24"
+        || canonical_name == "radio 24"
+    {
+        "http://shoutcast2.radio24.it:8000/;".to_string()
+    } else {
+        stream_url.trim().to_string()
+    }
+}
+
+fn radio_name_priority(value: &str) -> (usize, usize, String) {
+    let normalized = normalized_radio_name(value);
+    let canonical = canonical_radio_name(value);
+    let starts_with_rai_radio = usize::from(!normalized.starts_with("rai radio "));
+    let starts_with_rai = usize::from(!normalized.starts_with("rai "));
+    (starts_with_rai_radio, starts_with_rai, canonical)
+}
+
+fn radio_search_rank(name: &str, keyword: &str) -> (usize, usize, usize, String) {
+    let normalized_name = normalized_radio_name(name);
+    let canonical_name = canonical_radio_name(name);
+    let exact = normalized_name == keyword;
+    let starts_with = normalized_name.starts_with(keyword);
+    let word_boundary = normalized_name.contains(&format!(" {keyword}"));
+    let position = normalized_name.find(keyword).unwrap_or(usize::MAX);
+    let is_keyword_only = canonical_name == keyword;
+    let rai_radio_priority = if keyword == "rai" && canonical_name.starts_with("rai radio ") {
+        0
+    } else if keyword == "rai" && canonical_name.starts_with("rai ") {
+        1
+    } else {
+        2
+    };
+    let tier = if exact {
+        0
+    } else if starts_with {
+        1
+    } else if word_boundary {
+        2
+    } else {
+        3
+    };
+
+    let adjusted_tier = if is_keyword_only { tier + 10 } else { tier };
+
+    (adjusted_tier, rai_radio_priority, position, canonical_name)
+}
+
+fn radio_name_matches_keyword(name: &str, keyword: &str) -> bool {
+    let keyword = normalized_radio_name(keyword);
+    if keyword.is_empty() {
+        return false;
+    }
+
+    let canonical_name = canonical_radio_name(name);
+    if canonical_name == keyword
+        || canonical_name.starts_with(&format!("{keyword} "))
+        || canonical_name.contains(&format!(" {keyword} "))
+    {
+        return true;
+    }
+
+    if keyword.contains(' ') {
+        return false;
+    }
+
+    if keyword.len() < 4 {
+        return false;
+    }
+
+    canonical_name
+        .split_whitespace()
+        .any(|word| word.starts_with(&keyword))
+}
+
+fn default_radio_language_selection(
+    languages: &[(String, String)],
+    stations_by_language: &HashMap<String, Vec<RadioStation>>,
+) -> usize {
+    let has_stations = |code: &str| {
+        stations_by_language
+            .get(code)
+            .is_some_and(|stations| !stations.is_empty())
+    };
+
+    languages
+        .iter()
+        .position(|(code, _)| code == "it" && has_stations(code))
+        .or_else(|| languages.iter().position(|(code, _)| has_stations(code)))
+        .unwrap_or(0)
+}
+
+fn radio_label(favorite: &RadioFavorite) -> String {
+    let canonical = canonical_radio_name(&favorite.name);
+    let display_name = if canonical == "rai" && favorite.language_code == "it" {
+        "Rai Radio generica".to_string()
+    } else {
+        favorite.name.clone()
+    };
+    format!(
+        "{} ({})",
+        display_name,
+        radio_menu_entry_label(&favorite.language_code)
+    )
+}
+
+fn open_delete_radio_favorite_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+) -> Option<usize> {
+    let ui = current_ui_strings();
+    let favorites = settings.lock().unwrap().radio_favorites.clone();
+    if favorites.is_empty() {
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, "Elimina dai preferiti")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 160)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel).with_label("Radio").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_favorite = Choice::builder(&panel).build();
+    for favorite in &favorites {
+        choice_favorite.append(&radio_label(favorite));
+    }
+    choice_favorite.set_selection(0);
+    row.add(&choice_favorite, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let selected_index = Rc::new(RefCell::new(0usize));
+    let choice_favorite_evt = choice_favorite;
+    let selected_index_evt = Rc::clone(&selected_index);
+    choice_favorite.on_selection_changed(move |_| {
+        if let Some(selection) = choice_favorite_evt.get_selection() {
+            *selected_index_evt.borrow_mut() = selection as usize;
+        }
+    });
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        Some(*selected_index.borrow())
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
+fn open_radio_search_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    radio_menu_state: &Arc<Mutex<RadioMenuState>>,
+) {
+    append_podcast_log("radio_search_dialog.enter");
+    let existing_dialog = RADIO_SEARCH_DIALOG.with(|slot| *slot.borrow());
+    if let Some(dialog) = existing_dialog {
+        if dialog.is_valid() {
+            append_podcast_log("radio_search_dialog.raise_existing");
+            dialog.raise();
+            dialog.set_focus();
+            return;
+        }
+        RADIO_SEARCH_DIALOG.with(|slot| {
+            *slot.borrow_mut() = None;
+        });
+    }
+
+    let ui_language = Settings::load().ui_language;
+    let languages = radio_menu_languages();
+    let stations_by_language = radio_menu_state
+        .lock()
+        .unwrap()
+        .stations_by_language
+        .clone();
+    let dialog = Dialog::builder(parent, "Cerca radio")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 260)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel)
+            .with_label(if ui_language == "it" { "Testo" } else { "Text" })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let keyword_ctrl = TextCtrl::builder(&panel).build();
+    search_row.add(&keyword_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+
+    let language_row = BoxSizer::builder(Orientation::Horizontal).build();
+    language_row.add(
+        &StaticText::builder(&panel)
+            .with_label(if ui_language == "it" {
+                "Lingua"
+            } else {
+                "Language"
+            })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_language = Choice::builder(&panel).build();
+    for (_, label) in &languages {
+        choice_language.append(label);
+    }
+    choice_language
+        .set_selection(default_radio_language_selection(&languages, &stations_by_language) as u32);
+    language_row.add(&choice_language, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&language_row, 0, SizerFlag::Expand, 0);
+
+    let button_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let button_show_all = Button::builder(&panel)
+        .with_label(if ui_language == "it" {
+            "Visualizza tutte le stazioni della lingua selezionata"
+        } else {
+            "Show all stations for selected language"
+        })
+        .build();
+    let button_search = Button::builder(&panel)
+        .with_label(if ui_language == "it" {
+            "Ricerca"
+        } else {
+            "Search"
+        })
+        .build();
+    let button_close = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(if ui_language == "it" {
+            "Chiudi"
+        } else {
+            "Close"
+        })
+        .build();
+    button_row.add(&button_show_all, 1, SizerFlag::All, 5);
+    button_row.add(&button_search, 0, SizerFlag::All, 5);
+    button_row.add(&button_close, 0, SizerFlag::All, 5);
+    root.add_sizer(&button_row, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    RADIO_SEARCH_DIALOG.with(|slot| {
+        *slot.borrow_mut() = Some(dialog);
+    });
+    dialog.on_destroy(move |event| {
+        RADIO_SEARCH_DIALOG.with(|slot| {
+            *slot.borrow_mut() = None;
+        });
+        event.skip(true);
+    });
+
+    let gather_results = Rc::new({
+        let languages = languages.clone();
+        let stations_by_language = stations_by_language.clone();
+        move |language_selection: usize, keyword: &str, show_all: bool| {
+            let mut results = Vec::<RadioFavorite>::new();
+            if let Some((language_code, _)) = languages.get(language_selection)
+                && let Some(stations) = stations_by_language.get(language_code)
+            {
+                let keyword = keyword.trim().to_lowercase();
+                for station in stations {
+                    let matches = show_all
+                        || (!keyword.is_empty()
+                            && radio_name_matches_keyword(&station.name, &keyword));
+                    if matches {
+                        results.push(favorite_from_station(language_code, station));
+                    }
+                }
+            }
+            results.sort_by(|left, right| {
+                if show_all || keyword.is_empty() {
+                    canonical_radio_name(&left.name)
+                        .cmp(&canonical_radio_name(&right.name))
+                        .then_with(|| left.name.cmp(&right.name))
+                } else {
+                    radio_search_rank(&left.name, keyword)
+                        .cmp(&radio_search_rank(&right.name, keyword))
+                        .then_with(|| left.name.cmp(&right.name))
+                }
+            });
+            results.dedup_by(|left, right| {
+                canonical_radio_name(&left.name) == canonical_radio_name(&right.name)
+            });
+            results
+        }
+    });
+
+    let choice_language_all = choice_language;
+    let keyword_ctrl_all = keyword_ctrl;
+    let dialog_show_all = dialog;
+    let parent_show_all = *parent;
+    let settings_show_all = Arc::clone(settings);
+    let radio_menu_state_show_all = Arc::clone(radio_menu_state);
+    let gather_results_show_all = Rc::clone(&gather_results);
+    button_show_all.on_click(move |_| {
+        let selection = choice_language_all.get_selection().unwrap_or(0) as usize;
+        let results = gather_results_show_all(selection, &keyword_ctrl_all.get_value(), true);
+        dialog_show_all.raise();
+        open_radio_results_dialog(
+            &parent_show_all,
+            &settings_show_all,
+            &radio_menu_state_show_all,
+            &results,
+        );
+    });
+
+    let choice_language_search = choice_language;
+    let keyword_ctrl_search = keyword_ctrl;
+    let dialog_search = dialog;
+    let ui_language_search = ui_language.clone();
+    let parent_search = *parent;
+    let settings_search = Arc::clone(settings);
+    let radio_menu_state_search = Arc::clone(radio_menu_state);
+    let gather_results_search = Rc::clone(&gather_results);
+    button_search.on_click(move |_| {
+        let selection = choice_language_search.get_selection().unwrap_or(0) as usize;
+        let keyword = keyword_ctrl_search.get_value();
+        if keyword.trim().is_empty() {
+            show_message_subdialog(
+                &dialog_search,
+                "Radio",
+                if ui_language_search == "it" {
+                    "Inserisci un testo da cercare."
+                } else {
+                    "Enter text to search."
+                },
+            );
+            return;
+        }
+        let results = gather_results_search(selection, &keyword, false);
+        dialog_search.raise();
+        open_radio_results_dialog(
+            &parent_search,
+            &settings_search,
+            &radio_menu_state_search,
+            &results,
+        );
+    });
+
+    let dialog_close = dialog;
+    button_close.on_click(move |_| {
+        dialog_close.destroy();
+    });
+
+    dialog.centre();
+    dialog.raise();
+    keyword_ctrl.set_focus();
+    append_podcast_log("radio_search_dialog.show");
+    dialog.show(true);
+}
+
+fn open_radio_results_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    radio_menu_state: &Arc<Mutex<RadioMenuState>>,
+    results: &[RadioFavorite],
+) {
+    let ui_language = Settings::load().ui_language;
+    let mut results = results.to_vec();
+    results.sort_by(|left, right| {
+        canonical_radio_name(&left.name)
+            .cmp(&canonical_radio_name(&right.name))
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.stream_url.cmp(&right.stream_url))
+    });
+    results.dedup_by(|left, right| {
+        canonical_radio_name(&left.name) == canonical_radio_name(&right.name)
+            || left.stream_url == right.stream_url
+    });
+
+    append_podcast_log(&format!("radio_results_dialog count={}", results.len()));
+    for (index, result) in results.iter().take(20).enumerate() {
+        append_podcast_log(&format!(
+            "radio_results_dialog[{index}] label={} canonical={} url={}",
+            radio_label(result),
+            canonical_radio_name(&result.name),
+            result.stream_url
+        ));
+    }
+
+    if results.is_empty() {
+        show_message_dialog(
+            parent,
+            "Radio",
+            if ui_language == "it" {
+                "Nessuna radio trovata."
+            } else {
+                "No radio stations found."
+            },
+        );
+        return;
+    }
+
+    let dialog = Dialog::builder(parent, "Risultati radio")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(700, 190)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel).with_label("Radio").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_result = Choice::builder(&panel).build();
+    row.add(&choice_result, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let page_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let previous_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" {
+            "Precedenti"
+        } else {
+            "Previous"
+        })
+        .build();
+    let next_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" {
+            "Successivi"
+        } else {
+            "Next"
+        })
+        .build();
+    let page_label = StaticText::builder(&panel).with_label("").build();
+    page_row.add(&previous_button, 0, SizerFlag::All, 5);
+    page_row.add(
+        &page_label,
+        1,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    page_row.add(&next_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&page_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" { "Apri" } else { "Open" })
+        .build();
+    let favorite_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" {
+            "Aggiungi ai preferiti"
+        } else {
+            "Add to favorites"
+        })
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(if ui_language == "it" {
+            "Chiudi"
+        } else {
+            "Close"
+        })
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&favorite_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    let all_results = Rc::new(results);
+    let current_page = Rc::new(RefCell::new(0usize));
+    let visible_results = Rc::new(RefCell::new(Vec::<RadioFavorite>::new()));
+    let update_results_page = Rc::new({
+        let all_results = Rc::clone(&all_results);
+        let visible_results = Rc::clone(&visible_results);
+        let ui_language = ui_language.clone();
+        move |page: usize| {
+            let total_pages = all_results.len().div_ceil(RADIO_RESULTS_PAGE_SIZE);
+            let current = page.min(total_pages.saturating_sub(1));
+            let start = current * RADIO_RESULTS_PAGE_SIZE;
+            let end = (start + RADIO_RESULTS_PAGE_SIZE).min(all_results.len());
+            let page_results = all_results[start..end].to_vec();
+            *visible_results.borrow_mut() = page_results.clone();
+
+            choice_result.clear();
+            for result in &page_results {
+                choice_result.append(&radio_label(result));
+            }
+            if !page_results.is_empty() {
+                choice_result.set_selection(0);
+            }
+
+            page_label.set_label(&if ui_language == "it" {
+                format!("Pagina {} di {}", current + 1, total_pages.max(1))
+            } else {
+                format!("Page {} of {}", current + 1, total_pages.max(1))
+            });
+            previous_button.enable(current > 0);
+            next_button.enable(current + 1 < total_pages);
+        }
+    });
+    update_results_page(0);
+
+    let current_page_previous = Rc::clone(&current_page);
+    let update_results_page_previous = Rc::clone(&update_results_page);
+    previous_button.on_click(move |_| {
+        let next_page = current_page_previous.borrow().saturating_sub(1);
+        *current_page_previous.borrow_mut() = next_page;
+        update_results_page_previous(next_page);
+    });
+
+    let current_page_next = Rc::clone(&current_page);
+    let update_results_page_next = Rc::clone(&update_results_page);
+    let all_results_next = Rc::clone(&all_results);
+    next_button.on_click(move |_| {
+        let total_pages = all_results_next.len().div_ceil(RADIO_RESULTS_PAGE_SIZE);
+        let next_page = (*current_page_next.borrow() + 1).min(total_pages.saturating_sub(1));
+        *current_page_next.borrow_mut() = next_page;
+        update_results_page_next(next_page);
+    });
+
+    let visible_results_open = Rc::clone(&visible_results);
+    let choice_result_open = choice_result;
+    let dialog_open = dialog;
+    open_button.on_click(move |_| {
+        let Some(selection) = choice_result_open.get_selection() else {
+            return;
+        };
+        let visible_results = visible_results_open.borrow();
+        let Some(station) = visible_results.get(selection as usize) else {
+            return;
+        };
+        if let Err(err) = open_url_in_browser(&station.stream_url) {
+            show_message_subdialog(&dialog_open, "Radio", &err);
+        }
+    });
+
+    let visible_results_favorite = Rc::clone(&visible_results);
+    let choice_result_favorite = choice_result;
+    let settings_favorite = Arc::clone(settings);
+    let radio_menu_state_favorite = Arc::clone(radio_menu_state);
+    let dialog_favorite = dialog;
+    let ui_language_favorite = ui_language.clone();
+    favorite_button.on_click(move |_| {
+        let Some(selection) = choice_result_favorite.get_selection() else {
+            return;
+        };
+        let visible_results = visible_results_favorite.borrow();
+        let Some(station) = visible_results.get(selection as usize).cloned() else {
+            return;
+        };
+        let station_name = station.name.clone();
+        let mut settings = settings_favorite.lock().unwrap();
+        if !settings
+            .radio_favorites
+            .iter()
+            .any(|favorite| favorite.stream_url == station.stream_url)
+        {
+            settings.radio_favorites.push(station);
+            normalize_settings_data(&mut settings);
+            settings.save();
+            drop(settings);
+            radio_menu_state_favorite.lock().unwrap().dirty = true;
+            let message = if ui_language_favorite == "it" {
+                format!("{station_name} aggiunta ai preferiti.")
+            } else {
+                format!("{station_name} added to favorites.")
+            };
+            show_message_subdialog(&dialog_favorite, "Radio", &message);
+        } else {
+            drop(settings);
+            show_message_subdialog(
+                &dialog_favorite,
+                "Radio",
+                if ui_language_favorite == "it" {
+                    "La radio selezionata è già nei preferiti."
+                } else {
+                    "The selected radio is already in favorites."
+                },
+            );
+        }
+    });
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| {
+        dialog_close.end_modal(ID_CANCEL);
+    });
+
+    dialog.show_modal();
+    dialog.destroy();
+}
+
 #[cfg(target_os = "macos")]
 fn latest_download_url_for_current_platform() -> &'static str {
     if mac_has_apple_silicon_cpu() {
@@ -2931,7 +3922,7 @@ fn build_language_list(voices: &[edge_tts::VoiceInfo]) -> Vec<(String, String)> 
     l_map.into_iter().collect()
 }
 
-fn normalize_article_sources(settings: &mut Settings) {
+fn normalize_settings_data(settings: &mut Settings) {
     if settings.article_sources.is_empty() {
         settings.article_sources = articles::default_sources_for_ui_language(&settings.ui_language);
     }
@@ -2950,6 +3941,31 @@ fn normalize_article_sources(settings: &mut Settings) {
             source.title = source.url.clone();
         }
     }
+    for favorite in &mut settings.radio_favorites {
+        favorite.language_code = parse_language_code(&favorite.language_code)
+            .unwrap_or_else(|| favorite.language_code.trim().to_lowercase());
+        favorite.name = favorite
+            .name
+            .replace('&', "")
+            .replace('\t', " ")
+            .split_whitespace()
+            .collect::<Vec<_>>()
+            .join(" ");
+        favorite.stream_url = normalize_radio_stream_url(&favorite.name, &favorite.stream_url);
+    }
+    settings.radio_favorites.retain(|favorite| {
+        !favorite.name.trim().is_empty() && !favorite.stream_url.trim().is_empty()
+    });
+    settings.radio_favorites.sort_by(|left, right| {
+        left.name
+            .to_lowercase()
+            .cmp(&right.name.to_lowercase())
+            .then_with(|| left.name.cmp(&right.name))
+            .then_with(|| left.stream_url.cmp(&right.stream_url))
+    });
+    settings
+        .radio_favorites
+        .dedup_by(|left, right| left.stream_url == right.stream_url);
 }
 
 fn is_removed_default_article_source(url: &str) -> bool {
@@ -3003,6 +4019,18 @@ fn rebuild_articles_menu(
         ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY,
         &ui.sorted_articles_title,
         &ui.sorted_articles_message,
+        ItemKind::Normal,
+    );
+    let _ = articles_menu.append(
+        ID_ARTICLES_IMPORT_SOURCES,
+        &format!("{}...", ui.import_sources),
+        &ui.import_sources,
+        ItemKind::Normal,
+    );
+    let _ = articles_menu.append(
+        ID_ARTICLES_EXPORT_SOURCES,
+        &format!("{}...", ui.export_sources),
+        &ui.export_sources,
         ItemKind::Normal,
     );
     articles_menu.append_separator();
@@ -3184,6 +4212,62 @@ fn rebuild_podcasts_menu(
         }
         let _ = podcasts_menu.append_submenu(submenu, &source.title, &source.url);
     }
+}
+
+fn rebuild_radio_menu(
+    radio_menu: &Menu,
+    settings: &Arc<Mutex<Settings>>,
+    radio_menu_state: &Arc<Mutex<RadioMenuState>>,
+) {
+    let ui_language = settings.lock().unwrap().ui_language.clone();
+    let ui = ui_strings(&ui_language);
+    let favorites = settings.lock().unwrap().radio_favorites.clone();
+
+    for item in radio_menu.get_menu_items().into_iter().rev() {
+        let _ = radio_menu.delete_item(&item);
+    }
+
+    let _ = radio_menu.append(ID_RADIO_SEARCH, "Cerca...", "Cerca radio", ItemKind::Normal);
+
+    let favorites_menu = Menu::builder().build();
+    let mut station_ids = HashMap::new();
+    if favorites.is_empty() {
+        let _ = favorites_menu.append(
+            ID_RADIO_FAVORITE_BASE,
+            &ui.no_radios_available,
+            &ui.no_radios_available,
+            ItemKind::Normal,
+        );
+        let _ = favorites_menu.enable_item(ID_RADIO_FAVORITE_BASE, false);
+    } else {
+        for (index, favorite) in favorites.iter().enumerate() {
+            let menu_id = radio_favorite_menu_id(index);
+            let label = radio_label(favorite);
+            let _ = favorites_menu.append(menu_id, &label, &favorite.stream_url, ItemKind::Normal);
+            station_ids.insert(menu_id, favorite.clone());
+        }
+    }
+    let favorites_label = if ui_language == "it" {
+        "Preferite"
+    } else {
+        "Favorites"
+    };
+    let _ = radio_menu.append_submenu(favorites_menu, favorites_label, favorites_label);
+
+    let delete_label = if ui_language == "it" {
+        "Elimina dai preferiti..."
+    } else {
+        "Remove from favorites..."
+    };
+    let _ = radio_menu.append(
+        ID_RADIO_DELETE_FAVORITE,
+        delete_label,
+        delete_label,
+        ItemKind::Normal,
+    );
+
+    let mut state = radio_menu_state.lock().unwrap();
+    state.station_ids = station_ids;
 }
 
 fn refresh_all_article_sources(
@@ -3407,6 +4491,51 @@ fn refresh_all_podcast_categories(
     }
 }
 
+fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
+    let languages = radio_menu_languages();
+    {
+        let mut state = radio_menu_state.lock().unwrap();
+        state.loading_languages = languages
+            .iter()
+            .map(|(code, _)| code.clone())
+            .collect::<HashSet<String>>();
+        state.failed_languages.clear();
+        state.dirty = true;
+    }
+
+    for (language_code, _) in languages {
+        let menu_state_refresh = Arc::clone(radio_menu_state);
+        std::thread::spawn(move || {
+            let result = fetch_radio_browser_stations(&language_code);
+            let mut state = menu_state_refresh.lock().unwrap();
+            state.loading_languages.remove(&language_code);
+            match result {
+                Ok(stations) => {
+                    state.failed_languages.remove(&language_code);
+                    let merged_stations = if let Some(local_stations) =
+                        state.stations_by_language.get(&language_code)
+                    {
+                        merge_radio_stations_preserving_local(local_stations, stations)
+                    } else {
+                        stations
+                    };
+                    state
+                        .stations_by_language
+                        .insert(language_code.clone(), merged_stations);
+                }
+                Err(err) => {
+                    println!(
+                        "ERROR: Caricamento radio fallito per lingua {}: {}",
+                        language_code, err
+                    );
+                    state.failed_languages.insert(language_code.clone());
+                }
+            }
+            state.dirty = true;
+        });
+    }
+}
+
 fn add_article_source(
     title: String,
     url: String,
@@ -3465,6 +4594,203 @@ fn resolve_article_source_input(title: &str, url: &str) -> Option<(String, Strin
     } else {
         Some((normalized_url, resolved_title))
     }
+}
+
+fn parse_opml_sources(text: &str) -> Vec<(String, String)> {
+    let mut reader = Reader::from_str(text);
+    reader.config_mut().trim_text(true);
+    let mut buf = Vec::new();
+    let mut out = Vec::new();
+
+    loop {
+        match reader.read_event_into(&mut buf) {
+            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+                if !element.name().as_ref().eq_ignore_ascii_case(b"outline") {
+                    buf.clear();
+                    continue;
+                }
+                let mut title = String::new();
+                let mut url = String::new();
+                for attr in element.attributes().flatten() {
+                    let key = attr.key.as_ref();
+                    let value = attr
+                        .decode_and_unescape_value(reader.decoder())
+                        .unwrap_or_default()
+                        .to_string();
+                    if key.eq_ignore_ascii_case(b"xmlUrl") {
+                        url = value;
+                    } else if title.is_empty()
+                        && (key.eq_ignore_ascii_case(b"title") || key.eq_ignore_ascii_case(b"text"))
+                    {
+                        title = value;
+                    }
+                }
+                if !url.trim().is_empty() {
+                    out.push((title, url));
+                }
+            }
+            Ok(Event::Eof) => break,
+            Err(_) => break,
+            _ => {}
+        }
+        buf.clear();
+    }
+
+    out
+}
+
+fn parse_article_sources_text(text: &str) -> Vec<(String, String)> {
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .filter(|line| !line.starts_with('#'))
+        .map(|line| {
+            if let Some((title, url)) = line.split_once('|') {
+                (title.trim().to_string(), url.trim().to_string())
+            } else {
+                (String::new(), line.to_string())
+            }
+        })
+        .collect()
+}
+
+fn open_article_sources_import_dialog(parent: &Frame) -> Option<PathBuf> {
+    let ui = current_ui_strings();
+    let dialog = FileDialog::builder(parent)
+        .with_message(&ui.import_sources)
+        .with_wildcard("OPML o TXT|*.opml;*.txt|Tutti|*.*")
+        .build();
+
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+
+    if dialog_result != ID_OK {
+        return None;
+    }
+
+    dialog.get_path().map(PathBuf::from)
+}
+
+fn open_article_sources_export_dialog(parent: &Frame) -> Option<PathBuf> {
+    let ui = current_ui_strings();
+    let dialog = FileDialog::builder(parent)
+        .with_message(&ui.export_sources)
+        .with_default_file("sonarpad-articles.opml")
+        .with_wildcard("OPML|*.opml|Tutti|*.*")
+        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+        .build();
+
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+
+    if dialog_result != ID_OK {
+        return None;
+    }
+
+    dialog.get_path().map(PathBuf::from)
+}
+
+fn escape_opml_attr(value: &str) -> String {
+    value
+        .replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+fn import_article_sources_from_file(
+    path: &Path,
+    settings: &Arc<Mutex<Settings>>,
+    article_menu_state: &Arc<Mutex<ArticleMenuState>>,
+    rt: &Arc<Runtime>,
+) -> Result<usize, String> {
+    let bytes = std::fs::read(path).map_err(|err| err.to_string())?;
+    let text = String::from_utf8_lossy(&bytes);
+    let is_opml = path
+        .extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("opml"))
+        || text.to_ascii_lowercase().contains("<opml");
+    let imported_sources = if is_opml {
+        parse_opml_sources(&text)
+    } else {
+        parse_article_sources_text(&text)
+    };
+
+    if imported_sources.is_empty() {
+        return Ok(0);
+    }
+
+    let mut added_urls = Vec::new();
+    {
+        let mut locked = settings.lock().unwrap();
+        let mut existing_urls: HashSet<String> = locked
+            .article_sources
+            .iter()
+            .map(|source| source.url.to_ascii_lowercase())
+            .collect();
+        for (title, url) in imported_sources {
+            let Some((normalized_url, resolved_title)) = resolve_article_source_input(&title, &url)
+            else {
+                continue;
+            };
+            let key = normalized_url.to_ascii_lowercase();
+            if existing_urls.contains(&key) {
+                continue;
+            }
+            existing_urls.insert(key);
+            locked.article_sources.push(articles::ArticleSource {
+                title: resolved_title,
+                url: normalized_url.clone(),
+                items: Vec::new(),
+            });
+            added_urls.push(normalized_url);
+        }
+        if added_urls.is_empty() {
+            return Ok(0);
+        }
+        locked.save();
+    }
+
+    let added_count = added_urls.len();
+    article_menu_state.lock().unwrap().dirty = true;
+    for url in added_urls {
+        refresh_single_article_source(url, rt, settings, article_menu_state);
+    }
+
+    Ok(added_count)
+}
+
+fn export_article_sources_to_opml(
+    path: &Path,
+    settings: &Arc<Mutex<Settings>>,
+) -> Result<usize, String> {
+    let sources = settings.lock().unwrap().article_sources.clone();
+    let mut file = std::fs::File::create(path).map_err(|err| err.to_string())?;
+    writeln!(
+        file,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n<title>Sonarpad Articles</title>\n</head>\n<body>"
+    )
+    .map_err(|err| err.to_string())?;
+    for source in &sources {
+        let title = article_source_label(source);
+        writeln!(
+            file,
+            "  <outline text=\"{}\" title=\"{}\" xmlUrl=\"{}\" />",
+            escape_opml_attr(&title),
+            escape_opml_attr(&title),
+            escape_opml_attr(&source.url)
+        )
+        .map_err(|err| err.to_string())?;
+    }
+    writeln!(file, "</body>\n</opml>").map_err(|err| err.to_string())?;
+    Ok(sources.len())
 }
 
 fn edit_article_source(
@@ -4822,6 +6148,7 @@ fn main() {
     let voices_data = Arc::new(Mutex::new(Vec::<edge_tts::VoiceInfo>::new()));
     let languages = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
     let settings = Arc::new(Mutex::new(Settings::load()));
+    let initial_radio_stations = embedded_radio_stations();
     let article_menu_state = Arc::new(Mutex::new(ArticleMenuState {
         dirty: true,
         loading_urls: HashSet::new(),
@@ -4831,6 +6158,13 @@ fn main() {
         loading_urls: HashSet::new(),
         category_results: HashMap::new(),
         category_loading: HashSet::new(),
+    }));
+    let radio_menu_state = Arc::new(Mutex::new(RadioMenuState {
+        dirty: true,
+        loading_languages: HashSet::new(),
+        failed_languages: HashSet::new(),
+        stations_by_language: initial_radio_stations,
+        station_ids: HashMap::new(),
     }));
     let podcast_playback = Rc::new(RefCell::new(PodcastPlaybackState {
         player: None,
@@ -4876,6 +6210,7 @@ fn main() {
     refresh_all_article_sources(&rt, &settings, &article_menu_state);
     refresh_all_podcast_sources(&rt, &settings, &podcast_menu_state);
     refresh_all_podcast_categories(&rt, &podcast_menu_state);
+    refresh_all_radio_languages(&radio_menu_state);
 
     let _ = wxdragon::main(move |_| {
         let ui = current_ui_strings();
@@ -4971,12 +6306,17 @@ fn main() {
         );
         let podcasts_menu_timer = Menu::from(podcasts_menu.as_const_ptr());
         let podcasts_menu_settings = Menu::from(podcasts_menu.as_const_ptr());
+        let radio_menu = Menu::builder().build();
+        rebuild_radio_menu(&radio_menu, &settings, &radio_menu_state);
+        let radio_menu_timer = Menu::from(radio_menu.as_const_ptr());
+        let radio_menu_settings = Menu::from(radio_menu.as_const_ptr());
 
         #[cfg(target_os = "macos")]
         let menubar = MenuBar::builder()
             .append(file_menu, &ui.menu_file)
             .append(articles_menu, &ui.menu_articles)
             .append(podcasts_menu, &ui.menu_podcasts)
+            .append(radio_menu, &ui.menu_radio)
             .append(help_menu, &ui.menu_help)
             .build();
         #[cfg(not(target_os = "macos"))]
@@ -4984,6 +6324,7 @@ fn main() {
             .append(file_menu, &ui.menu_file)
             .append(articles_menu, &ui.menu_articles)
             .append(podcasts_menu, &ui.menu_podcasts)
+            .append(radio_menu, &ui.menu_radio)
             .append(help_menu, &ui.menu_help)
             .build();
         frame.set_menu_bar(menubar);
@@ -5050,6 +6391,7 @@ fn main() {
         let settings_timer = Arc::clone(&settings);
         let article_menu_state_timer = Arc::clone(&article_menu_state);
         let podcast_menu_state_timer = Arc::clone(&podcast_menu_state);
+        let radio_menu_state_timer = Arc::clone(&radio_menu_state);
         let podcast_playback_timer = Rc::clone(&podcast_playback);
         let timer_tick = Rc::clone(&timer);
 
@@ -5117,6 +6459,19 @@ fn main() {
                     &category_loading,
                 );
             }
+
+            let radio_menu_dirty = {
+                let mut radio_state = radio_menu_state_timer.lock().unwrap();
+                if radio_state.dirty {
+                    radio_state.dirty = false;
+                    true
+                } else {
+                    false
+                }
+            };
+            if radio_menu_dirty {
+                rebuild_radio_menu(&radio_menu_timer, &settings_timer, &radio_menu_state_timer);
+            }
         });
         timer.start(200, false);
 
@@ -5138,6 +6493,7 @@ fn main() {
         let settings_menu = Arc::clone(&settings);
         let article_menu_state_menu = Arc::clone(&article_menu_state);
         let podcast_menu_state_menu = Arc::clone(&podcast_menu_state);
+        let radio_menu_state_menu = Arc::clone(&radio_menu_state);
         let rt_articles_menu = Arc::clone(&rt);
         let podcast_selection_menu = Rc::clone(&podcast_playback);
         frame.on_menu(move |event| {
@@ -5234,6 +6590,49 @@ fn main() {
                     &ui.sorted_articles_title,
                     &ui.sorted_articles_message,
                 );
+            } else if event.get_id() == ID_ARTICLES_IMPORT_SOURCES {
+                if let Some(path) = open_article_sources_import_dialog(&f_menu) {
+                    match import_article_sources_from_file(
+                        &path,
+                        &settings_menu,
+                        &article_menu_state_menu,
+                        &rt_articles_menu,
+                    ) {
+                        Ok(imported_count) => {
+                            show_message_dialog(
+                                &f_menu,
+                                &ui.imported_articles_title,
+                                &format!("{} {}", ui.imported_articles_message, imported_count),
+                            );
+                        }
+                        Err(err) => {
+                            show_message_dialog(
+                                &f_menu,
+                                &ui.import_articles_error_title,
+                                &err,
+                            );
+                        }
+                    }
+                }
+            } else if event.get_id() == ID_ARTICLES_EXPORT_SOURCES {
+                if let Some(path) = open_article_sources_export_dialog(&f_menu) {
+                    match export_article_sources_to_opml(&path, &settings_menu) {
+                        Ok(exported_count) => {
+                            show_message_dialog(
+                                &f_menu,
+                                &ui.exported_articles_title,
+                                &format!("{} {}", ui.exported_articles_message, exported_count),
+                            );
+                        }
+                        Err(err) => {
+                            show_message_dialog(
+                                &f_menu,
+                                &ui.export_articles_error_title,
+                                &err,
+                            );
+                        }
+                    }
+                }
             } else if event.get_id() == ID_PODCASTS_ADD {
                 if let Some(result) = open_add_podcast_dialog(&f_menu, &rt_articles_menu) {
                     add_podcast_source(
@@ -5270,6 +6669,35 @@ fn main() {
                     &ui.sorted_podcasts_title,
                     &ui.sorted_podcasts_message,
                 );
+            } else if event.get_id() == ID_RADIO_SEARCH {
+                append_podcast_log("menu.radio_search.clicked");
+                open_radio_search_dialog(&f_menu, &settings_menu, &radio_menu_state_menu);
+            } else if event.get_id() == ID_RADIO_DELETE_FAVORITE {
+                if let Some(index) = open_delete_radio_favorite_dialog(&f_menu, &settings_menu) {
+                    let removed = {
+                        let mut settings = settings_menu.lock().unwrap();
+                        if index < settings.radio_favorites.len() {
+                            let removed = settings.radio_favorites.remove(index);
+                            normalize_settings_data(&mut settings);
+                            settings.save();
+                            Some(removed)
+                        } else {
+                            None
+                        }
+                    };
+                    if let Some(removed) = removed {
+                        radio_menu_state_menu.lock().unwrap().dirty = true;
+                        show_message_dialog(
+                            &f_menu,
+                            &ui.menu_radio.replace('&', ""),
+                            &if Settings::load().ui_language == "it" {
+                                format!("{} rimossa dai preferiti.", removed.name)
+                            } else {
+                                format!("{} removed from favorites.", removed.name)
+                            },
+                        );
+                    }
+                }
             } else if let Some((category_index, result_index)) =
                 decode_podcast_category_podcast_menu_id(event.get_id())
             {
@@ -5385,6 +6813,17 @@ fn main() {
                     {
                         podcast_selection_menu.borrow_mut().selected_episode = Some(episode.clone());
                     }
+                }
+            } else if let Some(station) = {
+                let state = radio_menu_state_menu.lock().unwrap();
+                state.station_ids.get(&event.get_id()).cloned()
+            } {
+                if let Err(err) = open_url_in_browser(&station.stream_url) {
+                    show_message_dialog(
+                        &f_menu,
+                        &ui.menu_radio,
+                        &ui.radio_open_failed.replace("{err}", &err),
+                    );
                 }
             } else if let Some((source_index, item_index)) = decode_article_menu_id(event.get_id()) {
                 let item = settings_menu
@@ -6451,6 +7890,7 @@ fn main() {
         let playback_state = Arc::clone(&playback);
         let article_menu_state_settings = Arc::clone(&article_menu_state);
         let podcast_menu_state_settings = Arc::clone(&podcast_menu_state);
+        let radio_menu_state_settings = Arc::clone(&radio_menu_state);
         let btn_save_settings = btn_save;
         let btn_settings_settings = btn_settings;
         let btn_podcast_back_settings = btn_podcast_back;
@@ -6469,8 +7909,16 @@ fn main() {
                 refresh_localized_main_ui(
                     &frame_settings,
                     &settings_state,
-                    (&articles_menu_settings, &podcasts_menu_settings),
-                    (&article_menu_state_settings, &podcast_menu_state_settings),
+                    (
+                        &articles_menu_settings,
+                        &podcasts_menu_settings,
+                        &radio_menu_settings,
+                    ),
+                    (
+                        &article_menu_state_settings,
+                        &podcast_menu_state_settings,
+                        &radio_menu_state_settings,
+                    ),
                     (
                         &btn_save_settings,
                         &btn_settings_settings,

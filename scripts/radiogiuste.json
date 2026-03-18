@@ -1,0 +1,235 @@
+{
+  "fixed": [
+    {
+      "name": "Abruzzo FM",
+      "old_url": "http://sc1.streamingpulse.com:8004/;stream.mp3",
+      "new_url": "http://sc1.streamingpulse.com:8004/;stream.mp3",
+      "source": "manual_verified_icy",
+      "notes": "Original stream replies with ICY 200 OK; previous checker treated the non-HTTP status line as broken"
+    },
+    {
+      "name": "Lazio style radio",
+      "old_url": "https://livesg.sslazio.hiway.media/restreamer/sslazio_client/gpu-a-c1-1/restreamer/outgest/79b655d0-7924-4397-8d6c-b1e98b029b5d/manifest.m3u8",
+      "new_url": "https://livesg.sslazio.hiway.media/restreamer/sslazio_client/gpu-a-c1-1/restreamer/outgest/489fcdee-a198-42a1-9777-db1a2b15e6ec/manifest.m3u8",
+      "source": "user_verified",
+      "notes": "Updated from user-provided Lazio Style Radio HLS manifest, verified 200 application/vnd.apple.mpegurl"
+    },
+    {
+      "name": "NBC Milano",
+      "old_url": "http://91.121.104.139:9280/;stream.mp3",
+      "new_url": "https://nr7.newradio.it:19350/stream",
+      "source": "manual_verified",
+      "notes": "Exact same station name in Radio Browser, verified 200 audio/mpeg"
+    },
+    {
+      "name": "Radio Alfa Lombardia",
+      "old_url": "https://live.radioalfalombardia.it:9871/",
+      "new_url": "http://live.radioalfalombardia.it:9871/",
+      "source": "manual_verified",
+      "notes": "Same station and same host, switched to working HTTP endpoint to avoid expired HTTPS certificate"
+    },
+    {
+      "name": "Radio Calabria",
+      "old_url": "http://onair15.xdevel.com:8688/;",
+      "new_url": "https://nr15.newradio.it:8080/9204/stream",
+      "source": "manual_verified",
+      "notes": "Official Radio Calabria public page exposes the new Newradio stream, verified 200 audio/mpeg"
+    },
+    {
+      "name": "Radio Company Easy",
+      "old_url": "http://ice02.fluidstream.net/ceasy.aac",
+      "new_url": "https://sphera.fluidstream.eu/ceasy.mp3?FLID=1",
+      "source": "manual_verified",
+      "notes": "Official Fluidstream player exposes the current ceasy.mp3 endpoint, verified 200 audio/mpeg"
+    },
+    {
+      "name": "Radio Cuneo Nord",
+      "old_url": "http://eu7.fastcast4u.com:6174/;stream.mp3",
+      "new_url": "http://eu7.fastcast4u.com:6174/;stream.mp3",
+      "source": "manual_verified_icy",
+      "notes": "Original stream replies with ICY 200 OK; previous checker treated the non-HTTP status line as broken"
+    },
+    {
+      "name": "Radio Italia Network - Network satellite",
+      "old_url": "http://sr2.inmystream.info:8123/",
+      "new_url": "http://sr2.inmystream.info:8123/",
+      "source": "manual_verified_icy",
+      "notes": "Original stream replies with ICY 200 OK and icy-name NETWORK SATELLITE - The Original Italia Network"
+    },
+    {
+      "name": "Radio Kolbe Melfi",
+      "old_url": "http://radiokolbemelfi.ddns.net:1337/;stream.mp3",
+      "new_url": "https://uk2.streamingpulse.com/ssl/kolbe",
+      "source": "manual_verified",
+      "notes": "Kolbe stream with matching branding/homepage family, verified 200 audio/aacp"
+    },
+    {
+      "name": "Radio Krishna",
+      "old_url": "http://81.25.96.13:8020/",
+      "new_url": "http://81.25.96.13:8020/",
+      "source": "manual_verified_icy",
+      "notes": "Original stream replies with ICY 200 OK; previous checker treated the non-HTTP status line as broken"
+    },
+    {
+      "name": "Radio Studio Più - HQ",
+      "old_url": "http://77.241.4.100:8020/;",
+      "new_url": "http://77.241.4.100:8020/;",
+      "source": "manual_verified_icy",
+      "notes": "Original stream replies with ICY 200 OK; previous checker treated the non-HTTP status line as broken"
+    },
+    {
+      "name": "Radio Studio Più - The Dance Station",
+      "old_url": "http://77.241.4.100:8010/;",
+      "new_url": "http://77.241.4.100:8010/;",
+      "source": "manual_verified_icy",
+      "notes": "Original stream replies with ICY 200 OK; previous checker treated the non-HTTP status line as broken"
+    },
+    {
+      "name": "Radio24 Il Sole 24 Ore",
+      "old_url": "http://shoutcast.radio24.it:8000/",
+      "new_url": "http://shoutcast2.radio24.it:8000/;",
+      "source": "manual_verified",
+      "notes": "Official/Radio Browser replacement, verified 200 audio/mpeg"
+    },
+    {
+      "name": "Rai Isoradio",
+      "old_url": "http://icestreaming.rai.it/6.mp3",
+      "new_url": "https://icecdn-19d24861e90342cc8decb03c24c8a419.msvdn.net/icecastRelay/S3822289/9T4F68Q3TT4m/icecast",
+      "source": "manual_verified",
+      "notes": "Exact channel replacement found in current Radio Browser data, verified 200 audio/mpeg"
+    },
+    {
+      "name": "Rai Radio Tutta italiana",
+      "old_url": "http://icestreaming.rai.it/1.mp3",
+      "new_url": "http://icestreaming.rai.it/4.mp3",
+      "source": "manual_verified",
+      "notes": "Working RAI stream branded Tutta Italiana, verified 200 audio/mpeg"
+    },
+    {
+      "name": "SempreViva",
+      "old_url": "http://stream2.vivafm.it:8000/stream",
+      "new_url": "https://stream1.vivafm.it:8006/stream",
+      "source": "manual_verified",
+      "notes": "Official Radio Sempreviva homepage exposes the new stream1.vivafm.it endpoint, verified 200 audio/mpeg"
+    },
+    {
+      "name": "Radio Bellissima Relax M3U",
+      "old_url": "https://listen.openstream.co/3607/audio",
+      "new_url": "http://listen.openstream.co/3607/audio",
+      "source": "user_verified",
+      "notes": "User confirmed the HTTP openstream endpoint works; kept direct HTTP stream instead of the failing HTTPS variant"
+    },
+    {
+      "name": "Radio Bellissima Relax Playlist",
+      "old_url": "https://listen.openstream.co/3607/audio",
+      "new_url": "http://listen.openstream.co/3607/audio",
+      "source": "user_verified",
+      "notes": "User confirmed the HTTP openstream endpoint works; kept direct HTTP stream instead of the failing HTTPS variant"
+    },
+    {
+      "name": "Multiradio",
+      "old_url": "http://212.7.194.63:9094/;",
+      "new_url": "http://podzone.multiradio.it:9000/multiradio.mp3",
+      "source": "manual_verified",
+      "notes": "Recovered from Multiradio official player by decrypting the myTuner playlist; verified 200 audio/mpeg with icy-name Multiradio vive con te"
+    },
+    {
+      "name": "Radio Carina",
+      "old_url": "http://audio.streamshow.it:8006/stream",
+      "new_url": "https://my.streamingmedia.it/listen/radio_carina/stream",
+      "source": "manual_verified",
+      "notes": "Recovered from the official Radio Carina site player and verified 200 audio/mpeg with icy-name RADIO CARINA"
+    },
+    {
+      "name": "Radio Ciroma",
+      "old_url": "http://s6.mediastreaming.it:9096/;stream.mp3",
+      "new_url": "https://s.streampunk.cc/ciroma.mp3",
+      "source": "manual_verified",
+      "notes": "Recovered from the official Ciroma site player and confirmed by yt-dlp; GET probe returned live audio data from Streampunk"
+    },
+    {
+      "name": "Radio Delta International",
+      "old_url": "http://212.7.194.63:9098/;",
+      "new_url": "https://s6.mediastreaming.it:9098/stream",
+      "source": "manual_verified",
+      "notes": "Recovered from the official radio-live page player config and verified 200 audio/mpeg with icy-name RADIO DELTA INTERNATIONAL FM 100.5"
+    }
+  ],
+  "unresolved": [
+    {
+      "name": "Radio Domusnovas",
+      "old_url": "http://91.121.38.216:8028/stream",
+      "detail": "curl: (7) Failed to connect to 91.121.38.216 port 8028 after 2214 ms: Could not connect to server"
+    },
+    {
+      "name": "Radio Game Firenze",
+      "old_url": "https://radiogame.radioca.st/stream",
+      "detail": "HTTP/1.1 502 Bad Gateway\r\nServer: cc-web/1.6.3\r\nDate: Wed, 18 Mar 2026 04:13:51 GMT\r\nContent-Type: text/html\r\nContent-Length: 173\r\nConnection: keep-alive"
+    },
+    {
+      "name": "Radio Idea Potenza",
+      "old_url": "https://audio.streamshow.it/proxy/radiocarinanapoli?mp=/stream",
+      "detail": "HTTP/1.1 404 Not Found\r\nServer: cc-web/1.6.3\r\nDate: Wed, 18 Mar 2026 04:13:13 GMT\r\nContent-Type: text/html\r\nContent-Length: 92\r\nConnection: keep-alive\r\nETag: \"4f7b4b7b-5c\""
+    },
+    {
+      "name": "Radio Italiana 531",
+      "old_url": "http://5rti.igateway.com.au:8000/stream",
+      "detail": "curl: (28) Connection timed out after 5011 milliseconds"
+    },
+    {
+      "name": "Radio Laziale ",
+      "old_url": "https://router.xdevel.com/video5s975363-2398/stream/playlist.m3u8",
+      "detail": "HTTP/1.1 302 Found\r\nDate: Wed, 18 Mar 2026 04:14:01 GMT\r\nServer: Apache\r\nVary: Origin\r\nX-DNS-Prefetch-Control: off\r\nX-Frame-Options: SAMEORIGIN\r\nStrict-Transport-Security: max-age=15552000; includeSubDomains\r\nX-Download-Options: noopen\r\nX-Content-Type-Options: nosniff\r\nX-XSS-Protection: 1; mode=block\r\nLocation: https://stream6.xdevel.com/video5s975363-2404/stream/playlist.m3u8\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: 163\r\nConnection: close\r\n\r\nHTTP/1.1 404 Not Found\r\nDate: Wed, 18 Mar 2026 04:14:01 GMT\r\nServer: Nimble/3.7.12-2\r\nContent-Length: 72\r\nConnection: close\r\nContent-Type: text/html\r\nAccess-Control-Allow-Origin: *"
+    },
+    {
+      "name": "Radio Omega Sound",
+      "old_url": "https://nr9.newradio.it/proxy/radioome?mp=/stream",
+      "detail": "HTTP/1.1 404 Not Available\r\nServer: nginx/1.22.1\r\nDate: Wed, 18 Mar 2026 04:12:43 GMT\r\nContent-Type: text/html; charset=UTF-8\r\nContent-Length: 41\r\nConnection: keep-alive"
+    },
+    {
+      "name": "Radio Omnia",
+      "old_url": "http://onair20.xdevel.com:7048/;",
+      "detail": "curl: (1) Received HTTP/0.9 when not allowed"
+    },
+    {
+      "name": "Radio Universal",
+      "old_url": "http://onair11.xdevel.com:10030/;",
+      "detail": "curl: (7) Failed to connect to onair11.xdevel.com port 10030 after 2293 ms: Could not connect to server"
+    },
+    {
+      "name": "Radio YES",
+      "old_url": "https://stream1.aswifi.it/radioyes/live/index.m3u8",
+      "detail": "HTTP/1.1 404 Not Found\r\nServer: nginx/1.23.1\r\nDate: Wed, 18 Mar 2026 04:14:00 GMT\r\nContent-Type: text/html\r\nContent-Length: 153\r\nConnection: keep-alive"
+    },
+    {
+      "name": "Rai 1 Friuli Venezia Giulia",
+      "old_url": "https://icestreaming.rai.it/1.mp3",
+      "detail": "HTTP/1.0 302 Moved Temporarily\r\nLocation: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854\r\nServer: BigIP\r\nConnection: Keep-Alive\r\nContent-Length: 0\r\n\r\nHTTP/1.0 403 Forbidden\r\nServer: AkamaiGHost\r\nMime-Version: 1.0\r\nContent-Type: text/html\r\nContent-Length: 410\r\nExpires: Wed, 18 Mar 2026 04:12:50 GMT\r\nCache-Control: max-age=0, no-cache, no-store\r\nPragma: no-cache\r\nDate: Wed, 18 Mar 2026 04:12:50 GMT\r\nConnection: close"
+    },
+    {
+      "name": "Rai Radio 1",
+      "old_url": "http://icestreaming.rai.it/1.mp3",
+      "detail": "HTTP/1.0 302 Moved Temporarily\r\nLocation: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854\r\nServer: BigIP\r\nConnection: Keep-Alive\r\nContent-Length: 0\r\n\r\nHTTP/1.0 403 Forbidden\r\nServer: AkamaiGHost\r\nMime-Version: 1.0\r\nContent-Type: text/html\r\nContent-Length: 410\r\nExpires: Wed, 18 Mar 2026 04:12:00 GMT\r\nCache-Control: max-age=0, no-cache, no-store\r\nPragma: no-cache\r\nDate: Wed, 18 Mar 2026 04:12:00 GMT\r\nConnection: close"
+    },
+    {
+      "name": "Rai Radio 1 Sport",
+      "old_url": "http://icestreaming.rai.it/13.mp3",
+      "detail": "HTTP/1.0 302 Moved Temporarily\r\nLocation: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=13651904\r\nServer: BigIP\r\nConnection: Keep-Alive\r\nContent-Length: 0\r\n\r\nHTTP/1.0 403 Forbidden\r\nServer: AkamaiGHost\r\nMime-Version: 1.0\r\nContent-Type: text/html\r\nContent-Length: 410\r\nExpires: Wed, 18 Mar 2026 04:12:32 GMT\r\nCache-Control: max-age=0, no-cache, no-store\r\nPragma: no-cache\r\nDate: Wed, 18 Mar 2026 04:12:32 GMT\r\nConnection: close"
+    },
+    {
+      "name": "Rai Radio Live",
+      "old_url": "http://icestreaming.rai.it/10.mp3",
+      "detail": "HTTP/1.0 302 Moved Temporarily\r\nLocation: https://mediapolis.rai.it//relinker/relinkerServlet.htm?cont=7043227\r\nServer: BigIP\r\nConnection: Keep-Alive\r\nContent-Length: 0\r\n\r\nHTTP/1.0 403 Forbidden\r\nServer: AkamaiGHost\r\nMime-Version: 1.0\r\nContent-Type: text/html\r\nContent-Length: 410\r\nExpires: Wed, 18 Mar 2026 04:12:43 GMT\r\nCache-Control: max-age=0, no-cache, no-store\r\nPragma: no-cache\r\nDate: Wed, 18 Mar 2026 04:12:43 GMT\r\nConnection: close"
+    },
+    {
+      "name": "Social Web Radio",
+      "old_url": "http://dreamsiteradiocp3.com:8256/stream",
+      "detail": "curl: (7) Failed to connect to dreamsiteradiocp3.com port 8256 after 2223 ms: Could not connect to server"
+    },
+    {
+      "name": "SweetRadio",
+      "old_url": "http://108.59.9.147:8584/stream",
+      "detail": "curl: (7) Failed to connect to 108.59.9.147 port 8584 after 2912 ms: Could not connect to server"
+    }
+  ]
+}

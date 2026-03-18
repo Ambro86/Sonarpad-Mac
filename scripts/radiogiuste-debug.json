@@ -1,0 +1,220 @@
+{
+  "fixed": [],
+  "unresolved": [
+    {
+      "name": "Abruzzo FM",
+      "old_url": "http://sc1.streamingpulse.com:8004/;stream.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "IL MORNING SHOW",
+      "old_url": "https://streams.radio.co/s7d2ed99a0/listen",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Lazio style radio",
+      "old_url": "https://livesg.sslazio.hiway.media/restreamer/sslazio_client/gpu-a-c1-1/restreamer/outgest/79b655d0-7924-4397-8d6c-b1e98b029b5d/manifest.m3u8",
+      "candidates_tried": 1
+    },
+    {
+      "name": "LexSquad Radio Station",
+      "old_url": "http://s1.free-shoutcast.com:18150/",
+      "candidates_tried": 0
+    },
+    {
+      "name": "LexSquad Radio Station",
+      "old_url": "https://s1.free-shoutcast.com/stream/18150",
+      "candidates_tried": 0
+    },
+    {
+      "name": "Multiradio",
+      "old_url": "http://212.7.194.63:9094/;",
+      "candidates_tried": 1
+    },
+    {
+      "name": "NBC Milano",
+      "old_url": "http://91.121.104.139:9280/;stream.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Alfa Lombardia ",
+      "old_url": "https://live.radioalfalombardia.it:9871/",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Bellissima Relax M3U",
+      "old_url": "https://listen.openstream.co/3607/audio",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Bellissima Relax Playlist",
+      "old_url": "https://listen.openstream.co/3607/audio",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Calabria",
+      "old_url": "http://onair15.xdevel.com:8688/;",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Carina",
+      "old_url": "http://audio.streamshow.it:8006/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Ciroma",
+      "old_url": "http://s6.mediastreaming.it:9096/;stream.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Company Easy",
+      "old_url": "http://ice02.fluidstream.net/ceasy.aac",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Cuneo Nord",
+      "old_url": "http://eu7.fastcast4u.com:6174/;stream.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Delta International",
+      "old_url": "http://212.7.194.63:9098/;",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Domusnovas",
+      "old_url": "http://91.121.38.216:8028/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Game Firenze",
+      "old_url": "https://radiogame.radioca.st/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Idea Potenza",
+      "old_url": "https://audio.streamshow.it/proxy/radiocarinanapoli?mp=/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Italia Network - Network satellite",
+      "old_url": "http://sr2.inmystream.info:8123/",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Italiana 531",
+      "old_url": "http://5rti.igateway.com.au:8000/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Kolbe Melfi",
+      "old_url": "http://radiokolbemelfi.ddns.net:1337/;stream.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Krishna ",
+      "old_url": "http://81.25.96.13:8020/",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Laziale ",
+      "old_url": "https://router.xdevel.com/video5s975363-2398/stream/playlist.m3u8",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Omega Sound",
+      "old_url": "https://nr9.newradio.it/proxy/radioome?mp=/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Omnia",
+      "old_url": "http://onair20.xdevel.com:7048/;",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Rai 1",
+      "old_url": "http://icestreaming.rai.it/1.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Studio Più - HQ",
+      "old_url": "http://77.241.4.100:8020/;",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Studio Più - The Dance Station",
+      "old_url": "http://77.241.4.100:8010/;",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio Universal",
+      "old_url": "http://onair11.xdevel.com:10030/;",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio YES",
+      "old_url": "https://stream1.aswifi.it/radioyes/live/index.m3u8",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Radio24 Il Sole 24 Ore",
+      "old_url": "http://shoutcast.radio24.it:8000/",
+      "candidates_tried": 1
+    },
+    {
+      "name": "rai",
+      "old_url": "http://icestreaming.rai.it/1.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Rai 1 Friuli Venezia Giulia",
+      "old_url": "https://icestreaming.rai.it/1.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Rai Isoradio",
+      "old_url": "http://icestreaming.rai.it/6.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Rai Radio 1",
+      "old_url": "http://icestreaming.rai.it/1.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Rai Radio 1 Sport",
+      "old_url": "http://icestreaming.rai.it/13.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Rai Radio Live",
+      "old_url": "http://icestreaming.rai.it/10.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Rai Radio Tutta italiana",
+      "old_url": "http://icestreaming.rai.it/1.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Rai Radio Uno",
+      "old_url": "http://icestreaming.rai.it/1.mp3",
+      "candidates_tried": 1
+    },
+    {
+      "name": "SempreViva",
+      "old_url": "http://stream2.vivafm.it:8000/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "Social Web Radio",
+      "old_url": "http://dreamsiteradiocp3.com:8256/stream",
+      "candidates_tried": 1
+    },
+    {
+      "name": "SweetRadio",
+      "old_url": "http://108.59.9.147:8584/stream",
+      "candidates_tried": 1
+    }
+  ]
+}

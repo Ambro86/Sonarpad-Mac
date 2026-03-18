@@ -1,0 +1,456 @@
+Totale controllate: 1171
+Funzionanti: 1128
+Non funzionanti: 43
+
+NAME: Abruzzo FM
+URL: http://sc1.streamingpulse.com:8004/;stream.mp3
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: IL MORNING SHOW
+URL: https://streams.radio.co/s7d2ed99a0/listen
+MODE: RANGE
+DETAIL: HTTP/1.0 404 Not Available
+Connection: Keep-Alive
+Content-Length: 41
+Content-Type: text/html
+
+NAME: Lazio style radio
+URL: https://livesg.sslazio.hiway.media/restreamer/sslazio_client/gpu-a-c1-1/restreamer/outgest/79b655d0-7924-4397-8d6c-b1e98b029b5d/manifest.m3u8
+MODE: RANGE
+DETAIL: HTTP/1.1 404 Not Found
+Content-Length: 0
+Connection: keep-alive
+Server: EVO
+Date: Wed, 18 Mar 2026 04:13:43 GMT
+access-control-allow-origin: *
+access-control-allow-credentials: true
+x-request-id: 0c2f2b7a-778f-4b05-a353-2c165a4cd663
+Accept-Ranges: bytes
+X-Cache: Error from cloudfront
+Via: 1.1 a7bb7bfc689e041f13b0abc994da0d46.cloudfront.net (CloudFront)
+X-Amz-Cf-Pop: MXP64-P2
+Alt-Svc: h3=":443"; ma=86400
+X-Amz-Cf-Id: DZbImuu_1lkFZJvLVhGh10bJn-FeIusLP4H0OVFMRIAhVbrm4KXDYQ==
+
+NAME: LexSquad Radio Station
+URL: http://s1.free-shoutcast.com:18150/
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to s1.free-shoutcast.com port 18150 after 2254 ms: Could not connect to server
+
+NAME: LexSquad Radio Station
+URL: https://s1.free-shoutcast.com/stream/18150
+MODE: RANGE
+DETAIL: HTTP/1.1 502 Bad Gateway
+Server: nginx
+Date: Wed, 18 Mar 2026 04:13:30 GMT
+Content-Type: text/html
+Content-Length: 150
+Connection: keep-alive
+
+NAME: Multiradio
+URL: http://212.7.194.63:9094/;
+MODE: RANGE
+DETAIL: curl: (28) Connection timed out after 5008 milliseconds
+
+NAME: NBC Milano
+URL: http://91.121.104.139:9280/;stream.mp3
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Alfa Lombardia 
+URL: https://live.radioalfalombardia.it:9871/
+MODE: RANGE
+DETAIL: curl: (35) schannel: next InitializeSecurityContext failed: SEC_E_CERT_EXPIRED (0x80090328) - Il certificato ricevuto � scaduto.
+
+NAME: Radio Bellissima Relax M3U
+URL: https://listen.openstream.co/3607/audio
+MODE: RANGE
+DETAIL: HTTP/1.1 302 Found
+Date: Wed, 18 Mar 2026 04:14:04 GMT
+Content-Type: text/html; charset=UTF-8
+Content-Length: 0
+Connection: keep-alive
+Server: Apache/2.4.38 (Debian)
+X-Powered-By: PHP/7.4.33
+Access-Control-Allow-Origin: *
+Access-Control-Max-Age: 1000
+Access-Control-Allow-Headers: *
+OS-Server-Id: ecs-ec2
+OS-Server-ip: 172.17.0.2
+OS-Server-name: listen.openstream.co
+Location: https://strw3.openstream.co/816?aw_0_1st.collectionid%3D3607%26stationId%3D3607%26publisherId%3D840%26k%3D1773807244
+
+HTTP/1.1 401 Authorization required
+Content-Length: 0
+Connection: keep-alive
+Server: Icecast 2.3.3 kh11 8.6.5
+
+NAME: Radio Bellissima Relax Playlist
+URL: https://listen.openstream.co/3607/audio
+MODE: RANGE
+DETAIL: HTTP/1.1 302 Found
+Date: Wed, 18 Mar 2026 04:14:02 GMT
+Content-Type: text/html; charset=UTF-8
+Content-Length: 0
+Connection: keep-alive
+Server: Apache/2.4.38 (Debian)
+X-Powered-By: PHP/7.4.33
+Access-Control-Allow-Origin: *
+Access-Control-Max-Age: 1000
+Access-Control-Allow-Headers: *
+OS-Server-Id: ecs-ec2
+OS-Server-ip: 172.17.0.2
+OS-Server-name: listen.openstream.co
+Location: https://strw3.openstream.co/816?aw_0_1st.collectionid%3D3607%26stationId%3D3607%26publisherId%3D840%26k%3D1773807242
+
+HTTP/1.1 401 Authorization required
+Content-Length: 0
+Connection: keep-alive
+Server: Icecast 2.3.3 kh11 8.6.5
+
+NAME: Radio Calabria
+URL: http://onair15.xdevel.com:8688/;
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to onair15.xdevel.com port 8688 after 2343 ms: Could not connect to server
+
+NAME: Radio Carina
+URL: http://audio.streamshow.it:8006/stream
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to audio.streamshow.it port 8006 after 2159 ms: Could not connect to server
+
+NAME: Radio Ciroma
+URL: http://s6.mediastreaming.it:9096/;stream.mp3
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to s6.mediastreaming.it port 9096 after 2137 ms: Could not connect to server
+
+NAME: Radio Company Easy
+URL: http://ice02.fluidstream.net/ceasy.aac
+MODE: RANGE
+DETAIL: HTTP/1.0 404 Not Available
+Connection: Close
+Content-Length: 41
+Content-Type: text/html
+
+NAME: Radio Cuneo Nord
+URL: http://eu7.fastcast4u.com:6174/;stream.mp3
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Delta International
+URL: http://212.7.194.63:9098/;
+MODE: RANGE
+DETAIL: curl: (28) Connection timed out after 5006 milliseconds
+
+NAME: Radio Domusnovas
+URL: http://91.121.38.216:8028/stream
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to 91.121.38.216 port 8028 after 2214 ms: Could not connect to server
+
+NAME: Radio Game Firenze
+URL: https://radiogame.radioca.st/stream
+MODE: RANGE
+DETAIL: HTTP/1.1 502 Bad Gateway
+Server: cc-web/1.6.3
+Date: Wed, 18 Mar 2026 04:13:51 GMT
+Content-Type: text/html
+Content-Length: 173
+Connection: keep-alive
+
+NAME: Radio Idea Potenza
+URL: https://audio.streamshow.it/proxy/radiocarinanapoli?mp=/stream
+MODE: RANGE
+DETAIL: HTTP/1.1 404 Not Found
+Server: cc-web/1.6.3
+Date: Wed, 18 Mar 2026 04:13:13 GMT
+Content-Type: text/html
+Content-Length: 92
+Connection: keep-alive
+ETag: "4f7b4b7b-5c"
+
+NAME: Radio Italia Network - Network satellite
+URL: http://sr2.inmystream.info:8123/
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Italiana 531
+URL: http://5rti.igateway.com.au:8000/stream
+MODE: RANGE
+DETAIL: curl: (28) Connection timed out after 5011 milliseconds
+
+NAME: Radio Kolbe Melfi
+URL: http://radiokolbemelfi.ddns.net:1337/;stream.mp3
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Krishna 
+URL: http://81.25.96.13:8020/
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Laziale 
+URL: https://router.xdevel.com/video5s975363-2398/stream/playlist.m3u8
+MODE: RANGE
+DETAIL: HTTP/1.1 302 Found
+Date: Wed, 18 Mar 2026 04:14:01 GMT
+Server: Apache
+Vary: Origin
+X-DNS-Prefetch-Control: off
+X-Frame-Options: SAMEORIGIN
+Strict-Transport-Security: max-age=15552000; includeSubDomains
+X-Download-Options: noopen
+X-Content-Type-Options: nosniff
+X-XSS-Protection: 1; mode=block
+Location: https://stream6.xdevel.com/video5s975363-2404/stream/playlist.m3u8
+Content-Type: text/html; charset=utf-8
+Content-Length: 163
+Connection: close
+
+HTTP/1.1 404 Not Found
+Date: Wed, 18 Mar 2026 04:14:01 GMT
+Server: Nimble/3.7.12-2
+Content-Length: 72
+Connection: close
+Content-Type: text/html
+Access-Control-Allow-Origin: *
+
+NAME: Radio Omega Sound
+URL: https://nr9.newradio.it/proxy/radioome?mp=/stream
+MODE: RANGE
+DETAIL: HTTP/1.1 404 Not Available
+Server: nginx/1.22.1
+Date: Wed, 18 Mar 2026 04:12:43 GMT
+Content-Type: text/html; charset=UTF-8
+Content-Length: 41
+Connection: keep-alive
+
+NAME: Radio Omnia
+URL: http://onair20.xdevel.com:7048/;
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Rai 1
+URL: http://icestreaming.rai.it/1.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:12:37 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:12:37 GMT
+Connection: close
+
+NAME: Radio Studio Più - HQ
+URL: http://77.241.4.100:8020/;
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Studio Più - The Dance Station
+URL: http://77.241.4.100:8010/;
+MODE: RANGE
+DETAIL: curl: (1) Received HTTP/0.9 when not allowed
+
+NAME: Radio Universal
+URL: http://onair11.xdevel.com:10030/;
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to onair11.xdevel.com port 10030 after 2293 ms: Could not connect to server
+
+NAME: Radio YES
+URL: https://stream1.aswifi.it/radioyes/live/index.m3u8
+MODE: RANGE
+DETAIL: HTTP/1.1 404 Not Found
+Server: nginx/1.23.1
+Date: Wed, 18 Mar 2026 04:14:00 GMT
+Content-Type: text/html
+Content-Length: 153
+Connection: keep-alive
+
+NAME: Radio24 Il Sole 24 Ore
+URL: http://shoutcast.radio24.it:8000/
+MODE: RANGE
+DETAIL: curl: (52) Empty reply from server
+
+NAME: rai
+URL: http://icestreaming.rai.it/1.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:13:04 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:13:04 GMT
+Connection: close
+
+NAME: Rai 1 Friuli Venezia Giulia
+URL: https://icestreaming.rai.it/1.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:12:50 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:12:50 GMT
+Connection: close
+
+NAME: Rai Isoradio
+URL: http://icestreaming.rai.it/6.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=6794912
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:12:17 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:12:17 GMT
+Connection: close
+
+NAME: Rai Radio 1
+URL: http://icestreaming.rai.it/1.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:12:00 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:12:00 GMT
+Connection: close
+
+NAME: Rai Radio 1 Sport
+URL: http://icestreaming.rai.it/13.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=13651904
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:12:32 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:12:32 GMT
+Connection: close
+
+NAME: Rai Radio Live
+URL: http://icestreaming.rai.it/10.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it//relinker/relinkerServlet.htm?cont=7043227
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:12:43 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:12:43 GMT
+Connection: close
+
+NAME: Rai Radio Tutta italiana
+URL: http://icestreaming.rai.it/1.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:14:15 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:14:15 GMT
+Connection: close
+
+NAME: Rai Radio Uno
+URL: http://icestreaming.rai.it/1.mp3
+MODE: RANGE
+DETAIL: HTTP/1.0 302 Moved Temporarily
+Location: https://mediapolis.rai.it/relinker/relinkerServlet.htm?cont=3573854
+Server: BigIP
+Connection: Keep-Alive
+Content-Length: 0
+
+HTTP/1.0 403 Forbidden
+Server: AkamaiGHost
+Mime-Version: 1.0
+Content-Type: text/html
+Content-Length: 410
+Expires: Wed, 18 Mar 2026 04:13:03 GMT
+Cache-Control: max-age=0, no-cache, no-store
+Pragma: no-cache
+Date: Wed, 18 Mar 2026 04:13:03 GMT
+Connection: close
+
+NAME: SempreViva
+URL: http://stream2.vivafm.it:8000/stream
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to stream2.vivafm.it port 8000 after 2212 ms: Could not connect to server
+
+NAME: Social Web Radio
+URL: http://dreamsiteradiocp3.com:8256/stream
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to dreamsiteradiocp3.com port 8256 after 2223 ms: Could not connect to server
+
+NAME: SweetRadio
+URL: http://108.59.9.147:8584/stream
+MODE: RANGE
+DETAIL: curl: (7) Failed to connect to 108.59.9.147 port 8584 after 2912 ms: Could not connect to server
+

@@ -70,6 +70,8 @@
   "edit_source": "Modifica fonte",
   "delete_source": "Elimina fonte",
   "reorder_sources": "Riordina le fonti",
+  "import_sources": "Importa RSS",
+  "export_sources": "Esporta RSS",
   "add_podcast": "Aggiungi podcast",
   "delete_podcast": "Elimina podcast",
   "reorder_podcasts": "Riordina podcast",
@@ -85,6 +87,12 @@
   "confirm_delete_podcast_message": "Sei sicuro di eliminare il podcast selezionato?",
   "sorted_articles_title": "Riordina le fonti alfabeticamente",
   "sorted_articles_message": "Le fonti degli articoli sono state riordinate alfabeticamente.",
+  "imported_articles_title": "Importazione RSS",
+  "imported_articles_message": "Fonti articoli importate:",
+  "exported_articles_title": "Esportazione RSS",
+  "exported_articles_message": "Fonti articoli esportate:",
+  "import_articles_error_title": "Errore importazione RSS",
+  "export_articles_error_title": "Errore esportazione RSS",
   "sorted_podcasts_title": "Riordina podcast alfabeticamente",
   "sorted_podcasts_message": "I podcast sono stati riordinati alfabeticamente.",
   "loading_articles": "Caricamento articoli...",
@@ -140,8 +148,11 @@
   "analyzing_document": "Analisi documento...",
   "analyzing_pdf": "Analisi PDF in corso...",
   "document_loaded": "Documento caricato.",
-  "about_message": "Sonarpad Per Mac è una versione essenziale di Sonarpad con supporto multi-formato. Apre file TXT, PDF, DOC, DOCX, EPUB, RTF, HTML e fogli di calcolo; legge il testo con sintesi vocale, crea audiolibri MP3, importa articoli e podcast e supporta la riproduzione dei podcast. Versione: {version}. Autore: Ambrogio Riili."
+  "about_message": "Sonarpad Per Mac è una versione essenziale di Sonarpad con supporto multi-formato. Apre file TXT, PDF, DOC, DOCX, EPUB, RTF, HTML e fogli di calcolo; legge il testo con sintesi vocale, crea audiolibri MP3, importa articoli e podcast e supporta la riproduzione dei podcast. Versione: {version}. Autore: Ambrogio Riili.",
+  "menu_radio": "&Radio",
+  "loading_radios": "Caricamento radio...",
+  "no_radios_available": "Nessuna radio disponibile",
+  "wait_loading_radios": "Attendere il caricamento delle radio",
+  "radio_load_failed": "Caricamento radio non riuscito",
+  "radio_open_failed": "Impossibile aprire la radio.\n\n{err}"
 }
-
-
-

@@ -1,0 +1,177 @@
+Trovate sostituzioni: 0
+Senza sostituzione: 43
+
+NON RISOLTE:
+
+NAME: Abruzzo FM
+OLD_URL: http://sc1.streamingpulse.com:8004/;stream.mp3
+CANDIDATES_TRIED: 1
+
+NAME: IL MORNING SHOW
+OLD_URL: https://streams.radio.co/s7d2ed99a0/listen
+CANDIDATES_TRIED: 1
+
+NAME: Lazio style radio
+OLD_URL: https://livesg.sslazio.hiway.media/restreamer/sslazio_client/gpu-a-c1-1/restreamer/outgest/79b655d0-7924-4397-8d6c-b1e98b029b5d/manifest.m3u8
+CANDIDATES_TRIED: 1
+
+NAME: LexSquad Radio Station
+OLD_URL: http://s1.free-shoutcast.com:18150/
+CANDIDATES_TRIED: 0
+
+NAME: LexSquad Radio Station
+OLD_URL: https://s1.free-shoutcast.com/stream/18150
+CANDIDATES_TRIED: 0
+
+NAME: Multiradio
+OLD_URL: http://212.7.194.63:9094/;
+CANDIDATES_TRIED: 1
+
+NAME: NBC Milano
+OLD_URL: http://91.121.104.139:9280/;stream.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Radio Alfa Lombardia 
+OLD_URL: https://live.radioalfalombardia.it:9871/
+CANDIDATES_TRIED: 1
+
+NAME: Radio Bellissima Relax M3U
+OLD_URL: https://listen.openstream.co/3607/audio
+CANDIDATES_TRIED: 1
+
+NAME: Radio Bellissima Relax Playlist
+OLD_URL: https://listen.openstream.co/3607/audio
+CANDIDATES_TRIED: 1
+
+NAME: Radio Calabria
+OLD_URL: http://onair15.xdevel.com:8688/;
+CANDIDATES_TRIED: 1
+
+NAME: Radio Carina
+OLD_URL: http://audio.streamshow.it:8006/stream
+CANDIDATES_TRIED: 1
+
+NAME: Radio Ciroma
+OLD_URL: http://s6.mediastreaming.it:9096/;stream.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Radio Company Easy
+OLD_URL: http://ice02.fluidstream.net/ceasy.aac
+CANDIDATES_TRIED: 1
+
+NAME: Radio Cuneo Nord
+OLD_URL: http://eu7.fastcast4u.com:6174/;stream.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Radio Delta International
+OLD_URL: http://212.7.194.63:9098/;
+CANDIDATES_TRIED: 1
+
+NAME: Radio Domusnovas
+OLD_URL: http://91.121.38.216:8028/stream
+CANDIDATES_TRIED: 1
+
+NAME: Radio Game Firenze
+OLD_URL: https://radiogame.radioca.st/stream
+CANDIDATES_TRIED: 1
+
+NAME: Radio Idea Potenza
+OLD_URL: https://audio.streamshow.it/proxy/radiocarinanapoli?mp=/stream
+CANDIDATES_TRIED: 1
+
+NAME: Radio Italia Network - Network satellite
+OLD_URL: http://sr2.inmystream.info:8123/
+CANDIDATES_TRIED: 1
+
+NAME: Radio Italiana 531
+OLD_URL: http://5rti.igateway.com.au:8000/stream
+CANDIDATES_TRIED: 1
+
+NAME: Radio Kolbe Melfi
+OLD_URL: http://radiokolbemelfi.ddns.net:1337/;stream.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Radio Krishna 
+OLD_URL: http://81.25.96.13:8020/
+CANDIDATES_TRIED: 1
+
+NAME: Radio Laziale 
+OLD_URL: https://router.xdevel.com/video5s975363-2398/stream/playlist.m3u8
+CANDIDATES_TRIED: 1
+
+NAME: Radio Omega Sound
+OLD_URL: https://nr9.newradio.it/proxy/radioome?mp=/stream
+CANDIDATES_TRIED: 1
+
+NAME: Radio Omnia
+OLD_URL: http://onair20.xdevel.com:7048/;
+CANDIDATES_TRIED: 1
+
+NAME: Radio Rai 1
+OLD_URL: http://icestreaming.rai.it/1.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Radio Studio Più - HQ
+OLD_URL: http://77.241.4.100:8020/;
+CANDIDATES_TRIED: 1
+
+NAME: Radio Studio Più - The Dance Station
+OLD_URL: http://77.241.4.100:8010/;
+CANDIDATES_TRIED: 1
+
+NAME: Radio Universal
+OLD_URL: http://onair11.xdevel.com:10030/;
+CANDIDATES_TRIED: 1
+
+NAME: Radio YES
+OLD_URL: https://stream1.aswifi.it/radioyes/live/index.m3u8
+CANDIDATES_TRIED: 1
+
+NAME: Radio24 Il Sole 24 Ore
+OLD_URL: http://shoutcast.radio24.it:8000/
+CANDIDATES_TRIED: 1
+
+NAME: rai
+OLD_URL: http://icestreaming.rai.it/1.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Rai 1 Friuli Venezia Giulia
+OLD_URL: https://icestreaming.rai.it/1.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Rai Isoradio
+OLD_URL: http://icestreaming.rai.it/6.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Rai Radio 1
+OLD_URL: http://icestreaming.rai.it/1.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Rai Radio 1 Sport
+OLD_URL: http://icestreaming.rai.it/13.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Rai Radio Live
+OLD_URL: http://icestreaming.rai.it/10.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Rai Radio Tutta italiana
+OLD_URL: http://icestreaming.rai.it/1.mp3
+CANDIDATES_TRIED: 1
+
+NAME: Rai Radio Uno
+OLD_URL: http://icestreaming.rai.it/1.mp3
+CANDIDATES_TRIED: 1
+
+NAME: SempreViva
+OLD_URL: http://stream2.vivafm.it:8000/stream
+CANDIDATES_TRIED: 1
+
+NAME: Social Web Radio
+OLD_URL: http://dreamsiteradiocp3.com:8256/stream
+CANDIDATES_TRIED: 1
+
+NAME: SweetRadio
+OLD_URL: http://108.59.9.147:8584/stream
+CANDIDATES_TRIED: 1
+
