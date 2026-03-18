@@ -1056,6 +1056,7 @@ Versione 0.2.5\n\
 - I campi nome file ora accettano correttamente Cmd+V, Cmd+A e gli altri comandi di editing.\n\
 - Il programma ricorda ultima cartella e ultimo formato usati per salvataggio testo e audiolibri.\n\
 - Aggiunto il salvataggio audiolibri anche in formato M4A e WAV.\n\
+- Aggiunto il menu Radio con ricerca per lingua, aggiunta ai preferiti, aggiunta manuale di una stazione e modifica e riordino dei preferiti.\n\
 - Migliorata la gestione delle fonti articoli inserite come siti: scoperta del feed dalla pagina e correzione del feed commenti.\n\
 - Workflow release macOS aggiornato per includere anche l'artifact Catalina.\n\n\
 Versione 0.2.4\n\
@@ -1088,6 +1089,7 @@ Version 0.2.5\n\
 - Filename fields now correctly accept Cmd+V, Cmd+A, and standard editing shortcuts.\n\
 - The app now remembers the last folder and format used for text and audiobook saves.\n\
 - Added audiobook saving in M4A and WAV format.\n\
+- Added the Radio menu with language-based search, add to favorites, manual station entry, and favorite editing and reordering.\n\
 - Improved article sources added as websites: feed discovery from the page and comments-feed fix.\n\
 - macOS release workflow updated to include the Catalina artifact as well.\n\n\
 Version 0.2.4\n\
