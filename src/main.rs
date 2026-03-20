@@ -36,7 +36,13 @@ use wxdragon::prelude::*;
 use wxdragon::timer::Timer;
 
 const ID_OPEN: i32 = 101;
+#[cfg(target_os = "macos")]
+const ID_EXIT: i32 = wxdragon::ffi::WXD_ID_EXIT as i32;
+#[cfg(not(target_os = "macos"))]
 const ID_EXIT: i32 = 102;
+#[cfg(target_os = "macos")]
+const ID_ABOUT: i32 = wxdragon::ffi::WXD_ID_ABOUT as i32;
+#[cfg(not(target_os = "macos"))]
 const ID_ABOUT: i32 = 103;
 const ID_DONATIONS: i32 = 104;
 const ID_CHECK_UPDATES: i32 = 105;
@@ -45,6 +51,9 @@ const ID_START_PLAYBACK: i32 = 2000;
 const ID_PLAY_PAUSE: i32 = 2001;
 const ID_STOP: i32 = 2003;
 const ID_SAVE: i32 = 2002;
+#[cfg(target_os = "macos")]
+const ID_SETTINGS: i32 = wxdragon::ffi::WXD_ID_PREFERENCES as i32;
+#[cfg(not(target_os = "macos"))]
 const ID_SETTINGS: i32 = 2004;
 const ID_SAVE_TEXT: i32 = 2007;
 const ID_PODCAST_BACKWARD: i32 = 2005;
@@ -839,7 +848,9 @@ fn refresh_localized_main_ui(
 
         update_menu_item_label(&menubar, ID_OPEN, &ui.menu_open);
         update_menu_item_label(&menubar, ID_SAVE_TEXT, &ui.menu_save_text);
+        #[cfg(not(target_os = "macos"))]
         update_menu_item_label(&menubar, ID_EXIT, &ui.menu_exit);
+        #[cfg(not(target_os = "macos"))]
         update_menu_item_label(&menubar, ID_ABOUT, &ui.menu_about);
         update_menu_item_label(&menubar, ID_DONATIONS, &ui.menu_donations);
         update_menu_item_label(&menubar, ID_CHANGELOG, &ui.menu_changelog);
@@ -851,7 +862,6 @@ fn refresh_localized_main_ui(
             update_menu_item_label(&menubar, ID_PLAY_PAUSE, &ui.menu_play_pause);
             update_menu_item_label(&menubar, ID_STOP, &ui.menu_stop);
             update_menu_item_label(&menubar, ID_SAVE, &ui.menu_save);
-            update_menu_item_label(&menubar, ID_SETTINGS, &ui.menu_settings);
         }
     }
 
