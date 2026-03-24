@@ -233,6 +233,8 @@ struct Settings {
     #[serde(default = "articles::default_italian_sources")]
     article_sources: Vec<articles::ArticleSource>,
     #[serde(default)]
+    article_folders: Vec<String>,
+    #[serde(default)]
     podcast_sources: Vec<podcasts::PodcastSource>,
     #[serde(default)]
     radio_favorites: Vec<RadioFavorite>,
@@ -263,6 +265,7 @@ impl Settings {
             pitch: 0,
             volume: 100,
             article_sources: articles::default_italian_sources(),
+            article_folders: Vec::new(),
             podcast_sources: Vec::new(),
             radio_favorites: Vec::new(),
             last_audiobook_format: default_audiobook_format(),
@@ -539,6 +542,17 @@ struct UiStrings {
     keyword: String,
     podcast_label: String,
     source_label: String,
+    folder_label: String,
+    current_folder_label: String,
+    root_folder_name: String,
+    open_folder: String,
+    parent_folder: String,
+    new_folder: String,
+    move_to_folder: String,
+    move_out_of_folders: String,
+    folder_name_label: String,
+    folder_empty: String,
+    no_folders_available: String,
     title_label: String,
     url_or_source_label: String,
     move_up: String,
@@ -596,6 +610,7 @@ struct UiStrings {
     open: String,
     save_as: String,
     save_filename_label: String,
+    save_default_filename: String,
     save_format_label: String,
     save_folder_label: String,
     choose_folder: String,
@@ -1566,6 +1581,7 @@ fn convert_mp3_to_wav(source_mp3: &Path, output_wav: &Path) -> Result<(), String
 fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Option<PathBuf> {
     let ui = current_ui_strings();
     let settings_snapshot = settings.lock().unwrap().clone();
+    let default_filename = sanitize_filename(&ui.save_default_filename);
     let dialog = Dialog::builder(parent, &ui.save_text_title)
         .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
         .with_size(520, 250)
@@ -1584,6 +1600,7 @@ fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Opt
     );
 
     let name_ctrl = TextCtrl::builder(&panel).build();
+    name_ctrl.set_value(&default_filename);
     root.add(
         &name_ctrl,
         0,
@@ -1737,8 +1754,7 @@ fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Opt
             Some(2) => "pdf",
             _ => "txt",
         };
-        let mut path = folder.join(filename);
-        path.set_extension(extension);
+        let path = folder.join(format!("{filename}.{extension}"));
 
         if path.exists() {
             let overwrite_dialog = MessageDialog::builder(
@@ -1769,6 +1785,9 @@ fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Opt
     cancel_button.on_click(move |_| {
         dialog_cancel.end_modal(ID_CANCEL);
     });
+
+    name_ctrl.set_focus();
+    name_ctrl.set_selection(0, default_filename.chars().count() as i64);
 
     let result = if dialog.show_modal() == ID_OK {
         selected_path.borrow().clone()
@@ -1829,6 +1848,7 @@ fn default_audiobook_save_folder() -> PathBuf {
 fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Option<PathBuf> {
     let ui = current_ui_strings();
     let settings_snapshot = settings.lock().unwrap().clone();
+    let default_filename = sanitize_filename(&ui.save_default_filename);
     let dialog = Dialog::builder(parent, &ui.save_audiobook_title)
         .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
         .with_size(520, 250)
@@ -1847,6 +1867,7 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     );
 
     let name_ctrl = TextCtrl::builder(&panel).build();
+    name_ctrl.set_value(&default_filename);
     root.add(
         &name_ctrl,
         0,
@@ -2015,8 +2036,7 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
             Some(3) => "wav",
             _ => "mp3",
         };
-        let mut path = folder.join(filename);
-        path.set_extension(extension);
+        let path = folder.join(format!("{filename}.{extension}"));
 
         if path.exists() {
             let overwrite_dialog = MessageDialog::builder(
@@ -2047,6 +2067,9 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     cancel_button.on_click(move |_| {
         dialog_cancel.end_modal(ID_CANCEL);
     });
+
+    name_ctrl.set_focus();
+    name_ctrl.set_selection(0, default_filename.chars().count() as i64);
 
     let result = if dialog.show_modal() == ID_OK {
         selected_path.borrow().clone()
@@ -4349,10 +4372,13 @@ fn normalize_settings_data(settings: &mut Settings) {
     }
     for source in &mut settings.article_sources {
         source.url = articles::normalize_url(&source.url);
+        source.folder_path = normalize_article_folder_path(&source.folder_path);
         if source.title.trim().is_empty() {
             source.title = source.url.clone();
         }
     }
+    settings.article_folders =
+        normalized_article_folders(&settings.article_folders, &settings.article_sources);
     settings
         .article_sources
         .retain(|source| !is_removed_default_article_source(&source.url));
@@ -4393,6 +4419,256 @@ fn is_removed_default_article_source(url: &str) -> bool {
             | "https://www.hwupgrade.it/rss/news.xml"
             | "https://www.startmag.it/feed/"
     )
+}
+
+fn normalize_article_folder_path(folder_path: &str) -> String {
+    folder_path
+        .split('/')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn article_folder_segments(folder_path: &str) -> Vec<&str> {
+    folder_path
+        .split('/')
+        .map(str::trim)
+        .filter(|segment| !segment.is_empty())
+        .collect()
+}
+
+fn article_folder_display_name(ui: &UiStrings, folder_path: &str) -> String {
+    if folder_path.trim().is_empty() {
+        ui.root_folder_name.clone()
+    } else {
+        folder_path
+            .rsplit('/')
+            .next()
+            .unwrap_or(folder_path)
+            .trim()
+            .to_string()
+    }
+}
+
+fn article_parent_folder(folder_path: &str) -> Option<String> {
+    let folder_path = normalize_article_folder_path(folder_path);
+    if folder_path.is_empty() {
+        None
+    } else if let Some((parent, _)) = folder_path.rsplit_once('/') {
+        Some(parent.to_string())
+    } else {
+        Some(String::new())
+    }
+}
+
+fn push_article_folder_path(all_folders: &mut Vec<String>, folder_path: &str) {
+    let normalized = normalize_article_folder_path(folder_path);
+    if normalized.is_empty() {
+        return;
+    }
+
+    let mut current = String::new();
+    for segment in article_folder_segments(&normalized) {
+        if current.is_empty() {
+            current = segment.to_string();
+        } else {
+            current.push('/');
+            current.push_str(segment);
+        }
+        if !all_folders.iter().any(|existing| existing == &current) {
+            all_folders.push(current.clone());
+        }
+    }
+}
+
+fn normalized_article_folders(
+    explicit_folders: &[String],
+    sources: &[articles::ArticleSource],
+) -> Vec<String> {
+    let mut all_folders = Vec::new();
+    for folder in explicit_folders {
+        push_article_folder_path(&mut all_folders, folder);
+    }
+    for source in sources {
+        push_article_folder_path(&mut all_folders, &source.folder_path);
+    }
+    all_folders
+}
+
+fn current_article_folder_children(
+    current_folder: &str,
+    folders: &[String],
+    sources: &[articles::ArticleSource],
+) -> Vec<String> {
+    let current_folder = normalize_article_folder_path(current_folder);
+    let mut child_folders = normalized_article_folders(folders, sources)
+        .into_iter()
+        .filter(|folder| match article_parent_folder(folder) {
+            Some(parent) => parent == current_folder,
+            None => current_folder.is_empty(),
+        })
+        .collect::<Vec<_>>();
+    child_folders.sort_by_key(|folder| normalized_sort_key(folder));
+    child_folders
+}
+
+fn sanitize_dynamic_menu_label(label: &str, fallback: &str) -> String {
+    let normalized = label.split_whitespace().collect::<Vec<_>>().join(" ");
+    let escaped = normalized.replace('&', "&&");
+    if escaped.replace('&', "").trim().is_empty() {
+        fallback.replace('&', "&&")
+    } else {
+        escaped
+    }
+}
+
+#[derive(Clone)]
+struct ImportedArticleSource {
+    title: String,
+    url: String,
+    folder_path: String,
+}
+
+#[derive(Default)]
+struct ArticleMenuFolder {
+    entries: Vec<ArticleMenuEntry>,
+}
+
+enum ArticleMenuEntry {
+    Folder {
+        label: String,
+        folder: ArticleMenuFolder,
+    },
+    Source(usize),
+}
+
+fn insert_article_menu_entry(folder: &mut ArticleMenuFolder, path: &[&str], source_index: usize) {
+    if let Some((head, tail)) = path.split_first() {
+        for entry in &mut folder.entries {
+            if let ArticleMenuEntry::Folder {
+                label,
+                folder: child_folder,
+            } = entry
+                && label == head
+            {
+                insert_article_menu_entry(child_folder, tail, source_index);
+                return;
+            }
+        }
+        let mut child_folder = ArticleMenuFolder::default();
+        insert_article_menu_entry(&mut child_folder, tail, source_index);
+        folder.entries.push(ArticleMenuEntry::Folder {
+            label: (*head).to_string(),
+            folder: child_folder,
+        });
+    } else {
+        folder.entries.push(ArticleMenuEntry::Source(source_index));
+    }
+}
+
+fn insert_article_folder_path(folder: &mut ArticleMenuFolder, path: &[&str]) {
+    if let Some((head, tail)) = path.split_first() {
+        for entry in &mut folder.entries {
+            if let ArticleMenuEntry::Folder {
+                label,
+                folder: child_folder,
+            } = entry
+                && label == head
+            {
+                insert_article_folder_path(child_folder, tail);
+                return;
+            }
+        }
+        let mut child_folder = ArticleMenuFolder::default();
+        insert_article_folder_path(&mut child_folder, tail);
+        folder.entries.push(ArticleMenuEntry::Folder {
+            label: (*head).to_string(),
+            folder: child_folder,
+        });
+    }
+}
+
+fn build_article_source_submenu(
+    source_index: usize,
+    source: &articles::ArticleSource,
+    loading_urls: &HashSet<String>,
+    ui: &UiStrings,
+) -> Menu {
+    let submenu = Menu::builder().build();
+    if source.items.is_empty() {
+        let placeholder_id = articles_source_menu_id(source_index);
+        let placeholder_label = if loading_urls.contains(&source.url) {
+            &ui.loading_articles
+        } else {
+            &ui.no_articles_available
+        };
+        let placeholder_help = if loading_urls.contains(&source.url) {
+            &ui.wait_loading_articles
+        } else {
+            &ui.refresh_source_for_articles
+        };
+        let _ = submenu.append(
+            placeholder_id,
+            placeholder_label,
+            placeholder_help,
+            ItemKind::Normal,
+        );
+        let _ = submenu.enable_item(placeholder_id, false);
+    } else {
+        for (item_index, item) in source
+            .items
+            .iter()
+            .take(MAX_MENU_ARTICLES_PER_SOURCE)
+            .enumerate()
+        {
+            let item_label = sanitize_dynamic_menu_label(&item.title, &item.link);
+            let _ = submenu.append(
+                articles_article_menu_id(source_index, item_index),
+                &item_label,
+                &item.link,
+                ItemKind::Normal,
+            );
+        }
+    }
+    submenu
+}
+
+fn append_article_folder_entries(
+    target_menu: &Menu,
+    folder: &ArticleMenuFolder,
+    sources: &[articles::ArticleSource],
+    loading_urls: &HashSet<String>,
+    ui: &UiStrings,
+) {
+    for entry in &folder.entries {
+        match entry {
+            ArticleMenuEntry::Folder { label, folder } => {
+                let submenu = Menu::builder().build();
+                append_article_folder_entries(&submenu, folder, sources, loading_urls, ui);
+                if submenu.get_menu_items().is_empty() {
+                    let _ = submenu.append(
+                        ID_ARTICLES_SOURCE_BASE - 1,
+                        &ui.folder_empty,
+                        &ui.folder_empty,
+                        ItemKind::Normal,
+                    );
+                    let _ = submenu.enable_item(ID_ARTICLES_SOURCE_BASE - 1, false);
+                }
+                let folder_label = sanitize_dynamic_menu_label(label, &ui.folder_label);
+                let _ = target_menu.append_submenu(submenu, &folder_label, &folder_label);
+            }
+            ArticleMenuEntry::Source(source_index) => {
+                if let Some(source) = sources.get(*source_index) {
+                    let submenu =
+                        build_article_source_submenu(*source_index, source, loading_urls, ui);
+                    let label =
+                        sanitize_dynamic_menu_label(&article_source_label(source), &source.url);
+                    let _ = target_menu.append_submenu(submenu, &label, &source.url);
+                }
+            }
+        }
+    }
 }
 
 fn rebuild_articles_menu(
@@ -4450,45 +4726,23 @@ fn rebuild_articles_menu(
     );
     articles_menu.append_separator();
 
-    let sources = settings.lock().unwrap().article_sources.clone();
-    for (source_index, source) in sources.iter().enumerate() {
-        let submenu = Menu::builder().build();
-        if source.items.is_empty() {
-            let placeholder_id = articles_source_menu_id(source_index);
-            let placeholder_label = if loading_urls.contains(&source.url) {
-                &ui.loading_articles
-            } else {
-                &ui.no_articles_available
-            };
-            let placeholder_help = if loading_urls.contains(&source.url) {
-                &ui.wait_loading_articles
-            } else {
-                &ui.refresh_source_for_articles
-            };
-            let _ = submenu.append(
-                placeholder_id,
-                placeholder_label,
-                placeholder_help,
-                ItemKind::Normal,
-            );
-            let _ = submenu.enable_item(placeholder_id, false);
-        } else {
-            for (item_index, item) in source
-                .items
-                .iter()
-                .take(MAX_MENU_ARTICLES_PER_SOURCE)
-                .enumerate()
-            {
-                let _ = submenu.append(
-                    articles_article_menu_id(source_index, item_index),
-                    &item.title,
-                    &item.link,
-                    ItemKind::Normal,
-                );
-            }
-        }
-        let _ = articles_menu.append_submenu(submenu, &source.title, &source.url);
+    let (sources, folders) = {
+        let locked = settings.lock().unwrap();
+        (
+            locked.article_sources.clone(),
+            locked.article_folders.clone(),
+        )
+    };
+    let mut root_folder = ArticleMenuFolder::default();
+    for folder in &folders {
+        let folder_segments = article_folder_segments(folder);
+        insert_article_folder_path(&mut root_folder, &folder_segments);
     }
+    for (source_index, source) in sources.iter().enumerate() {
+        let folder_segments = article_folder_segments(&source.folder_path);
+        insert_article_menu_entry(&mut root_folder, &folder_segments, source_index);
+    }
+    append_article_folder_entries(articles_menu, &root_folder, &sources, loading_urls, ui);
 }
 
 fn rebuild_podcasts_menu(
@@ -4981,6 +5235,7 @@ fn add_article_source(
         locked.article_sources.push(articles::ArticleSource {
             title: resolved_title,
             url: normalized_url.clone(),
+            folder_path: String::new(),
             items: Vec::new(),
         });
         locked.save();
@@ -5018,15 +5273,17 @@ fn resolve_article_source_input(title: &str, url: &str) -> Option<(String, Strin
     }
 }
 
-fn parse_opml_sources(text: &str) -> Vec<(String, String)> {
+fn parse_opml_sources(text: &str) -> Vec<ImportedArticleSource> {
     let mut reader = Reader::from_str(text);
     reader.config_mut().trim_text(true);
     let mut buf = Vec::new();
     let mut out = Vec::new();
+    let mut folder_stack = Vec::<String>::new();
+    let mut pushed_folder_stack = Vec::<bool>::new();
 
     loop {
         match reader.read_event_into(&mut buf) {
-            Ok(Event::Start(element)) | Ok(Event::Empty(element)) => {
+            Ok(Event::Start(element)) => {
                 if !element.name().as_ref().eq_ignore_ascii_case(b"outline") {
                     buf.clear();
                     continue;
@@ -5048,7 +5305,55 @@ fn parse_opml_sources(text: &str) -> Vec<(String, String)> {
                     }
                 }
                 if !url.trim().is_empty() {
-                    out.push((title, url));
+                    out.push(ImportedArticleSource {
+                        title,
+                        url,
+                        folder_path: folder_stack.join("/"),
+                    });
+                    pushed_folder_stack.push(false);
+                } else {
+                    let folder_name = normalize_article_folder_path(&title);
+                    let pushed = !folder_name.is_empty();
+                    if pushed {
+                        folder_stack.push(folder_name);
+                    }
+                    pushed_folder_stack.push(pushed);
+                }
+            }
+            Ok(Event::Empty(element)) => {
+                if !element.name().as_ref().eq_ignore_ascii_case(b"outline") {
+                    buf.clear();
+                    continue;
+                }
+                let mut title = String::new();
+                let mut url = String::new();
+                for attr in element.attributes().flatten() {
+                    let key = attr.key.as_ref();
+                    let value = attr
+                        .decode_and_unescape_value(reader.decoder())
+                        .unwrap_or_default()
+                        .to_string();
+                    if key.eq_ignore_ascii_case(b"xmlUrl") {
+                        url = value;
+                    } else if title.is_empty()
+                        && (key.eq_ignore_ascii_case(b"title") || key.eq_ignore_ascii_case(b"text"))
+                    {
+                        title = value;
+                    }
+                }
+                if !url.trim().is_empty() {
+                    out.push(ImportedArticleSource {
+                        title,
+                        url,
+                        folder_path: folder_stack.join("/"),
+                    });
+                }
+            }
+            Ok(Event::End(element)) => {
+                if element.name().as_ref().eq_ignore_ascii_case(b"outline")
+                    && pushed_folder_stack.pop().unwrap_or(false)
+                {
+                    folder_stack.pop();
                 }
             }
             Ok(Event::Eof) => break,
@@ -5061,16 +5366,24 @@ fn parse_opml_sources(text: &str) -> Vec<(String, String)> {
     out
 }
 
-fn parse_article_sources_text(text: &str) -> Vec<(String, String)> {
+fn parse_article_sources_text(text: &str) -> Vec<ImportedArticleSource> {
     text.lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
         .filter(|line| !line.starts_with('#'))
         .map(|line| {
             if let Some((title, url)) = line.split_once('|') {
-                (title.trim().to_string(), url.trim().to_string())
+                ImportedArticleSource {
+                    title: title.trim().to_string(),
+                    url: url.trim().to_string(),
+                    folder_path: String::new(),
+                }
             } else {
-                (String::new(), line.to_string())
+                ImportedArticleSource {
+                    title: String::new(),
+                    url: line.to_string(),
+                    folder_path: String::new(),
+                }
             }
         })
         .collect()
@@ -5126,6 +5439,47 @@ fn escape_opml_attr(value: &str) -> String {
         .replace('"', "&quot;")
 }
 
+fn write_article_opml_folder(
+    file: &mut std::fs::File,
+    folder: &ArticleMenuFolder,
+    sources: &[articles::ArticleSource],
+    depth: usize,
+) -> Result<(), String> {
+    let indent = "  ".repeat(depth);
+    let child_indent = "  ".repeat(depth + 1);
+
+    for entry in &folder.entries {
+        match entry {
+            ArticleMenuEntry::Folder { label, folder } => {
+                writeln!(
+                    file,
+                    "{indent}<outline text=\"{}\" title=\"{}\">",
+                    escape_opml_attr(label),
+                    escape_opml_attr(label)
+                )
+                .map_err(|err| err.to_string())?;
+                write_article_opml_folder(file, folder, sources, depth + 1)?;
+                writeln!(file, "{indent}</outline>").map_err(|err| err.to_string())?;
+            }
+            ArticleMenuEntry::Source(source_index) => {
+                if let Some(source) = sources.get(*source_index) {
+                    let title = article_source_label(source);
+                    writeln!(
+                        file,
+                        "{child_indent}<outline text=\"{}\" title=\"{}\" xmlUrl=\"{}\" />",
+                        escape_opml_attr(&title),
+                        escape_opml_attr(&title),
+                        escape_opml_attr(&source.url)
+                    )
+                    .map_err(|err| err.to_string())?;
+                }
+            }
+        }
+    }
+
+    Ok(())
+}
+
 fn import_article_sources_from_file(
     path: &Path,
     settings: &Arc<Mutex<Settings>>,
@@ -5157,8 +5511,9 @@ fn import_article_sources_from_file(
             .iter()
             .map(|source| source.url.to_ascii_lowercase())
             .collect();
-        for (title, url) in imported_sources {
-            let Some((normalized_url, resolved_title)) = resolve_article_source_input(&title, &url)
+        for imported_source in imported_sources {
+            let Some((normalized_url, resolved_title)) =
+                resolve_article_source_input(&imported_source.title, &imported_source.url)
             else {
                 continue;
             };
@@ -5170,6 +5525,7 @@ fn import_article_sources_from_file(
             locked.article_sources.push(articles::ArticleSource {
                 title: resolved_title,
                 url: normalized_url.clone(),
+                folder_path: normalize_article_folder_path(&imported_source.folder_path),
                 items: Vec::new(),
             });
             added_urls.push(normalized_url);
@@ -5193,24 +5549,29 @@ fn export_article_sources_to_opml(
     path: &Path,
     settings: &Arc<Mutex<Settings>>,
 ) -> Result<usize, String> {
-    let sources = settings.lock().unwrap().article_sources.clone();
+    let (sources, folders) = {
+        let locked = settings.lock().unwrap();
+        (
+            locked.article_sources.clone(),
+            locked.article_folders.clone(),
+        )
+    };
     let mut file = std::fs::File::create(path).map_err(|err| err.to_string())?;
     writeln!(
         file,
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n<title>Sonarpad Articles</title>\n</head>\n<body>"
     )
     .map_err(|err| err.to_string())?;
-    for source in &sources {
-        let title = article_source_label(source);
-        writeln!(
-            file,
-            "  <outline text=\"{}\" title=\"{}\" xmlUrl=\"{}\" />",
-            escape_opml_attr(&title),
-            escape_opml_attr(&title),
-            escape_opml_attr(&source.url)
-        )
-        .map_err(|err| err.to_string())?;
+    let mut root_folder = ArticleMenuFolder::default();
+    for folder in &folders {
+        let folder_segments = article_folder_segments(folder);
+        insert_article_folder_path(&mut root_folder, &folder_segments);
     }
+    for (source_index, source) in sources.iter().enumerate() {
+        let folder_segments = article_folder_segments(&source.folder_path);
+        insert_article_menu_entry(&mut root_folder, &folder_segments, source_index);
+    }
+    write_article_opml_folder(&mut file, &root_folder, &sources, 1)?;
     writeln!(file, "</body>\n</opml>").map_err(|err| err.to_string())?;
     Ok(sources.len())
 }
@@ -5268,11 +5629,13 @@ fn delete_article_source(
 
 fn save_reordered_article_sources(
     reordered_sources: Vec<articles::ArticleSource>,
+    article_folders: Vec<String>,
     settings: &Arc<Mutex<Settings>>,
     article_menu_state: &Arc<Mutex<ArticleMenuState>>,
 ) {
     let mut locked = settings.lock().unwrap();
     locked.article_sources = reordered_sources;
+    locked.article_folders = normalized_article_folders(&article_folders, &locked.article_sources);
     locked.save();
     article_menu_state.lock().unwrap().dirty = true;
 }
@@ -5860,24 +6223,160 @@ fn open_delete_article_source_dialog(
     result
 }
 
+fn open_article_folder_name_dialog(parent: &Dialog, title: &str, ui: &UiStrings) -> Option<String> {
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(420, 160)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.folder_name_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let text_ctrl = TextCtrl::builder(&panel).build();
+    row.add(&text_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        let value = text_ctrl.get_value();
+        let value = normalize_article_folder_path(&value);
+        if value.is_empty() { None } else { Some(value) }
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
+fn open_article_folder_picker_dialog(
+    parent: &Dialog,
+    title: &str,
+    ui: &UiStrings,
+    folders: &[String],
+) -> Option<String> {
+    if folders.is_empty() {
+        show_message_subdialog(parent, title, &ui.no_folders_available);
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(520, 180)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.folder_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice = Choice::builder(&panel).build();
+    for folder in folders {
+        choice.append(folder);
+    }
+    choice.set_selection(0);
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        choice
+            .get_selection()
+            .and_then(|index| folders.get(index as usize))
+            .cloned()
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
 fn open_reorder_article_sources_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
-) -> Option<Vec<articles::ArticleSource>> {
+) -> Option<(Vec<articles::ArticleSource>, Vec<String>)> {
     let ui = current_ui_strings();
-    let sources = settings.lock().unwrap().article_sources.clone();
-    if sources.len() < 2 {
+    let (sources, folders) = {
+        let locked = settings.lock().unwrap();
+        (
+            locked.article_sources.clone(),
+            locked.article_folders.clone(),
+        )
+    };
+    if sources.is_empty() {
         return None;
     }
 
     let dialog = Dialog::builder(parent, &ui.reorder_sources)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, 220)
+        .with_size(700, 260)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let working_sources = Rc::new(RefCell::new(sources));
+    let working_folders = Rc::new(RefCell::new(folders));
+    let current_folder = Rc::new(RefCell::new(String::new()));
+
+    let folder_row = BoxSizer::builder(Orientation::Horizontal).build();
+    folder_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.current_folder_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let folder_display = StaticText::builder(&panel)
+        .with_label(&ui.root_folder_name)
+        .build();
+    folder_row.add(&folder_display, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&folder_row, 0, SizerFlag::Expand, 0);
 
     let source_row = BoxSizer::builder(Orientation::Horizontal).build();
     source_row.add(
@@ -5895,35 +6394,80 @@ fn open_reorder_article_sources_dialog(
     let action_row = BoxSizer::builder(Orientation::Horizontal).build();
     let move_up_button = Button::builder(&panel).with_label(&ui.move_up).build();
     let move_down_button = Button::builder(&panel).with_label(&ui.move_down).build();
+    let open_folder_button = Button::builder(&panel).with_label(&ui.open_folder).build();
+    let parent_folder_button = Button::builder(&panel)
+        .with_label(&ui.parent_folder)
+        .build();
+    let new_folder_button = Button::builder(&panel).with_label(&ui.new_folder).build();
+    let move_to_folder_button = Button::builder(&panel)
+        .with_label(&ui.move_to_folder)
+        .build();
+    let move_out_button = Button::builder(&panel)
+        .with_label(&ui.move_out_of_folders)
+        .build();
     action_row.add(&move_up_button, 1, SizerFlag::All, 5);
     action_row.add(&move_down_button, 1, SizerFlag::All, 5);
+    action_row.add(&open_folder_button, 1, SizerFlag::All, 5);
+    action_row.add(&parent_folder_button, 1, SizerFlag::All, 5);
+    action_row.add(&new_folder_button, 1, SizerFlag::All, 5);
+    action_row.add(&move_to_folder_button, 1, SizerFlag::All, 5);
+    action_row.add(&move_out_button, 1, SizerFlag::All, 5);
     root.add_sizer(&action_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
         .with_id(ID_OK)
-        .with_label("OK")
+        .with_label(&ui.ok)
         .build();
     buttons.add_spacer(1);
     buttons.add(&ok_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
 
+    let visible_source_indices = Rc::new(RefCell::new(Vec::<usize>::new()));
     let refresh_choice = Rc::new({
         let working_sources = Rc::clone(&working_sources);
-        move |choice: &Choice, selected_index: usize| {
+        let working_folders = Rc::clone(&working_folders);
+        let current_folder = Rc::clone(&current_folder);
+        let visible_source_indices = Rc::clone(&visible_source_indices);
+        move |choice: &Choice, folder_display: &StaticText, selected_index: usize| {
             choice.clear();
+            let current_folder_value = current_folder.borrow().clone();
+            folder_display.set_label(&article_folder_display_name(ui, &current_folder_value));
             let current_sources = working_sources.borrow();
-            for source in current_sources.iter() {
-                let label = article_source_label(source);
+            let current_folders = working_folders.borrow();
+            let filtered_indices = current_sources
+                .iter()
+                .enumerate()
+                .filter_map(|(index, source)| {
+                    (normalize_article_folder_path(&source.folder_path) == current_folder_value)
+                        .then_some(index)
+                })
+                .collect::<Vec<_>>();
+            *visible_source_indices.borrow_mut() = filtered_indices.clone();
+            for source_index in &filtered_indices {
+                let label = article_source_label(&current_sources[*source_index]);
                 choice.append(&label);
             }
-            let max_index = current_sources.len().saturating_sub(1);
-            choice.set_selection(selected_index.min(max_index) as u32);
+            let max_index = filtered_indices.len().saturating_sub(1);
+            if filtered_indices.is_empty() {
+                choice.append(&ui.folder_empty);
+                choice.set_selection(0);
+                choice.enable(false);
+            } else {
+                choice.enable(true);
+                choice.set_selection(selected_index.min(max_index) as u32);
+            }
+            let current_children = current_article_folder_children(
+                &current_folder_value,
+                &current_folders,
+                &current_sources,
+            );
+            let _ = current_children;
         }
     });
 
-    refresh_choice(&choice_source, 0);
+    refresh_choice(&choice_source, &folder_display, 0);
 
     let selected_index = Rc::new(RefCell::new(0usize));
 
@@ -5936,29 +6480,34 @@ fn open_reorder_article_sources_dialog(
     });
 
     let choice_source_up = choice_source;
+    let folder_display_up = folder_display;
     let selected_index_up = Rc::clone(&selected_index);
     let working_sources_up = Rc::clone(&working_sources);
     let refresh_choice_up = Rc::clone(&refresh_choice);
+    let visible_source_indices_up = Rc::clone(&visible_source_indices);
     let dialog_up = dialog;
     move_up_button.on_click(move |_| {
         let current_index = *selected_index_up.borrow();
-        if current_index == 0 {
+        let visible_indices = visible_source_indices_up.borrow();
+        if current_index == 0 || visible_indices.len() < 2 {
             return;
         }
+        let global_current = visible_indices[current_index];
+        let global_target = visible_indices[current_index - 1];
         let (moved_label, target_label) = {
             let sources = working_sources_up.borrow();
             (
-                article_source_label(&sources[current_index]),
-                article_source_label(&sources[current_index - 1]),
+                article_source_label(&sources[global_current]),
+                article_source_label(&sources[global_target]),
             )
         };
         {
             let mut sources = working_sources_up.borrow_mut();
-            sources.swap(current_index, current_index - 1);
+            sources.swap(global_current, global_target);
         }
         let new_index = current_index - 1;
         *selected_index_up.borrow_mut() = new_index;
-        refresh_choice_up(&choice_source_up, new_index);
+        refresh_choice_up(&choice_source_up, &folder_display_up, new_index);
         show_message_subdialog(
             &dialog_up,
             &ui.reorder_sources,
@@ -5967,35 +6516,164 @@ fn open_reorder_article_sources_dialog(
     });
 
     let choice_source_down = choice_source;
+    let folder_display_down = folder_display;
     let selected_index_down = Rc::clone(&selected_index);
     let working_sources_down = Rc::clone(&working_sources);
     let refresh_choice_down = Rc::clone(&refresh_choice);
+    let visible_source_indices_down = Rc::clone(&visible_source_indices);
     let dialog_down = dialog;
     move_down_button.on_click(move |_| {
         let current_index = *selected_index_down.borrow();
-        let len = working_sources_down.borrow().len();
+        let visible_indices = visible_source_indices_down.borrow();
+        let len = visible_indices.len();
         if current_index + 1 >= len {
             return;
         }
+        let global_current = visible_indices[current_index];
+        let global_target = visible_indices[current_index + 1];
         let (moved_label, target_label) = {
             let sources = working_sources_down.borrow();
             (
-                article_source_label(&sources[current_index]),
-                article_source_label(&sources[current_index + 1]),
+                article_source_label(&sources[global_current]),
+                article_source_label(&sources[global_target]),
             )
         };
         {
             let mut sources = working_sources_down.borrow_mut();
-            sources.swap(current_index, current_index + 1);
+            sources.swap(global_current, global_target);
         }
         let new_index = current_index + 1;
         *selected_index_down.borrow_mut() = new_index;
-        refresh_choice_down(&choice_source_down, new_index);
+        refresh_choice_down(&choice_source_down, &folder_display_down, new_index);
         show_message_subdialog(
             &dialog_down,
             &ui.reorder_sources,
             &reorder_feedback_message(&moved_label, &target_label, false),
         );
+    });
+
+    let choice_source_open = choice_source;
+    let folder_display_open = folder_display;
+    let selected_index_open = Rc::clone(&selected_index);
+    let working_sources_open = Rc::clone(&working_sources);
+    let working_folders_open = Rc::clone(&working_folders);
+    let current_folder_open = Rc::clone(&current_folder);
+    let refresh_choice_open = Rc::clone(&refresh_choice);
+    let dialog_open = dialog;
+    open_folder_button.on_click(move |_| {
+        let folders = current_article_folder_children(
+            &current_folder_open.borrow(),
+            &working_folders_open.borrow(),
+            &working_sources_open.borrow(),
+        );
+        let folder_labels = folders
+            .iter()
+            .map(|folder| article_folder_display_name(ui, folder))
+            .collect::<Vec<_>>();
+        if let Some(selection) =
+            open_article_folder_picker_dialog(&dialog_open, &ui.open_folder, ui, &folder_labels)
+            && let Some(folder_index) = folder_labels.iter().position(|label| label == &selection)
+            && let Some(folder) = folders.get(folder_index)
+        {
+            *current_folder_open.borrow_mut() = folder.clone();
+            *selected_index_open.borrow_mut() = 0;
+            refresh_choice_open(&choice_source_open, &folder_display_open, 0);
+        }
+    });
+
+    let choice_source_parent = choice_source;
+    let folder_display_parent = folder_display;
+    let selected_index_parent = Rc::clone(&selected_index);
+    let current_folder_parent = Rc::clone(&current_folder);
+    let refresh_choice_parent = Rc::clone(&refresh_choice);
+    parent_folder_button.on_click(move |_| {
+        if let Some(parent_folder) = article_parent_folder(&current_folder_parent.borrow()) {
+            *current_folder_parent.borrow_mut() = parent_folder;
+            *selected_index_parent.borrow_mut() = 0;
+            refresh_choice_parent(&choice_source_parent, &folder_display_parent, 0);
+        }
+    });
+
+    let choice_source_new_folder = choice_source;
+    let folder_display_new_folder = folder_display;
+    let selected_index_new_folder = Rc::clone(&selected_index);
+    let current_folder_new_folder = Rc::clone(&current_folder);
+    let working_folders_new_folder = Rc::clone(&working_folders);
+    let working_sources_new_folder = Rc::clone(&working_sources);
+    let refresh_choice_new_folder = Rc::clone(&refresh_choice);
+    let dialog_new_folder = dialog;
+    new_folder_button.on_click(move |_| {
+        if let Some(folder_name) =
+            open_article_folder_name_dialog(&dialog_new_folder, &ui.new_folder, ui)
+        {
+            let new_folder_path = if current_folder_new_folder.borrow().is_empty() {
+                folder_name
+            } else {
+                format!("{}/{}", current_folder_new_folder.borrow(), folder_name)
+            };
+            let mut folders = working_folders_new_folder.borrow_mut();
+            if !folders.iter().any(|folder| folder == &new_folder_path) {
+                folders.push(new_folder_path);
+            }
+            let normalized_folders =
+                normalized_article_folders(&folders, &working_sources_new_folder.borrow());
+            *folders = normalized_folders;
+            *selected_index_new_folder.borrow_mut() = 0;
+            refresh_choice_new_folder(&choice_source_new_folder, &folder_display_new_folder, 0);
+        }
+    });
+
+    let choice_source_move = choice_source;
+    let folder_display_move = folder_display;
+    let selected_index_move = Rc::clone(&selected_index);
+    let current_folder_move = Rc::clone(&current_folder);
+    let working_sources_move = Rc::clone(&working_sources);
+    let working_folders_move = Rc::clone(&working_folders);
+    let visible_source_indices_move = Rc::clone(&visible_source_indices);
+    let refresh_choice_move = Rc::clone(&refresh_choice);
+    let dialog_move = dialog;
+    move_to_folder_button.on_click(move |_| {
+        let current_index = *selected_index_move.borrow();
+        let visible_indices = visible_source_indices_move.borrow();
+        let Some(global_index) = visible_indices.get(current_index).copied() else {
+            return;
+        };
+        let all_folders = normalized_article_folders(
+            &working_folders_move.borrow(),
+            &working_sources_move.borrow(),
+        )
+        .into_iter()
+        .filter(|folder| folder != &normalize_article_folder_path(&current_folder_move.borrow()))
+        .collect::<Vec<_>>();
+        let folder_labels = all_folders.to_vec();
+        if let Some(selection) =
+            open_article_folder_picker_dialog(&dialog_move, &ui.move_to_folder, ui, &folder_labels)
+            && let Some(folder_index) = folder_labels.iter().position(|label| label == &selection)
+            && let Some(folder) = all_folders.get(folder_index)
+        {
+            working_sources_move.borrow_mut()[global_index].folder_path = folder.clone();
+            *selected_index_move.borrow_mut() = 0;
+            refresh_choice_move(&choice_source_move, &folder_display_move, 0);
+        }
+    });
+
+    let choice_source_move_out = choice_source;
+    let folder_display_move_out = folder_display;
+    let selected_index_move_out = Rc::clone(&selected_index);
+    let working_sources_move_out = Rc::clone(&working_sources);
+    let visible_source_indices_move_out = Rc::clone(&visible_source_indices);
+    let refresh_choice_move_out = Rc::clone(&refresh_choice);
+    move_out_button.on_click(move |_| {
+        let current_index = *selected_index_move_out.borrow();
+        let visible_indices = visible_source_indices_move_out.borrow();
+        let Some(global_index) = visible_indices.get(current_index).copied() else {
+            return;
+        };
+        working_sources_move_out.borrow_mut()[global_index]
+            .folder_path
+            .clear();
+        *selected_index_move_out.borrow_mut() = 0;
+        refresh_choice_move_out(&choice_source_move_out, &folder_display_move_out, 0);
     });
 
     dialog.set_affirmative_id(ID_OK);
@@ -6005,7 +6683,10 @@ fn open_reorder_article_sources_dialog(
     });
 
     let result = if dialog.show_modal() == ID_OK {
-        Some(working_sources.borrow().clone())
+        Some((
+            working_sources.borrow().clone(),
+            normalized_article_folders(&working_folders.borrow(), &working_sources.borrow()),
+        ))
     } else {
         None
     };
@@ -7025,11 +7706,12 @@ fn main() {
                     );
                 }
             } else if event.get_id() == ID_ARTICLES_REORDER_SOURCES {
-                if let Some(reordered_sources) =
+                if let Some((reordered_sources, article_folders)) =
                     open_reorder_article_sources_dialog(&f_menu, &settings_menu)
                 {
                     save_reordered_article_sources(
                         reordered_sources,
+                        article_folders,
                         &settings_menu,
                         &article_menu_state_menu,
                     );

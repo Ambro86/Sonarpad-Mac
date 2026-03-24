@@ -78,6 +78,17 @@
   "keyword": "Keyword:",
   "podcast_label": "Podcast:",
   "source_label": "Source:",
+  "folder_label": "Folder",
+  "current_folder_label": "Current folder:",
+  "root_folder_name": "Outside folders",
+  "open_folder": "Open folder",
+  "parent_folder": "Parent folder",
+  "new_folder": "New folder",
+  "move_to_folder": "Move to",
+  "move_out_of_folders": "Move out of folders",
+  "folder_name_label": "Folder name:",
+  "folder_empty": "Empty folder",
+  "no_folders_available": "No folders available",
   "title_label": "Title:",
   "url_or_source_label": "URL or source:",
   "move_up": "Move up",
@@ -134,6 +145,7 @@
   "open": "Open",
   "save_as": "Save as...",
   "save_filename_label": "File name",
+  "save_default_filename": "untitled",
   "save_format_label": "Format",
   "save_folder_label": "Folder",
   "choose_folder": "Choose folder...",
@@ -165,3 +177,5 @@
   "radio_label": "Radio:",
   "radio_url_label": "Stream URL:"
 }
+
+

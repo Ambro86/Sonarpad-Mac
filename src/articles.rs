@@ -26,6 +26,8 @@ pub struct ArticleSource {
     pub title: String,
     pub url: String,
     #[serde(default)]
+    pub folder_path: String,
+    #[serde(default)]
     pub items: Vec<ArticleItem>,
 }
 
@@ -48,6 +50,7 @@ fn parse_default_sources(feeds: &str) -> Vec<ArticleSource> {
                     title.to_string()
                 },
                 url: normalize_url(url),
+                folder_path: String::new(),
                 items: Vec::new(),
             })
         })
@@ -138,7 +141,12 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
     if let Ok(bytes) = reqwest_bytes.as_ref()
         && let Ok((title, items)) = parse_feed_bytes(bytes.clone(), &source.title)
     {
-        return Ok(ArticleSource { title, url, items });
+        return Ok(ArticleSource {
+            title,
+            url,
+            folder_path: source.folder_path.clone(),
+            items,
+        });
     }
 
     if let Ok(bytes) = reqwest_bytes {
@@ -147,7 +155,12 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
                 && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
                 && !items.is_empty()
             {
-                return Ok(ArticleSource { title, url, items });
+                return Ok(ArticleSource {
+                    title,
+                    url,
+                    folder_path: source.folder_path.clone(),
+                    items,
+                });
             }
         }
     }
@@ -159,7 +172,12 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
     .await
     .map_err(|err| err.to_string())??;
     if let Ok((title, items)) = parse_feed_bytes(curl_bytes.clone(), &source.title) {
-        return Ok(ArticleSource { title, url, items });
+        return Ok(ArticleSource {
+            title,
+            url,
+            folder_path: source.folder_path.clone(),
+            items,
+        });
     }
 
     for feed_link in extract_feed_links(&decode_html_bytes(&curl_bytes), &url) {
@@ -167,7 +185,12 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
             && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
             && !items.is_empty()
         {
-            return Ok(ArticleSource { title, url, items });
+            return Ok(ArticleSource {
+                title,
+                url,
+                folder_path: source.folder_path.clone(),
+                items,
+            });
         }
 
         let feed_link_curl = feed_link.clone();
@@ -180,7 +203,12 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
             && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
             && !items.is_empty()
         {
-            return Ok(ArticleSource { title, url, items });
+            return Ok(ArticleSource {
+                title,
+                url,
+                folder_path: source.folder_path.clone(),
+                items,
+            });
         }
     }
 
@@ -917,6 +945,7 @@ mod tests {
         let source = ArticleSource {
             title: "sdag".to_string(),
             url: "https://ascensione.net/".to_string(),
+            folder_path: String::new(),
             items: Vec::new(),
         };
 
