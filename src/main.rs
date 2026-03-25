@@ -554,7 +554,6 @@ struct UiStrings {
     podcast_label: String,
     source_label: String,
     folder_label: String,
-    current_folder_label: String,
     root_folder_name: String,
     open_folder: String,
     parent_folder: String,
@@ -1119,6 +1118,12 @@ fn changelog_message() -> String {
     if Settings::load().ui_language == "it" {
         format!(
             "Sonarpad Per Mac {}\n\n\
+Versione 0.2.6\n\
+- Corretto un bug di wx/macOS per cui all'avvio poteva comparire un errore e sono stati stabilizzati i menu collegati.\n\
+- Corretta la scorciatoia Cmd+, per il menu Impostazioni anche quando il focus si trova su editor e controlli.\n\
+- Quando si salva un audiolibro il focus viene ora posizionato correttamente sul campo di testo e i nomi file con il punto non vengono piu tagliati.\n\
+- Aggiunto supporto agli OPML di Lire con divisione in cartelle: le cartelle si aprono come sottomenu e le singole fonti in una finestrella dedicata.\n\
+- Il riordino delle fonti articoli gestisce ora il nuovo sistema di cartelle con pulsanti Apri cartella, Cartella principale, Sposta in cartella e Sposta fuori dalle cartelle.\n\n\
 Versione 0.2.5\n\
 - Nuove finestre di salvataggio personalizzate per testo e audiolibri su macOS.\n\
 - I campi nome file ora accettano correttamente Cmd+V, Cmd+A e gli altri comandi di editing.\n\
@@ -1152,6 +1157,12 @@ Versione 0.2.0\n\
     } else {
         format!(
             "Sonarpad Per Mac {}\n\n\
+Version 0.2.6\n\
+- Fixed a wx/macOS bug that could show an error at startup and stabilized the related menus.\n\
+- Fixed the Cmd+, shortcut for the Settings menu even when focus is on the editor or other controls.\n\
+- When saving an audiobook, focus is now placed correctly on the text field and filenames containing a dot are no longer truncated.\n\
+- Added support for Lire OPML files with folder grouping: folders open as submenus and individual sources open in a dedicated dialog.\n\
+- Article source reordering now supports the new folder organization system with Open Folder, Root Folder, Move to Folder, and Move Out of Folders controls.\n\n\
 Version 0.2.5\n\
 - New custom save dialogs for text and audiobooks on macOS.\n\
 - Filename fields now correctly accept Cmd+V, Cmd+A, and standard editing shortcuts.\n\
@@ -1320,6 +1331,22 @@ fn reorder_feedback_message(moved_label: &str, target_label: &str, moved_up: boo
         format!("{moved_label} is now above {target_label}.")
     } else {
         format!("{moved_label} is now below {target_label}.")
+    }
+}
+
+fn move_to_folder_feedback_message(source_label: &str, folder_label: &str) -> String {
+    if Settings::load().ui_language == "it" {
+        format!("{source_label} e' stata spostata nella cartella {folder_label}.")
+    } else {
+        format!("{source_label} was moved to the folder {folder_label}.")
+    }
+}
+
+fn move_out_of_folders_feedback_message(source_label: &str, root_label: &str) -> String {
+    if Settings::load().ui_language == "it" {
+        format!("{source_label} e' stata spostata in {root_label}.")
+    } else {
+        format!("{source_label} was moved to {root_label}.")
     }
 }
 
@@ -1543,6 +1570,49 @@ fn convert_mp3_to_m4b(
             Err(stderr)
         }
     }
+}
+
+fn move_article_source_within_visible_list(
+    sources: &mut Vec<articles::ArticleSource>,
+    visible_indices: &[usize],
+    current_index: usize,
+    move_up: bool,
+) -> bool {
+    if visible_indices.len() < 2 {
+        return false;
+    }
+
+    let target_index = if move_up {
+        let Some(target) = current_index.checked_sub(1) else {
+            return false;
+        };
+        target
+    } else {
+        let target = current_index + 1;
+        if target >= visible_indices.len() {
+            return false;
+        }
+        target
+    };
+
+    let Some(global_current) = visible_indices.get(current_index).copied() else {
+        return false;
+    };
+    let Some(global_target) = visible_indices.get(target_index).copied() else {
+        return false;
+    };
+    let Some(moved_source) = sources.get(global_current).cloned() else {
+        return false;
+    };
+
+    sources.remove(global_current);
+    let insert_index = if global_current < global_target {
+        global_target.saturating_sub(1)
+    } else {
+        global_target
+    };
+    sources.insert(insert_index, moved_source);
+    true
 }
 
 fn convert_mp3_to_m4a(
@@ -6676,20 +6746,10 @@ fn open_reorder_article_sources_dialog(
     let working_folders = Rc::new(RefCell::new(folders));
     let current_folder = Rc::new(RefCell::new(String::new()));
 
-    let folder_row = BoxSizer::builder(Orientation::Horizontal).build();
-    folder_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.current_folder_label)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
     let folder_display = StaticText::builder(&panel)
         .with_label(&ui.root_folder_name)
         .build();
-    folder_row.add(&folder_display, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&folder_row, 0, SizerFlag::Expand, 0);
+    folder_display.hide();
 
     let source_row = BoxSizer::builder(Orientation::Horizontal).build();
     source_row.add(
@@ -6708,6 +6768,9 @@ fn open_reorder_article_sources_dialog(
     let move_up_button = Button::builder(&panel).with_label(&ui.move_up).build();
     let move_down_button = Button::builder(&panel).with_label(&ui.move_down).build();
     let open_folder_button = Button::builder(&panel).with_label(&ui.open_folder).build();
+    let root_folder_button = Button::builder(&panel)
+        .with_label(&ui.root_folder_name)
+        .build();
     let parent_folder_button = Button::builder(&panel)
         .with_label(&ui.parent_folder)
         .build();
@@ -6721,6 +6784,7 @@ fn open_reorder_article_sources_dialog(
     action_row.add(&move_up_button, 1, SizerFlag::All, 5);
     action_row.add(&move_down_button, 1, SizerFlag::All, 5);
     action_row.add(&open_folder_button, 1, SizerFlag::All, 5);
+    action_row.add(&root_folder_button, 1, SizerFlag::All, 5);
     action_row.add(&parent_folder_button, 1, SizerFlag::All, 5);
     action_row.add(&new_folder_button, 1, SizerFlag::All, 5);
     action_row.add(&move_to_folder_button, 1, SizerFlag::All, 5);
@@ -6801,7 +6865,7 @@ fn open_reorder_article_sources_dialog(
     let dialog_up = dialog;
     move_up_button.on_click(move |_| {
         let current_index = *selected_index_up.borrow();
-        let visible_indices = visible_source_indices_up.borrow();
+        let visible_indices = visible_source_indices_up.borrow().clone();
         if current_index == 0 || visible_indices.len() < 2 {
             return;
         }
@@ -6816,7 +6880,14 @@ fn open_reorder_article_sources_dialog(
         };
         {
             let mut sources = working_sources_up.borrow_mut();
-            sources.swap(global_current, global_target);
+            if !move_article_source_within_visible_list(
+                &mut sources,
+                &visible_indices,
+                current_index,
+                true,
+            ) {
+                return;
+            }
         }
         let new_index = current_index - 1;
         *selected_index_up.borrow_mut() = new_index;
@@ -6837,7 +6908,7 @@ fn open_reorder_article_sources_dialog(
     let dialog_down = dialog;
     move_down_button.on_click(move |_| {
         let current_index = *selected_index_down.borrow();
-        let visible_indices = visible_source_indices_down.borrow();
+        let visible_indices = visible_source_indices_down.borrow().clone();
         let len = visible_indices.len();
         if current_index + 1 >= len {
             return;
@@ -6853,7 +6924,14 @@ fn open_reorder_article_sources_dialog(
         };
         {
             let mut sources = working_sources_down.borrow_mut();
-            sources.swap(global_current, global_target);
+            if !move_article_source_within_visible_list(
+                &mut sources,
+                &visible_indices,
+                current_index,
+                false,
+            ) {
+                return;
+            }
         }
         let new_index = current_index + 1;
         *selected_index_down.borrow_mut() = new_index;
@@ -6907,6 +6985,17 @@ fn open_reorder_article_sources_dialog(
         }
     });
 
+    let choice_source_root = choice_source;
+    let folder_display_root = folder_display;
+    let selected_index_root = Rc::clone(&selected_index);
+    let current_folder_root = Rc::clone(&current_folder);
+    let refresh_choice_root = Rc::clone(&refresh_choice);
+    root_folder_button.on_click(move |_| {
+        *current_folder_root.borrow_mut() = String::new();
+        *selected_index_root.borrow_mut() = 0;
+        refresh_choice_root(&choice_source_root, &folder_display_root, 0);
+    });
+
     let choice_source_new_folder = choice_source;
     let folder_display_new_folder = folder_display;
     let selected_index_new_folder = Rc::clone(&selected_index);
@@ -6947,7 +7036,7 @@ fn open_reorder_article_sources_dialog(
     let dialog_move = dialog;
     move_to_folder_button.on_click(move |_| {
         let current_index = *selected_index_move.borrow();
-        let visible_indices = visible_source_indices_move.borrow();
+        let visible_indices = visible_source_indices_move.borrow().clone();
         let Some(global_index) = visible_indices.get(current_index).copied() else {
             return;
         };
@@ -6964,9 +7053,16 @@ fn open_reorder_article_sources_dialog(
             && let Some(folder_index) = folder_labels.iter().position(|label| label == &selection)
             && let Some(folder) = all_folders.get(folder_index)
         {
+            let moved_label = article_source_label(&working_sources_move.borrow()[global_index]);
+            let target_label = article_folder_display_name(ui, folder);
             working_sources_move.borrow_mut()[global_index].folder_path = folder.clone();
             *selected_index_move.borrow_mut() = 0;
             refresh_choice_move(&choice_source_move, &folder_display_move, 0);
+            show_message_subdialog(
+                &dialog_move,
+                &ui.move_to_folder,
+                &move_to_folder_feedback_message(&moved_label, &target_label),
+            );
         }
     });
 
@@ -6976,17 +7072,25 @@ fn open_reorder_article_sources_dialog(
     let working_sources_move_out = Rc::clone(&working_sources);
     let visible_source_indices_move_out = Rc::clone(&visible_source_indices);
     let refresh_choice_move_out = Rc::clone(&refresh_choice);
+    let dialog_move_out = dialog;
     move_out_button.on_click(move |_| {
         let current_index = *selected_index_move_out.borrow();
-        let visible_indices = visible_source_indices_move_out.borrow();
+        let visible_indices = visible_source_indices_move_out.borrow().clone();
         let Some(global_index) = visible_indices.get(current_index).copied() else {
             return;
         };
+        let moved_label = article_source_label(&working_sources_move_out.borrow()[global_index]);
+        let target_label = ui.root_folder_name.clone();
         working_sources_move_out.borrow_mut()[global_index]
             .folder_path
             .clear();
         *selected_index_move_out.borrow_mut() = 0;
         refresh_choice_move_out(&choice_source_move_out, &folder_display_move_out, 0);
+        show_message_subdialog(
+            &dialog_move_out,
+            &ui.move_out_of_folders,
+            &move_out_of_folders_feedback_message(&moved_label, &target_label),
+        );
     });
 
     dialog.set_affirmative_id(ID_OK);
