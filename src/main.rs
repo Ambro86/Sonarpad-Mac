@@ -997,7 +997,7 @@ fn handle_shortcut_event(
                         (actions.stop)();
                         return;
                     }
-                    _ if matches_ascii_key(key_code, unicode_key, ',') => {
+                    _ if matches_settings_shortcut(key_code, unicode_key) => {
                         append_podcast_log("mac_shortcut.trigger settings");
                         (actions.settings)();
                         return;
@@ -1062,6 +1062,13 @@ fn matches_ascii_key(key_code: i32, unicode_key: i32, expected: char) -> bool {
             unicode_key,
             code if code == expected_upper || code == expected_lower
         )
+}
+
+#[cfg(target_os = "macos")]
+fn matches_settings_shortcut(key_code: i32, unicode_key: i32) -> bool {
+    matches_ascii_key(key_code, unicode_key, ',')
+        || matches!(key_code, 44 | 59 | 188)
+        || matches!(unicode_key, 44 | 59)
 }
 
 #[cfg(target_os = "macos")]
