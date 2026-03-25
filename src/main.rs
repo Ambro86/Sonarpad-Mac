@@ -4940,7 +4940,7 @@ fn rebuild_articles_menu(
             );
         }
 
-        for (source_index, source) in source_entries {
+        for &(source_index, source) in &source_entries {
             let label = sanitize_dynamic_menu_label(&article_source_label(source), &source.url);
             let _ = articles_menu.append(
                 articles_source_view_menu_id(source_index),
