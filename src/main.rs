@@ -101,6 +101,8 @@ const APP_STORAGE_DIR_NAME: &str = "Sonarpad";
 
 #[cfg(target_os = "macos")]
 static MAC_NATIVE_FILE_DIALOG_OPEN: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+static MAC_MENU_BAR_ACTIVE: AtomicBool = AtomicBool::new(false);
 
 #[cfg(target_os = "macos")]
 const MOD_CMD: &str = "Cmd";
@@ -818,6 +820,11 @@ fn settings_button_label() -> String {
     format!("{} ({}+,)", ui.button_settings, MOD_CMD)
 }
 
+#[cfg(target_os = "macos")]
+fn settings_menu_label(label: &str) -> String {
+    format!("{label}\tCmd+,")
+}
+
 fn update_menu_item_label(menubar: &MenuBar, id: i32, label: &str) {
     if let Some(item) = menubar.find_item(id) {
         item.set_label(label);
@@ -877,6 +884,11 @@ fn refresh_localized_main_ui(
             update_menu_item_label(&menubar, ID_PLAY_PAUSE, &ui.menu_play_pause);
             update_menu_item_label(&menubar, ID_STOP, &ui.menu_stop);
             update_menu_item_label(&menubar, ID_SAVE, &ui.menu_save);
+            update_menu_item_label(
+                &menubar,
+                ID_SETTINGS,
+                &settings_menu_label(&ui.menu_settings),
+            );
         }
     }
 
@@ -1060,6 +1072,21 @@ fn mac_native_file_dialog_open() -> bool {
 #[cfg(target_os = "macos")]
 fn set_mac_native_file_dialog_open(open: bool) {
     MAC_NATIVE_FILE_DIALOG_OPEN.store(open, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "macos")]
+fn mac_menu_bar_active() -> bool {
+    MAC_MENU_BAR_ACTIVE.load(Ordering::Relaxed)
+}
+
+#[cfg(target_os = "macos")]
+fn set_mac_menu_bar_active(active: bool) {
+    MAC_MENU_BAR_ACTIVE.store(active, Ordering::Relaxed);
+}
+
+#[cfg(target_os = "macos")]
+fn mac_should_defer_menu_rebuilds() -> bool {
+    mac_native_file_dialog_open() || mac_menu_bar_active()
 }
 
 fn about_title() -> &'static str {
@@ -5389,6 +5416,52 @@ fn parse_article_sources_text(text: &str) -> Vec<ImportedArticleSource> {
         .collect()
 }
 
+#[cfg(target_os = "macos")]
+fn mac_file_dialog_path_candidate_is_usable(path: &Path, must_exist: bool) -> bool {
+    if path.as_os_str().is_empty() {
+        return false;
+    }
+
+    if must_exist {
+        return path.is_file();
+    }
+
+    path.parent()
+        .is_some_and(|parent| !parent.as_os_str().is_empty() && parent.exists())
+}
+
+fn resolve_file_dialog_path(dialog: &FileDialog, must_exist: bool) -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        for candidate in dialog.get_paths().into_iter().map(PathBuf::from) {
+            if mac_file_dialog_path_candidate_is_usable(&candidate, must_exist) {
+                return Some(candidate);
+            }
+        }
+
+        if let Some(candidate) = dialog.get_path().map(PathBuf::from)
+            && mac_file_dialog_path_candidate_is_usable(&candidate, must_exist)
+        {
+            return Some(candidate);
+        }
+
+        if let (Some(directory), Some(filename)) = (dialog.get_directory(), dialog.get_filename()) {
+            let candidate = PathBuf::from(directory).join(filename);
+            if mac_file_dialog_path_candidate_is_usable(&candidate, must_exist) {
+                return Some(candidate);
+            }
+        }
+
+        None
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = must_exist;
+        dialog.get_path().map(PathBuf::from)
+    }
+}
+
 fn open_article_sources_import_dialog(parent: &Frame) -> Option<PathBuf> {
     let ui = current_ui_strings();
     let dialog = FileDialog::builder(parent)
@@ -5406,7 +5479,7 @@ fn open_article_sources_import_dialog(parent: &Frame) -> Option<PathBuf> {
         return None;
     }
 
-    dialog.get_path().map(PathBuf::from)
+    resolve_file_dialog_path(&dialog, true)
 }
 
 fn open_article_sources_export_dialog(parent: &Frame) -> Option<PathBuf> {
@@ -5428,7 +5501,7 @@ fn open_article_sources_export_dialog(parent: &Frame) -> Option<PathBuf> {
         return None;
     }
 
-    dialog.get_path().map(PathBuf::from)
+    resolve_file_dialog_path(&dialog, false)
 }
 
 fn escape_opml_attr(value: &str) -> String {
@@ -7376,7 +7449,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         let settings_menu_item = file_menu.append(
             ID_SETTINGS,
-            &ui.menu_settings,
+            &settings_menu_label(&ui.menu_settings),
             &ui.menu_settings_help,
             ItemKind::Normal,
         );
@@ -7445,6 +7518,11 @@ fn main() {
             .append(help_menu, &ui.menu_help)
             .build();
         frame.set_menu_bar(menubar);
+
+        #[cfg(target_os = "macos")]
+        frame.track_menu_lifecycle(|_, is_opening| {
+            set_mac_menu_bar_active(is_opening);
+        });
 
         let panel = Panel::builder(&frame).build();
         let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
@@ -7541,6 +7619,11 @@ fn main() {
             btn_podcast_back_timer.show(seek_visible);
             btn_podcast_forward_timer.show(seek_visible);
             panel_timer.layout();
+            #[cfg(target_os = "macos")]
+            if mac_should_defer_menu_rebuilds() {
+                return;
+            }
+
             let article_loading_urls = {
                 let mut article_state = article_menu_state_timer.lock().unwrap();
                 if article_state.dirty {
