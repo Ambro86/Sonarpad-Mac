@@ -86,6 +86,8 @@ const ID_RADIO_FAVORITE_BASE: i32 = 6000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
 const ID_ARTICLES_SOURCE_BASE: i32 = 2200;
+const ID_ARTICLE_FOLDER_DIALOG_BASE: i32 = 7000;
+const ID_ARTICLE_SOURCE_DIALOG_BASE: i32 = 9000;
 const ID_ARTICLES_ARTICLE_BASE: i32 = 10000;
 const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
@@ -153,6 +155,7 @@ struct TtsPlaybackCache {
 struct ArticleMenuState {
     dirty: bool,
     loading_urls: HashSet<String>,
+    pending_dialog: Option<PendingArticleMenuDialog>,
 }
 
 struct PodcastMenuState {
@@ -202,6 +205,12 @@ struct SaveAudiobookState {
 enum PendingSaveDialog {
     Success,
     Error(String),
+}
+
+#[derive(Clone)]
+enum PendingArticleMenuDialog {
+    Folder(String),
+    Source(usize),
 }
 
 enum PodcastDownloadAction {
@@ -3848,6 +3857,28 @@ fn articles_source_menu_id(source_index: usize) -> i32 {
     ID_ARTICLES_SOURCE_BASE + source_index as i32
 }
 
+fn article_folder_dialog_menu_id(folder_index: usize) -> i32 {
+    ID_ARTICLE_FOLDER_DIALOG_BASE + folder_index as i32
+}
+
+fn decode_article_folder_dialog_menu_id(menu_id: i32) -> Option<usize> {
+    if !(ID_ARTICLE_FOLDER_DIALOG_BASE..ID_ARTICLE_SOURCE_DIALOG_BASE).contains(&menu_id) {
+        return None;
+    }
+    Some((menu_id - ID_ARTICLE_FOLDER_DIALOG_BASE) as usize)
+}
+
+fn article_source_dialog_menu_id(source_index: usize) -> i32 {
+    ID_ARTICLE_SOURCE_DIALOG_BASE + source_index as i32
+}
+
+fn decode_article_source_dialog_menu_id(menu_id: i32) -> Option<usize> {
+    if !(ID_ARTICLE_SOURCE_DIALOG_BASE..ID_ARTICLES_ARTICLE_BASE).contains(&menu_id) {
+        return None;
+    }
+    Some((menu_id - ID_ARTICLE_SOURCE_DIALOG_BASE) as usize)
+}
+
 fn articles_article_menu_id(source_index: usize, item_index: usize) -> i32 {
     ID_ARTICLES_ARTICLE_BASE
         + (source_index as i32 * MAX_MENU_ARTICLES_PER_SOURCE as i32)
@@ -3862,6 +3893,35 @@ fn decode_article_menu_id(menu_id: i32) -> Option<(usize, usize)> {
     let source_index = offset / MAX_MENU_ARTICLES_PER_SOURCE;
     let item_index = offset % MAX_MENU_ARTICLES_PER_SOURCE;
     Some((source_index, item_index))
+}
+
+fn show_article_item(
+    item: &articles::ArticleItem,
+    rt: &Arc<Runtime>,
+    text_ctrl: &TextCtrl,
+    podcast_playback: &Rc<RefCell<PodcastPlaybackState>>,
+) {
+    append_podcast_log(&format!(
+        "article_menu.show_item.begin title={} link={}",
+        item.title, item.link
+    ));
+    match rt.block_on(articles::fetch_article_text(item)) {
+        Ok(text) if !text.trim().is_empty() => {
+            podcast_playback.borrow_mut().selected_episode = None;
+            text_ctrl.set_value(&text);
+            append_podcast_log(&format!(
+                "article_menu.show_item.applied title={} chars={}",
+                item.title,
+                text.chars().count()
+            ));
+        }
+        Ok(_) | Err(_) => {
+            append_podcast_log(&format!(
+                "article_menu.keep_existing_text title={} link={}",
+                item.title, item.link
+            ));
+        }
+    }
 }
 
 fn podcasts_source_menu_id(source_index: usize) -> i32 {
@@ -4564,63 +4624,9 @@ struct ImportedArticleSource {
     folder_path: String,
 }
 
-#[derive(Default)]
-struct ArticleMenuFolder {
-    entries: Vec<ArticleMenuEntry>,
-}
-
-enum ArticleMenuEntry {
-    Folder {
-        label: String,
-        folder: ArticleMenuFolder,
-    },
+enum ArticleFolderDialogEntry {
+    Folder(String),
     Source(usize),
-}
-
-fn insert_article_menu_entry(folder: &mut ArticleMenuFolder, path: &[&str], source_index: usize) {
-    if let Some((head, tail)) = path.split_first() {
-        for entry in &mut folder.entries {
-            if let ArticleMenuEntry::Folder {
-                label,
-                folder: child_folder,
-            } = entry
-                && label == head
-            {
-                insert_article_menu_entry(child_folder, tail, source_index);
-                return;
-            }
-        }
-        let mut child_folder = ArticleMenuFolder::default();
-        insert_article_menu_entry(&mut child_folder, tail, source_index);
-        folder.entries.push(ArticleMenuEntry::Folder {
-            label: (*head).to_string(),
-            folder: child_folder,
-        });
-    } else {
-        folder.entries.push(ArticleMenuEntry::Source(source_index));
-    }
-}
-
-fn insert_article_folder_path(folder: &mut ArticleMenuFolder, path: &[&str]) {
-    if let Some((head, tail)) = path.split_first() {
-        for entry in &mut folder.entries {
-            if let ArticleMenuEntry::Folder {
-                label,
-                folder: child_folder,
-            } = entry
-                && label == head
-            {
-                insert_article_folder_path(child_folder, tail);
-                return;
-            }
-        }
-        let mut child_folder = ArticleMenuFolder::default();
-        insert_article_folder_path(&mut child_folder, tail);
-        folder.entries.push(ArticleMenuEntry::Folder {
-            label: (*head).to_string(),
-            folder: child_folder,
-        });
-    }
 }
 
 fn build_article_source_submenu(
@@ -4668,41 +4674,263 @@ fn build_article_source_submenu(
     submenu
 }
 
-fn append_article_folder_entries(
-    target_menu: &Menu,
-    folder: &ArticleMenuFolder,
+fn article_folder_dialog_entries(
+    current_folder: &str,
+    folders: &[String],
     sources: &[articles::ArticleSource],
-    loading_urls: &HashSet<String>,
     ui: &UiStrings,
-) {
-    for entry in &folder.entries {
-        match entry {
-            ArticleMenuEntry::Folder { label, folder } => {
-                let submenu = Menu::builder().build();
-                append_article_folder_entries(&submenu, folder, sources, loading_urls, ui);
-                if submenu.get_menu_items().is_empty() {
-                    let _ = submenu.append(
-                        ID_ARTICLES_SOURCE_BASE - 1,
-                        &ui.folder_empty,
-                        &ui.folder_empty,
-                        ItemKind::Normal,
-                    );
-                    let _ = submenu.enable_item(ID_ARTICLES_SOURCE_BASE - 1, false);
-                }
-                let folder_label = sanitize_dynamic_menu_label(label, &ui.folder_label);
-                let _ = target_menu.append_submenu(submenu, &folder_label, &folder_label);
-            }
-            ArticleMenuEntry::Source(source_index) => {
-                if let Some(source) = sources.get(*source_index) {
-                    let submenu =
-                        build_article_source_submenu(*source_index, source, loading_urls, ui);
-                    let label =
-                        sanitize_dynamic_menu_label(&article_source_label(source), &source.url);
-                    let _ = target_menu.append_submenu(submenu, &label, &source.url);
-                }
-            }
+) -> Vec<(String, ArticleFolderDialogEntry)> {
+    let mut entries = current_article_folder_children(current_folder, folders, sources)
+        .into_iter()
+        .map(|folder_path| {
+            (
+                article_folder_display_name(ui, &folder_path),
+                ArticleFolderDialogEntry::Folder(folder_path),
+            )
+        })
+        .collect::<Vec<_>>();
+
+    entries.extend(
+        sources
+            .iter()
+            .enumerate()
+            .filter(|(_, source)| {
+                normalize_article_folder_path(&source.folder_path) == current_folder
+            })
+            .map(|(source_index, source)| {
+                (
+                    article_source_label(source),
+                    ArticleFolderDialogEntry::Source(source_index),
+                )
+            }),
+    );
+
+    entries
+}
+
+fn article_folder_catalog(folders: &[String], sources: &[articles::ArticleSource]) -> Vec<String> {
+    let mut all_folders = normalized_article_folders(folders, sources);
+    all_folders.sort_by_key(|folder| normalized_sort_key(folder));
+    all_folders
+}
+
+fn build_article_folder_submenu(
+    folder_path: &str,
+    folders: &[String],
+    sources: &[articles::ArticleSource],
+    ui: &UiStrings,
+) -> Menu {
+    let submenu = Menu::builder().build();
+    let folder_catalog = article_folder_catalog(folders, sources);
+
+    for child_folder in current_article_folder_children(folder_path, folders, sources) {
+        if let Some(folder_index) = folder_catalog
+            .iter()
+            .position(|folder| folder == &child_folder)
+        {
+            let label = sanitize_dynamic_menu_label(
+                &article_folder_display_name(ui, &child_folder),
+                &ui.folder_label,
+            );
+            let _ = submenu.append(
+                article_folder_dialog_menu_id(folder_index),
+                &label,
+                &child_folder,
+                ItemKind::Normal,
+            );
         }
     }
+
+    for (source_index, source) in sources
+        .iter()
+        .enumerate()
+        .filter(|(_, source)| normalize_article_folder_path(&source.folder_path) == folder_path)
+    {
+        let label = sanitize_dynamic_menu_label(&article_source_label(source), &source.url);
+        let _ = submenu.append(
+            article_source_dialog_menu_id(source_index),
+            &label,
+            &source.url,
+            ItemKind::Normal,
+        );
+    }
+
+    if submenu.get_menu_items().is_empty() {
+        let _ = submenu.append(
+            ID_ARTICLES_SOURCE_BASE - 1,
+            &ui.folder_empty,
+            &ui.folder_empty,
+            ItemKind::Normal,
+        );
+        let _ = submenu.enable_item(ID_ARTICLES_SOURCE_BASE - 1, false);
+    }
+
+    submenu
+}
+
+fn open_article_source_items_dialog(
+    parent: &Frame,
+    source: &articles::ArticleSource,
+    source_index: usize,
+    loading_urls: &HashSet<String>,
+) -> Option<articles::ArticleItem> {
+    let ui = current_ui_strings();
+    if source.items.is_empty() {
+        let message = if loading_urls.contains(&source.url) {
+            ui.wait_loading_articles.clone()
+        } else {
+            ui.no_articles_available.clone()
+        };
+        show_message_dialog(parent, &article_source_label(source), &message);
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, &article_source_label(source))
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(620, 180)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.menu_articles)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice = Choice::builder(&panel).build();
+    for item in source.items.iter().take(MAX_MENU_ARTICLES_PER_SOURCE) {
+        let label = sanitize_dynamic_menu_label(&item.title, &item.link);
+        choice.append(&label);
+    }
+    choice.set_selection(0);
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        choice
+            .get_selection()
+            .and_then(|selection| source.items.get(selection as usize).cloned())
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    let _ = source_index;
+    result
+}
+
+fn open_article_folder_contents_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    loading_urls: &HashSet<String>,
+    folder_path: &str,
+) -> Option<articles::ArticleItem> {
+    let ui = current_ui_strings();
+    let (sources, folders) = {
+        let locked = settings.lock().unwrap();
+        (
+            locked.article_sources.clone(),
+            locked.article_folders.clone(),
+        )
+    };
+    let folder_path = normalize_article_folder_path(folder_path);
+    let entries = article_folder_dialog_entries(&folder_path, &folders, &sources, ui);
+    if entries.is_empty() {
+        show_message_dialog(
+            parent,
+            &article_folder_display_name(ui, &folder_path),
+            &ui.folder_empty,
+        );
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, &article_folder_display_name(ui, &folder_path))
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(620, 180)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.folder_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice = Choice::builder(&panel).build();
+    for (label, _) in &entries {
+        choice.append(label);
+    }
+    choice.set_selection(0);
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let result = if dialog.show_modal() == ID_OK {
+        choice
+            .get_selection()
+            .and_then(|selection| entries.get(selection as usize))
+            .and_then(|(_, entry)| match entry {
+                ArticleFolderDialogEntry::Folder(folder) => {
+                    open_article_folder_contents_dialog(parent, settings, loading_urls, folder)
+                }
+                ArticleFolderDialogEntry::Source(source_index) => {
+                    sources.get(*source_index).and_then(|source| {
+                        open_article_source_items_dialog(
+                            parent,
+                            source,
+                            *source_index,
+                            loading_urls,
+                        )
+                    })
+                }
+            })
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
 }
 
 fn rebuild_articles_menu(
@@ -4767,16 +4995,27 @@ fn rebuild_articles_menu(
             locked.article_folders.clone(),
         )
     };
-    let mut root_folder = ArticleMenuFolder::default();
-    for folder in &folders {
-        let folder_segments = article_folder_segments(folder);
-        insert_article_folder_path(&mut root_folder, &folder_segments);
+
+    let root_folders = current_article_folder_children("", &folders, &sources);
+    for (folder_index, folder_path) in root_folders.iter().enumerate() {
+        let folder_label = sanitize_dynamic_menu_label(
+            &article_folder_display_name(ui, folder_path),
+            &ui.folder_label,
+        );
+        let submenu = build_article_folder_submenu(folder_path, &folders, &sources, ui);
+        let _ = articles_menu.append_submenu(submenu, &folder_label, folder_path);
+        let _ = folder_index;
     }
-    for (source_index, source) in sources.iter().enumerate() {
-        let folder_segments = article_folder_segments(&source.folder_path);
-        insert_article_menu_entry(&mut root_folder, &folder_segments, source_index);
+
+    for (source_index, source) in sources
+        .iter()
+        .enumerate()
+        .filter(|(_, source)| normalize_article_folder_path(&source.folder_path).is_empty())
+    {
+        let submenu = build_article_source_submenu(source_index, source, loading_urls, ui);
+        let label = sanitize_dynamic_menu_label(&article_source_label(source), &source.url);
+        let _ = articles_menu.append_submenu(submenu, &label, &source.url);
     }
-    append_article_folder_entries(articles_menu, &root_folder, &sources, loading_urls, ui);
 }
 
 fn rebuild_podcasts_menu(
@@ -5521,43 +5760,68 @@ fn escape_opml_attr(value: &str) -> String {
 
 fn write_article_opml_folder(
     file: &mut std::fs::File,
-    folder: &ArticleMenuFolder,
+    current_folder: &str,
+    folders: &[String],
     sources: &[articles::ArticleSource],
     depth: usize,
 ) -> Result<(), String> {
     let indent = "  ".repeat(depth);
     let child_indent = "  ".repeat(depth + 1);
 
-    for entry in &folder.entries {
-        match entry {
-            ArticleMenuEntry::Folder { label, folder } => {
-                writeln!(
-                    file,
-                    "{indent}<outline text=\"{}\" title=\"{}\">",
-                    escape_opml_attr(label),
-                    escape_opml_attr(label)
-                )
-                .map_err(|err| err.to_string())?;
-                write_article_opml_folder(file, folder, sources, depth + 1)?;
-                writeln!(file, "{indent}</outline>").map_err(|err| err.to_string())?;
-            }
-            ArticleMenuEntry::Source(source_index) => {
-                if let Some(source) = sources.get(*source_index) {
-                    let title = article_source_label(source);
-                    writeln!(
-                        file,
-                        "{child_indent}<outline text=\"{}\" title=\"{}\" xmlUrl=\"{}\" />",
-                        escape_opml_attr(&title),
-                        escape_opml_attr(&title),
-                        escape_opml_attr(&source.url)
-                    )
-                    .map_err(|err| err.to_string())?;
-                }
-            }
-        }
+    for folder_path in current_article_folder_children(current_folder, folders, sources) {
+        let label = article_folder_segments(&folder_path)
+            .last()
+            .copied()
+            .unwrap_or(folder_path.as_str());
+        writeln!(
+            file,
+            "{indent}<outline text=\"{}\" title=\"{}\">",
+            escape_opml_attr(label),
+            escape_opml_attr(label)
+        )
+        .map_err(|err| err.to_string())?;
+        write_article_opml_folder(file, &folder_path, folders, sources, depth + 1)?;
+        writeln!(file, "{indent}</outline>").map_err(|err| err.to_string())?;
+    }
+
+    for source in sources
+        .iter()
+        .filter(|source| normalize_article_folder_path(&source.folder_path) == current_folder)
+    {
+        let title = article_source_label(source);
+        writeln!(
+            file,
+            "{child_indent}<outline text=\"{}\" title=\"{}\" xmlUrl=\"{}\" />",
+            escape_opml_attr(&title),
+            escape_opml_attr(&title),
+            escape_opml_attr(&source.url)
+        )
+        .map_err(|err| err.to_string())?;
     }
 
     Ok(())
+}
+
+fn export_article_sources_to_opml(
+    path: &Path,
+    settings: &Arc<Mutex<Settings>>,
+) -> Result<usize, String> {
+    let (sources, folders) = {
+        let locked = settings.lock().unwrap();
+        (
+            locked.article_sources.clone(),
+            locked.article_folders.clone(),
+        )
+    };
+    let mut file = std::fs::File::create(path).map_err(|err| err.to_string())?;
+    writeln!(
+        file,
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n<title>Sonarpad Articles</title>\n</head>\n<body>"
+    )
+    .map_err(|err| err.to_string())?;
+    write_article_opml_folder(&mut file, "", &folders, &sources, 1)?;
+    writeln!(file, "</body>\n</opml>").map_err(|err| err.to_string())?;
+    Ok(sources.len())
 }
 
 fn import_article_sources_from_file(
@@ -5610,11 +5874,11 @@ fn import_article_sources_from_file(
             });
             added_urls.push(normalized_url);
         }
-        if added_urls.is_empty() {
-            return Ok(0);
-        }
-        locked.save();
     }
+    if added_urls.is_empty() {
+        return Ok(0);
+    }
+    settings.lock().unwrap().save();
 
     let added_count = added_urls.len();
     article_menu_state.lock().unwrap().dirty = true;
@@ -5623,37 +5887,6 @@ fn import_article_sources_from_file(
     }
 
     Ok(added_count)
-}
-
-fn export_article_sources_to_opml(
-    path: &Path,
-    settings: &Arc<Mutex<Settings>>,
-) -> Result<usize, String> {
-    let (sources, folders) = {
-        let locked = settings.lock().unwrap();
-        (
-            locked.article_sources.clone(),
-            locked.article_folders.clone(),
-        )
-    };
-    let mut file = std::fs::File::create(path).map_err(|err| err.to_string())?;
-    writeln!(
-        file,
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n<title>Sonarpad Articles</title>\n</head>\n<body>"
-    )
-    .map_err(|err| err.to_string())?;
-    let mut root_folder = ArticleMenuFolder::default();
-    for folder in &folders {
-        let folder_segments = article_folder_segments(folder);
-        insert_article_folder_path(&mut root_folder, &folder_segments);
-    }
-    for (source_index, source) in sources.iter().enumerate() {
-        let folder_segments = article_folder_segments(&source.folder_path);
-        insert_article_menu_entry(&mut root_folder, &folder_segments, source_index);
-    }
-    write_article_opml_folder(&mut file, &root_folder, &sources, 1)?;
-    writeln!(file, "</body>\n</opml>").map_err(|err| err.to_string())?;
-    Ok(sources.len())
 }
 
 fn edit_article_source(
@@ -7347,6 +7580,7 @@ fn main() {
     let article_menu_state = Arc::new(Mutex::new(ArticleMenuState {
         dirty: true,
         loading_urls: HashSet::new(),
+        pending_dialog: None,
     }));
     let podcast_menu_state = Arc::new(Mutex::new(PodcastMenuState {
         dirty: true,
@@ -7595,14 +7829,20 @@ fn main() {
         let podcast_menu_state_timer = Arc::clone(&podcast_menu_state);
         let radio_menu_state_timer = Arc::clone(&radio_menu_state);
         let podcast_playback_timer = Rc::clone(&podcast_playback);
+        let rt_articles_timer = Arc::clone(&rt);
+        let tc_articles_timer = text_ctrl;
         let timer_tick = Rc::clone(&timer);
         let frame_timer = frame;
 
         timer_tick.on_tick(move |_| {
             let tts_status = pb_timer.lock().unwrap().status;
-            let podcast_state = podcast_playback_timer.borrow();
-            let podcast_status = podcast_state.status;
-            let podcast_mode = podcast_state.selected_episode.is_some();
+            let (podcast_status, podcast_mode) = {
+                let podcast_state = podcast_playback_timer.borrow();
+                (
+                    podcast_state.status,
+                    podcast_state.selected_episode.is_some(),
+                )
+            };
             let start_label = start_button_label(podcast_mode);
             if btn_start_timer.get_label() != start_label {
                 btn_start_timer.set_label(&start_label);
@@ -7631,17 +7871,73 @@ fn main() {
                 return;
             }
 
-            let article_loading_urls = {
+            let (article_loading_urls, pending_article_dialog) = {
                 let mut article_state = article_menu_state_timer.lock().unwrap();
-                if article_state.dirty {
+                let loading_urls = if article_state.dirty {
                     article_state.dirty = false;
                     Some(article_state.loading_urls.clone())
                 } else {
                     None
-                }
+                };
+                let pending_dialog = article_state.pending_dialog.take();
+                (loading_urls, pending_dialog)
             };
             if let Some(loading_urls) = article_loading_urls {
                 rebuild_articles_menu(&articles_menu_timer, &settings_timer, &loading_urls);
+            }
+            if let Some(pending_dialog) = pending_article_dialog {
+                append_podcast_log("article_menu.pending_dialog.open");
+                let loading_urls = article_menu_state_timer
+                    .lock()
+                    .unwrap()
+                    .loading_urls
+                    .clone();
+                let selected_item = match pending_dialog {
+                    PendingArticleMenuDialog::Folder(folder_path) => {
+                        append_podcast_log(&format!(
+                            "article_menu.pending_dialog.folder path={folder_path}"
+                        ));
+                        open_article_folder_contents_dialog(
+                            &frame_timer,
+                            &settings_timer,
+                            &loading_urls,
+                            &folder_path,
+                        )
+                    }
+                    PendingArticleMenuDialog::Source(source_index) => settings_timer
+                        .lock()
+                        .unwrap()
+                        .article_sources
+                        .get(source_index)
+                        .cloned()
+                        .and_then(|source| {
+                            append_podcast_log(&format!(
+                                "article_menu.pending_dialog.source index={} title={}",
+                                source_index,
+                                article_source_label(&source)
+                            ));
+                            open_article_source_items_dialog(
+                                &frame_timer,
+                                &source,
+                                source_index,
+                                &loading_urls,
+                            )
+                        }),
+                };
+                if let Some(item) = selected_item {
+                    append_podcast_log(&format!(
+                        "article_menu.pending_dialog.selected title={} link={}",
+                        item.title, item.link
+                    ));
+                    show_article_item(
+                        &item,
+                        &rt_articles_timer,
+                        &tc_articles_timer,
+                        &podcast_playback_timer,
+                    );
+                } else {
+                    append_podcast_log("article_menu.pending_dialog.no_selection");
+                }
             }
 
             let podcast_menu_snapshot = {
@@ -7837,6 +8133,22 @@ fn main() {
                         }
                     }
                 }
+            } else if let Some(folder_index) = decode_article_folder_dialog_menu_id(event.get_id()) {
+                let (sources, folders) = {
+                    let locked = settings_menu.lock().unwrap();
+                    (
+                        locked.article_sources.clone(),
+                        locked.article_folders.clone(),
+                    )
+                };
+                let folder_catalog = article_folder_catalog(&folders, &sources);
+                if let Some(folder_path) = folder_catalog.get(folder_index) {
+                    article_menu_state_menu.lock().unwrap().pending_dialog =
+                        Some(PendingArticleMenuDialog::Folder(folder_path.clone()));
+                }
+            } else if let Some(source_index) = decode_article_source_dialog_menu_id(event.get_id()) {
+                article_menu_state_menu.lock().unwrap().pending_dialog =
+                    Some(PendingArticleMenuDialog::Source(source_index));
             } else if event.get_id() == ID_ARTICLES_EXPORT_SOURCES {
                 if let Some(path) = open_article_sources_export_dialog(&f_menu) {
                     match export_article_sources_to_opml(&path, &settings_menu) {
@@ -8108,18 +8420,7 @@ fn main() {
                     .and_then(|source| source.items.get(item_index))
                     .cloned();
                 if let Some(item) = item {
-                    match rt_articles_menu.block_on(articles::fetch_article_text(&item)) {
-                        Ok(text) if !text.trim().is_empty() => {
-                            podcast_selection_menu.borrow_mut().selected_episode = None;
-                            tc_menu.set_value(&text);
-                        }
-                        Ok(_) | Err(_) => {
-                            append_podcast_log(&format!(
-                                "article_menu.keep_existing_text title={} link={}",
-                                item.title, item.link
-                            ));
-                        }
-                    }
+                    show_article_item(&item, &rt_articles_menu, &tc_menu, &podcast_selection_menu);
                 }
             }
         });

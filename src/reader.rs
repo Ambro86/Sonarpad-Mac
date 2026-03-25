@@ -530,8 +530,23 @@ fn is_known_js_noise_line(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
     lower.contains("window.datawrapper")
         || lower.contains("datawrapper-height")
+        || lower.contains("window.addeventlistener('load'")
+        || lower.contains("window.addeventlistener(\"load\"")
         || lower.contains("addeventlistener(\"message\"")
         || lower.contains("addeventlistener('message'")
+        || lower.contains("ifq-post__label-soft-registration")
+        || lower.contains("softregwall")
+        || lower.contains("window.datalayer")
+        || lower.contains("event: 'show_paywall'")
+        || lower.contains("event:\"show_paywall\"")
+        || lower.contains("category: 'regwall'")
+        || lower.contains("category:\"regwall\"")
+        || lower.contains("action: 'overlay'")
+        || lower.contains("action:\"overlay\"")
+        || lower.contains("visualizzazione soft regwall")
+        || lower.contains("window.fscuser")
+        || lower == "});"
+        || lower == "}"
         || (lower.starts_with("{\"type\":\"main\",\"entry\":[")
             && lower.contains("\"categoryname\":\"undefined\""))
 }
