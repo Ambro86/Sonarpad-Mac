@@ -65,7 +65,6 @@ const ID_ARTICLES_REORDER_SOURCES: i32 = 2103;
 const ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY: i32 = 2104;
 const ID_ARTICLES_IMPORT_SOURCES: i32 = 2105;
 const ID_ARTICLES_EXPORT_SOURCES: i32 = 2106;
-const ID_ARTICLES_NAV_BACK: i32 = 2107;
 const ID_PODCASTS_ADD: i32 = 2300;
 const ID_PODCASTS_DELETE: i32 = 2301;
 const ID_PODCASTS_REORDER_SOURCES: i32 = 2302;
@@ -87,10 +86,6 @@ const ID_RADIO_FAVORITE_BASE: i32 = 6000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
 const ID_ARTICLES_SOURCE_BASE: i32 = 2200;
-#[cfg(target_os = "macos")]
-const ID_ARTICLES_FOLDER_BASE: i32 = 12000;
-#[cfg(target_os = "macos")]
-const ID_ARTICLES_SOURCE_VIEW_BASE: i32 = 14000;
 const ID_ARTICLES_ARTICLE_BASE: i32 = 10000;
 const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
@@ -158,15 +153,6 @@ struct TtsPlaybackCache {
 struct ArticleMenuState {
     dirty: bool,
     loading_urls: HashSet<String>,
-    #[cfg(target_os = "macos")]
-    navigation: ArticleMenuNavigation,
-}
-
-#[cfg(target_os = "macos")]
-#[derive(Default)]
-struct ArticleMenuNavigation {
-    current_folder: String,
-    current_source: Option<usize>,
 }
 
 struct PodcastMenuState {
@@ -907,12 +893,7 @@ fn refresh_localized_main_ui(
     }
 
     let article_loading_urls = article_menu_state.lock().unwrap().loading_urls.clone();
-    rebuild_articles_menu(
-        articles_menu,
-        settings,
-        article_menu_state,
-        &article_loading_urls,
-    );
+    rebuild_articles_menu(articles_menu, settings, &article_loading_urls);
 
     let (podcast_loading_urls, category_results, category_loading) = {
         let state = podcast_menu_state.lock().unwrap();
@@ -3867,42 +3848,6 @@ fn articles_source_menu_id(source_index: usize) -> i32 {
     ID_ARTICLES_SOURCE_BASE + source_index as i32
 }
 
-#[cfg(target_os = "macos")]
-fn articles_folder_menu_id(folder_index: usize) -> i32 {
-    ID_ARTICLES_FOLDER_BASE + folder_index as i32
-}
-
-#[cfg(target_os = "macos")]
-fn decode_articles_folder_menu_id(menu_id: i32) -> Option<usize> {
-    if menu_id < ID_ARTICLES_FOLDER_BASE {
-        return None;
-    }
-    Some((menu_id - ID_ARTICLES_FOLDER_BASE) as usize)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn decode_articles_folder_menu_id(_menu_id: i32) -> Option<usize> {
-    None
-}
-
-#[cfg(target_os = "macos")]
-fn articles_source_view_menu_id(source_index: usize) -> i32 {
-    ID_ARTICLES_SOURCE_VIEW_BASE + source_index as i32
-}
-
-#[cfg(target_os = "macos")]
-fn decode_articles_source_view_menu_id(menu_id: i32) -> Option<usize> {
-    if menu_id < ID_ARTICLES_SOURCE_VIEW_BASE || menu_id >= ID_ARTICLES_ARTICLE_BASE {
-        return None;
-    }
-    Some((menu_id - ID_ARTICLES_SOURCE_VIEW_BASE) as usize)
-}
-
-#[cfg(not(target_os = "macos"))]
-fn decode_articles_source_view_menu_id(_menu_id: i32) -> Option<usize> {
-    None
-}
-
 fn articles_article_menu_id(source_index: usize, item_index: usize) -> i32 {
     ID_ARTICLES_ARTICLE_BASE
         + (source_index as i32 * MAX_MENU_ARTICLES_PER_SOURCE as i32)
@@ -4723,51 +4668,6 @@ fn build_article_source_submenu(
     submenu
 }
 
-#[cfg(target_os = "macos")]
-fn append_article_source_items(
-    target_menu: &Menu,
-    source_index: usize,
-    source: &articles::ArticleSource,
-    loading_urls: &HashSet<String>,
-    ui: &UiStrings,
-) {
-    if source.items.is_empty() {
-        let placeholder_id = articles_source_menu_id(source_index);
-        let placeholder_label = if loading_urls.contains(&source.url) {
-            &ui.loading_articles
-        } else {
-            &ui.no_articles_available
-        };
-        let placeholder_help = if loading_urls.contains(&source.url) {
-            &ui.wait_loading_articles
-        } else {
-            &ui.refresh_source_for_articles
-        };
-        let _ = target_menu.append(
-            placeholder_id,
-            placeholder_label,
-            placeholder_help,
-            ItemKind::Normal,
-        );
-        let _ = target_menu.enable_item(placeholder_id, false);
-    } else {
-        for (item_index, item) in source
-            .items
-            .iter()
-            .take(MAX_MENU_ARTICLES_PER_SOURCE)
-            .enumerate()
-        {
-            let item_label = sanitize_dynamic_menu_label(&item.title, &item.link);
-            let _ = target_menu.append(
-                articles_article_menu_id(source_index, item_index),
-                &item_label,
-                &item.link,
-                ItemKind::Normal,
-            );
-        }
-    }
-}
-
 fn append_article_folder_entries(
     target_menu: &Menu,
     folder: &ArticleMenuFolder,
@@ -4808,7 +4708,6 @@ fn append_article_folder_entries(
 fn rebuild_articles_menu(
     articles_menu: &Menu,
     settings: &Arc<Mutex<Settings>>,
-    article_menu_state: &Arc<Mutex<ArticleMenuState>>,
     loading_urls: &HashSet<String>,
 ) {
     let ui_language = settings.lock().unwrap().ui_language.clone();
@@ -4868,100 +4767,6 @@ fn rebuild_articles_menu(
             locked.article_folders.clone(),
         )
     };
-
-    #[cfg(not(target_os = "macos"))]
-    let _ = article_menu_state;
-
-    #[cfg(target_os = "macos")]
-    {
-        let mut state = article_menu_state.lock().unwrap();
-        if let Some(source_index) = state.navigation.current_source
-            && source_index >= sources.len()
-        {
-            state.navigation.current_source = None;
-        }
-
-        if let Some(source_index) = state.navigation.current_source {
-            let back_label = if ui_language == "it" {
-                "Indietro"
-            } else {
-                "Back"
-            };
-            let _ = articles_menu.append(
-                ID_ARTICLES_NAV_BACK,
-                back_label,
-                back_label,
-                ItemKind::Normal,
-            );
-            articles_menu.append_separator();
-            if let Some(source) = sources.get(source_index) {
-                append_article_source_items(articles_menu, source_index, source, loading_urls, ui);
-            }
-            return;
-        }
-
-        let current_folder = state.navigation.current_folder.clone();
-        let child_folders = current_article_folder_children(&current_folder, &folders, &sources);
-        let source_entries = sources
-            .iter()
-            .enumerate()
-            .filter(|(_, source)| {
-                normalize_article_folder_path(&source.folder_path) == current_folder
-            })
-            .collect::<Vec<_>>();
-
-        if !current_folder.is_empty() {
-            let back_label = if ui_language == "it" {
-                "Indietro"
-            } else {
-                "Back"
-            };
-            let parent_folder = article_parent_folder(&current_folder).unwrap_or_default();
-            let parent_label = article_folder_display_name(ui, &parent_folder);
-            let _ = articles_menu.append(
-                ID_ARTICLES_NAV_BACK,
-                &format!("{back_label}: {parent_label}"),
-                back_label,
-                ItemKind::Normal,
-            );
-            articles_menu.append_separator();
-        }
-
-        for (folder_index, folder_path) in child_folders.iter().enumerate() {
-            let folder_label = sanitize_dynamic_menu_label(
-                &article_folder_display_name(ui, folder_path),
-                &ui.folder_label,
-            );
-            let _ = articles_menu.append(
-                articles_folder_menu_id(folder_index),
-                &folder_label,
-                folder_path,
-                ItemKind::Normal,
-            );
-        }
-
-        for &(source_index, source) in &source_entries {
-            let label = sanitize_dynamic_menu_label(&article_source_label(source), &source.url);
-            let _ = articles_menu.append(
-                articles_source_view_menu_id(source_index),
-                &label,
-                &source.url,
-                ItemKind::Normal,
-            );
-        }
-
-        if child_folders.is_empty() && source_entries.is_empty() {
-            let _ = articles_menu.append(
-                ID_ARTICLES_SOURCE_BASE - 1,
-                &ui.folder_empty,
-                &ui.folder_empty,
-                ItemKind::Normal,
-            );
-            let _ = articles_menu.enable_item(ID_ARTICLES_SOURCE_BASE - 1, false);
-        }
-        return;
-    }
-
     let mut root_folder = ArticleMenuFolder::default();
     for folder in &folders {
         let folder_segments = article_folder_segments(folder);
@@ -7542,8 +7347,6 @@ fn main() {
     let article_menu_state = Arc::new(Mutex::new(ArticleMenuState {
         dirty: true,
         loading_urls: HashSet::new(),
-        #[cfg(target_os = "macos")]
-        navigation: ArticleMenuNavigation::default(),
     }));
     let podcast_menu_state = Arc::new(Mutex::new(PodcastMenuState {
         dirty: true,
@@ -7687,12 +7490,7 @@ fn main() {
         );
 
         let articles_menu = Menu::builder().build();
-        rebuild_articles_menu(
-            &articles_menu,
-            &settings,
-            &article_menu_state,
-            &HashSet::new(),
-        );
+        rebuild_articles_menu(&articles_menu, &settings, &HashSet::new());
         let articles_menu_timer = Menu::from(articles_menu.as_const_ptr());
         let articles_menu_settings = Menu::from(articles_menu.as_const_ptr());
         let podcasts_menu = Menu::builder().build();
@@ -7843,12 +7641,7 @@ fn main() {
                 }
             };
             if let Some(loading_urls) = article_loading_urls {
-                rebuild_articles_menu(
-                    &articles_menu_timer,
-                    &settings_timer,
-                    &article_menu_state_timer,
-                    &loading_urls,
-                );
+                rebuild_articles_menu(&articles_menu_timer, &settings_timer, &loading_urls);
             }
 
             let podcast_menu_snapshot = {
@@ -8020,47 +7813,6 @@ fn main() {
                     &ui.sorted_articles_title,
                     &ui.sorted_articles_message,
                 );
-            } else if event.get_id() == ID_ARTICLES_NAV_BACK {
-                #[cfg(target_os = "macos")]
-                {
-                    let mut state = article_menu_state_menu.lock().unwrap();
-                    if state.navigation.current_source.is_some() {
-                        state.navigation.current_source = None;
-                    } else {
-                        state.navigation.current_folder =
-                            article_parent_folder(&state.navigation.current_folder).unwrap_or_default();
-                    }
-                    state.dirty = true;
-                }
-            } else if let Some(_folder_index) = decode_articles_folder_menu_id(event.get_id()) {
-                #[cfg(target_os = "macos")]
-                {
-                    let (sources, folders) = {
-                        let locked = settings_menu.lock().unwrap();
-                        (
-                            locked.article_sources.clone(),
-                            locked.article_folders.clone(),
-                        )
-                    };
-                    let mut state = article_menu_state_menu.lock().unwrap();
-                    let child_folders = current_article_folder_children(
-                        &state.navigation.current_folder,
-                        &folders,
-                        &sources,
-                    );
-                    if let Some(folder_path) = child_folders.get(_folder_index) {
-                        state.navigation.current_folder = folder_path.clone();
-                        state.navigation.current_source = None;
-                        state.dirty = true;
-                    }
-                }
-            } else if let Some(_source_index) = decode_articles_source_view_menu_id(event.get_id()) {
-                #[cfg(target_os = "macos")]
-                {
-                    let mut state = article_menu_state_menu.lock().unwrap();
-                    state.navigation.current_source = Some(_source_index);
-                    state.dirty = true;
-                }
             } else if event.get_id() == ID_ARTICLES_IMPORT_SOURCES {
                 if let Some(path) = open_article_sources_import_dialog(&f_menu) {
                     match import_article_sources_from_file(
@@ -9494,6 +9246,27 @@ fn main() {
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
             frame.on_key_down(move |event| {
+                handle_shortcut_event(
+                    event,
+                    &shortcut_actions,
+                    &podcast_seek_back_shortcut,
+                    &podcast_seek_forward_shortcut,
+                );
+            });
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            let shortcut_actions = ShortcutActions {
+                start: Rc::clone(&start_action),
+                play_pause: Rc::clone(&play_action),
+                stop: Rc::clone(&stop_action),
+                save: Rc::clone(&save_action),
+                settings: Rc::clone(&settings_action),
+            };
+            let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
+            let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
+            text_ctrl.on_key_down(move |event| {
                 handle_shortcut_event(
                     event,
                     &shortcut_actions,
