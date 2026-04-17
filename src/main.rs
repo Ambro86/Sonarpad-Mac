@@ -1020,7 +1020,7 @@ fn refresh_localized_main_ui(
 
 #[cfg(target_os = "macos")]
 fn command_shortcut_down(key_event: &KeyboardEvent) -> bool {
-    key_event.cmd_down() || key_event.meta_down()
+    key_event.cmd_down()
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -1097,7 +1097,11 @@ fn handle_shortcut_event(
                         return;
                     }
                     _ if matches_settings_shortcut(key_code, unicode_key) => {
-                        append_podcast_log("mac_shortcut.trigger settings");
+                        append_podcast_log(&format!(
+                            "mac_shortcut.trigger settings key_code={key_code} unicode_key={unicode_key} cmd_down={} meta_down={}",
+                            key_event.cmd_down(),
+                            key_event.meta_down()
+                        ));
                         (actions.settings)();
                         return;
                     }
@@ -1640,6 +1644,11 @@ fn set_macos_default_file_associations() -> Result<(), String> {
     let bundle_path = current_macos_app_bundle_path()
         .ok_or_else(|| "bundle app macOS non trovato".to_string())?;
     let script_path = write_macos_file_associations_script()?;
+    append_podcast_log(&format!(
+        "mac_file_assoc.begin bundle={} script={}",
+        bundle_path.display(),
+        script_path.display()
+    ));
     let output = Command::new("xcrun")
         .arg("swift")
         .arg(&script_path)
@@ -1654,10 +1663,15 @@ fn set_macos_default_file_associations() -> Result<(), String> {
         );
     }
     if output.status.success() {
+        append_podcast_log("mac_file_assoc.success");
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        append_podcast_log(&format!(
+            "mac_file_assoc.failed status={} stdout={} stderr={}",
+            output.status, stdout, stderr
+        ));
         if !stderr.is_empty() {
             Err(stderr)
         } else if !stdout.is_empty() {
@@ -1687,6 +1701,12 @@ guard let bundle = Bundle(url: bundleUrl) else {
 guard let bundleIdentifier = bundle.bundleIdentifier, !bundleIdentifier.isEmpty else {
     fputs("missing bundle identifier\n", stderr)
     exit(4)
+}
+
+let registerStatus = LSRegisterURL(bundleUrl as CFURL, true)
+if registerStatus != noErr {
+    fputs("bundle registration failed: \(registerStatus)\n", stderr)
+    exit(5)
 }
 
 let extensions = ["txt", "doc", "docx", "pdf", "epub", "rtf", "html", "htm", "xls", "xlsx", "ods", "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp", "heic"]
