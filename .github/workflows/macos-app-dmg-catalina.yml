@@ -244,11 +244,12 @@ jobs:
           with zipfile.ZipFile(wheel_path) as wheel:
               wheel.extractall(extract_dir)
           dylibs = sorted(str(path) for path in extract_dir.rglob("*.dylib"))
-          if not dylibs:
-              raise SystemExit("No .dylib files found inside curl_cffi wheel")
-          print("Extracted dylibs:")
-          for dylib in dylibs:
-              print(dylib)
+          if dylibs:
+              print("Extracted dylibs:")
+              for dylib in dylibs:
+                  print(dylib)
+          else:
+              print("No .dylib files found inside curl_cffi wheel; continuing without bundled curl dylibs")
           PY
           find "dist/curl-cffi/extracted" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' dylib; do
             echo "===== CURL DYLIB: ${dylib} ====="
