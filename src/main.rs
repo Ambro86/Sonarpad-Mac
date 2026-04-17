@@ -1711,6 +1711,7 @@ if registerStatus != noErr {
 
 let extensions = ["txt", "doc", "docx", "pdf", "epub", "rtf", "html", "htm", "xls", "xlsx", "ods", "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp", "heic"]
 var failures: [String] = []
+let nonFatalPermissionExtensions: Set<String> = ["html", "htm"]
 
 for fileExtension in extensions {
     guard let type = UTType(filenameExtension: fileExtension) else {
@@ -1738,6 +1739,9 @@ for fileExtension in extensions {
     }
 
     if !applied {
+        if nonFatalPermissionExtensions.contains(fileExtension), lastStatus == -54 {
+            continue
+        }
         failures.append("\(fileExtension): \(lastStatus)")
     }
 }
@@ -4324,67 +4328,127 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
 }
 
 #[cfg(any(target_os = "macos", windows))]
-fn podcast_log_path() -> Option<PathBuf> {
+fn podcast_log_paths() -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+
     #[cfg(target_os = "macos")]
     {
-        return app_storage_dir().map(|dir| dir.join("log.txt"));
+        if let Some(dir) = app_storage_dir() {
+            paths.push(dir.join("log.txt"));
+        }
     }
 
     #[cfg(windows)]
     {
-        std::env::var_os("USERPROFILE").map(|home| {
-            PathBuf::from(home)
-                .join("Documents")
-                .join("Sonarpad")
-                .join("log.txt")
-        })
+        if let Some(home) = std::env::var_os("USERPROFILE") {
+            paths.push(
+                PathBuf::from(home)
+                    .join("Documents")
+                    .join("Sonarpad")
+                    .join("log.txt"),
+            );
+        }
     }
+
+    let fallback = PathBuf::from("log.txt");
+    if !paths.iter().any(|path| path == &fallback) {
+        paths.push(fallback);
+    }
+
+    paths
 }
 
 #[cfg(any(target_os = "macos", windows))]
 fn append_podcast_log(message: &str) {
-    let Some(path) = podcast_log_path() else {
+    let paths = podcast_log_paths();
+    if paths.is_empty() {
         println!("ERROR: Cartella documenti non disponibile per il log podcast");
-        return;
-    };
-
-    if let Some(parent) = path.parent()
-        && let Err(err) = std::fs::create_dir_all(parent)
-    {
-        println!(
-            "ERROR: Creazione cartella log podcast {} fallita: {}",
-            parent.display(),
-            err
-        );
         return;
     }
 
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let line = format!("[{timestamp}] {message}\n");
+    let mut wrote_any = false;
+    let mut primary_failure_reasons = Vec::new();
+    let fallback_path = PathBuf::from("log.txt");
 
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&path)
-    {
-        Ok(mut file) => {
-            use std::io::Write;
+    for path in paths {
+        if let Some(parent) = path.parent()
+            && !parent.as_os_str().is_empty()
+            && let Err(err) = std::fs::create_dir_all(parent)
+        {
+            if path != fallback_path {
+                primary_failure_reasons.push(format!(
+                    "path={} create_dir_all_failed={}",
+                    path.display(),
+                    err
+                ));
+            }
+            println!(
+                "ERROR: Creazione cartella log podcast {} fallita: {}",
+                parent.display(),
+                err
+            );
+            continue;
+        }
 
-            if let Err(err) = file.write_all(line.as_bytes()) {
+        match std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+        {
+            Ok(mut file) => {
+                use std::io::Write;
+
+                if let Err(err) = file.write_all(line.as_bytes()) {
+                    if path != fallback_path {
+                        primary_failure_reasons.push(format!(
+                            "path={} write_failed={}",
+                            path.display(),
+                            err
+                        ));
+                    }
+                    println!(
+                        "ERROR: Scrittura log podcast {} fallita: {}",
+                        path.display(),
+                        err
+                    );
+                } else {
+                    if path == fallback_path && !primary_failure_reasons.is_empty() {
+                        let diagnostic_line = format!(
+                            "[{timestamp}] primary_log_path_failed {}\n",
+                            primary_failure_reasons.join(" | ")
+                        );
+                        if let Err(err) = file.write_all(diagnostic_line.as_bytes()) {
+                            println!(
+                                "ERROR: Scrittura log diagnostico {} fallita: {}",
+                                path.display(),
+                                err
+                            );
+                        }
+                    }
+                    wrote_any = true;
+                }
+            }
+            Err(err) => {
+                if path != fallback_path {
+                    primary_failure_reasons.push(format!(
+                        "path={} open_failed={}",
+                        path.display(),
+                        err
+                    ));
+                }
                 println!(
-                    "ERROR: Scrittura log podcast {} fallita: {}",
+                    "ERROR: Apertura log podcast {} fallita: {}",
                     path.display(),
                     err
                 );
             }
         }
-        Err(err) => {
-            println!(
-                "ERROR: Apertura log podcast {} fallita: {}",
-                path.display(),
-                err
-            );
-        }
+    }
+
+    if !wrote_any {
+        println!("ERROR: Nessun log podcast scritto: {message}");
     }
 }
 
