@@ -31,6 +31,7 @@ jobs:
     runs-on: ${{ matrix.runs_on }}
     env:
       CMAKE_ARGS: -DwxUSE_OPENGL=OFF
+      CURL_CFFI_VERSION: "0.7.0"
 
     steps:
       - name: Checkout
@@ -184,7 +185,7 @@ jobs:
               --no-deps \
               --only-binary=:all: \
               --dest dist/curl-cffi \
-              curl_cffi
+              "curl_cffi==${CURL_CFFI_VERSION}"
           fi
           python3 - <<'PY'
           import zipfile
@@ -196,12 +197,11 @@ jobs:
           with zipfile.ZipFile(wheel_path) as wheel:
               wheel.extractall(extract_dir)
           dylibs = sorted(str(path) for path in extract_dir.rglob("*.dylib"))
-          if dylibs:
-              print("Extracted dylibs:")
-              for dylib in dylibs:
-                  print(dylib)
-          else:
-              print("No .dylib files found inside curl_cffi wheel; continuing without bundled curl dylibs")
+          if not dylibs:
+              raise SystemExit("No .dylib files found inside curl_cffi wheel")
+          print("Extracted dylibs:")
+          for dylib in dylibs:
+              print(dylib)
           PY
 
       - name: Package .app and .dmg
