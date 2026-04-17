@@ -459,6 +459,14 @@ struct UiStrings {
     rate_label: String,
     pitch_label: String,
     volume_label: String,
+    #[cfg(target_os = "macos")]
+    file_associations_label: String,
+    #[cfg(target_os = "macos")]
+    file_associations_button: String,
+    #[cfg(target_os = "macos")]
+    file_associations_success_message: String,
+    #[cfg(target_os = "macos")]
+    file_associations_error_message: String,
     ok: String,
     button_start_reading: String,
     button_play_podcast: String,
@@ -668,6 +676,89 @@ fn current_ui_strings() -> &'static UiStrings {
 }
 
 fn get_language_name(locale: &str) -> String {
+    if Settings::load().ui_language == "en" {
+        return get_language_name_en(locale);
+    }
+
+    get_language_name_it(locale)
+}
+
+fn get_language_name_en(locale: &str) -> String {
+    let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
+    match base.as_str() {
+        "af" => "Afrikaans".to_string(),
+        "am" => "Amharic".to_string(),
+        "ar" => "Arabic".to_string(),
+        "az" => "Azerbaijani".to_string(),
+        "bg" => "Bulgarian".to_string(),
+        "bn" => "Bengali".to_string(),
+        "bs" => "Bosnian".to_string(),
+        "ca" => "Catalan".to_string(),
+        "cs" => "Czech".to_string(),
+        "cy" => "Welsh".to_string(),
+        "da" => "Danish".to_string(),
+        "it" => "Italian".to_string(),
+        "en" => "English".to_string(),
+        "fr" => "French".to_string(),
+        "es" => "Spanish".to_string(),
+        "de" => "German".to_string(),
+        "el" => "Greek".to_string(),
+        "et" => "Estonian".to_string(),
+        "fa" => "Persian".to_string(),
+        "fi" => "Finnish".to_string(),
+        "ga" => "Irish".to_string(),
+        "gu" => "Gujarati".to_string(),
+        "he" => "Hebrew".to_string(),
+        "hi" => "Hindi".to_string(),
+        "hr" => "Croatian".to_string(),
+        "hu" => "Hungarian".to_string(),
+        "hy" => "Armenian".to_string(),
+        "id" => "Indonesian".to_string(),
+        "is" => "Icelandic".to_string(),
+        "pt" => "Portuguese".to_string(),
+        "kk" => "Kazakh".to_string(),
+        "km" => "Khmer".to_string(),
+        "kn" => "Kannada".to_string(),
+        "ko" => "Korean".to_string(),
+        "lo" => "Lao".to_string(),
+        "lt" => "Lithuanian".to_string(),
+        "lv" => "Latvian".to_string(),
+        "mk" => "Macedonian".to_string(),
+        "ml" => "Malayalam".to_string(),
+        "mn" => "Mongolian".to_string(),
+        "mr" => "Marathi".to_string(),
+        "ms" => "Malay".to_string(),
+        "mt" => "Maltese".to_string(),
+        "my" => "Burmese".to_string(),
+        "nb" | "no" => "Norwegian".to_string(),
+        "ne" => "Nepali".to_string(),
+        "nl" => "Dutch".to_string(),
+        "pa" => "Punjabi".to_string(),
+        "pl" => "Polish".to_string(),
+        "ro" => "Romanian".to_string(),
+        "ru" => "Russian".to_string(),
+        "sk" => "Slovak".to_string(),
+        "sl" => "Slovenian".to_string(),
+        "sq" => "Albanian".to_string(),
+        "sr" => "Serbian".to_string(),
+        "sv" => "Swedish".to_string(),
+        "sw" => "Swahili".to_string(),
+        "ta" => "Tamil".to_string(),
+        "te" => "Telugu".to_string(),
+        "th" => "Thai".to_string(),
+        "tr" => "Turkish".to_string(),
+        "uk" => "Ukrainian".to_string(),
+        "ur" => "Urdu".to_string(),
+        "uz" => "Uzbek".to_string(),
+        "vi" => "Vietnamese".to_string(),
+        "zh" => "Chinese".to_string(),
+        "ja" => "Japanese".to_string(),
+        "zu" => "Zulu".to_string(),
+        _ => locale.to_string(),
+    }
+}
+
+fn get_language_name_it(locale: &str) -> String {
     let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
     match base.as_str() {
         "af" => "Afrikaans".to_string(),
@@ -1517,6 +1608,114 @@ fn ffmpeg_executable_path() -> Option<PathBuf> {
     None
 }
 
+#[cfg(target_os = "macos")]
+fn current_macos_app_bundle_path() -> Option<PathBuf> {
+    let exe_path = std::env::current_exe().ok()?;
+    for ancestor in exe_path.ancestors() {
+        if ancestor
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
+        {
+            return Some(ancestor.to_path_buf());
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn write_macos_file_associations_script() -> Result<PathBuf, String> {
+    let script_path = std::env::temp_dir().join(format!(
+        "sonarpad_minimal_file_assoc_{}.swift",
+        Uuid::new_v4()
+    ));
+    let mut file = std::fs::File::create(&script_path)
+        .map_err(|err| format!("creazione script associazioni file fallita: {err}"))?;
+    file.write_all(MACOS_FILE_ASSOCIATIONS_SWIFT.as_bytes())
+        .map_err(|err| format!("scrittura script associazioni file fallita: {err}"))?;
+    Ok(script_path)
+}
+
+#[cfg(target_os = "macos")]
+fn set_macos_default_file_associations() -> Result<(), String> {
+    let bundle_path = current_macos_app_bundle_path()
+        .ok_or_else(|| "bundle app macOS non trovato".to_string())?;
+    let script_path = write_macos_file_associations_script()?;
+    let output = Command::new("xcrun")
+        .arg("swift")
+        .arg(&script_path)
+        .arg(&bundle_path)
+        .output()
+        .map_err(|err| format!("avvio helper associazioni file fallito: {err}"))?;
+    if let Err(err) = std::fs::remove_file(&script_path) {
+        eprintln!(
+            "cleanup script associazioni file fallita {}: {}",
+            script_path.display(),
+            err
+        );
+    }
+    if output.status.success() {
+        Ok(())
+    } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !stderr.is_empty() {
+            Err(stderr)
+        } else if !stdout.is_empty() {
+            Err(stdout)
+        } else {
+            Err("registrazione associazioni file non riuscita".to_string())
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+const MACOS_FILE_ASSOCIATIONS_SWIFT: &str = r#"import CoreServices
+import Foundation
+import UniformTypeIdentifiers
+
+guard CommandLine.arguments.count >= 2 else {
+    fputs("missing app bundle path\n", stderr)
+    exit(2)
+}
+
+let bundlePath = CommandLine.arguments[1]
+let bundleUrl = URL(fileURLWithPath: bundlePath)
+guard let bundle = Bundle(url: bundleUrl) else {
+    fputs("unable to load app bundle\n", stderr)
+    exit(3)
+}
+guard let bundleIdentifier = bundle.bundleIdentifier, !bundleIdentifier.isEmpty else {
+    fputs("missing bundle identifier\n", stderr)
+    exit(4)
+}
+
+let extensions = ["txt", "doc", "docx", "pdf", "epub", "rtf", "html", "htm", "xls", "xlsx", "ods", "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp", "heic"]
+var failures: [String] = []
+
+for fileExtension in extensions {
+    guard let type = UTType(filenameExtension: fileExtension) else {
+        failures.append("\(fileExtension): unknown type")
+        continue
+    }
+    let status = LSSetDefaultRoleHandlerForContentType(
+        type.identifier as CFString,
+        LSRolesMask.all,
+        bundleIdentifier as CFString
+    )
+    if status != noErr {
+        failures.append("\(fileExtension): \(status)")
+    }
+}
+
+if failures.isEmpty {
+    print("ok")
+    exit(0)
+}
+
+fputs(failures.joined(separator: "\n") + "\n", stderr)
+exit(1)
+"#;
+
 fn convert_mp3_to_m4b(
     source_mp3: &Path,
     output_m4b: &Path,
@@ -2344,7 +2543,18 @@ fn confirm_delete_dialog(parent: &Frame, title: &str, message: &str) -> bool {
 fn should_load_file_with_progress(path: &Path) -> bool {
     path.extension()
         .and_then(|ext| ext.to_str())
-        .is_some_and(|ext| ext.eq_ignore_ascii_case("pdf"))
+        .is_some_and(|ext| {
+            ext.eq_ignore_ascii_case("pdf")
+                || ext.eq_ignore_ascii_case("png")
+                || ext.eq_ignore_ascii_case("jpg")
+                || ext.eq_ignore_ascii_case("jpeg")
+                || ext.eq_ignore_ascii_case("gif")
+                || ext.eq_ignore_ascii_case("bmp")
+                || ext.eq_ignore_ascii_case("tif")
+                || ext.eq_ignore_ascii_case("tiff")
+                || ext.eq_ignore_ascii_case("webp")
+                || ext.eq_ignore_ascii_case("heic")
+        })
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -4522,10 +4732,17 @@ fn save_cached_voices(voices: &[edge_tts::VoiceInfo]) {
     }
 }
 
-fn build_language_list(voices: &[edge_tts::VoiceInfo]) -> Vec<(String, String)> {
+fn build_language_list(voices: &[edge_tts::VoiceInfo], ui_language: &str) -> Vec<(String, String)> {
     let mut l_map = BTreeMap::new();
     for voice in voices {
-        l_map.insert(get_language_name(&voice.locale), voice.locale.clone());
+        l_map.insert(
+            if ui_language == "en" {
+                get_language_name_en(&voice.locale)
+            } else {
+                get_language_name_it(&voice.locale)
+            },
+            voice.locale.clone(),
+        );
     }
     l_map.into_iter().collect()
 }
@@ -7271,7 +7488,8 @@ fn apply_loaded_voices(
     languages: &Arc<Mutex<Vec<(String, String)>>>,
     voices: Vec<edge_tts::VoiceInfo>,
 ) {
-    let language_list = build_language_list(&voices);
+    let ui_language = settings.lock().unwrap().ui_language.clone();
+    let language_list = build_language_list(&voices, &ui_language);
     {
         let mut v_lock = voices_data.lock().unwrap();
         *v_lock = voices;
@@ -7365,12 +7583,26 @@ fn sync_settings_with_loaded_voices(
     let mut s = settings.lock().unwrap();
 
     if !languages.iter().any(|(name, _)| name == &s.language) {
-        if languages.iter().any(|(name, _)| name == "Italiano") {
+        if let Some(locale) = voices
+            .iter()
+            .find(|voice| voice.short_name == s.voice)
+            .map(|voice| voice.locale.clone())
+            && let Some((name, _)) = languages
+                .iter()
+                .find(|(_, item_locale)| *item_locale == locale)
+        {
+            s.language = name.clone();
+            changed = true;
+        } else if languages.iter().any(|(name, _)| name == "Italiano") {
             s.language = "Italiano".to_string();
+            changed = true;
+        } else if languages.iter().any(|(name, _)| name == "Italian") {
+            s.language = "Italian".to_string();
+            changed = true;
         } else if let Some((name, _)) = languages.first() {
             s.language = name.clone();
+            changed = true;
         }
-        changed = true;
     }
 
     let locale = languages
@@ -7403,13 +7635,17 @@ fn open_settings_dialog(
 ) {
     let settings_before = settings.lock().unwrap().clone();
     let ui = ui_strings(&settings_before.ui_language);
-    let languages_snapshot = languages.lock().unwrap().clone();
     let voices_snapshot = voices_data.lock().unwrap().clone();
+    let languages_snapshot = if voices_snapshot.is_empty() {
+        languages.lock().unwrap().clone()
+    } else {
+        build_language_list(&voices_snapshot, &settings_before.ui_language)
+    };
     let interface_languages = [("Italiano", "it"), ("English", "en")];
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, 320)
+        .with_size(560, if cfg!(target_os = "macos") { 380 } else { 320 })
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -7505,6 +7741,39 @@ fn open_settings_dialog(
     volume_row.add(&choice_volume, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&volume_row, 0, SizerFlag::Expand, 0);
 
+    #[cfg(target_os = "macos")]
+    {
+        let file_assoc_row = BoxSizer::builder(Orientation::Horizontal).build();
+        file_assoc_row.add(
+            &StaticText::builder(&panel)
+                .with_label(&ui.file_associations_label)
+                .build(),
+            1,
+            SizerFlag::AlignCenterVertical | SizerFlag::All,
+            5,
+        );
+        let btn_file_associations = Button::builder(&panel)
+            .with_label(&ui.file_associations_button)
+            .build();
+        file_assoc_row.add(&btn_file_associations, 0, SizerFlag::All, 5);
+        root.add_sizer(&file_assoc_row, 0, SizerFlag::Expand, 0);
+
+        let dialog_file_associations = dialog;
+        let success_title = ui.settings_title.clone();
+        let success_message = ui.file_associations_success_message.clone();
+        let error_template = ui.file_associations_error_message.clone();
+        btn_file_associations.on_click(move |_| match set_macos_default_file_associations() {
+            Ok(()) => {
+                show_message_subdialog(&dialog_file_associations, &success_title, &success_message)
+            }
+            Err(err) => show_message_subdialog(
+                &dialog_file_associations,
+                &success_title,
+                &error_template.replace("{err}", &err),
+            ),
+        });
+    }
+
     let button_row = BoxSizer::builder(Orientation::Horizontal).build();
     let btn_ok = Button::builder(&panel)
         .with_id(ID_OK)
@@ -7534,6 +7803,15 @@ fn open_settings_dialog(
     if let Some(pos) = languages_snapshot
         .iter()
         .position(|(name, _)| name == &settings_before.language)
+    {
+        choice_lang.set_selection(pos as u32);
+    } else if let Some(locale) = voices_snapshot
+        .iter()
+        .find(|voice| voice.short_name == settings_before.voice)
+        .map(|voice| voice.locale.clone())
+        && let Some(pos) = languages_snapshot
+            .iter()
+            .position(|(_, item_locale)| *item_locale == locale)
     {
         choice_lang.set_selection(pos as u32);
     } else if let Some(pos) = languages_snapshot
@@ -8121,7 +8399,7 @@ fn main() {
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
             if event.get_id() == ID_OPEN {
-                let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm|Tutti|*.*").build();
+                let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.webp;*.heic|Tutti|*.*").build();
                 #[cfg(target_os = "macos")]
                 set_mac_native_file_dialog_open(true);
                 let dialog_result = dialog.show_modal();
@@ -9651,27 +9929,6 @@ fn main() {
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
             frame.on_key_down(move |event| {
-                handle_shortcut_event(
-                    event,
-                    &shortcut_actions,
-                    &podcast_seek_back_shortcut,
-                    &podcast_seek_forward_shortcut,
-                );
-            });
-        }
-
-        #[cfg(target_os = "macos")]
-        {
-            let shortcut_actions = ShortcutActions {
-                start: Rc::clone(&start_action),
-                play_pause: Rc::clone(&play_action),
-                stop: Rc::clone(&stop_action),
-                save: Rc::clone(&save_action),
-                settings: Rc::clone(&settings_action),
-            };
-            let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
-            let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
-            text_ctrl.on_key_down(move |event| {
                 handle_shortcut_event(
                     event,
                     &shortcut_actions,

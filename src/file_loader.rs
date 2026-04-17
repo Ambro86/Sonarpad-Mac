@@ -29,6 +29,10 @@ pub fn load_any_file(path: &Path) -> Result<String> {
         "doc" => load_doc(path),
         "docx" => load_docx(path),
         "pdf" => load_pdf(path),
+        #[cfg(target_os = "macos")]
+        "png" | "jpg" | "jpeg" | "gif" | "bmp" | "tif" | "tiff" | "webp" | "heic" => {
+            load_image_with_macos_ocr(path)
+        }
         "epub" => load_epub(path),
         "rtf" => load_rtf(path),
         "xlsx" | "xls" | "ods" => load_spreadsheet(path),
@@ -368,6 +372,33 @@ fn is_probably_meaningful_pdf_text(text: &str) -> bool {
 fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
     let image_dir = render_pdf_pages_for_macos_ocr(path)?;
     let mut image_paths = collect_macos_ocr_image_paths(&image_dir)?;
+    let result = extract_text_from_image_paths_macos_ocr(&image_paths);
+
+    if let Err(err) = std::fs::remove_dir_all(&image_dir) {
+        println!(
+            "ERROR: rimozione immagini OCR macOS fallita: {} ({})",
+            image_dir.display(),
+            err
+        );
+    }
+    image_paths.clear();
+
+    result
+}
+
+#[cfg(target_os = "macos")]
+fn load_image_with_macos_ocr(path: &Path) -> Result<String> {
+    let image_paths = vec![path.to_path_buf()];
+    let text = extract_text_from_image_paths_macos_ocr(&image_paths)?;
+    let normalized = normalize_pdf_paragraphs(&text);
+    if normalized.trim().is_empty() {
+        return Err(anyhow!("OCR immagine macOS non ha trovato testo"));
+    }
+    Ok(normalized)
+}
+
+#[cfg(target_os = "macos")]
+fn extract_text_from_image_paths_macos_ocr(image_paths: &[PathBuf]) -> Result<String> {
     let script_path = write_macos_pdf_ocr_script()?;
     let swift = macos_swift_command()
         .ok_or_else(|| anyhow!("OCR PDF macOS non disponibile: interpreter Swift non trovato"))?;
@@ -377,7 +408,7 @@ fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
         command.arg("swift");
     }
     command.arg(&script_path);
-    for image_path in &image_paths {
+    for image_path in image_paths {
         command.arg(image_path);
     }
     let output = command
@@ -393,14 +424,6 @@ fn extract_pdf_text_macos_ocr(path: &Path) -> Result<String> {
             err
         );
     }
-    if let Err(err) = std::fs::remove_dir_all(&image_dir) {
-        println!(
-            "ERROR: rimozione immagini OCR macOS fallita: {} ({})",
-            image_dir.display(),
-            err
-        );
-    }
-    image_paths.clear();
 
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
     for line in stderr
