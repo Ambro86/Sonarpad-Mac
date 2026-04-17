@@ -2635,6 +2635,26 @@ fn load_file_with_progress(parent: &Frame, path: &Path) -> Result<String, String
     }
 }
 
+fn load_file_for_display(parent: &Frame, path: &Path) -> Result<String, String> {
+    if should_load_file_with_progress(path) {
+        load_file_with_progress(parent, path)
+    } else {
+        file_loader::load_any_file(path).map_err(|err| err.to_string())
+    }
+}
+
+fn initial_open_path_from_args() -> Option<PathBuf> {
+    std::env::args_os().skip(1).find_map(|arg| {
+        #[cfg(target_os = "macos")]
+        if arg.to_string_lossy().starts_with("-psn_") {
+            return None;
+        }
+
+        let path = PathBuf::from(arg);
+        if path.is_file() { Some(path) } else { None }
+    })
+}
+
 fn normalize_version_tag(tag: &str) -> String {
     tag.trim()
         .trim_start_matches('v')
@@ -4328,127 +4348,147 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
 }
 
 #[cfg(any(target_os = "macos", windows))]
-fn podcast_log_paths() -> Vec<PathBuf> {
-    let mut paths = Vec::new();
-
+fn primary_podcast_log_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        if let Some(dir) = app_storage_dir() {
-            paths.push(dir.join("log.txt"));
-        }
+        return app_storage_dir().map(|dir| dir.join("log.txt"));
     }
 
     #[cfg(windows)]
     {
-        if let Some(home) = std::env::var_os("USERPROFILE") {
-            paths.push(
-                PathBuf::from(home)
-                    .join("Documents")
-                    .join("Sonarpad")
-                    .join("log.txt"),
-            );
-        }
+        std::env::var_os("USERPROFILE").map(|home| {
+            PathBuf::from(home)
+                .join("Documents")
+                .join("Sonarpad")
+                .join("log.txt")
+        })
     }
-
-    let fallback = PathBuf::from("log.txt");
-    if !paths.iter().any(|path| path == &fallback) {
-        paths.push(fallback);
-    }
-
-    paths
 }
 
 #[cfg(any(target_os = "macos", windows))]
 fn append_podcast_log(message: &str) {
-    let paths = podcast_log_paths();
-    if paths.is_empty() {
-        println!("ERROR: Cartella documenti non disponibile per il log podcast");
-        return;
-    }
-
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
     let line = format!("[{timestamp}] {message}\n");
-    let mut wrote_any = false;
-    let mut primary_failure_reasons = Vec::new();
+    let Some(primary_path) = primary_podcast_log_path() else {
+        println!("ERROR: Cartella documenti non disponibile per il log podcast");
+        return;
+    };
     let fallback_path = PathBuf::from("log.txt");
 
-    for path in paths {
-        if let Some(parent) = path.parent()
-            && !parent.as_os_str().is_empty()
-            && let Err(err) = std::fs::create_dir_all(parent)
-        {
-            if path != fallback_path {
-                primary_failure_reasons.push(format!(
-                    "path={} create_dir_all_failed={}",
-                    path.display(),
-                    err
-                ));
-            }
+    let primary_failure_reason = if let Some(parent) = primary_path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        if let Err(err) = std::fs::create_dir_all(parent) {
             println!(
                 "ERROR: Creazione cartella log podcast {} fallita: {}",
                 parent.display(),
                 err
             );
-            continue;
+            Some(format!(
+                "path={} create_dir_all_failed={}",
+                primary_path.display(),
+                err
+            ))
+        } else {
+            None
         }
+    } else {
+        None
+    };
 
+    let primary_failure_reason = if let Some(reason) = primary_failure_reason {
+        Some(reason)
+    } else {
         match std::fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)
+            .open(&primary_path)
         {
             Ok(mut file) => {
                 use std::io::Write;
 
                 if let Err(err) = file.write_all(line.as_bytes()) {
-                    if path != fallback_path {
-                        primary_failure_reasons.push(format!(
-                            "path={} write_failed={}",
-                            path.display(),
-                            err
-                        ));
-                    }
                     println!(
                         "ERROR: Scrittura log podcast {} fallita: {}",
-                        path.display(),
+                        primary_path.display(),
                         err
                     );
+                    Some(format!(
+                        "path={} write_failed={}",
+                        primary_path.display(),
+                        err
+                    ))
                 } else {
-                    if path == fallback_path && !primary_failure_reasons.is_empty() {
-                        let diagnostic_line = format!(
-                            "[{timestamp}] primary_log_path_failed {}\n",
-                            primary_failure_reasons.join(" | ")
-                        );
-                        if let Err(err) = file.write_all(diagnostic_line.as_bytes()) {
-                            println!(
-                                "ERROR: Scrittura log diagnostico {} fallita: {}",
-                                path.display(),
-                                err
-                            );
-                        }
-                    }
-                    wrote_any = true;
+                    return;
                 }
             }
             Err(err) => {
-                if path != fallback_path {
-                    primary_failure_reasons.push(format!(
-                        "path={} open_failed={}",
-                        path.display(),
-                        err
-                    ));
-                }
                 println!(
                     "ERROR: Apertura log podcast {} fallita: {}",
-                    path.display(),
+                    primary_path.display(),
+                    err
+                );
+                Some(format!(
+                    "path={} open_failed={}",
+                    primary_path.display(),
+                    err
+                ))
+            }
+        }
+    };
+
+    let Some(primary_failure_reason) = primary_failure_reason else {
+        return;
+    };
+
+    if let Some(parent) = fallback_path.parent()
+        && !parent.as_os_str().is_empty()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        println!(
+            "ERROR: Creazione cartella log podcast {} fallita: {}",
+            parent.display(),
+            err
+        );
+        println!("ERROR: Nessun log podcast scritto: {message}");
+        return;
+    }
+
+    match std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&fallback_path)
+    {
+        Ok(mut file) => {
+            use std::io::Write;
+
+            if let Err(err) = file.write_all(line.as_bytes()) {
+                println!(
+                    "ERROR: Scrittura log podcast {} fallita: {}",
+                    fallback_path.display(),
+                    err
+                );
+                println!("ERROR: Nessun log podcast scritto: {message}");
+                return;
+            }
+            let diagnostic_line =
+                format!("[{timestamp}] primary_log_path_failed {primary_failure_reason}\n");
+            if let Err(err) = file.write_all(diagnostic_line.as_bytes()) {
+                println!(
+                    "ERROR: Scrittura log diagnostico {} fallita: {}",
+                    fallback_path.display(),
                     err
                 );
             }
         }
-    }
-
-    if !wrote_any {
-        println!("ERROR: Nessun log podcast scritto: {message}");
+        Err(err) => {
+            println!(
+                "ERROR: Apertura log podcast {} fallita: {}",
+                fallback_path.display(),
+                err
+            );
+            println!("ERROR: Nessun log podcast scritto: {message}");
+        }
     }
 }
 
@@ -8125,6 +8165,7 @@ fn main() {
     refresh_all_podcast_sources(&rt, &settings, &podcast_menu_state);
     refresh_all_podcast_categories(&rt, &podcast_menu_state);
     refresh_all_radio_languages(&radio_menu_state);
+    let initial_open_path = initial_open_path_from_args();
 
     let _ = wxdragon::main(move |_| {
         let ui = current_ui_strings();
@@ -8510,11 +8551,7 @@ fn main() {
                     && let Some(path) = dialog.get_path()
                 {
                     let path = Path::new(&path);
-                    let content = if should_load_file_with_progress(path) {
-                        load_file_with_progress(&f_menu, path)
-                    } else {
-                        file_loader::load_any_file(path).map_err(|err| err.to_string())
-                    };
+                    let content = load_file_for_display(&f_menu, path);
                     if let Ok(c) = content {
                         podcast_selection_menu.borrow_mut().selected_episode = None;
                         tc_menu.set_value(&c);
@@ -10248,6 +10285,30 @@ fn main() {
                     &podcast_seek_forward_shortcut,
                 );
             });
+        }
+
+        if let Some(path) = initial_open_path.as_ref() {
+            append_podcast_log(&format!("app.initial_open.begin path={}", path.display()));
+            match load_file_for_display(&frame, path) {
+                Ok(content) => {
+                    podcast_playback.borrow_mut().selected_episode = None;
+                    text_ctrl.set_value(&content);
+                    append_podcast_log(&format!(
+                        "app.initial_open.loaded path={} length={}",
+                        path.display(),
+                        content.len()
+                    ));
+                }
+                Err(err) => {
+                    append_podcast_log(&format!(
+                        "app.initial_open.failed path={} err={}",
+                        path.display(),
+                        err
+                    ));
+                    let ui = current_ui_strings();
+                    show_message_dialog(&frame, &ui.open_document_title, &err);
+                }
+            }
         }
 
         frame.show(true);
