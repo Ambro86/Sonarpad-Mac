@@ -56,6 +56,7 @@ const ID_SETTINGS: i32 = wxdragon::ffi::WXD_ID_PREFERENCES as i32;
 #[cfg(not(target_os = "macos"))]
 const ID_SETTINGS: i32 = 2004;
 const ID_SAVE_TEXT: i32 = 2007;
+const ID_SAVE_TEXT_AS: i32 = 2008;
 const ID_PODCAST_BACKWARD: i32 = 2005;
 const ID_PODCAST_FORWARD: i32 = 2006;
 const ID_ARTICLES_ADD_SOURCE: i32 = 2100;
@@ -491,6 +492,8 @@ struct UiStrings {
     menu_open_help: String,
     menu_save_text: String,
     menu_save_text_help: String,
+    menu_save_text_as: String,
+    menu_save_text_as_help: String,
     #[cfg(target_os = "macos")]
     menu_start: String,
     #[cfg(target_os = "macos")]
@@ -638,6 +641,8 @@ struct UiStrings {
     save_text_title: String,
     text_file_not_saved: String,
     text_saved_ok: String,
+    unsaved_changes_message: String,
+    unsaved_changes_title: String,
     close: String,
     open_document_title: String,
     analyzing_document: String,
@@ -653,6 +658,12 @@ struct UiStrings {
     delete_radio_favorite: String,
     radio_label: String,
     radio_url_label: String,
+}
+
+#[derive(Clone, Default)]
+struct CurrentDocumentState {
+    opened_path: Option<PathBuf>,
+    direct_save_path: Option<PathBuf>,
 }
 
 fn parse_ui_strings(data: &str) -> UiStrings {
@@ -969,6 +980,7 @@ fn refresh_localized_main_ui(
 
         update_menu_item_label(&menubar, ID_OPEN, &ui.menu_open);
         update_menu_item_label(&menubar, ID_SAVE_TEXT, &ui.menu_save_text);
+        update_menu_item_label(&menubar, ID_SAVE_TEXT_AS, &ui.menu_save_text_as);
         #[cfg(not(target_os = "macos"))]
         update_menu_item_label(&menubar, ID_EXIT, &ui.menu_exit);
         #[cfg(not(target_os = "macos"))]
@@ -1929,10 +1941,20 @@ fn convert_mp3_to_wav(source_mp3: &Path, output_wav: &Path) -> Result<(), String
         .map_err(|err| format!("finalizzazione WAV fallita: {err}"))
 }
 
-fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Option<PathBuf> {
+fn prompt_text_save_path(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    suggested_path: Option<&Path>,
+    preferred_extension: Option<&str>,
+) -> Option<PathBuf> {
     let ui = current_ui_strings();
     let settings_snapshot = settings.lock().unwrap().clone();
-    let default_filename = sanitize_filename(&ui.save_default_filename);
+    let default_filename = suggested_path
+        .and_then(|path| path.file_stem())
+        .and_then(|stem| stem.to_str())
+        .map(sanitize_filename)
+        .filter(|name| !name.is_empty())
+        .unwrap_or_else(|| sanitize_filename(&ui.save_default_filename));
     let dialog = Dialog::builder(parent, &ui.save_text_title)
         .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
         .with_size(520, 250)
@@ -1974,9 +1996,9 @@ fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Opt
     format_choice.append("DOCX");
     format_choice.append("PDF");
     format_choice.set_selection(
-        match settings_snapshot
-            .last_text_save_format
-            .to_ascii_lowercase()
+        match preferred_extension
+            .map(|ext| ext.to_ascii_lowercase())
+            .unwrap_or_else(|| settings_snapshot.last_text_save_format.to_ascii_lowercase())
             .as_str()
         {
             "docx" => 1,
@@ -2001,7 +2023,10 @@ fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Opt
         12,
     );
 
-    let initial_folder = if settings_snapshot.last_text_save_dir.trim().is_empty() {
+    let initial_folder = if let Some(parent_folder) = suggested_path.and_then(|path| path.parent())
+    {
+        parent_folder.to_path_buf()
+    } else if settings_snapshot.last_text_save_dir.trim().is_empty() {
         default_audiobook_save_folder()
     } else {
         PathBuf::from(&settings_snapshot.last_text_save_dir)
@@ -2149,41 +2174,146 @@ fn prompt_text_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Opt
     result
 }
 
-fn save_current_text(parent: &Frame, settings: &Arc<Mutex<Settings>>, text: &str) {
-    if text.trim().is_empty() {
-        return;
-    }
-
-    let ui = current_ui_strings();
-    let Some(path_buf) = prompt_text_save_path(parent, settings) else {
-        return;
-    };
-
-    let result = match path_buf
+fn save_text_to_path(path_buf: &Path, text: &str) -> Result<(), String> {
+    match path_buf
         .extension()
         .and_then(|ext| ext.to_str())
         .map(|ext| ext.to_ascii_lowercase())
         .as_deref()
     {
-        Some("docx") => write_docx_text(&path_buf, text),
+        Some("docx") => write_docx_text(path_buf, text),
         Some("pdf") => {
             let title = path_buf
                 .file_stem()
                 .and_then(|stem| stem.to_str())
                 .unwrap_or("Sonarpad");
-            write_pdf_text(&path_buf, title, text)
+            write_pdf_text(path_buf, title, text)
         }
-        _ => std::fs::write(&path_buf, text)
+        _ => std::fs::write(path_buf, text)
             .map_err(|err| format!("salvataggio file {} fallito: {}", path_buf.display(), err)),
+    }
+}
+
+fn is_plain_text_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
+}
+
+fn set_current_document_state(state: &Arc<Mutex<CurrentDocumentState>>, path: Option<PathBuf>) {
+    let direct_save_path = path.clone().filter(|path| is_plain_text_path(path));
+    *state.lock().unwrap() = CurrentDocumentState {
+        opened_path: path,
+        direct_save_path,
+    };
+}
+
+fn save_current_document(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    text_ctrl: &TextCtrl,
+    document_state: &Arc<Mutex<CurrentDocumentState>>,
+) -> bool {
+    if text_ctrl.get_value().trim().is_empty() {
+        return true;
+    }
+
+    let current_text = text_ctrl.get_value();
+    let state_snapshot = document_state.lock().unwrap().clone();
+    let path_buf = if let Some(path) = state_snapshot.direct_save_path {
+        path
+    } else {
+        let preferred_extension = if state_snapshot
+            .opened_path
+            .as_ref()
+            .is_some_and(|path| !is_plain_text_path(path))
+        {
+            Some("txt")
+        } else {
+            None
+        };
+        let Some(path) = prompt_text_save_path(
+            parent,
+            settings,
+            state_snapshot.opened_path.as_deref(),
+            preferred_extension,
+        ) else {
+            return false;
+        };
+        path
     };
 
+    let result = save_text_to_path(&path_buf, &current_text);
+    let ui = current_ui_strings();
+
     match result {
-        Ok(()) => show_modeless_message_dialog(parent, &ui.save_completed_title, &ui.text_saved_ok),
-        Err(err) => show_modeless_message_dialog(
-            parent,
-            &ui.save_text_title,
-            &format!("{} ({err})", ui.text_file_not_saved),
-        ),
+        Ok(()) => {
+            {
+                let mut state = document_state.lock().unwrap();
+                state.direct_save_path =
+                    Some(path_buf.clone()).filter(|path| is_plain_text_path(path));
+                state.opened_path = Some(path_buf);
+            }
+            text_ctrl.set_modified(false);
+            show_modeless_message_dialog(parent, &ui.save_completed_title, &ui.text_saved_ok);
+            true
+        }
+        Err(err) => {
+            show_modeless_message_dialog(
+                parent,
+                &ui.save_text_title,
+                &format!("{} ({err})", ui.text_file_not_saved),
+            );
+            false
+        }
+    }
+}
+
+fn save_current_document_as(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    text_ctrl: &TextCtrl,
+    document_state: &Arc<Mutex<CurrentDocumentState>>,
+) -> bool {
+    if text_ctrl.get_value().trim().is_empty() {
+        return true;
+    }
+
+    let state_snapshot = document_state.lock().unwrap().clone();
+    let preferred_extension = state_snapshot.opened_path.as_ref().map(|_| "txt");
+
+    let Some(path) = prompt_text_save_path(
+        parent,
+        settings,
+        state_snapshot.opened_path.as_deref(),
+        preferred_extension,
+    ) else {
+        return false;
+    };
+
+    let current_text = text_ctrl.get_value();
+    let result = save_text_to_path(&path, &current_text);
+    let ui = current_ui_strings();
+
+    match result {
+        Ok(()) => {
+            {
+                let mut state = document_state.lock().unwrap();
+                state.direct_save_path = Some(path.clone()).filter(|path| is_plain_text_path(path));
+                state.opened_path = Some(path);
+            }
+            text_ctrl.set_modified(false);
+            show_modeless_message_dialog(parent, &ui.save_completed_title, &ui.text_saved_ok);
+            true
+        }
+        Err(err) => {
+            show_modeless_message_dialog(
+                parent,
+                &ui.save_text_title,
+                &format!("{} ({err})", ui.text_file_not_saved),
+            );
+            false
+        }
     }
 }
 
@@ -8167,6 +8297,7 @@ fn main() {
     refresh_all_radio_languages(&radio_menu_state);
     let initial_open_path = initial_open_path_from_args();
     let pending_open_files = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
+    let current_document = Arc::new(Mutex::new(CurrentDocumentState::default()));
 
     let _ = wxdragon::main(move |_app| {
         #[cfg(target_os = "macos")]
@@ -8198,11 +8329,25 @@ fn main() {
             &ui.menu_save_text_help,
             ItemKind::Normal,
         );
+        #[cfg(target_os = "macos")]
+        let save_text_as_menu_item = file_menu.append(
+            ID_SAVE_TEXT_AS,
+            &ui.menu_save_text_as,
+            &ui.menu_save_text_as_help,
+            ItemKind::Normal,
+        );
         #[cfg(not(target_os = "macos"))]
         file_menu.append(
             ID_SAVE_TEXT,
             &ui.menu_save_text,
             &ui.menu_save_text_help,
+            ItemKind::Normal,
+        );
+        #[cfg(not(target_os = "macos"))]
+        file_menu.append(
+            ID_SAVE_TEXT_AS,
+            &ui.menu_save_text_as,
+            &ui.menu_save_text_as_help,
             ItemKind::Normal,
         );
         file_menu.append_separator();
@@ -8371,6 +8516,7 @@ fn main() {
         let rt_articles_timer = Arc::clone(&rt);
         let tc_articles_timer = text_ctrl;
         let pending_open_files_timer = Arc::clone(&pending_open_files);
+        let current_document_timer = Arc::clone(&current_document);
         let timer_tick = Rc::clone(&timer);
         let frame_timer = frame;
 
@@ -8544,6 +8690,8 @@ fn main() {
                     Ok(content) => {
                         podcast_playback_timer.borrow_mut().selected_episode = None;
                         tc_articles_timer.set_value(&content);
+                        tc_articles_timer.set_modified(false);
+                        set_current_document_state(&current_document_timer, Some(path.clone()));
                         append_podcast_log(&format!(
                             "app.open_files_event.loaded path={} length={}",
                             path.display(),
@@ -8565,7 +8713,44 @@ fn main() {
         timer.start(200, false);
 
         let timer_close = Rc::clone(&timer);
+        let tc_close = text_ctrl;
+        let settings_close = Arc::clone(&settings);
+        let current_document_close = Arc::clone(&current_document);
+        let frame_close = frame;
         frame.on_close(move |event| {
+            if tc_close.is_modified() {
+                let ui = current_ui_strings();
+                let dialog = MessageDialog::builder(
+                    &frame_close,
+                    &ui.unsaved_changes_message,
+                    &ui.unsaved_changes_title,
+                )
+                .with_style(
+                    MessageDialogStyle::YesNo
+                        | MessageDialogStyle::Cancel
+                        | MessageDialogStyle::IconQuestion,
+                )
+                .build();
+                localize_standard_dialog_buttons(&dialog);
+                match dialog.show_modal() {
+                    ID_YES => {
+                        if !save_current_document(
+                            &frame_close,
+                            &settings_close,
+                            &tc_close,
+                            &current_document_close,
+                        ) {
+                            event.skip(false);
+                            return;
+                        }
+                    }
+                    ID_CANCEL => {
+                        event.skip(false);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
             timer_close.stop();
             event.skip(true);
         });
@@ -8580,6 +8765,7 @@ fn main() {
         let f_menu = frame;
         let tc_menu = text_ctrl;
         let settings_menu = Arc::clone(&settings);
+        let current_document_menu = Arc::clone(&current_document);
         let article_menu_state_menu = Arc::clone(&article_menu_state);
         let podcast_menu_state_menu = Arc::clone(&podcast_menu_state);
         let radio_menu_state_menu = Arc::clone(&radio_menu_state);
@@ -8602,10 +8788,24 @@ fn main() {
                     if let Ok(c) = content {
                         podcast_selection_menu.borrow_mut().selected_episode = None;
                         tc_menu.set_value(&c);
+                        tc_menu.set_modified(false);
+                        set_current_document_state(&current_document_menu, Some(path.to_path_buf()));
                     }
                 }
             } else if event.get_id() == ID_SAVE_TEXT {
-                save_current_text(&f_menu, &settings_menu, &tc_menu.get_value());
+                let _ = save_current_document(
+                    &f_menu,
+                    &settings_menu,
+                    &tc_menu,
+                    &current_document_menu,
+                );
+            } else if event.get_id() == ID_SAVE_TEXT_AS {
+                let _ = save_current_document_as(
+                    &f_menu,
+                    &settings_menu,
+                    &tc_menu,
+                    &current_document_menu,
+                );
             } else if event.get_id() == ID_EXIT {
                 f_menu.close(true);
             } else if event.get_id() == ID_ABOUT {
@@ -9605,8 +9805,32 @@ fn main() {
         #[cfg(target_os = "macos")]
         let s_save_text = Arc::clone(&settings);
         #[cfg(target_os = "macos")]
+        let current_document_save_text = Arc::clone(&current_document);
+        #[cfg(target_os = "macos")]
         let save_text_action: Rc<dyn Fn()> = Rc::new(move || {
-            save_current_text(&f_save_text, &s_save_text, &tc_save_text.get_value());
+            let _ = save_current_document(
+                &f_save_text,
+                &s_save_text,
+                &tc_save_text,
+                &current_document_save_text,
+            );
+        });
+        #[cfg(target_os = "macos")]
+        let tc_save_text_as = text_ctrl;
+        #[cfg(target_os = "macos")]
+        let f_save_text_as = frame;
+        #[cfg(target_os = "macos")]
+        let s_save_text_as = Arc::clone(&settings);
+        #[cfg(target_os = "macos")]
+        let current_document_save_text_as = Arc::clone(&current_document);
+        #[cfg(target_os = "macos")]
+        let save_text_as_action: Rc<dyn Fn()> = Rc::new(move || {
+            let _ = save_current_document_as(
+                &f_save_text_as,
+                &s_save_text_as,
+                &tc_save_text_as,
+                &current_document_save_text_as,
+            );
         });
         let save_action: Rc<dyn Fn()> = Rc::new(move || {
             let ui = current_ui_strings();
@@ -10018,6 +10242,13 @@ fn main() {
             });
         }
         #[cfg(target_os = "macos")]
+        if let Some(item) = save_text_as_menu_item {
+            let save_text_as_action_menu = Rc::clone(&save_text_as_action);
+            item.on_click(move |_| {
+                save_text_as_action_menu();
+            });
+        }
+        #[cfg(target_os = "macos")]
         if let Some(item) = save_menu_item {
             let save_action_menu = Rc::clone(&save_action);
             item.on_click(move |_| {
@@ -10091,6 +10322,7 @@ fn main() {
             let stop_action_menu = Rc::clone(&stop_action);
             let save_action_menu = Rc::clone(&save_action);
             let save_text_action_menu = Rc::clone(&save_text_action);
+            let save_text_as_action_menu = Rc::clone(&save_text_as_action);
             let settings_action_menu = Rc::clone(&settings_action);
             frame.on_menu(move |event| match event.get_id() {
                 ID_START_PLAYBACK => start_action_menu(),
@@ -10098,6 +10330,7 @@ fn main() {
                 ID_STOP => stop_action_menu(),
                 ID_SAVE => save_action_menu(),
                 ID_SAVE_TEXT => save_text_action_menu(),
+                ID_SAVE_TEXT_AS => save_text_as_action_menu(),
                 ID_SETTINGS => settings_action_menu(),
                 _ => {}
             });
@@ -10340,6 +10573,8 @@ fn main() {
                 Ok(content) => {
                     podcast_playback.borrow_mut().selected_episode = None;
                     text_ctrl.set_value(&content);
+                    text_ctrl.set_modified(false);
+                    set_current_document_state(&current_document, Some(path.clone()));
                     append_podcast_log(&format!(
                         "app.initial_open.loaded path={} length={}",
                         path.display(),
