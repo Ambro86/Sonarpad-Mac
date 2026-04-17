@@ -8166,8 +8166,23 @@ fn main() {
     refresh_all_podcast_categories(&rt, &podcast_menu_state);
     refresh_all_radio_languages(&radio_menu_state);
     let initial_open_path = initial_open_path_from_args();
+    let pending_open_files = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
 
-    let _ = wxdragon::main(move |_| {
+    let _ = wxdragon::main(move |_app| {
+        #[cfg(target_os = "macos")]
+        {
+            let pending_open_files_app = Arc::clone(&pending_open_files);
+            _app.on_open_files(move |files| {
+                let mut pending = pending_open_files_app.lock().unwrap();
+                for file in files {
+                    let path = PathBuf::from(file);
+                    if path.is_file() {
+                        pending.push(path);
+                    }
+                }
+            });
+        }
+
         let ui = current_ui_strings();
         let frame = Frame::builder()
             .with_title("Sonarpad")
@@ -8355,6 +8370,7 @@ fn main() {
         let podcast_playback_timer = Rc::clone(&podcast_playback);
         let rt_articles_timer = Arc::clone(&rt);
         let tc_articles_timer = text_ctrl;
+        let pending_open_files_timer = Arc::clone(&pending_open_files);
         let timer_tick = Rc::clone(&timer);
         let frame_timer = frame;
 
@@ -8513,6 +8529,37 @@ fn main() {
             if open_search {
                 println!("DEBUG: Opening Radio Search Dialog from Timer");
                 open_radio_search_dialog(&frame_timer, &settings_timer, &radio_menu_state_timer);
+            }
+
+            let pending_paths = {
+                let mut pending = pending_open_files_timer.lock().unwrap();
+                std::mem::take(&mut *pending)
+            };
+            for path in pending_paths {
+                append_podcast_log(&format!(
+                    "app.open_files_event.begin path={}",
+                    path.display()
+                ));
+                match load_file_for_display(&frame_timer, &path) {
+                    Ok(content) => {
+                        podcast_playback_timer.borrow_mut().selected_episode = None;
+                        tc_articles_timer.set_value(&content);
+                        append_podcast_log(&format!(
+                            "app.open_files_event.loaded path={} length={}",
+                            path.display(),
+                            content.len()
+                        ));
+                    }
+                    Err(err) => {
+                        append_podcast_log(&format!(
+                            "app.open_files_event.failed path={} err={}",
+                            path.display(),
+                            err
+                        ));
+                        let ui = current_ui_strings();
+                        show_message_dialog(&frame_timer, &ui.open_document_title, &err);
+                    }
+                }
             }
         });
         timer.start(200, false);
