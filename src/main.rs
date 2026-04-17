@@ -921,7 +921,7 @@ fn settings_button_label() -> String {
 
 #[cfg(target_os = "macos")]
 fn settings_menu_label(label: &str) -> String {
-    format!("{label}\tCmd+,")
+    label.to_string()
 }
 
 fn update_menu_item_label(menubar: &MenuBar, id: i32, label: &str) {
@@ -1717,13 +1717,28 @@ for fileExtension in extensions {
         failures.append("\(fileExtension): unknown type")
         continue
     }
-    let status = LSSetDefaultRoleHandlerForContentType(
-        type.identifier as CFString,
-        LSRolesMask.all,
-        bundleIdentifier as CFString
-    )
-    if status != noErr {
-        failures.append("\(fileExtension): \(status)")
+
+    let roleMasks: [LSRolesMask] = fileExtension == "html" || fileExtension == "htm"
+        ? [.viewer, .editor]
+        : [.all, .viewer, .editor]
+    var applied = false
+    var lastStatus = noErr
+
+    for roleMask in roleMasks {
+        let status = LSSetDefaultRoleHandlerForContentType(
+            type.identifier as CFString,
+            roleMask,
+            bundleIdentifier as CFString
+        )
+        if status == noErr {
+            applied = true
+            break
+        }
+        lastStatus = status
+    }
+
+    if !applied {
+        failures.append("\(fileExtension): \(lastStatus)")
     }
 }
 
@@ -7959,6 +7974,8 @@ fn main() {
     #[cfg(windows)]
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
 
+    append_podcast_log("app.start");
+
     #[cfg(target_os = "macos")]
     {
         let bundled_curl_libraries = articles::bundled_curl_impersonate_libraries();
@@ -9873,6 +9890,7 @@ fn main() {
         let btn_podcast_back_settings = btn_podcast_back;
         let btn_podcast_forward_settings = btn_podcast_forward;
         let settings_action: Rc<dyn Fn()> = Rc::new(move || {
+            append_podcast_log("settings_dialog.open");
             let previous_ui_language = settings_state.lock().unwrap().ui_language.clone();
             open_settings_dialog(
                 &frame_settings,
@@ -10127,6 +10145,27 @@ fn main() {
         }
 
         #[cfg(not(target_os = "macos"))]
+        {
+            let shortcut_actions = ShortcutActions {
+                start: Rc::clone(&start_action),
+                play_pause: Rc::clone(&play_action),
+                stop: Rc::clone(&stop_action),
+                save: Rc::clone(&save_action),
+                settings: Rc::clone(&settings_action),
+            };
+            let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
+            let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
+            text_ctrl.on_key_down(move |event| {
+                handle_shortcut_event(
+                    event,
+                    &shortcut_actions,
+                    &podcast_seek_back_shortcut,
+                    &podcast_seek_forward_shortcut,
+                );
+            });
+        }
+
+        #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
                 start: Rc::clone(&start_action),
