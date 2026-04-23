@@ -422,6 +422,89 @@ jobs:
               done
           fi
 
+      - name: Import Developer ID certificate
+        shell: bash
+        env:
+          BUILD_CERTIFICATE_BASE64: ${{ secrets.BUILD_CERTIFICATE_BASE64 }}
+          P12_PASSWORD: ${{ secrets.P12_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euxo pipefail
+          CERTIFICATE_PATH="$RUNNER_TEMP/developer_id.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+
+          echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+
+          security import "$CERTIFICATE_PATH" \
+            -P "$P12_PASSWORD" \
+            -A \
+            -t cert \
+            -f pkcs12 \
+            -k "$KEYCHAIN_PATH"
+
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          security list-keychains -d user -s "$KEYCHAIN_PATH"
+          security find-identity -v -p codesigning "$KEYCHAIN_PATH"
+
+      - name: Sign Sonarpad.app
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          APP_DIR="dist/stage/${APP_NAME}.app"
+          codesign --force --deep --options runtime --timestamp \
+            --sign "Developer ID Application" \
+            "${APP_DIR}"
+
+          codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
+
+      - name: Create zip for notarization
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          ditto -c -k --keepParent "dist/stage/${APP_NAME}.app" "dist/${APP_NAME}.zip"
+
+      - name: Notarize Sonarpad.app
+        shell: bash
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          xcrun notarytool submit "dist/${APP_NAME}.zip" \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+      - name: Staple notarization ticket
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          APP_DIR="dist/stage/${APP_NAME}.app"
+          xcrun stapler staple "${APP_DIR}"
+          xcrun stapler validate "${APP_DIR}"
+
+      - name: Verify Gatekeeper
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          spctl --assess --type execute --verbose=4 "dist/stage/${APP_NAME}.app"
+
       - name: Package DMG
         shell: bash
         run: |
