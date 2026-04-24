@@ -2859,6 +2859,7 @@ fn fetch_latest_release_info() -> Result<GithubReleaseInfo, String> {
 }
 
 fn open_url_in_browser(url: &str) -> Result<(), String> {
+    append_podcast_log(&format!("browser.open.begin url={url}"));
     #[cfg(target_os = "macos")]
     let status = std::process::Command::new("/usr/bin/open")
         .arg(url)
@@ -2878,8 +2879,14 @@ fn open_url_in_browser(url: &str) -> Result<(), String> {
         .map_err(|err| format!("apertura browser fallita: {}", err))?;
 
     if status.success() {
+        append_podcast_log(&format!("browser.open.success url={url}"));
         Ok(())
     } else {
+        append_podcast_log(&format!(
+            "browser.open.failed url={} code={:?}",
+            url,
+            status.code()
+        ));
         Err(format!(
             "apertura browser fallita con codice {:?}",
             status.code()
@@ -3211,6 +3218,10 @@ fn open_radio_station(
     station_name: &str,
     stream_url: &str,
 ) -> Result<(), String> {
+    append_podcast_log(&format!(
+        "radio.macos.open.begin name={} url={}",
+        station_name, stream_url
+    ));
     let dialog = Dialog::builder(parent, station_name)
         .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
         .with_size(360, 150)
@@ -9822,6 +9833,10 @@ fn main() {
                 let state = radio_menu_state_menu.lock().unwrap();
                 state.station_ids.get(&event.get_id()).cloned()
             } {
+                append_podcast_log(&format!(
+                    "menu.radio.favorite.open name={} url={}",
+                    station.name, station.stream_url
+                ));
                 if let Err(err) = open_radio_station(&f_menu, &station.name, &station.stream_url) {
                     show_message_dialog(
                         &f_menu,
