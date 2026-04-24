@@ -192,6 +192,11 @@ struct MacRadioWindowState {
     status: PlaybackStatus,
 }
 
+#[cfg(target_os = "macos")]
+thread_local! {
+    static ACTIVE_MAC_RADIO_STATES: RefCell<Vec<Weak<RefCell<MacRadioWindowState>>>> = const { RefCell::new(Vec::new()) };
+}
+
 struct RadioMenuState {
     dirty: bool,
     loading_languages: HashSet<String>,
@@ -3041,27 +3046,60 @@ fn mac_radio_send_mpv_command(
 #[cfg(target_os = "macos")]
 fn update_mac_radio_controls(
     state: &Rc<RefCell<MacRadioWindowState>>,
-    play_button: &Button,
-    pause_button: &Button,
+    toggle_button: &Button,
     stop_button: &Button,
 ) {
+    let ui_language = Settings::load().ui_language;
+    let play_label = if ui_language == "it" {
+        "Riproduci"
+    } else {
+        "Play"
+    };
+    let pause_label = if ui_language == "it" {
+        "Pausa"
+    } else {
+        "Pause"
+    };
     match state.borrow().status {
         PlaybackStatus::Stopped => {
-            play_button.enable(true);
-            pause_button.enable(false);
+            toggle_button.set_label(play_label);
+            toggle_button.enable(true);
             stop_button.enable(false);
         }
         PlaybackStatus::Playing => {
-            play_button.enable(false);
-            pause_button.enable(true);
+            toggle_button.set_label(pause_label);
+            toggle_button.enable(true);
             stop_button.enable(true);
         }
         PlaybackStatus::Paused => {
-            play_button.enable(true);
-            pause_button.enable(false);
+            toggle_button.set_label(play_label);
+            toggle_button.enable(true);
             stop_button.enable(true);
         }
     }
+}
+
+#[cfg(target_os = "macos")]
+fn register_active_mac_radio_state(state: &Rc<RefCell<MacRadioWindowState>>) {
+    ACTIVE_MAC_RADIO_STATES.with(|states| {
+        let mut states = states.borrow_mut();
+        states.retain(|entry| entry.upgrade().is_some());
+        states.push(Rc::downgrade(state));
+    });
+}
+
+#[cfg(target_os = "macos")]
+fn stop_all_active_mac_radio_sessions() {
+    ACTIVE_MAC_RADIO_STATES.with(|states| {
+        let active_states = states
+            .borrow()
+            .iter()
+            .filter_map(Weak::upgrade)
+            .collect::<Vec<_>>();
+        for state in &active_states {
+            let _ = stop_mac_radio_session(state);
+        }
+    });
 }
 
 #[cfg(target_os = "macos")]
@@ -3258,18 +3296,22 @@ fn open_radio_station(
     );
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let play_button = Button::builder(&panel)
-        .with_label(&ui.button_play_podcast)
-        .build();
-    let pause_button = Button::builder(&panel)
-        .with_label(&ui.button_pause_podcast)
+    let toggle_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" {
+            "Riproduci"
+        } else {
+            "Play"
+        })
         .build();
     let stop_button = Button::builder(&panel)
-        .with_label(&ui.button_stop_podcast)
+        .with_label(if Settings::load().ui_language == "it" {
+            "Ferma"
+        } else {
+            "Stop"
+        })
         .build();
     let close_button = Button::builder(&panel).with_label(&ui.close).build();
-    buttons.add(&play_button, 0, SizerFlag::All, 8);
-    buttons.add(&pause_button, 0, SizerFlag::All, 8);
+    buttons.add(&toggle_button, 0, SizerFlag::All, 8);
     buttons.add(&stop_button, 0, SizerFlag::All, 8);
     buttons.add(&close_button, 0, SizerFlag::All, 8);
     root.add_sizer(
@@ -3288,77 +3330,53 @@ fn open_radio_station(
         next_request_id: 1,
         status: PlaybackStatus::Stopped,
     }));
+    register_active_mac_radio_state(&state);
 
     launch_mac_radio_session(&state, station_name, stream_url)?;
-    update_mac_radio_controls(&state, &play_button, &pause_button, &stop_button);
+    update_mac_radio_controls(&state, &toggle_button, &stop_button);
 
-    let state_play = Rc::clone(&state);
-    let play_button_play = play_button;
-    let pause_button_play = pause_button;
-    let stop_button_play = stop_button;
-    let station_name_play = station_name.to_string();
-    let stream_url_play = stream_url.to_string();
-    let dialog_play = dialog;
-    play_button.on_click(move |_| {
-        let result = if state_play.borrow().status == PlaybackStatus::Paused {
-            mac_radio_send_mpv_command(&state_play, r#"{"command":["set_property","pause",false]}"#)
-                .map(|()| {
-                    state_play.borrow_mut().status = PlaybackStatus::Playing;
-                })
-        } else {
-            let _ = stop_mac_radio_session(&state_play);
-            launch_mac_radio_session(&state_play, &station_name_play, &stream_url_play)
+    let state_toggle = Rc::clone(&state);
+    let toggle_button_toggle = toggle_button;
+    let stop_button_toggle = stop_button;
+    let station_name_toggle = station_name.to_string();
+    let stream_url_toggle = stream_url.to_string();
+    let dialog_toggle = dialog;
+    toggle_button.on_click(move |_| {
+        let result = match state_toggle.borrow().status {
+            PlaybackStatus::Playing => mac_radio_send_mpv_command(
+                &state_toggle,
+                r#"{"command":["set_property","pause",true]}"#,
+            )
+            .map(|()| {
+                state_toggle.borrow_mut().status = PlaybackStatus::Paused;
+            }),
+            PlaybackStatus::Paused => mac_radio_send_mpv_command(
+                &state_toggle,
+                r#"{"command":["set_property","pause",false]}"#,
+            )
+            .map(|()| {
+                state_toggle.borrow_mut().status = PlaybackStatus::Playing;
+            }),
+            PlaybackStatus::Stopped => {
+                let _ = stop_mac_radio_session(&state_toggle);
+                launch_mac_radio_session(&state_toggle, &station_name_toggle, &stream_url_toggle)
+            }
         };
         if let Err(err) = result {
-            show_message_subdialog(&dialog_play, "Radio", &err);
+            show_message_subdialog(&dialog_toggle, "Radio", &err);
         }
-        update_mac_radio_controls(
-            &state_play,
-            &play_button_play,
-            &pause_button_play,
-            &stop_button_play,
-        );
-    });
-
-    let state_pause = Rc::clone(&state);
-    let play_button_pause = play_button;
-    let pause_button_pause = pause_button;
-    let stop_button_pause = stop_button;
-    let dialog_pause = dialog;
-    pause_button.on_click(move |_| {
-        let result = mac_radio_send_mpv_command(
-            &state_pause,
-            r#"{"command":["set_property","pause",true]}"#,
-        )
-        .map(|()| {
-            state_pause.borrow_mut().status = PlaybackStatus::Paused;
-        });
-        if let Err(err) = result {
-            show_message_subdialog(&dialog_pause, "Radio", &err);
-        }
-        update_mac_radio_controls(
-            &state_pause,
-            &play_button_pause,
-            &pause_button_pause,
-            &stop_button_pause,
-        );
+        update_mac_radio_controls(&state_toggle, &toggle_button_toggle, &stop_button_toggle);
     });
 
     let state_stop = Rc::clone(&state);
-    let play_button_stop = play_button;
-    let pause_button_stop = pause_button;
+    let toggle_button_stop = toggle_button;
     let stop_button_stop = stop_button;
     let dialog_stop = dialog;
     stop_button.on_click(move |_| {
         if let Err(err) = stop_mac_radio_session(&state_stop) {
             show_message_subdialog(&dialog_stop, "Radio", &err);
         }
-        update_mac_radio_controls(
-            &state_stop,
-            &play_button_stop,
-            &pause_button_stop,
-            &stop_button_stop,
-        );
+        update_mac_radio_controls(&state_stop, &toggle_button_stop, &stop_button_stop);
     });
 
     let dialog_close_button = dialog;
@@ -9428,6 +9446,8 @@ fn main() {
                 event.skip(false);
                 return;
             }
+            #[cfg(target_os = "macos")]
+            stop_all_active_mac_radio_sessions();
             timer_close.stop();
             event.skip(true);
         });
