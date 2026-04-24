@@ -1946,14 +1946,15 @@ fn prompt_text_save_path(
     settings: &Arc<Mutex<Settings>>,
     suggested_path: Option<&Path>,
     preferred_extension: Option<&str>,
+    current_text: &str,
 ) -> Option<PathBuf> {
     let ui = current_ui_strings();
     let settings_snapshot = settings.lock().unwrap().clone();
     let default_filename = suggested_path
         .and_then(|path| path.file_stem())
         .and_then(|stem| stem.to_str())
-        .map(sanitize_filename)
-        .filter(|name| !name.is_empty())
+        .and_then(sanitize_filename_candidate)
+        .or_else(|| first_line_filename_candidate(current_text))
         .unwrap_or_else(|| sanitize_filename(&ui.save_default_filename));
     let dialog = Dialog::builder(parent, &ui.save_text_title)
         .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
@@ -2237,6 +2238,7 @@ fn save_current_document(
             settings,
             state_snapshot.opened_path.as_deref(),
             preferred_extension,
+            &current_text,
         ) else {
             return false;
         };
@@ -2287,6 +2289,7 @@ fn save_current_document_as(
         settings,
         state_snapshot.opened_path.as_deref(),
         preferred_extension,
+        &text_ctrl.get_value(),
     ) else {
         return false;
     };
@@ -4273,6 +4276,10 @@ fn build_google_news_rss_url(keyword: &str) -> String {
 }
 
 fn sanitize_filename(name: &str) -> String {
+    sanitize_filename_candidate(name).unwrap_or_else(|| "podcast".to_string())
+}
+
+fn sanitize_filename_candidate(name: &str) -> Option<String> {
     let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     let cleaned = name
         .chars()
@@ -4286,10 +4293,14 @@ fn sanitize_filename(name: &str) -> String {
         .collect::<String>();
     let trimmed = cleaned.trim().trim_matches('.').trim();
     if trimmed.is_empty() {
-        "podcast".to_string()
+        None
     } else {
-        trimmed.to_string()
+        Some(trimmed.to_string())
     }
+}
+
+fn first_line_filename_candidate(text: &str) -> Option<String> {
+    text.lines().next().and_then(sanitize_filename_candidate)
 }
 
 fn format_google_news_source_title(keyword: &str) -> String {
