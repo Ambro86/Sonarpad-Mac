@@ -21,6 +21,8 @@ use std::collections::HashSet;
 use std::io::{BufReader, Cursor};
 #[cfg(any(target_os = "macos", windows))]
 use std::io::{Read, Write};
+#[cfg(target_os = "macos")]
+use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
@@ -177,6 +179,23 @@ struct RadioFavorite {
     language_code: String,
     name: String,
     stream_url: String,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone)]
+struct MacRadioMpvSession {
+    ipc_path: PathBuf,
+    process_id: u32,
+    stream_url: String,
+}
+
+#[cfg(target_os = "macos")]
+struct MacRadioWindowState {
+    session: Option<MacRadioMpvSession>,
+    ipc: Option<UnixStream>,
+    child: Option<std::process::Child>,
+    next_request_id: u64,
+    status: PlaybackStatus,
 }
 
 struct RadioMenuState {
@@ -2859,6 +2878,506 @@ fn open_url_in_browser(url: &str) -> Result<(), String> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn bundled_mpv_executable_path() -> Option<PathBuf> {
+    let current_exe = std::env::current_exe().ok()?;
+    let contents_dir = current_exe.parent()?.parent()?;
+    let bundled_path = contents_dir
+        .join("Resources")
+        .join("mpv.app")
+        .join("Contents")
+        .join("MacOS")
+        .join("mpv");
+    bundled_path.is_file().then_some(bundled_path)
+}
+
+#[cfg(target_os = "macos")]
+fn mac_radio_open_mpv_ipc(ipc_path: &Path) -> Result<UnixStream, String> {
+    UnixStream::connect(ipc_path).map_err(|err| format!("apertura canale mpv fallita: {}", err))
+}
+
+#[cfg(target_os = "macos")]
+fn mac_radio_build_mpv_ipc_message(command_json: &str, request_id: u64) -> Result<String, String> {
+    let mut value: serde_json::Value = serde_json::from_str(command_json)
+        .map_err(|err| format!("comando mpv non valido: {err}"))?;
+    let Some(object) = value.as_object_mut() else {
+        return Err("comando mpv non valido".to_string());
+    };
+    object.insert(
+        "request_id".to_string(),
+        serde_json::Value::Number(serde_json::Number::from(request_id)),
+    );
+    serde_json::to_string(&value).map_err(|err| format!("comando mpv non valido: {err}"))
+}
+
+#[cfg(target_os = "macos")]
+fn mac_radio_read_mpv_response(
+    ipc_path: &Path,
+    stream: &mut UnixStream,
+    request_id: u64,
+) -> Result<serde_json::Value, String> {
+    use std::io::BufRead as _;
+
+    loop {
+        let mut reader = BufReader::new(&mut *stream);
+        let mut response = String::new();
+        reader
+            .read_line(&mut response)
+            .map_err(|err| format!("lettura risposta mpv fallita: {err}"))?;
+        let trimmed = response.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let parsed: serde_json::Value = serde_json::from_str(trimmed)
+            .map_err(|err| format!("risposta mpv non valida: {err}"))?;
+        if parsed
+            .get("request_id")
+            .and_then(|value| value.as_u64())
+            .unwrap_or_default()
+            != request_id
+        {
+            append_podcast_log(&format!(
+                "radio.mpv.ipc.skip path={} expected_request_id={} response={trimmed}",
+                ipc_path.display(),
+                request_id
+            ));
+            continue;
+        }
+        return Ok(parsed);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn mac_radio_send_mpv_command_with_stream(
+    stream: &mut UnixStream,
+    ipc_path: &Path,
+    request_id: u64,
+    command_json: &str,
+) -> Result<(), String> {
+    let message = mac_radio_build_mpv_ipc_message(command_json, request_id)?;
+    stream
+        .write_all(message.as_bytes())
+        .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
+    stream
+        .write_all(b"\n")
+        .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
+    stream
+        .flush()
+        .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
+    let _ = mac_radio_read_mpv_response(ipc_path, stream, request_id)?;
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_radio_send_mpv_command_transient(ipc_path: &Path, command_json: &str) -> Result<(), String> {
+    let mut stream = mac_radio_open_mpv_ipc(ipc_path)?;
+    mac_radio_send_mpv_command_with_stream(&mut stream, ipc_path, 1, command_json)
+}
+
+#[cfg(target_os = "macos")]
+fn mac_radio_ensure_ipc_connected(state: &Rc<RefCell<MacRadioWindowState>>) -> Result<(), String> {
+    let ipc_path = state
+        .borrow()
+        .session
+        .as_ref()
+        .map(|session| session.ipc_path.clone())
+        .ok_or_else(|| "nessuna sessione radio attiva".to_string())?;
+    if state.borrow().ipc.is_some() {
+        return Ok(());
+    }
+    let stream = mac_radio_open_mpv_ipc(&ipc_path)?;
+    state.borrow_mut().ipc = Some(stream);
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn mac_radio_send_mpv_command(
+    state: &Rc<RefCell<MacRadioWindowState>>,
+    command_json: &str,
+) -> Result<(), String> {
+    mac_radio_ensure_ipc_connected(state)?;
+    let ipc_path = state
+        .borrow()
+        .session
+        .as_ref()
+        .map(|session| session.ipc_path.clone())
+        .ok_or_else(|| "nessuna sessione radio attiva".to_string())?;
+    let request_id = {
+        let mut locked = state.borrow_mut();
+        let request_id = locked.next_request_id;
+        locked.next_request_id = locked.next_request_id.saturating_add(1);
+        request_id
+    };
+    let result = {
+        let mut locked = state.borrow_mut();
+        let stream = locked
+            .ipc
+            .as_mut()
+            .ok_or_else(|| "connessione mpv non disponibile".to_string())?;
+        mac_radio_send_mpv_command_with_stream(stream, &ipc_path, request_id, command_json)
+    };
+    if result.is_err() {
+        state.borrow_mut().ipc = None;
+    }
+    result
+}
+
+#[cfg(target_os = "macos")]
+fn update_mac_radio_controls(
+    state: &Rc<RefCell<MacRadioWindowState>>,
+    play_button: &Button,
+    pause_button: &Button,
+    stop_button: &Button,
+) {
+    match state.borrow().status {
+        PlaybackStatus::Stopped => {
+            play_button.enable(true);
+            pause_button.enable(false);
+            stop_button.enable(false);
+        }
+        PlaybackStatus::Playing => {
+            play_button.enable(false);
+            pause_button.enable(true);
+            stop_button.enable(true);
+        }
+        PlaybackStatus::Paused => {
+            play_button.enable(true);
+            pause_button.enable(false);
+            stop_button.enable(true);
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn stop_mac_radio_session(state: &Rc<RefCell<MacRadioWindowState>>) -> Result<(), String> {
+    let (session, mut ipc, mut child) = {
+        let mut locked = state.borrow_mut();
+        locked.status = PlaybackStatus::Stopped;
+        locked.next_request_id = 1;
+        (
+            locked.session.take(),
+            locked.ipc.take(),
+            locked.child.take(),
+        )
+    };
+    let Some(session) = session else {
+        return Ok(());
+    };
+
+    let quit_result = if let Some(stream) = ipc.as_mut() {
+        mac_radio_send_mpv_command_with_stream(
+            stream,
+            &session.ipc_path,
+            1,
+            r#"{"command":["quit"]}"#,
+        )
+    } else {
+        mac_radio_send_mpv_command_transient(&session.ipc_path, r#"{"command":["quit"]}"#)
+    };
+
+    if let Some(child) = child.as_mut() {
+        if quit_result.is_err()
+            && let Err(err) = child.kill()
+        {
+            append_podcast_log(&format!(
+                "radio.mpv.kill_failed pid={} err={err}",
+                session.process_id
+            ));
+        }
+        if let Err(err) = child.wait() {
+            append_podcast_log(&format!(
+                "radio.mpv.wait_failed pid={} err={err}",
+                session.process_id
+            ));
+        }
+    }
+
+    if let Err(err) = std::fs::remove_file(&session.ipc_path)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        append_podcast_log(&format!(
+            "radio.mpv.socket_cleanup_failed path={} err={err}",
+            session.ipc_path.display()
+        ));
+    }
+
+    append_podcast_log(&format!(
+        "radio.mpv.stopped pid={} url={}",
+        session.process_id, session.stream_url
+    ));
+    quit_result
+}
+
+#[cfg(target_os = "macos")]
+fn launch_mac_radio_session(
+    state: &Rc<RefCell<MacRadioWindowState>>,
+    station_name: &str,
+    stream_url: &str,
+) -> Result<(), String> {
+    let mpv_executable = bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
+    let ipc_path = std::env::temp_dir().join(format!("sonarpad-radio-{}.sock", Uuid::new_v4()));
+    if let Err(err) = std::fs::remove_file(&ipc_path)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        append_podcast_log(&format!(
+            "radio.mpv.socket_prep_failed path={} err={err}",
+            ipc_path.display()
+        ));
+    }
+
+    let mut command = Command::new(&mpv_executable);
+    if let Some(parent_dir) = mpv_executable.parent()
+        && !parent_dir.as_os_str().is_empty()
+    {
+        command.current_dir(parent_dir);
+    }
+    command
+        .arg(stream_url)
+        .arg("--no-config")
+        .arg("--no-video")
+        .arg("--force-window=no")
+        .arg("--idle=no")
+        .arg("--no-terminal")
+        .arg("--volume-max=300")
+        .arg(format!("--input-ipc-server={}", ipc_path.display()))
+        .arg(format!("--title={station_name}"));
+
+    let mut child = command
+        .spawn()
+        .map_err(|err| format!("avvio mpv fallito: {err}"))?;
+
+    for _ in 0..40 {
+        if mac_radio_send_mpv_command_transient(
+            &ipc_path,
+            r#"{"command":["get_property","pause"]}"#,
+        )
+        .is_ok()
+        {
+            let persistent_ipc = mac_radio_open_mpv_ipc(&ipc_path).ok();
+            let mut locked = state.borrow_mut();
+            locked.session = Some(MacRadioMpvSession {
+                ipc_path: ipc_path.clone(),
+                process_id: child.id(),
+                stream_url: stream_url.to_string(),
+            });
+            locked.ipc = persistent_ipc;
+            locked.child = Some(child);
+            locked.next_request_id = 1;
+            locked.status = PlaybackStatus::Playing;
+            append_podcast_log(&format!(
+                "radio.mpv.started pid={} path={} url={}",
+                locked
+                    .session
+                    .as_ref()
+                    .map(|session| session.process_id)
+                    .unwrap_or_default(),
+                ipc_path.display(),
+                stream_url
+            ));
+            return Ok(());
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+
+    if let Err(err) = child.kill() {
+        append_podcast_log(&format!("radio.mpv.launch_cleanup_kill_failed err={err}"));
+    }
+    if let Err(err) = child.wait() {
+        append_podcast_log(&format!("radio.mpv.launch_cleanup_wait_failed err={err}"));
+    }
+    if let Err(err) = std::fs::remove_file(&ipc_path)
+        && err.kind() != std::io::ErrorKind::NotFound
+    {
+        append_podcast_log(&format!(
+            "radio.mpv.launch_cleanup_socket_failed path={} err={err}",
+            ipc_path.display()
+        ));
+    }
+    Err("inizializzazione controllo radio fallita".to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn open_radio_station(
+    parent: &impl WxWidget,
+    station_name: &str,
+    stream_url: &str,
+) -> Result<(), String> {
+    let dialog = Dialog::builder(parent, station_name)
+        .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
+        .with_size(360, 150)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let ui = current_ui_strings();
+
+    let title = StaticText::builder(&panel).with_label(station_name).build();
+    root.add(
+        &title,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let play_button = Button::builder(&panel)
+        .with_label(&ui.button_play_podcast)
+        .build();
+    let pause_button = Button::builder(&panel)
+        .with_label(&ui.button_pause_podcast)
+        .build();
+    let stop_button = Button::builder(&panel)
+        .with_label(&ui.button_stop_podcast)
+        .build();
+    let close_button = Button::builder(&panel).with_label(&ui.close).build();
+    buttons.add(&play_button, 0, SizerFlag::All, 8);
+    buttons.add(&pause_button, 0, SizerFlag::All, 8);
+    buttons.add(&stop_button, 0, SizerFlag::All, 8);
+    buttons.add(&close_button, 0, SizerFlag::All, 8);
+    root.add_sizer(
+        &buttons,
+        0,
+        SizerFlag::Center | SizerFlag::Bottom | SizerFlag::Top,
+        8,
+    );
+
+    panel.set_sizer(root, true);
+
+    let state = Rc::new(RefCell::new(MacRadioWindowState {
+        session: None,
+        ipc: None,
+        child: None,
+        next_request_id: 1,
+        status: PlaybackStatus::Stopped,
+    }));
+
+    launch_mac_radio_session(&state, station_name, stream_url)?;
+    update_mac_radio_controls(&state, &play_button, &pause_button, &stop_button);
+
+    let state_play = Rc::clone(&state);
+    let play_button_play = play_button;
+    let pause_button_play = pause_button;
+    let stop_button_play = stop_button;
+    let station_name_play = station_name.to_string();
+    let stream_url_play = stream_url.to_string();
+    let dialog_play = dialog;
+    play_button.on_click(move |_| {
+        let result = if state_play.borrow().status == PlaybackStatus::Paused {
+            mac_radio_send_mpv_command(&state_play, r#"{"command":["set_property","pause",false]}"#)
+                .map(|()| {
+                    state_play.borrow_mut().status = PlaybackStatus::Playing;
+                })
+        } else {
+            let _ = stop_mac_radio_session(&state_play);
+            launch_mac_radio_session(&state_play, &station_name_play, &stream_url_play)
+        };
+        if let Err(err) = result {
+            show_message_subdialog(&dialog_play, "Radio", &err);
+        }
+        update_mac_radio_controls(
+            &state_play,
+            &play_button_play,
+            &pause_button_play,
+            &stop_button_play,
+        );
+    });
+
+    let state_pause = Rc::clone(&state);
+    let play_button_pause = play_button;
+    let pause_button_pause = pause_button;
+    let stop_button_pause = stop_button;
+    let dialog_pause = dialog;
+    pause_button.on_click(move |_| {
+        let result = mac_radio_send_mpv_command(
+            &state_pause,
+            r#"{"command":["set_property","pause",true]}"#,
+        )
+        .map(|()| {
+            state_pause.borrow_mut().status = PlaybackStatus::Paused;
+        });
+        if let Err(err) = result {
+            show_message_subdialog(&dialog_pause, "Radio", &err);
+        }
+        update_mac_radio_controls(
+            &state_pause,
+            &play_button_pause,
+            &pause_button_pause,
+            &stop_button_pause,
+        );
+    });
+
+    let state_stop = Rc::clone(&state);
+    let play_button_stop = play_button;
+    let pause_button_stop = pause_button;
+    let stop_button_stop = stop_button;
+    let dialog_stop = dialog;
+    stop_button.on_click(move |_| {
+        if let Err(err) = stop_mac_radio_session(&state_stop) {
+            show_message_subdialog(&dialog_stop, "Radio", &err);
+        }
+        update_mac_radio_controls(
+            &state_stop,
+            &play_button_stop,
+            &pause_button_stop,
+            &stop_button_stop,
+        );
+    });
+
+    let dialog_close_button = dialog;
+    close_button.on_click(move |_| {
+        dialog_close_button.close(true);
+    });
+
+    let timer = Rc::new(Timer::new(&dialog));
+    let timer_tick = Rc::clone(&timer);
+    let dialog_tick = dialog;
+    let state_tick = Rc::clone(&state);
+    timer_tick.on_tick(move |_| {
+        let exited = {
+            let mut locked = state_tick.borrow_mut();
+            if let Some(child) = locked.child.as_mut() {
+                match child.try_wait() {
+                    Ok(Some(_status)) => true,
+                    Ok(None) => false,
+                    Err(err) => {
+                        append_podcast_log(&format!("radio.mpv.try_wait_failed err={err}"));
+                        true
+                    }
+                }
+            } else {
+                false
+            }
+        };
+        if exited {
+            let _ = stop_mac_radio_session(&state_tick);
+            timer_tick.stop();
+            dialog_tick.destroy();
+        }
+    });
+    timer.start(500, false);
+
+    let timer_close = Rc::clone(&timer);
+    let state_close = Rc::clone(&state);
+    let parent_close = parent;
+    dialog.on_close(move |event| {
+        timer_close.stop();
+        let _ = stop_mac_radio_session(&state_close);
+        parent_close.set_focus();
+        event.skip(true);
+    });
+
+    dialog.show(true);
+    Ok(())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_radio_station(
+    _parent: &impl WxWidget,
+    _station_name: &str,
+    stream_url: &str,
+) -> Result<(), String> {
+    open_url_in_browser(stream_url)
+}
+
 #[derive(Deserialize)]
 struct RadioBrowserStation {
     #[serde(default)]
@@ -4018,10 +4537,10 @@ fn open_radio_results_dialog(
             return;
         };
         let visible_results = visible_results_open.borrow();
-        let Some(station) = visible_results.get(selection as usize) else {
+        let Some(station) = visible_results.get(selection as usize).cloned() else {
             return;
         };
-        if let Err(err) = open_url_in_browser(&station.stream_url) {
+        if let Err(err) = open_radio_station(&dialog_open, &station.name, &station.stream_url) {
             show_message_subdialog(&dialog_open, "Radio", &err);
         }
     });
@@ -9182,7 +9701,7 @@ fn main() {
                 let state = radio_menu_state_menu.lock().unwrap();
                 state.station_ids.get(&event.get_id()).cloned()
             } {
-                if let Err(err) = open_url_in_browser(&station.stream_url) {
+                if let Err(err) = open_radio_station(&f_menu, &station.name, &station.stream_url) {
                     show_message_dialog(
                         &f_menu,
                         &ui.menu_radio,

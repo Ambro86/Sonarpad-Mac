@@ -204,6 +204,24 @@ jobs:
               print(dylib)
           PY
 
+      - name: Download bundled mpv.app for macOS
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/mpv
+          rm -rf dist/mpv/*
+          if [ "${{ matrix.rust_target }}" = "aarch64-apple-darwin" ]; then
+            MPV_ARCHIVE_URL="https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-arm64-latest.tar.gz"
+          else
+            MPV_ARCHIVE_URL="https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-latest.tar.gz"
+          fi
+          curl -L --fail "${MPV_ARCHIVE_URL}" -o "dist/mpv/mpv.tar.gz"
+          tar -xzf "dist/mpv/mpv.tar.gz" -C dist/mpv
+          MPV_APP_DIR="$(find dist/mpv -maxdepth 2 -type d -name 'mpv.app' | head -n 1)"
+          test -n "${MPV_APP_DIR}"
+          test -x "${MPV_APP_DIR}/Contents/MacOS/mpv"
+          echo "MPV_APP_DIR=${MPV_APP_DIR}" >> "${GITHUB_ENV}"
+
       - name: Package .app and .dmg
         shell: bash
         run: |
@@ -217,11 +235,12 @@ jobs:
           MACOS_DIR="${CONTENTS_DIR}/MacOS"
           FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
           RESOURCES_DIR="${CONTENTS_DIR}/Resources"
+          MPV_APP_DEST="${RESOURCES_DIR}/mpv.app"
           FFMPEG_DIR="${RESOURCES_DIR}/ffmpeg"
           FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
           FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
 
-          rm -rf "${APP_DIR}" "${FFMPEG_DIR}"
+          rm -rf "${APP_DIR}" "${FFMPEG_DIR}" "${MPV_APP_DEST}"
           mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
@@ -235,6 +254,8 @@ jobs:
           cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
+          cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
+          chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -338,6 +359,8 @@ jobs:
           FRAMEWORKS_DIR="${APP_DIR}/Contents/Frameworks"
           FFMPEG_BIN="${APP_DIR}/Contents/Resources/ffmpeg/bin/ffmpeg"
           FFMPEG_LIB_DIR="${APP_DIR}/Contents/Resources/ffmpeg/lib"
+          MPV_APP_DIR="${APP_DIR}/Contents/Resources/mpv.app"
+          MPV_BIN="${MPV_APP_DIR}/Contents/MacOS/mpv"
 
           if [ -f "${FFMPEG_BIN}" ]; then
             codesign --force --options runtime --timestamp \
@@ -358,6 +381,17 @@ jobs:
               --sign "Developer ID Application" \
               "${bin}"
           done
+
+          if [ -f "${MPV_BIN}" ]; then
+            find "${MPV_APP_DIR}" -type f -perm -111 -print0 | while IFS= read -r -d '' bin; do
+              codesign --force --options runtime --timestamp \
+                --sign "Developer ID Application" \
+                "${bin}"
+            done
+            codesign --force --deep --options runtime --timestamp \
+              --sign "Developer ID Application" \
+              "${MPV_APP_DIR}"
+          fi
 
           codesign --force --deep --options runtime --timestamp \
             --sign "Developer ID Application" \
@@ -457,6 +491,7 @@ jobs:
           test -d "${MOUNT_DIR}/Sonarpad.app"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks/libpdfium.dylib"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
+          test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/mpv.app/Contents/MacOS/mpv"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name 'libcurl*.dylib' | grep .
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet
