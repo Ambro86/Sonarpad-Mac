@@ -5560,8 +5560,31 @@ fn open_podcast_episode_externally(
     url: &str,
     suggested_name: &str,
 ) -> Result<(), String> {
+    let file_path = download_podcast_episode_with_progress(parent, url, "external_open")?;
+
+    match prompt_downloaded_podcast_action(parent) {
+        PodcastDownloadAction::Open => open_downloaded_podcast_file(&file_path),
+        PodcastDownloadAction::SaveAs => {
+            save_downloaded_podcast_file(parent, &file_path, suggested_name)
+        }
+        PodcastDownloadAction::Close => Ok(()),
+    }
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn save_podcast_episode(parent: &Frame, url: &str, suggested_name: &str) -> Result<(), String> {
+    let file_path = download_podcast_episode_with_progress(parent, url, "podcast_save")?;
+    save_downloaded_podcast_file(parent, &file_path, suggested_name)
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn download_podcast_episode_with_progress(
+    parent: &Frame,
+    url: &str,
+    log_prefix: &str,
+) -> Result<PathBuf, String> {
     let ui = current_ui_strings();
-    append_podcast_log(&format!("external_open.begin url={}", url.trim()));
+    append_podcast_log(&format!("{log_prefix}.begin url={}", url.trim()));
     let progress = ProgressDialog::builder(
         parent,
         &ui.podcast_download_title,
@@ -5575,7 +5598,7 @@ fn open_podcast_episode_externally(
     let state = Arc::new(Mutex::new(PodcastExternalDownloadState::default()));
     let state_thread = Arc::clone(&state);
     let url_owned = url.trim().to_string();
-    append_podcast_log(&format!("external_open.spawn_download url={url_owned}"));
+    append_podcast_log(&format!("{log_prefix}.spawn_download url={url_owned}"));
     std::thread::spawn(move || {
         download_podcast_episode_for_external_open(&url_owned, &state_thread);
     });
@@ -5589,7 +5612,7 @@ fn open_podcast_episode_externally(
         if let Some(result) = snapshot.result {
             let file_path = result?;
             append_podcast_log(&format!(
-                "external_open.download_completed path={}",
+                "{log_prefix}.download_completed path={}",
                 file_path.display()
             ));
             progress.destroy();
@@ -5621,7 +5644,7 @@ fn open_podcast_episode_externally(
         if percent / 10 > last_logged_percent / 10 {
             last_logged_percent = percent;
             append_podcast_log(&format!(
-                "external_open.progress percent={} downloaded_bytes={} total_bytes={:?}",
+                "{log_prefix}.progress percent={} downloaded_bytes={} total_bytes={:?}",
                 percent, snapshot.downloaded_bytes, snapshot.total_bytes
             ));
         }
@@ -5629,18 +5652,25 @@ fn open_podcast_episode_externally(
         let continue_running = progress.update(percent, Some(&message));
         set_progress_cancel_label(&progress);
         if !continue_running {
-            append_podcast_log("external_open.cancelled_by_user");
+            append_podcast_log(&format!("{log_prefix}.cancelled_by_user"));
             state.lock().unwrap().abort_requested = true;
             return Err("scaricamento podcast annullato".to_string());
         }
     };
 
-    match prompt_downloaded_podcast_action(parent) {
-        PodcastDownloadAction::Open => open_podcast_file_with_default_app(&file_path),
-        PodcastDownloadAction::SaveAs => {
-            save_downloaded_podcast_file(parent, &file_path, suggested_name)
-        }
-        PodcastDownloadAction::Close => Ok(()),
+    Ok(file_path)
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn open_downloaded_podcast_file(file_path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        return open_podcast_file_with_mpv(file_path);
+    }
+
+    #[cfg(windows)]
+    {
+        open_podcast_file_with_default_app(file_path)
     }
 }
 
@@ -5670,6 +5700,42 @@ fn open_podcast_file_with_default_app(file_path: &Path) -> Result<(), String> {
     } else {
         Err(format!(
             "apertura file podcast fallita con codice {:?}",
+            status.code()
+        ))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn open_podcast_file_with_mpv(file_path: &Path) -> Result<(), String> {
+    let mpv_executable =
+        podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
+    let mut command = std::process::Command::new(&mpv_executable);
+    if let Some(parent_dir) = mpv_executable.parent()
+        && !parent_dir.as_os_str().is_empty()
+    {
+        command.current_dir(parent_dir);
+    }
+
+    let status = command
+        .arg(file_path)
+        .arg("--no-config")
+        .arg("--no-video")
+        .arg("--force-window=yes")
+        .arg("--osc=yes")
+        .arg("--input-default-bindings=yes")
+        .arg("--title=Sonarpad podcast")
+        .status()
+        .map_err(|err| format!("avvio mpv podcast fallito: {}", err))?;
+
+    if status.success() {
+        append_podcast_log(&format!(
+            "external_open.success path={}",
+            file_path.display()
+        ));
+        Ok(())
+    } else {
+        Err(format!(
+            "apertura file podcast con mpv fallita con codice {:?}",
             status.code()
         ))
     }
@@ -9303,6 +9369,9 @@ fn main() {
             if btn_stop_timer.get_label() != stop_label {
                 btn_stop_timer.set_label(&stop_label);
             }
+            #[cfg(target_os = "macos")]
+            let seek_visible = false;
+            #[cfg(not(target_os = "macos"))]
             let seek_visible = podcast_mode;
             btn_podcast_back_timer.show(seek_visible);
             btn_podcast_forward_timer.show(seek_visible);
@@ -9899,98 +9968,7 @@ fn main() {
                         episode.title, episode.audio_url, episode.link
                     ));
 
-                    #[cfg(target_os = "macos")]
-                    {
-                        append_podcast_log(&format!(
-                            "podcast_menu.open_with_mpv.begin title={} audio_url={}",
-                            episode.title, episode.audio_url
-                        ));
-
-                        let mut playback_state = podcast_selection_menu.borrow_mut();
-                        if let Some(player) = playback_state.player.as_ref()
-                            && let Err(err) = player.pause()
-                        {
-                            println!("ERROR: Pausa podcast precedente fallita: {}", err);
-                            append_podcast_log(&format!(
-                                "podcast_menu.previous_pause_error audio_url={} error={}",
-                                playback_state.current_audio_url, err
-                            ));
-                        }
-                        playback_state.player = None;
-                        playback_state.selected_episode = Some(episode.clone());
-                        playback_state.current_audio_url.clear();
-                        playback_state.status = PlaybackStatus::Stopped;
-
-                        match podcast_player::PodcastPlayer::new(&episode.audio_url) {
-                            Ok(player) => {
-                                log_podcast_player_snapshot(
-                                    &player,
-                                    "podcast_menu.new_player",
-                                    &episode.audio_url,
-                                );
-                                if let Err(err) = player.play() {
-                                    println!("ERROR: Riproduzione podcast fallita: {}", err);
-                                    append_podcast_log(&format!(
-                                        "podcast_menu.play_error audio_url={} error={}",
-                                        episode.audio_url, err
-                                    ));
-                                    playback_state.status = PlaybackStatus::Stopped;
-                                } else {
-                                    log_podcast_player_snapshot(
-                                        &player,
-                                        "podcast_menu.play_after",
-                                        &episode.audio_url,
-                                    );
-                                    if wait_for_podcast_ready(&f_menu, &player, &episode.audio_url)
-                                    {
-                                        playback_state.current_audio_url =
-                                            episode.audio_url.clone();
-                                        playback_state.status = PlaybackStatus::Playing;
-                                        append_podcast_log(&format!(
-                                            "podcast_menu.open_with_mpv.completed audio_url={} new_status={:?}",
-                                            episode.audio_url, playback_state.status
-                                        ));
-                                    } else {
-                                        if let Err(err) = player.pause() {
-                                            println!(
-                                                "ERROR: Pausa podcast dopo timeout fallita: {}",
-                                                err
-                                            );
-                                            append_podcast_log(&format!(
-                                                "podcast_menu.play_cleanup_error audio_url={} error={}",
-                                                episode.audio_url, err
-                                            ));
-                                        }
-                                        playback_state.status = PlaybackStatus::Stopped;
-                                    }
-                                }
-                                playback_state.player = Some(player);
-                            }
-                            Err(err) => {
-                                println!("ERROR: Avvio player podcast fallito: {}", err);
-                                append_podcast_log(&format!(
-                                    "podcast_menu.new_player_error audio_url={} error={}",
-                                    episode.audio_url, err
-                                ));
-                                playback_state.status = PlaybackStatus::Stopped;
-                                let dialog = MessageDialog::builder(
-                                    &f_menu,
-                                    &if Settings::load().ui_language == "it" {
-                                        format!("Impossibile riprodurre il podcast.\n\n{err}")
-                                    } else {
-                                        format!("Unable to play the podcast.\n\n{err}")
-                                    },
-                                    &current_ui_strings().podcast_error_title,
-                                )
-                                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                                .build();
-                                localize_standard_dialog_buttons(&dialog);
-                                dialog.show_modal();
-                            }
-                        }
-                    }
-
-                    #[cfg(windows)]
+                    #[cfg(any(target_os = "macos", windows))]
                     {
                         let external_url = episode.audio_url.as_str();
                         let mut playback_state = podcast_selection_menu.borrow_mut();
@@ -9998,6 +9976,10 @@ fn main() {
                             && let Err(err) = player.pause()
                         {
                             println!("ERROR: Pausa podcast fallita: {}", err);
+                            append_podcast_log(&format!(
+                                "podcast_menu.previous_pause_error audio_url={} error={}",
+                                playback_state.current_audio_url, err
+                            ));
                         }
                         playback_state.player = None;
                         playback_state.selected_episode = None;
@@ -10683,6 +10665,7 @@ fn main() {
         let tc_s = text_ctrl;
         let f_save = frame;
         let s_save = Arc::clone(&settings);
+        let podcast_playback_save = Rc::clone(&podcast_playback);
         #[cfg(target_os = "macos")]
         let tc_save_text = text_ctrl;
         #[cfg(target_os = "macos")]
@@ -10718,6 +10701,37 @@ fn main() {
             );
         });
         let save_action: Rc<dyn Fn()> = Rc::new(move || {
+            if let Some(episode) = podcast_playback_save.borrow().selected_episode.clone()
+                && !episode.audio_url.trim().is_empty()
+            {
+                append_podcast_log(&format!(
+                    "save_action.podcast_episode title={} audio_url={}",
+                    episode.title, episode.audio_url
+                ));
+                if let Err(err) = save_podcast_episode(&f_save, &episode.audio_url, &episode.title)
+                {
+                    append_podcast_log(&format!(
+                        "save_action.podcast_episode_error audio_url={} error={}",
+                        episode.audio_url, err
+                    ));
+                    let ui = current_ui_strings();
+                    let dialog = MessageDialog::builder(
+                        &f_save,
+                        &if Settings::load().ui_language == "it" {
+                            format!("Impossibile salvare il podcast.\n\n{err}")
+                        } else {
+                            format!("Unable to save the podcast.\n\n{err}")
+                        },
+                        &ui.podcast_error_title,
+                    )
+                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                    .build();
+                    localize_standard_dialog_buttons(&dialog);
+                    dialog.show_modal();
+                }
+                return;
+            }
+
             let ui = current_ui_strings();
             let text = tc_s.get_value();
             if text.trim().is_empty() {

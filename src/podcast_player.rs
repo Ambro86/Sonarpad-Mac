@@ -45,9 +45,11 @@ mod imp {
                 .arg("--no-config")
                 .arg("--pause=yes")
                 .arg("--no-video")
-                .arg("--force-window=no")
+                .arg("--force-window=yes")
                 .arg("--idle=no")
                 .arg("--no-terminal")
+                .arg("--osc=yes")
+                .arg("--input-default-bindings=yes")
                 .arg("--volume-max=300")
                 .arg(format!("--input-ipc-server={}", ipc_path.display()))
                 .arg("--title=Sonarpad podcast");
@@ -229,7 +231,7 @@ mod imp {
         }
     }
 
-    fn bundled_mpv_executable_path() -> Option<PathBuf> {
+    pub fn bundled_mpv_executable_path() -> Option<PathBuf> {
         let current_exe = std::env::current_exe().ok()?;
         let macos_dir = current_exe.parent()?;
         let contents_dir = macos_dir.parent()?;
