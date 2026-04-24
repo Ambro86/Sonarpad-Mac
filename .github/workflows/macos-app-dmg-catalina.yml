@@ -514,9 +514,6 @@ jobs:
                 --sign "Developer ID Application" \
                 "${bin}"
             done
-            codesign --force --deep --options runtime --timestamp \
-              --sign "Developer ID Application" \
-              "${MPV_APP_DIR}"
           fi
 
           codesign --force --deep --options runtime --timestamp \
