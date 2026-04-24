@@ -26,6 +26,8 @@ use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
+#[cfg(target_os = "macos")]
+use std::rc::Weak;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -95,6 +97,7 @@ const ID_ARTICLES_ARTICLE_BASE: i32 = 10000;
 const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
 const PODCAST_SEEK_SECONDS: f64 = 30.0;
+const PODCAST_SLIDER_RANGE: i32 = 1000;
 
 const AUDIOBOOK_SAVE_THREADS: usize = 8;
 const WXK_LEFT: i32 = 314;
@@ -8523,6 +8526,59 @@ fn seek_podcast_playback(state: &Rc<RefCell<PodcastPlaybackState>>, offset_secon
     }
 }
 
+fn seek_podcast_playback_to_ratio(state: &Rc<RefCell<PodcastPlaybackState>>, slider_value: i32) {
+    let podcast_state = state.borrow();
+    if let Some(player) = podcast_state.player.as_ref() {
+        let Ok(Some(duration_seconds)) = player.duration_seconds() else {
+            append_podcast_log(&format!(
+                "seek_podcast.slider_no_duration audio_url={}",
+                podcast_state.current_audio_url
+            ));
+            return;
+        };
+        let clamped_value = slider_value.clamp(0, PODCAST_SLIDER_RANGE);
+        let target_seconds =
+            duration_seconds * f64::from(clamped_value) / f64::from(PODCAST_SLIDER_RANGE);
+        log_podcast_player_snapshot(
+            player,
+            &format!("seek_podcast.slider_before target_seconds={target_seconds}"),
+            &podcast_state.current_audio_url,
+        );
+        if let Err(err) = player.seek_to_seconds(target_seconds) {
+            println!("ERROR: Seek podcast da slider fallito: {}", err);
+            append_podcast_log(&format!(
+                "seek_podcast.slider_error audio_url={} target_seconds={} error={}",
+                podcast_state.current_audio_url, target_seconds, err
+            ));
+        } else {
+            log_podcast_player_snapshot(
+                player,
+                &format!("seek_podcast.slider_after target_seconds={target_seconds}"),
+                &podcast_state.current_audio_url,
+            );
+        }
+    }
+}
+
+fn podcast_slider_value(state: &PodcastPlaybackState) -> i32 {
+    let Some(player) = state.player.as_ref() else {
+        return 0;
+    };
+    let Ok(position_seconds) = player.position_seconds() else {
+        return 0;
+    };
+    let Ok(Some(duration_seconds)) = player.duration_seconds() else {
+        return 0;
+    };
+    if duration_seconds <= 0.0 {
+        return 0;
+    }
+    ((position_seconds.max(0.0).min(duration_seconds) / duration_seconds)
+        * f64::from(PODCAST_SLIDER_RANGE))
+    .round()
+    .clamp(0.0, f64::from(PODCAST_SLIDER_RANGE)) as i32
+}
+
 fn sync_settings_with_loaded_voices(
     settings: &Arc<Mutex<Settings>>,
     voices: &[edge_tts::VoiceInfo],
@@ -9183,6 +9239,17 @@ fn main() {
         btn_sizer.add(&btn_settings, 1, SizerFlag::All, 10);
 
         main_sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand, 0);
+        let podcast_position_slider = Slider::builder(&panel)
+            .with_range(0, PODCAST_SLIDER_RANGE)
+            .with_value(0)
+            .build();
+        podcast_position_slider.show(false);
+        main_sizer.add(
+            &podcast_position_slider,
+            0,
+            SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+            10,
+        );
         panel.set_sizer(main_sizer, true);
 
         // --- Timer per aggiornamento UI ---
@@ -9193,6 +9260,7 @@ fn main() {
         let btn_stop_timer = btn_stop;
         let btn_podcast_back_timer = btn_podcast_back;
         let btn_podcast_forward_timer = btn_podcast_forward;
+        let podcast_position_slider_timer = podcast_position_slider;
         let panel_timer = panel;
         let settings_timer = Arc::clone(&settings);
         let article_menu_state_timer = Arc::clone(&article_menu_state);
@@ -9237,6 +9305,18 @@ fn main() {
             let seek_visible = podcast_mode;
             btn_podcast_back_timer.show(seek_visible);
             btn_podcast_forward_timer.show(seek_visible);
+            podcast_position_slider_timer.show(seek_visible);
+            if seek_visible {
+                let slider_value = {
+                    let podcast_state = podcast_playback_timer.borrow();
+                    podcast_slider_value(&podcast_state)
+                };
+                if podcast_position_slider_timer.get_value() != slider_value {
+                    podcast_position_slider_timer.set_value(slider_value);
+                }
+            } else if podcast_position_slider_timer.get_value() != 0 {
+                podcast_position_slider_timer.set_value(0);
+            }
             panel_timer.layout();
             #[cfg(target_os = "macos")]
             if mac_should_defer_menu_rebuilds() {
@@ -9796,34 +9876,122 @@ fn main() {
                     );
                     tc_menu.set_value(&format!("{}\n\n{}", episode.title.trim(), description.trim()));
 
-                    #[cfg(any(target_os = "macos", windows))]
-                    {
-                        if episode.audio_url.trim().is_empty() {
-                            append_podcast_log(&format!(
-                                "podcast_menu.no_audio_url title={} link={}",
-                                episode.title, episode.link
-                            ));
-                            let dialog = MessageDialog::builder(
-                                &f_menu,
-                                "Questo episodio non espone un URL audio diretto nel feed RSS.\n\nNon posso scaricare la pagina web al posto dell'audio.",
-                                "Audio podcast non disponibile",
-                            )
-                            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                            .build();
-                            localize_standard_dialog_buttons(&dialog);
-                            dialog.show_modal();
-                            return;
-                        }
-
-                        let external_url = episode.audio_url.as_str();
+                    if episode.audio_url.trim().is_empty() {
                         append_podcast_log(&format!(
-                            "podcast_menu.episode_resolved title={} audio_url={} link={} external_url={}",
-                            episode.title,
-                            episode.audio_url,
-                            episode.link,
-                            external_url
+                            "podcast_menu.no_audio_url title={} link={}",
+                            episode.title, episode.link
+                        ));
+                        let dialog = MessageDialog::builder(
+                            &f_menu,
+                            "Questo episodio non espone un URL audio diretto nel feed RSS.\n\nNon posso scaricare la pagina web al posto dell'audio.",
+                            "Audio podcast non disponibile",
+                        )
+                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                        .build();
+                        localize_standard_dialog_buttons(&dialog);
+                        dialog.show_modal();
+                        return;
+                    }
+
+                    append_podcast_log(&format!(
+                        "podcast_menu.episode_resolved title={} audio_url={} link={}",
+                        episode.title, episode.audio_url, episode.link
+                    ));
+
+                    #[cfg(target_os = "macos")]
+                    {
+                        append_podcast_log(&format!(
+                            "podcast_menu.open_with_mpv.begin title={} audio_url={}",
+                            episode.title, episode.audio_url
                         ));
 
+                        let mut playback_state = podcast_selection_menu.borrow_mut();
+                        if let Some(player) = playback_state.player.as_ref()
+                            && let Err(err) = player.pause()
+                        {
+                            println!("ERROR: Pausa podcast precedente fallita: {}", err);
+                            append_podcast_log(&format!(
+                                "podcast_menu.previous_pause_error audio_url={} error={}",
+                                playback_state.current_audio_url, err
+                            ));
+                        }
+                        playback_state.player = None;
+                        playback_state.selected_episode = Some(episode.clone());
+                        playback_state.current_audio_url.clear();
+                        playback_state.status = PlaybackStatus::Stopped;
+
+                        match podcast_player::PodcastPlayer::new(&episode.audio_url) {
+                            Ok(player) => {
+                                log_podcast_player_snapshot(
+                                    &player,
+                                    "podcast_menu.new_player",
+                                    &episode.audio_url,
+                                );
+                                if let Err(err) = player.play() {
+                                    println!("ERROR: Riproduzione podcast fallita: {}", err);
+                                    append_podcast_log(&format!(
+                                        "podcast_menu.play_error audio_url={} error={}",
+                                        episode.audio_url, err
+                                    ));
+                                    playback_state.status = PlaybackStatus::Stopped;
+                                } else {
+                                    log_podcast_player_snapshot(
+                                        &player,
+                                        "podcast_menu.play_after",
+                                        &episode.audio_url,
+                                    );
+                                    if wait_for_podcast_ready(&f_menu, &player, &episode.audio_url)
+                                    {
+                                        playback_state.current_audio_url =
+                                            episode.audio_url.clone();
+                                        playback_state.status = PlaybackStatus::Playing;
+                                        append_podcast_log(&format!(
+                                            "podcast_menu.open_with_mpv.completed audio_url={} new_status={:?}",
+                                            episode.audio_url, playback_state.status
+                                        ));
+                                    } else {
+                                        if let Err(err) = player.pause() {
+                                            println!(
+                                                "ERROR: Pausa podcast dopo timeout fallita: {}",
+                                                err
+                                            );
+                                            append_podcast_log(&format!(
+                                                "podcast_menu.play_cleanup_error audio_url={} error={}",
+                                                episode.audio_url, err
+                                            ));
+                                        }
+                                        playback_state.status = PlaybackStatus::Stopped;
+                                    }
+                                }
+                                playback_state.player = Some(player);
+                            }
+                            Err(err) => {
+                                println!("ERROR: Avvio player podcast fallito: {}", err);
+                                append_podcast_log(&format!(
+                                    "podcast_menu.new_player_error audio_url={} error={}",
+                                    episode.audio_url, err
+                                ));
+                                playback_state.status = PlaybackStatus::Stopped;
+                                let dialog = MessageDialog::builder(
+                                    &f_menu,
+                                    &if Settings::load().ui_language == "it" {
+                                        format!("Impossibile riprodurre il podcast.\n\n{err}")
+                                    } else {
+                                        format!("Unable to play the podcast.\n\n{err}")
+                                    },
+                                    &current_ui_strings().podcast_error_title,
+                                )
+                                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                                .build();
+                                localize_standard_dialog_buttons(&dialog);
+                                dialog.show_modal();
+                            }
+                        }
+                    }
+
+                    #[cfg(windows)]
+                    {
+                        let external_url = episode.audio_url.as_str();
                         let mut playback_state = podcast_selection_menu.borrow_mut();
                         if let Some(player) = playback_state.player.as_ref()
                             && let Err(err) = player.pause()
@@ -10272,7 +10440,6 @@ fn main() {
                 };
 
                 let mut sink_arc = Arc::new(sink);
-                let mut edge_session = None;
                 {
                     let mut pb_lock = pb_thread.lock().unwrap();
                     pb_lock.sink = Some(Arc::clone(&sink_arc));
@@ -10280,100 +10447,73 @@ fn main() {
 
                 let chunks: Vec<String> = edge_tts::split_text_realtime_lazy(&text).collect();
                 let mut cached_chunks = Vec::with_capacity(chunks.len());
+                let (audio_tx, mut audio_rx) =
+                    tokio::sync::mpsc::channel::<Result<(usize, Vec<u8>), String>>(10);
                 append_podcast_log(&format!("start_action.tts_chunks total={}", chunks.len()));
 
-                for (chunk_index, chunk) in chunks.into_iter().enumerate() {
-                    let mut replay_chunk = true;
-                    while replay_chunk {
-                        replay_chunk = false;
-                        loop {
+                rt_thread.spawn({
+                    let pb_download = Arc::clone(&pb_thread);
+                    let voice_download = voice.clone();
+                    async move {
+                        let mut edge_session = None;
+                        for (chunk_index, chunk) in chunks.into_iter().enumerate() {
                             {
-                                let mut pb_lock = pb_thread.lock().unwrap();
-                                if pb_lock.generation != playback_generation {
+                                let pb_lock = pb_download.lock().unwrap();
+                                if pb_lock.generation != playback_generation
+                                    || pb_lock.status == PlaybackStatus::Stopped
+                                {
                                     break;
                                 }
-                                if pb_lock.status == PlaybackStatus::Stopped {
-                                    break;
-                                }
-                                if pb_lock.refresh_requested {
-                                    pb_lock.refresh_requested = false;
-                                    if let Ok(new_sink) = Sink::try_new(&handle) {
-                                        sink_arc = Arc::new(new_sink);
-                                        pb_lock.sink = Some(Arc::clone(&sink_arc));
+                            }
+
+                            append_podcast_log(&format!(
+                                "start_action.tts_chunk_request index={} voice={} rate={} pitch={} volume={}",
+                                chunk_index, voice_download, rate, pitch, volume
+                            ));
+                            match edge_tts::synthesize_realtime_chunk_with_retry(
+                                edge_session,
+                                &chunk,
+                                &voice_download,
+                                rate,
+                                pitch,
+                                volume,
+                                40,
+                            )
+                            .await
+                            {
+                                Ok((data, session)) => {
+                                    edge_session = session;
+                                    if data.is_empty() {
+                                        append_podcast_log(&format!(
+                                            "start_action.tts_chunk_empty index={chunk_index}"
+                                        ));
+                                        continue;
+                                    }
+                                    append_podcast_log(&format!(
+                                        "start_action.tts_chunk_ok index={} bytes={}",
+                                        chunk_index,
+                                        data.len()
+                                    ));
+                                    if audio_tx.send(Ok((chunk_index, data))).await.is_err() {
+                                        break;
                                     }
                                 }
-                            }
-                            if sink_arc.len() < 1 {
-                                break;
-                            }
-                            std::thread::sleep(std::time::Duration::from_millis(100));
-                        }
-
-                        {
-                            let pb_lock = pb_thread.lock().unwrap();
-                            if pb_lock.generation != playback_generation {
-                                break;
-                            }
-                            if pb_lock.status == PlaybackStatus::Stopped {
-                                break;
-                            }
-                        }
-
-                        append_podcast_log(&format!(
-                            "start_action.tts_chunk_request index={} voice={} rate={} pitch={} volume={}",
-                            chunk_index, voice, rate, pitch, volume
-                        ));
-                        match rt_thread.block_on(edge_tts::synthesize_realtime_chunk_with_retry(
-                            edge_session,
-                            &chunk,
-                            &voice,
-                            rate,
-                            pitch,
-                            volume,
-                            40,
-                        )) {
-                            Ok((data, session)) => {
-                                edge_session = session;
-                                if data.is_empty() {
-                                    append_podcast_log(&format!(
-                                        "start_action.tts_chunk_empty index={}",
-                                        chunk_index
-                                    ));
-                                    break;
-                                }
-                                append_podcast_log(&format!(
-                                    "start_action.tts_chunk_ok index={} bytes={}",
-                                    chunk_index,
-                                    data.len()
-                                ));
-                                cached_chunks.push(data.clone());
-                                if let Ok(source) = Decoder::new(Cursor::new(data)) {
-                                    sink_arc.append(source);
-                                } else {
-                                    append_podcast_log(&format!(
-                                        "start_action.decoder_failed index={}",
-                                        chunk_index
-                                    ));
-                                }
-                            }
-                            Err(err) => {
-                                edge_session = None;
-                                let mut pb_lock = pb_thread.lock().unwrap();
-                                if pb_lock.generation == playback_generation {
-                                    println!("ERROR: Sintesi realtime fallita: {}", err);
+                                Err(err) => {
                                     append_podcast_log(&format!(
                                         "start_action.tts_chunk_error index={} error={}",
                                         chunk_index, err
                                     ));
-                                    pb_lock.status = PlaybackStatus::Stopped;
-                                    pb_lock.sink = None;
+                                    let _ = audio_tx.send(Err(err.to_string())).await;
+                                    break;
                                 }
-                                break;
                             }
                         }
+                    }
+                });
 
-                        loop {
-                            std::thread::sleep(std::time::Duration::from_millis(60));
+                while let Some(packet) = rt_thread.block_on(audio_rx.recv()) {
+                    loop {
+                        {
                             let mut pb_lock = pb_thread.lock().unwrap();
                             if pb_lock.generation != playback_generation {
                                 break;
@@ -10387,14 +10527,45 @@ fn main() {
                                     sink_arc = Arc::new(new_sink);
                                     pb_lock.sink = Some(Arc::clone(&sink_arc));
                                 }
-                                edge_session = None;
-                                replay_chunk = true;
-                                break;
-                            }
-                            if sink_arc.empty() {
-                                break;
                             }
                         }
+                        if sink_arc.len() < 10 {
+                            break;
+                        }
+                        std::thread::sleep(std::time::Duration::from_millis(60));
+                    }
+
+                    {
+                        let pb_lock = pb_thread.lock().unwrap();
+                        if pb_lock.generation != playback_generation {
+                            break;
+                        }
+                        if pb_lock.status == PlaybackStatus::Stopped {
+                            break;
+                        }
+                    }
+
+                    let (chunk_index, data) = match packet {
+                        Ok(data) => data,
+                        Err(err) => {
+                            let mut pb_lock = pb_thread.lock().unwrap();
+                            if pb_lock.generation == playback_generation {
+                                println!("ERROR: Sintesi realtime fallita: {}", err);
+                                pb_lock.status = PlaybackStatus::Stopped;
+                                pb_lock.sink = None;
+                            }
+                            break;
+                        }
+                    };
+
+                    cached_chunks.push(data.clone());
+                    if let Ok(source) = Decoder::new(Cursor::new(data)) {
+                        sink_arc.append(source);
+                    } else {
+                        append_podcast_log(&format!(
+                            "start_action.decoder_failed index={}",
+                            chunk_index
+                        ));
                     }
                 }
 
@@ -10463,6 +10634,14 @@ fn main() {
         let podcast_seek_back = Rc::clone(&podcast_playback);
         btn_podcast_back.on_click(move |_| {
             seek_podcast_playback(&podcast_seek_back, -PODCAST_SEEK_SECONDS);
+        });
+
+        let podcast_slider_seek = Rc::clone(&podcast_playback);
+        podcast_position_slider.on_scroll(move |_| {
+            seek_podcast_playback_to_ratio(
+                &podcast_slider_seek,
+                podcast_position_slider.get_value(),
+            );
         });
 
         let podcast_seek_forward = Rc::clone(&podcast_playback);
