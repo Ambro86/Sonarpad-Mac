@@ -398,3 +398,5 @@ mod imp {
 }
 
 pub use imp::PodcastPlayer;
+#[cfg(target_os = "macos")]
+pub use imp::bundled_mpv_executable_path;
