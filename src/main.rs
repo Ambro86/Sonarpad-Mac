@@ -1654,17 +1654,18 @@ fn ffmpeg_executable_path() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn current_macos_app_bundle_path() -> Option<PathBuf> {
-    let exe_path = std::env::current_exe().ok()?;
+fn current_macos_app_bundle_path() -> Result<PathBuf, String> {
+    let exe_path =
+        std::env::current_exe().map_err(|err| format!("lettura percorso app fallita: {err}"))?;
     for ancestor in exe_path.ancestors() {
         if ancestor
             .extension()
             .is_some_and(|ext| ext.eq_ignore_ascii_case("app"))
         {
-            return Some(ancestor.to_path_buf());
+            return Ok(ancestor.to_path_buf());
         }
     }
-    None
+    Err("bundle app macOS non trovato".to_string())
 }
 
 #[cfg(target_os = "macos")]
@@ -1682,8 +1683,7 @@ fn write_macos_file_associations_script() -> Result<PathBuf, String> {
 
 #[cfg(target_os = "macos")]
 fn set_macos_default_file_associations() -> Result<(), String> {
-    let bundle_path = current_macos_app_bundle_path()
-        .ok_or_else(|| "bundle app macOS non trovato".to_string())?;
+    let bundle_path = current_macos_app_bundle_path()?;
     let script_path = write_macos_file_associations_script()?;
     append_podcast_log(&format!(
         "mac_file_assoc.begin bundle={} script={}",
@@ -4638,18 +4638,6 @@ fn matching_macos_release_asset(release: &GithubReleaseInfo) -> Option<GithubRel
         .iter()
         .find(|asset| asset.name == expected_name)
         .cloned()
-}
-
-#[cfg(target_os = "macos")]
-fn current_macos_app_bundle_path() -> Result<PathBuf, String> {
-    let current_exe =
-        std::env::current_exe().map_err(|err| format!("lettura percorso app fallita: {err}"))?;
-    current_exe
-        .parent()
-        .and_then(|path| path.parent())
-        .and_then(|path| path.parent())
-        .map(Path::to_path_buf)
-        .ok_or_else(|| "bundle app macOS non valido".to_string())
 }
 
 #[cfg(target_os = "macos")]
