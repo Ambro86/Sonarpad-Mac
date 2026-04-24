@@ -9240,7 +9240,8 @@ fn main() {
 
         main_sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand, 0);
         let podcast_position_slider = Slider::builder(&panel)
-            .with_range(0, PODCAST_SLIDER_RANGE)
+            .with_min_value(0)
+            .with_max_value(PODCAST_SLIDER_RANGE)
             .with_value(0)
             .build();
         podcast_position_slider.show(false);
@@ -10637,7 +10638,7 @@ fn main() {
         });
 
         let podcast_slider_seek = Rc::clone(&podcast_playback);
-        podcast_position_slider.on_scroll(move |_| {
+        podcast_position_slider.on_slider(move |_| {
             seek_podcast_playback_to_ratio(
                 &podcast_slider_seek,
                 podcast_position_slider.get_value(),
