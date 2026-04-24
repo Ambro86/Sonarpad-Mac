@@ -3162,38 +3162,52 @@ fn launch_mac_radio_session(
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
 
-    for _ in 0..40 {
-        if mac_radio_send_mpv_command_transient(
-            &ipc_path,
-            r#"{"command":["get_property","pause"]}"#,
-        )
-        .is_ok()
-        {
-            let persistent_ipc = mac_radio_open_mpv_ipc(&ipc_path).ok();
+    for attempt in 0..150 {
+        if let Ok(mut persistent_ipc) = mac_radio_open_mpv_ipc(&ipc_path) {
+            let handshake_result = mac_radio_send_mpv_command_with_stream(
+                &mut persistent_ipc,
+                &ipc_path,
+                1,
+                r#"{"command":["get_property","pause"]}"#,
+            );
+            if let Err(err) = &handshake_result {
+                append_podcast_log(&format!(
+                    "radio.mpv.handshake_pending attempt={} path={} err={err}",
+                    attempt + 1,
+                    ipc_path.display()
+                ));
+            }
             let mut locked = state.borrow_mut();
             locked.session = Some(MacRadioMpvSession {
                 ipc_path: ipc_path.clone(),
                 process_id: child.id(),
                 stream_url: stream_url.to_string(),
             });
-            locked.ipc = persistent_ipc;
+            locked.ipc = Some(persistent_ipc);
             locked.child = Some(child);
-            locked.next_request_id = 1;
+            locked.next_request_id = 2;
             locked.status = PlaybackStatus::Playing;
             append_podcast_log(&format!(
-                "radio.mpv.started pid={} path={} url={}",
+                "radio.mpv.started pid={} path={} url={} handshake_ok={}",
                 locked
                     .session
                     .as_ref()
                     .map(|session| session.process_id)
                     .unwrap_or_default(),
                 ipc_path.display(),
-                stream_url
+                stream_url,
+                handshake_result.is_ok()
             ));
             return Ok(());
         }
         std::thread::sleep(Duration::from_millis(100));
     }
+
+    append_podcast_log(&format!(
+        "radio.mpv.start_timeout path={} url={}",
+        ipc_path.display(),
+        stream_url
+    ));
 
     if let Err(err) = child.kill() {
         append_podcast_log(&format!("radio.mpv.launch_cleanup_kill_failed err={err}"));
