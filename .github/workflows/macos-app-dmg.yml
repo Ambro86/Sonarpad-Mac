@@ -422,25 +422,40 @@ jobs:
         run: |
           set -euxo pipefail
           APP_NAME="Sonarpad"
-          xcrun notarytool submit "dist/${APP_NAME}.zip" \
-            --apple-id "$APPLE_ID" \
-            --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-            --team-id "$APPLE_TEAM_ID" \
-            --wait \
-            --output-format json > "dist/notary-result.json"
-
-          submission_id="$(python3 -c 'import json; print(json.load(open("dist/notary-result.json"))["id"])')"
-          submission_status="$(python3 -c 'import json; print(json.load(open("dist/notary-result.json"))["status"])')"
-          echo "Notary submission id: ${submission_id}"
-          echo "Notary status: ${submission_status}"
-
-          if [ "${submission_status}" != "Accepted" ]; then
-            xcrun notarytool log "${submission_id}" \
+          attempt=1
+          while true; do
+            echo "Submitting for notarization, attempt ${attempt}"
+            rm -f "dist/notary-result.json"
+            if xcrun notarytool submit "dist/${APP_NAME}.zip" \
               --apple-id "$APPLE_ID" \
               --password "$APPLE_APP_SPECIFIC_PASSWORD" \
-              --team-id "$APPLE_TEAM_ID"
-            exit 1
-          fi
+              --team-id "$APPLE_TEAM_ID" \
+              --wait \
+              --output-format json > "dist/notary-result.json"; then
+              submission_id="$(python3 -c 'import json; print(json.load(open("dist/notary-result.json"))["id"])')"
+              submission_status="$(python3 -c 'import json; print(json.load(open("dist/notary-result.json"))["status"])')"
+              echo "Notary submission id: ${submission_id}"
+              echo "Notary status: ${submission_status}"
+
+              if [ "${submission_status}" = "Accepted" ]; then
+                break
+              fi
+
+              xcrun notarytool log "${submission_id}" \
+                --apple-id "$APPLE_ID" \
+                --password "$APPLE_APP_SPECIFIC_PASSWORD" \
+                --team-id "$APPLE_TEAM_ID"
+              exit 1
+            fi
+
+            sleep_seconds=$(( attempt * 15 ))
+            if [ "${sleep_seconds}" -gt 300 ]; then
+              sleep_seconds=300
+            fi
+            echo "Notary submission attempt ${attempt} failed, retrying in ${sleep_seconds}s"
+            sleep "${sleep_seconds}"
+            attempt=$(( attempt + 1 ))
+          done
 
       - name: Staple notarization ticket
         shell: bash
