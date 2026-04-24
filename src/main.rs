@@ -3236,7 +3236,7 @@ fn open_radio_station(
     root.add_sizer(
         &buttons,
         0,
-        SizerFlag::Center | SizerFlag::Bottom | SizerFlag::Top,
+        SizerFlag::AlignCentre | SizerFlag::Bottom | SizerFlag::Top,
         8,
     );
 
