@@ -3329,6 +3329,7 @@ fn open_radio_station(
 
     let timer = Rc::new(Timer::new(&dialog));
     let timer_tick = Rc::clone(&timer);
+    let timer_tick_stop = Rc::clone(&timer);
     let dialog_tick = dialog;
     let state_tick = Rc::clone(&state);
     timer_tick.on_tick(move |_| {
@@ -3349,7 +3350,7 @@ fn open_radio_station(
         };
         if exited {
             let _ = stop_mac_radio_session(&state_tick);
-            timer_tick.stop();
+            timer_tick_stop.stop();
             dialog_tick.destroy();
         }
     });
@@ -3357,11 +3358,9 @@ fn open_radio_station(
 
     let timer_close = Rc::clone(&timer);
     let state_close = Rc::clone(&state);
-    let parent_close = parent;
     dialog.on_close(move |event| {
         timer_close.stop();
         let _ = stop_mac_radio_session(&state_close);
-        parent_close.set_focus();
         event.skip(true);
     });
 
