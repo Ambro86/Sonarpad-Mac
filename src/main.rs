@@ -3125,13 +3125,18 @@ fn stop_mac_radio_session(state: &Rc<RefCell<MacRadioWindowState>>) -> Result<()
 }
 
 #[cfg(target_os = "macos")]
+fn mac_radio_ipc_socket_path() -> PathBuf {
+    Path::new("/tmp").join(format!("spd-radio-{}.sock", Uuid::new_v4().simple()))
+}
+
+#[cfg(target_os = "macos")]
 fn launch_mac_radio_session(
     state: &Rc<RefCell<MacRadioWindowState>>,
     station_name: &str,
     stream_url: &str,
 ) -> Result<(), String> {
     let mpv_executable = bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
-    let ipc_path = std::env::temp_dir().join(format!("sonarpad-radio-{}.sock", Uuid::new_v4()));
+    let ipc_path = mac_radio_ipc_socket_path();
     if let Err(err) = std::fs::remove_file(&ipc_path)
         && err.kind() != std::io::ErrorKind::NotFound
     {
