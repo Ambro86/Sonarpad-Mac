@@ -335,6 +335,30 @@ jobs:
           set -euxo pipefail
           APP_NAME="Sonarpad"
           APP_DIR="dist/stage/${APP_NAME}.app"
+          FRAMEWORKS_DIR="${APP_DIR}/Contents/Frameworks"
+          FFMPEG_BIN="${APP_DIR}/Contents/Resources/ffmpeg/bin/ffmpeg"
+          FFMPEG_LIB_DIR="${APP_DIR}/Contents/Resources/ffmpeg/lib"
+
+          if [ -f "${FFMPEG_BIN}" ]; then
+            codesign --force --options runtime --timestamp \
+              --sign "Developer ID Application" \
+              "${FFMPEG_BIN}"
+          fi
+
+          if [ -d "${FFMPEG_LIB_DIR}" ]; then
+            find "${FFMPEG_LIB_DIR}" -type f -perm -111 -print0 | while IFS= read -r -d '' bin; do
+              codesign --force --options runtime --timestamp \
+                --sign "Developer ID Application" \
+                "${bin}"
+            done
+          fi
+
+          find "${FRAMEWORKS_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
+            codesign --force --options runtime --timestamp \
+              --sign "Developer ID Application" \
+              "${bin}"
+          done
+
           codesign --force --deep --options runtime --timestamp \
             --sign "Developer ID Application" \
             "${APP_DIR}"
