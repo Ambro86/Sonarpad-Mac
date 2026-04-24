@@ -123,12 +123,6 @@ const SONARPAD_MINIMAL_RELEASES_URL: &str =
     "https://github.com/Ambro86/Sonarpad-Mac/releases/latest";
 const SONARPAD_MINIMAL_RELEASES_API_URL: &str =
     "https://api.github.com/repos/Ambro86/Sonarpad-Mac/releases/latest";
-#[cfg(target_os = "macos")]
-const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_APPLE_SILICON: &str = "https://github.com/Ambro86/Sonarpad-Mac/releases/latest/download/Sonarpad-macOS-AppleSilicon.dmg";
-#[cfg(target_os = "macos")]
-const SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_INTEL: &str =
-    "https://github.com/Ambro86/Sonarpad-Mac/releases/latest/download/Sonarpad-macOS-Intel.dmg";
-
 #[derive(PartialEq, Clone, Copy, Debug)]
 enum PlaybackStatus {
     Stopped,
@@ -222,6 +216,12 @@ struct SaveAudiobookState {
     error_message: Option<String>,
 }
 
+#[cfg(target_os = "macos")]
+struct PendingMacUpdateInstall {
+    work_dir: PathBuf,
+    extracted_app_path: PathBuf,
+}
+
 enum PendingSaveDialog {
     Success,
     Error(String),
@@ -250,6 +250,16 @@ struct ShortcutActions {
 #[derive(Deserialize)]
 struct GithubReleaseInfo {
     tag_name: String,
+    #[cfg(target_os = "macos")]
+    #[serde(default)]
+    assets: Vec<GithubReleaseAsset>,
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Deserialize, Clone)]
+struct GithubReleaseAsset {
+    name: String,
+    browser_download_url: String,
 }
 
 #[derive(Serialize, Deserialize, Clone)]
@@ -2834,19 +2844,18 @@ fn is_newer_version(latest: &str, current: &str) -> bool {
     }
 }
 
-fn fetch_latest_release_version() -> Result<String, String> {
+fn fetch_latest_release_info() -> Result<GithubReleaseInfo, String> {
     let client = reqwest::blocking::Client::builder()
         .user_agent("SonarpadMinimalUpdater")
         .build()
         .map_err(|err| format!("creazione client aggiornamenti fallita: {}", err))?;
-    let release = client
+    client
         .get(SONARPAD_MINIMAL_RELEASES_API_URL)
         .send()
         .and_then(|response| response.error_for_status())
         .map_err(|err| format!("download release fallito: {}", err))?
         .json::<GithubReleaseInfo>()
-        .map_err(|err| format!("lettura release fallita: {}", err))?;
-    Ok(normalize_version_tag(&release.tag_name))
+        .map_err(|err| format!("lettura release fallita: {}", err))
 }
 
 fn open_url_in_browser(url: &str) -> Result<(), String> {
@@ -4604,77 +4613,140 @@ fn open_radio_results_dialog(
 }
 
 #[cfg(target_os = "macos")]
-fn latest_download_url_for_current_platform() -> &'static str {
-    if mac_has_apple_silicon_cpu() {
-        SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_APPLE_SILICON
+fn macos_update_build_flavor() -> &'static str {
+    option_env!("SONARPAD_MACOS_BUILD_FLAVOR").unwrap_or(if cfg!(target_arch = "aarch64") {
+        "apple-silicon"
     } else {
-        SONARPAD_MINIMAL_MAC_DOWNLOAD_URL_INTEL
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn latest_download_url_for_current_platform() -> &'static str {
-    SONARPAD_MINIMAL_RELEASES_URL
+        "intel"
+    })
 }
 
 #[cfg(target_os = "macos")]
-fn mac_has_apple_silicon_cpu() -> bool {
-    if let Some(value) = run_macos_sysctl("hw.optional.arm64")
-        && parse_macos_sysctl_bool(&value)
-    {
-        return true;
+fn expected_macos_release_zip_name() -> &'static str {
+    match macos_update_build_flavor() {
+        "apple-silicon" => "Sonarpad-macOS-AppleSilicon.zip",
+        "intel-catalina" => "Sonarpad-macOS-Intel-Catalina.zip",
+        _ => "Sonarpad-macOS-Intel.zip",
     }
-
-    if let Some(value) = run_macos_sysctl("sysctl.proc_translated")
-        && parse_macos_sysctl_bool(&value)
-    {
-        return true;
-    }
-
-    cfg!(target_arch = "aarch64")
 }
 
 #[cfg(target_os = "macos")]
-fn run_macos_sysctl(name: &str) -> Option<String> {
-    let output = std::process::Command::new("sysctl")
-        .args(["-n", name])
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+fn matching_macos_release_asset(release: &GithubReleaseInfo) -> Option<GithubReleaseAsset> {
+    let expected_name = expected_macos_release_zip_name();
+    release
+        .assets
+        .iter()
+        .find(|asset| asset.name == expected_name)
+        .cloned()
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn parse_macos_sysctl_bool(value: &str) -> bool {
-    matches!(value.trim(), "1" | "true" | "yes")
+#[cfg(target_os = "macos")]
+fn current_macos_app_bundle_path() -> Result<PathBuf, String> {
+    let current_exe =
+        std::env::current_exe().map_err(|err| format!("lettura percorso app fallita: {err}"))?;
+    current_exe
+        .parent()
+        .and_then(|path| path.parent())
+        .and_then(|path| path.parent())
+        .map(Path::to_path_buf)
+        .ok_or_else(|| "bundle app macOS non valido".to_string())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::parse_macos_sysctl_bool;
+#[cfg(target_os = "macos")]
+fn prepare_macos_update_install(
+    asset: &GithubReleaseAsset,
+) -> Result<PendingMacUpdateInstall, String> {
+    let work_dir = std::env::temp_dir().join(format!("sonarpad-update-{}", Uuid::new_v4()));
+    std::fs::create_dir_all(&work_dir)
+        .map_err(|err| format!("creazione cartella update fallita: {err}"))?;
+    let zip_path = work_dir.join(&asset.name);
 
-    #[test]
-    fn parse_macos_sysctl_bool_accepts_true_values() {
-        assert!(parse_macos_sysctl_bool("1"));
-        assert!(parse_macos_sysctl_bool(" true "));
-        assert!(parse_macos_sysctl_bool("yes"));
+    let client = reqwest::blocking::Client::builder()
+        .user_agent("SonarpadMinimalUpdater")
+        .build()
+        .map_err(|err| format!("creazione client aggiornamenti fallita: {}", err))?;
+    let mut response = client
+        .get(&asset.browser_download_url)
+        .send()
+        .and_then(|response| response.error_for_status())
+        .map_err(|err| format!("download aggiornamento fallito: {}", err))?;
+    let mut file = std::fs::File::create(&zip_path)
+        .map_err(|err| format!("creazione archivio update fallita: {err}"))?;
+    std::io::copy(&mut response, &mut file)
+        .map_err(|err| format!("salvataggio archivio update fallito: {err}"))?;
+
+    let extract_dir = work_dir.join("extracted");
+    std::fs::create_dir_all(&extract_dir)
+        .map_err(|err| format!("creazione cartella estrazione fallita: {err}"))?;
+    let status = Command::new("/usr/bin/ditto")
+        .args(["-x", "-k"])
+        .arg(&zip_path)
+        .arg(&extract_dir)
+        .status()
+        .map_err(|err| format!("estrazione aggiornamento fallita: {err}"))?;
+    if !status.success() {
+        return Err(format!(
+            "estrazione aggiornamento fallita con codice {:?}",
+            status.code()
+        ));
     }
 
-    #[test]
-    fn parse_macos_sysctl_bool_rejects_false_values() {
-        assert!(!parse_macos_sysctl_bool("0"));
-        assert!(!parse_macos_sysctl_bool("false"));
-        assert!(!parse_macos_sysctl_bool(""));
-    }
+    let extracted_app_path = std::fs::read_dir(&extract_dir)
+        .map_err(|err| format!("lettura cartella update fallita: {err}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .find(|path| path.extension().and_then(|ext| ext.to_str()) == Some("app"))
+        .ok_or_else(|| "app aggiornata non trovata nell'archivio".to_string())?;
+
+    Ok(PendingMacUpdateInstall {
+        work_dir,
+        extracted_app_path,
+    })
 }
 
-fn check_for_updates(parent: &Frame) {
+#[cfg(target_os = "macos")]
+fn launch_pending_macos_update_install(
+    pending_update: &Arc<Mutex<Option<PendingMacUpdateInstall>>>,
+) -> Result<(), String> {
+    let Some(pending) = pending_update.lock().unwrap().take() else {
+        return Ok(());
+    };
+
+    let target_app_path = current_macos_app_bundle_path()?;
+    let pid = std::process::id();
+    let script_path = pending.work_dir.join("install_update.sh");
+    let script = format!(
+        "#!/bin/sh\nset -eu\nPID='{pid}'\nTARGET_APP='{target}'\nSOURCE_APP='{source}'\nBACKUP_APP=\"${{TARGET_APP}}.old\"\nfor _ in $(seq 1 300); do\n  if ! kill -0 \"$PID\" 2>/dev/null; then\n    break\n  fi\n  sleep 1\ndone\nrm -rf \"$BACKUP_APP\"\nif [ -d \"$TARGET_APP\" ]; then\n  mv \"$TARGET_APP\" \"$BACKUP_APP\"\nfi\nmv \"$SOURCE_APP\" \"$TARGET_APP\"\nopen \"$TARGET_APP\"\nrm -rf \"$BACKUP_APP\"\n",
+        target = target_app_path.display(),
+        source = pending.extracted_app_path.display()
+    );
+    std::fs::write(&script_path, script)
+        .map_err(|err| format!("scrittura script aggiornamento fallita: {err}"))?;
+
+    let mut permissions = std::fs::metadata(&script_path)
+        .map_err(|err| format!("lettura permessi script fallita: {err}"))?
+        .permissions();
+    use std::os::unix::fs::PermissionsExt;
+    permissions.set_mode(0o755);
+    std::fs::set_permissions(&script_path, permissions)
+        .map_err(|err| format!("impostazione permessi script fallita: {err}"))?;
+
+    Command::new("/bin/sh")
+        .arg(&script_path)
+        .spawn()
+        .map_err(|err| format!("avvio installazione aggiornamento fallito: {err}"))?;
+    Ok(())
+}
+
+fn check_for_updates(
+    parent: &Frame,
+    #[cfg(target_os = "macos")] pending_update: &Arc<Mutex<Option<PendingMacUpdateInstall>>>,
+) {
     let ui = current_ui_strings();
     let current_version = env!("CARGO_PKG_VERSION");
-    match fetch_latest_release_version() {
-        Ok(latest_version) => {
+    match fetch_latest_release_info() {
+        Ok(release) => {
+            let latest_version = normalize_version_tag(&release.tag_name);
             if is_newer_version(&latest_version, current_version) {
                 let message = if Settings::load().ui_language == "it" {
                     format!(
@@ -4691,25 +4763,72 @@ fn check_for_updates(parent: &Frame) {
                     .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
                     .build();
                 localize_standard_dialog_buttons(&dialog);
-                if dialog.show_modal() == ID_YES
-                    && let Err(err) =
-                        open_url_in_browser(latest_download_url_for_current_platform())
-                {
-                    show_message_dialog(
-                        parent,
-                        &ui.updates_title,
-                        &if Settings::load().ui_language == "it" {
-                            format!(
-                                "È disponibile la versione {} ma non sono riuscito ad aprire il link.\n\n{}",
-                                latest_version, err
-                            )
-                        } else {
-                            format!(
-                                "Version {} is available but I could not open the link.\n\n{}",
-                                latest_version, err
-                            )
-                        },
-                    );
+                if dialog.show_modal() == ID_YES {
+                    #[cfg(target_os = "macos")]
+                    {
+                        match matching_macos_release_asset(&release)
+                            .ok_or_else(|| {
+                                format!(
+                                    "asset aggiornamento non trovato: {}",
+                                    expected_macos_release_zip_name()
+                                )
+                            })
+                            .and_then(|asset| prepare_macos_update_install(&asset))
+                        {
+                            Ok(prepared_update) => {
+                                *pending_update.lock().unwrap() = Some(prepared_update);
+                                let install_message = if Settings::load().ui_language == "it" {
+                                    format!(
+                                        "L'aggiornamento {} è pronto.\n\nSonarpad verrà chiuso per completare l'installazione.",
+                                        latest_version
+                                    )
+                                } else {
+                                    format!(
+                                        "Update {} is ready.\n\nSonarpad will close to complete installation.",
+                                        latest_version
+                                    )
+                                };
+                                show_message_dialog(parent, &ui.updates_title, &install_message);
+                                parent.close(true);
+                            }
+                            Err(err) => {
+                                show_message_dialog(
+                                    parent,
+                                    &ui.updates_title,
+                                    &if Settings::load().ui_language == "it" {
+                                        format!(
+                                            "È disponibile la versione {} ma non sono riuscito a preparare l'aggiornamento.\n\n{}",
+                                            latest_version, err
+                                        )
+                                    } else {
+                                        format!(
+                                            "Version {} is available but I could not prepare the update.\n\n{}",
+                                            latest_version, err
+                                        )
+                                    },
+                                );
+                            }
+                        }
+                    }
+
+                    #[cfg(not(target_os = "macos"))]
+                    if let Err(err) = open_url_in_browser(SONARPAD_MINIMAL_RELEASES_URL) {
+                        show_message_dialog(
+                            parent,
+                            &ui.updates_title,
+                            &if Settings::load().ui_language == "it" {
+                                format!(
+                                    "È disponibile la versione {} ma non sono riuscito ad aprire il link.\n\n{}",
+                                    latest_version, err
+                                )
+                            } else {
+                                format!(
+                                    "Version {} is available but I could not open the link.\n\n{}",
+                                    latest_version, err
+                                )
+                            },
+                        );
+                    }
                 }
             } else {
                 show_message_dialog(
@@ -8758,6 +8877,8 @@ fn main() {
     let voices_data = Arc::new(Mutex::new(Vec::<edge_tts::VoiceInfo>::new()));
     let languages = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
     let settings = Arc::new(Mutex::new(Settings::load()));
+    #[cfg(target_os = "macos")]
+    let pending_mac_update = Arc::new(Mutex::new(None::<PendingMacUpdateInstall>));
     let initial_radio_stations = embedded_radio_stations();
     let article_menu_state = Arc::new(Mutex::new(ArticleMenuState {
         dirty: true,
@@ -9245,6 +9366,8 @@ fn main() {
         let tc_close = text_ctrl;
         let settings_close = Arc::clone(&settings);
         let current_document_close = Arc::clone(&current_document);
+        #[cfg(target_os = "macos")]
+        let pending_mac_update_close = Arc::clone(&pending_mac_update);
         let frame_close = frame;
         frame.on_close(move |event| {
             if tc_close.is_modified() {
@@ -9279,6 +9402,13 @@ fn main() {
                     }
                     _ => {}
                 }
+            }
+            #[cfg(target_os = "macos")]
+            if let Err(err) = launch_pending_macos_update_install(&pending_mac_update_close) {
+                let ui = current_ui_strings();
+                show_message_dialog(&frame_close, &ui.updates_title, &err);
+                event.skip(false);
+                return;
             }
             timer_close.stop();
             event.skip(true);
@@ -9348,7 +9478,11 @@ fn main() {
             } else if event.get_id() == ID_CHANGELOG {
                 open_changelog_dialog(&f_menu);
             } else if event.get_id() == ID_CHECK_UPDATES {
-                check_for_updates(&f_menu);
+                check_for_updates(
+                    &f_menu,
+                    #[cfg(target_os = "macos")]
+                    &pending_mac_update,
+                );
             } else if event.get_id() == ID_ARTICLES_ADD_SOURCE {
                 if let Some((title, url)) = open_add_article_source_dialog(&f_menu) {
                     add_article_source(

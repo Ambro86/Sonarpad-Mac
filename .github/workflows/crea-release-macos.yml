@@ -72,30 +72,32 @@ jobs:
             core.setOutput('catalina_run_id', latestCatalinaRun.id);
             core.setOutput('catalina_run_sha', latestCatalinaRun.head_sha.substring(0, 7));
 
-      - name: Download DMG artifacts from latest main macOS build
+      - name: Download artifacts from latest main macOS build
         uses: actions/download-artifact@v4
         with:
-          pattern: sonarpad-macos-dmg-*
+          pattern: sonarpad-macos-*
           run-id: ${{ steps.get_runs.outputs.main_run_id }}
           path: ./release_files
           merge-multiple: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Download Catalina DMG artifact from latest Catalina build
+      - name: Download Catalina artifacts from latest Catalina build
         uses: actions/download-artifact@v4
         with:
-          name: sonarpad-macos-dmg-intel-catalina
+          pattern: sonarpad-macos-*-intel-catalina
           run-id: ${{ steps.get_runs.outputs.catalina_run_id }}
           path: ./release_files
+          merge-multiple: true
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Verify DMG file
+      - name: Verify release files
         run: |
           set -euo pipefail
           ls -la ./release_files
           dmg_count=$(find ./release_files -maxdepth 1 -type f -name "*.dmg" | wc -l)
-          if [ "$dmg_count" -eq 0 ]; then
-            echo "ERROR: no .dmg file found in artifact"
+          zip_count=$(find ./release_files -maxdepth 1 -type f -name "*.zip" | wc -l)
+          if [ "$dmg_count" -eq 0 ] || [ "$zip_count" -eq 0 ]; then
+            echo "ERROR: expected both .dmg and .zip release files"
             exit 1
           fi
 
@@ -112,10 +114,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Upload DMG to release
+      - name: Upload release files
         run: |
           set -euo pipefail
-          for file in ./release_files/*.dmg; do
+          for file in ./release_files/*.{dmg,zip}; do
+            [ -f "$file" ] || continue
             echo "Uploading $(basename "$file")"
             gh release upload "${{ env.RELEASE_VERSION }}" "$file" --clobber
           done

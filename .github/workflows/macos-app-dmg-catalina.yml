@@ -24,6 +24,7 @@ jobs:
       LDFLAGS: -mmacosx-version-min=10.15
       FFMPEG_VERSION: "8.0.1"
       CURL_CFFI_VERSION: "0.7.0"
+      SONARPAD_MACOS_BUILD_FLAVOR: intel-catalina
 
     steps:
       - name: Checkout
@@ -576,6 +577,13 @@ jobs:
           APP_NAME="Sonarpad"
           spctl --assess --type execute --verbose=4 "dist/stage/${APP_NAME}.app"
 
+      - name: Create distributable ZIP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          ditto -c -k --keepParent "dist/stage/${APP_NAME}.app" "dist/Sonarpad-macOS-Intel-Catalina.zip"
+
       - name: Package DMG
         shell: bash
         run: |
@@ -621,8 +629,14 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet
 
-      - name: Upload artifacts
+      - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
           name: sonarpad-macos-dmg-intel-catalina
           path: dist/Sonarpad-macOS-Intel-Catalina.dmg
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-zip-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.zip

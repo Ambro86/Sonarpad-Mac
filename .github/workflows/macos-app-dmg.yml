@@ -20,18 +20,25 @@ jobs:
         include:
           - runs_on: macos-14
             rust_target: aarch64-apple-darwin
+            build_flavor: apple-silicon
             pdfium_archive: pdfium-mac-arm64.tgz
             dmg_name: Sonarpad-macOS-AppleSilicon.dmg
-            artifact_name: sonarpad-macos-dmg-apple-silicon
+            dmg_artifact_name: sonarpad-macos-dmg-apple-silicon
+            zip_name: Sonarpad-macOS-AppleSilicon.zip
+            zip_artifact_name: sonarpad-macos-zip-apple-silicon
           - runs_on: macos-15-intel
             rust_target: x86_64-apple-darwin
+            build_flavor: intel
             pdfium_archive: pdfium-mac-x64.tgz
             dmg_name: Sonarpad-macOS-Intel.dmg
-            artifact_name: sonarpad-macos-dmg-intel
+            dmg_artifact_name: sonarpad-macos-dmg-intel
+            zip_name: Sonarpad-macOS-Intel.zip
+            zip_artifact_name: sonarpad-macos-zip-intel
     runs-on: ${{ matrix.runs_on }}
     env:
       CMAKE_ARGS: -DwxUSE_OPENGL=OFF
       CURL_CFFI_VERSION: "0.7.0"
+      SONARPAD_MACOS_BUILD_FLAVOR: ${{ matrix.build_flavor }}
 
     steps:
       - name: Checkout
@@ -451,6 +458,13 @@ jobs:
           APP_NAME="Sonarpad"
           spctl --assess --type execute --verbose=4 "dist/stage/${APP_NAME}.app"
 
+      - name: Create distributable ZIP
+        shell: bash
+        run: |
+          set -euxo pipefail
+          APP_NAME="Sonarpad"
+          ditto -c -k --keepParent "dist/stage/${APP_NAME}.app" "dist/${{ matrix.zip_name }}"
+
       - name: Package DMG
         shell: bash
         run: |
@@ -496,28 +510,34 @@ jobs:
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet
 
-      - name: Upload artifacts (attempt 1)
-        id: upload_artifact_attempt_1
+      - name: Upload DMG artifact (attempt 1)
+        id: upload_dmg_artifact_attempt_1
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.dmg_artifact_name }}
           path: dist/${{ matrix.dmg_name }}
 
-      - name: Upload artifacts (attempt 2)
-        id: upload_artifact_attempt_2
-        if: steps.upload_artifact_attempt_1.outcome == 'failure'
+      - name: Upload DMG artifact (attempt 2)
+        id: upload_dmg_artifact_attempt_2
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure'
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.dmg_artifact_name }}
           path: dist/${{ matrix.dmg_name }}
 
-      - name: Upload artifacts (attempt 3)
-        if: steps.upload_artifact_attempt_1.outcome == 'failure' && steps.upload_artifact_attempt_2.outcome == 'failure'
+      - name: Upload DMG artifact (attempt 3)
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure'
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact_name }}
+          name: ${{ matrix.dmg_artifact_name }}
           path: dist/${{ matrix.dmg_name }}
+
+      - name: Upload ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.zip_artifact_name }}
+          path: dist/${{ matrix.zip_name }}
 
 
