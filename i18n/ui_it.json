@@ -183,7 +183,26 @@
   "radio_favorites": "Preferite",
   "delete_radio_favorite": "Elimina dai preferiti",
   "radio_label": "Radio:",
-  "radio_url_label": "URL streaming:"
+  "radio_url_label": "URL streaming:",
+  "additional_features_label": "Funzioni aggiuntive Sonarpad",
+  "rai_audio_descriptions_label": "Rai audiodescrizioni",
+  "raiplay_label": "RaiPlay",
+  "raiplay_search_label": "Cerca su RaiPlay",
+  "rai_luce_code_label": "Codice funzioni aggiuntive Sonarpad:",
+  "rai_missing_code_title": "Codice Sonarpad richiesto",
+  "rai_missing_code_message": "Per usare questa funzione è necessario inserire il codice delle funzioni aggiuntive Sonarpad nelle impostazioni. Vuoi richiederlo ora?",
+  "rai_request_code_button": "Richiedi codice",
+  "rai_name_label": "Nome:",
+  "rai_surname_label": "Cognome:",
+  "rai_email_label": "Email:",
+  "rai_request_code_fill_all_fields": "Compila nome, cognome ed email.",
+  "rai_open_failed": "Impossibile aprire il contenuto Rai.\n\n{err}",
+  "rai_save_content": "Salva contenuto",
+  "raiplay_save_mp3": "Salva MP3",
+  "raiplay_save_mp4": "Salva MP4",
+  "raiplay_save_mp4_ad": "Salva MP4 con audiodescrizione",
+  "rai_save_completed": "Contenuto salvato correttamente.",
+  "rai_no_items": "Nessun elemento disponibile.",
+  "search": "Cerca",
+  "raiplaysound_label": "RaiPlay Sound"
 }
-
-

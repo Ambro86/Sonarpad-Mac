@@ -7,6 +7,9 @@ mod file_loader;
 mod podcast_player;
 mod podcasts;
 mod reader;
+mod rai_audiodescrizioni;
+mod raiplay;
+mod raiplaysound;
 
 use docx_rs::{Docx, Paragraph, Run};
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
@@ -87,6 +90,10 @@ const ID_RADIO_DELETE_FAVORITE: i32 = 2351;
 const ID_RADIO_ADD: i32 = 2352;
 const ID_RADIO_EDIT_FAVORITE: i32 = 2353;
 const ID_RADIO_REORDER_FAVORITES: i32 = 2354;
+const ID_RAI_AUDIO_DESCRIPTIONS: i32 = 2360;
+const ID_RAIPLAY_BROWSE: i32 = 2361;
+const ID_RAIPLAY_SEARCH: i32 = 2362;
+const ID_RAIPLAY_SOUND: i32 = 2363;
 const ID_RADIO_FAVORITE_BASE: i32 = 6000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
@@ -287,6 +294,8 @@ struct Settings {
     podcast_sources: Vec<podcasts::PodcastSource>,
     #[serde(default)]
     radio_favorites: Vec<RadioFavorite>,
+    #[serde(default)]
+    rai_luce_code: String,
     #[serde(default = "default_audiobook_format")]
     last_audiobook_format: String,
     #[serde(default)]
@@ -317,6 +326,7 @@ impl Settings {
             article_folders: Vec::new(),
             podcast_sources: Vec::new(),
             radio_favorites: Vec::new(),
+            rai_luce_code: String::new(),
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
@@ -695,6 +705,27 @@ struct UiStrings {
     delete_radio_favorite: String,
     radio_label: String,
     radio_url_label: String,
+    additional_features_label: String,
+    rai_audio_descriptions_label: String,
+    raiplay_label: String,
+    raiplay_search_label: String,
+    raiplaysound_label: String,
+    rai_luce_code_label: String,
+    rai_missing_code_title: String,
+    rai_missing_code_message: String,
+    rai_request_code_button: String,
+    rai_name_label: String,
+    rai_surname_label: String,
+    rai_email_label: String,
+    rai_request_code_fill_all_fields: String,
+    rai_open_failed: String,
+    rai_save_content: String,
+    raiplay_save_mp3: String,
+    raiplay_save_mp4: String,
+    raiplay_save_mp4_ad: String,
+    rai_save_completed: String,
+    rai_no_items: String,
+    search: String,
 }
 
 #[derive(Clone, Default)]
@@ -1261,79 +1292,159 @@ fn about_message() -> String {
 fn changelog_message() -> String {
     if Settings::load().ui_language == "it" {
         format!(
-            "Sonarpad Per Mac {}\n\n\
-Versione 0.2.6\n\
-- Corretto un bug di wx/macOS per cui all'avvio poteva comparire un errore e sono stati stabilizzati i menu collegati.\n\
-- Corretta la scorciatoia Cmd+, per il menu Impostazioni anche quando il focus si trova su editor e controlli.\n\
-- Quando si salva un audiolibro il focus viene ora posizionato correttamente sul campo di testo e i nomi file con il punto non vengono piu tagliati.\n\
-- Aggiunto supporto agli OPML di Lire con divisione in cartelle: le cartelle si aprono come sottomenu e le singole fonti in una finestrella dedicata.\n\
-- Il riordino delle fonti articoli gestisce ora il nuovo sistema di cartelle con pulsanti Apri cartella, Cartella principale, Sposta in cartella e Sposta fuori dalle cartelle.\n\n\
-Versione 0.2.5\n\
-- Nuove finestre di salvataggio personalizzate per testo e audiolibri su macOS.\n\
-- I campi nome file ora accettano correttamente Cmd+V, Cmd+A e gli altri comandi di editing.\n\
-- Il programma ricorda ultima cartella e ultimo formato usati per salvataggio testo e audiolibri.\n\
-- Aggiunto il salvataggio audiolibri anche in formato M4A e WAV.\n\
-- Aggiunto il menu Radio con ricerca per lingua, aggiunta ai preferiti, aggiunta manuale di una stazione e modifica e riordino dei preferiti.\n\
-- Migliorata la gestione delle fonti articoli inserite come siti: scoperta del feed dalla pagina e correzione del feed commenti.\n\
-- Workflow release macOS aggiornato per includere anche l'artifact Catalina.\n\n\
-Versione 0.2.4\n\
-- Miglioramenti importanti all'OCR PDF su macOS con passaggio a pdfium e fallback piu robusti.\n\
-- Aggiunto export M4B su macOS e affinato il salvataggio testo.\n\
-- Migliorata la gestione delle fonti articoli e la protezione del refresh quando una fonte restituisce zero elementi.\n\
-- Ottimizzata la sintesi Edge TTS con chunking e retry piu affidabili.\n\
-- Aggiunta e poi raffinata la pipeline Catalina per build e packaging macOS.\n\n\
-Versione 0.2.2\n\
-- Migliorato il caricamento dei PDF su macOS con feedback piu chiaro e dialogo finale esplicito.\n\
-- Ordinamento alfabetico delle fonti articoli.\n\
-- Riparazioni al testo PDF e miglioramenti generali di localizzazione.\n\n\
-Versione 0.2.1\n\
-- Stabilizzati shortcut e menu macOS per avvio, pausa, stop e salvataggio.\n\
-- Migliorata l'apertura esterna degli episodi podcast su macOS.\n\
-- Corretta la persistenza delle impostazioni macOS.\n\
-- Rafforzate le workflow di build Intel/macOS e la gestione di Xcode.\n\n\
-Versione 0.2.0\n\
-- Prima release macOS di Sonarpad Per Mac.\n\
-- Supporto lettura testo, articoli e podcast con sintesi vocale.\n\
-- Supporto PDF OCR su macOS, download aggiornamenti e pacchetti DMG dedicati.\n\
+            "Sonarpad Per Mac {}
+
+\
+Versione 0.2.6
+\
+- Corretto un bug di wx/macOS per cui all'avvio poteva comparire un errore e sono stati stabilizzati i menu collegati.
+\
+- Corretta la scorciatoia Cmd+, per il menu Impostazioni anche quando il focus si trova su editor e controlli.
+\
+- Quando si salva un audiolibro il focus viene ora posizionato correttamente sul campo di testo e i nomi file con il punto non vengono piu tagliati.
+\
+- Aggiunto supporto agli OPML di Lire con divisione in cartelle: le cartelle si aprono come sottomenu e le singole fonti in una finestrella dedicata.
+\
+- Il riordino delle fonti articoli gestisce ora il nuovo sistema di cartelle con pulsanti Apri cartella, Cartella principale, Sposta in cartella e Sposta fuori dalle cartelle.
+
+\
+Versione 0.2.5
+\
+- Nuove finestre di salvataggio personalizzate per testo e audiolibri su macOS.
+\
+- I campi nome file ora accettano correttamente Cmd+V, Cmd+A e gli altri comandi di editing.
+\
+- Il programma ricorda ultima cartella e ultimo formato usati per salvataggio testo e audiolibri.
+\
+- Aggiunto il salvataggio audiolibri anche in formato M4A e WAV.
+\
+- Aggiunto il menu Radio con ricerca per lingua, aggiunta ai preferiti, aggiunta manuale di una stazione e modifica e riordino dei preferiti.
+\
+- Migliorata la gestione delle fonti articoli inserite come siti: scoperta del feed dalla pagina e correzione del feed commenti.
+\
+- Workflow release macOS aggiornato per includere anche l'artifact Catalina.
+
+\
+Versione 0.2.4
+\
+- Miglioramenti importanti all'OCR PDF su macOS con passaggio a pdfium e fallback piu robusti.
+\
+- Aggiunto export M4B su macOS e affinato il salvataggio testo.
+\
+- Migliorata la gestione delle fonti articoli e la protezione del refresh quando una fonte restituisce zero elementi.
+\
+- Ottimizzata la sintesi Edge TTS con chunking e retry piu affidabili.
+\
+- Aggiunta e poi raffinata la pipeline Catalina per build e packaging macOS.
+
+\
+Versione 0.2.2
+\
+- Migliorato il caricamento dei PDF su macOS con feedback piu chiaro e dialogo finale esplicito.
+\
+- Ordinamento alfabetico delle fonti articoli.
+\
+- Riparazioni al testo PDF e miglioramenti generali di localizzazione.
+
+\
+Versione 0.2.1
+\
+- Stabilizzati shortcut e menu macOS per avvio, pausa, stop e salvataggio.
+\
+- Migliorata l'apertura esterna degli episodi podcast su macOS.
+\
+- Corretta la persistenza delle impostazioni macOS.
+\
+- Rafforzate le workflow di build Intel/macOS e la gestione di Xcode.
+
+\
+Versione 0.2.0
+\
+- Prima release macOS di Sonarpad Per Mac.
+\
+- Supporto lettura testo, articoli e podcast con sintesi vocale.
+\
+- Supporto PDF OCR su macOS, download aggiornamenti e pacchetti DMG dedicati.
+\
 - Categorie podcast gerarchiche e primi shortcut globali/macOS.",
             env!("CARGO_PKG_VERSION")
         )
     } else {
         format!(
-            "Sonarpad Per Mac {}\n\n\
-Version 0.2.6\n\
-- Fixed a wx/macOS bug that could show an error at startup and stabilized the related menus.\n\
-- Fixed the Cmd+, shortcut for the Settings menu even when focus is on the editor or other controls.\n\
-- When saving an audiobook, focus is now placed correctly on the text field and filenames containing a dot are no longer truncated.\n\
-- Added support for Lire OPML files with folder grouping: folders open as submenus and individual sources open in a dedicated dialog.\n\
-- Article source reordering now supports the new folder organization system with Open Folder, Root Folder, Move to Folder, and Move Out of Folders controls.\n\n\
-Version 0.2.5\n\
-- New custom save dialogs for text and audiobooks on macOS.\n\
-- Filename fields now correctly accept Cmd+V, Cmd+A, and standard editing shortcuts.\n\
-- The app now remembers the last folder and format used for text and audiobook saves.\n\
-- Added audiobook saving in M4A and WAV format.\n\
-- Added the Radio menu with language-based search, add to favorites, manual station entry, and favorite editing and reordering.\n\
-- Improved article sources added as websites: feed discovery from the page and comments-feed fix.\n\
-- macOS release workflow updated to include the Catalina artifact as well.\n\n\
-Version 0.2.4\n\
-- Major macOS PDF OCR improvements with the move to pdfium and stronger fallbacks.\n\
-- Added M4B export on macOS and improved text saving.\n\
-- Improved article source handling and protected refresh when a source returns zero items.\n\
-- Improved Edge TTS chunking and retry behavior.\n\
-- Added and refined the Catalina build and packaging pipeline.\n\n\
-Version 0.2.2\n\
-- Improved macOS PDF loading with clearer feedback and an explicit completion dialog.\n\
-- Added alphabetical sorting for article sources.\n\
-- Improved PDF text repair and localization.\n\n\
-Version 0.2.1\n\
-- Stabilized macOS shortcuts and menu actions for start, pause, stop, and save.\n\
-- Improved external podcast episode opening on macOS.\n\
-- Fixed macOS settings persistence.\n\
-- Hardened Intel/macOS build workflows and Xcode selection.\n\n\
-Version 0.2.0\n\
-- First macOS release of Sonarpad Per Mac.\n\
-- Text reading, articles, and podcast support with speech synthesis.\n\
-- macOS PDF OCR support, update downloads, and dedicated DMG packages.\n\
+            "Sonarpad Per Mac {}
+
+\
+Version 0.2.6
+\
+- Fixed a wx/macOS bug that could show an error at startup and stabilized the related menus.
+\
+- Fixed the Cmd+, shortcut for the Settings menu even when focus is on the editor or other controls.
+\
+- When saving an audiobook, focus is now placed correctly on the text field and filenames containing a dot are no longer truncated.
+\
+- Added support for Lire OPML files with folder grouping: folders open as submenus and individual sources open in a dedicated dialog.
+\
+- Article source reordering now supports the new folder organization system with Open Folder, Root Folder, Move to Folder, and Move Out of Folders controls.
+
+\
+Version 0.2.5
+\
+- New custom save dialogs for text and audiobooks on macOS.
+\
+- Filename fields now correctly accept Cmd+V, Cmd+A, and standard editing shortcuts.
+\
+- The app now remembers the last folder and format used for text and audiobook saves.
+\
+- Added audiobook saving in M4A and WAV format.
+\
+- Added the Radio menu with language-based search, add to favorites, manual station entry, and favorite editing and reordering.
+\
+- Improved article sources added as websites: feed discovery from the page and comments-feed fix.
+\
+- macOS release workflow updated to include the Catalina artifact as well.
+
+\
+Version 0.2.4
+\
+- Major macOS PDF OCR improvements with the move to pdfium and stronger fallbacks.
+\
+- Added M4B export on macOS and improved text saving.
+\
+- Improved article source handling and protected refresh when a source returns zero items.
+\
+- Improved Edge TTS chunking and retry behavior.
+\
+- Added and refined the Catalina build and packaging pipeline.
+
+\
+Version 0.2.2
+\
+- Improved macOS PDF loading with clearer feedback and an explicit completion dialog.
+\
+- Added alphabetical sorting for article sources.
+\
+- Improved PDF text repair and localization.
+
+\
+Version 0.2.1
+\
+- Stabilized macOS shortcuts and menu actions for start, pause, stop, and save.
+\
+- Improved external podcast episode opening on macOS.
+\
+- Fixed macOS settings persistence.
+\
+- Hardened Intel/macOS build workflows and Xcode selection.
+
+\
+Version 0.2.0
+\
+- First macOS release of Sonarpad Per Mac.
+\
+- Text reading, articles, and podcast support with speech synthesis.
+\
+- macOS PDF OCR support, update downloads, and dedicated DMG packages.
+\
 - Hierarchical podcast categories and the first macOS shortcut work.",
             env!("CARGO_PKG_VERSION")
         )
@@ -1498,7 +1609,8 @@ fn write_docx_text(path: &Path, text: &str) -> Result<(), String> {
     let file = std::fs::File::create(path)
         .map_err(|err| format!("salvataggio file {} fallito: {}", path.display(), err))?;
     let mut docx = Docx::new();
-    for line in text.split('\n') {
+    for line in text.split('
+') {
         let line = line.strip_suffix('\r').unwrap_or(line);
         let paragraph = if line.is_empty() {
             Paragraph::new()
@@ -1737,24 +1849,28 @@ import Foundation
 import UniformTypeIdentifiers
 
 guard CommandLine.arguments.count >= 2 else {
-    fputs("missing app bundle path\n", stderr)
+    fputs("missing app bundle path
+", stderr)
     exit(2)
 }
 
 let bundlePath = CommandLine.arguments[1]
 let bundleUrl = URL(fileURLWithPath: bundlePath)
 guard let bundle = Bundle(url: bundleUrl) else {
-    fputs("unable to load app bundle\n", stderr)
+    fputs("unable to load app bundle
+", stderr)
     exit(3)
 }
 guard let bundleIdentifier = bundle.bundleIdentifier, !bundleIdentifier.isEmpty else {
-    fputs("missing bundle identifier\n", stderr)
+    fputs("missing bundle identifier
+", stderr)
     exit(4)
 }
 
 let registerStatus = LSRegisterURL(bundleUrl as CFURL, true)
 if registerStatus != noErr {
-    fputs("bundle registration failed: \(registerStatus)\n", stderr)
+    fputs("bundle registration failed: \(registerStatus)
+", stderr)
     exit(5)
 }
 
@@ -1800,7 +1916,9 @@ if failures.isEmpty {
     exit(0)
 }
 
-fputs(failures.joined(separator: "\n") + "\n", stderr)
+fputs(failures.joined(separator: "
+") + "
+", stderr)
 exit(1)
 "#;
 
@@ -2983,7 +3101,8 @@ fn mac_radio_send_mpv_command_with_stream(
         .write_all(message.as_bytes())
         .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
     stream
-        .write_all(b"\n")
+        .write_all(b"
+")
         .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
     stream
         .flush()
@@ -4755,7 +4874,26 @@ fn launch_pending_macos_update_install(
     let pid = std::process::id();
     let script_path = pending.work_dir.join("install_update.sh");
     let script = format!(
-        "#!/bin/sh\nset -eu\nPID='{pid}'\nTARGET_APP='{target}'\nSOURCE_APP='{source}'\nBACKUP_APP=\"${{TARGET_APP}}.old\"\nfor _ in $(seq 1 300); do\n  if ! kill -0 \"$PID\" 2>/dev/null; then\n    break\n  fi\n  sleep 1\ndone\nrm -rf \"$BACKUP_APP\"\nif [ -d \"$TARGET_APP\" ]; then\n  mv \"$TARGET_APP\" \"$BACKUP_APP\"\nfi\nmv \"$SOURCE_APP\" \"$TARGET_APP\"\nopen \"$TARGET_APP\"\nrm -rf \"$BACKUP_APP\"\n",
+        "#!/bin/sh
+set -eu
+PID='{pid}'
+TARGET_APP='{target}'
+SOURCE_APP='{source}'
+BACKUP_APP=\"${{TARGET_APP}}.old\"
+for _ in $(seq 1 300); do
+  if ! kill -0 \"$PID\" 2>/dev/null; then
+    break
+  fi
+  sleep 1
+done
+rm -rf \"$BACKUP_APP\"
+if [ -d \"$TARGET_APP\" ]; then
+  mv \"$TARGET_APP\" \"$BACKUP_APP\"
+fi
+mv \"$SOURCE_APP\" \"$TARGET_APP\"
+open \"$TARGET_APP\"
+rm -rf \"$BACKUP_APP\"
+",
         target = target_app_path.display(),
         source = pending.extracted_app_path.display()
     );
@@ -4789,12 +4927,16 @@ fn check_for_updates(
             if is_newer_version(&latest_version, current_version) {
                 let message = if Settings::load().ui_language == "it" {
                     format!(
-                        "È disponibile la versione {}.\n\nVuoi scaricarla ora?",
+                        "È disponibile la versione {}.
+
+Vuoi scaricarla ora?",
                         latest_version
                     )
                 } else {
                     format!(
-                        "Version {} is available.\n\nDo you want to download it now?",
+                        "Version {} is available.
+
+Do you want to download it now?",
                         latest_version
                     )
                 };
@@ -4818,12 +4960,16 @@ fn check_for_updates(
                                 *pending_update.lock().unwrap() = Some(prepared_update);
                                 let install_message = if Settings::load().ui_language == "it" {
                                     format!(
-                                        "L'aggiornamento {} è pronto.\n\nSonarpad verrà chiuso per completare l'installazione.",
+                                        "L'aggiornamento {} è pronto.
+
+Sonarpad verrà chiuso per completare l'installazione.",
                                         latest_version
                                     )
                                 } else {
                                     format!(
-                                        "Update {} is ready.\n\nSonarpad will close to complete installation.",
+                                        "Update {} is ready.
+
+Sonarpad will close to complete installation.",
                                         latest_version
                                     )
                                 };
@@ -4836,12 +4982,16 @@ fn check_for_updates(
                                     &ui.updates_title,
                                     &if Settings::load().ui_language == "it" {
                                         format!(
-                                            "È disponibile la versione {} ma non sono riuscito a preparare l'aggiornamento.\n\n{}",
+                                            "È disponibile la versione {} ma non sono riuscito a preparare l'aggiornamento.
+
+{}",
                                             latest_version, err
                                         )
                                     } else {
                                         format!(
-                                            "Version {} is available but I could not prepare the update.\n\n{}",
+                                            "Version {} is available but I could not prepare the update.
+
+{}",
                                             latest_version, err
                                         )
                                     },
@@ -4857,12 +5007,16 @@ fn check_for_updates(
                             &ui.updates_title,
                             &if Settings::load().ui_language == "it" {
                                 format!(
-                                    "È disponibile la versione {} ma non sono riuscito ad aprire il link.\n\n{}",
+                                    "È disponibile la versione {} ma non sono riuscito ad aprire il link.
+
+{}",
                                     latest_version, err
                                 )
                             } else {
                                 format!(
-                                    "Version {} is available but I could not open the link.\n\n{}",
+                                    "Version {} is available but I could not open the link.
+
+{}",
                                     latest_version, err
                                 )
                             },
@@ -4875,12 +5029,18 @@ fn check_for_updates(
                     &ui.updates_title,
                     &if Settings::load().ui_language == "it" {
                         format!(
-                            "Hai già l'ultima versione installata.\n\nVersione attuale: {}\nUltima versione: {}",
+                            "Hai già l'ultima versione installata.
+
+Versione attuale: {}
+Ultima versione: {}",
                             current_version, latest_version
                         )
                     } else {
                         format!(
-                            "You already have the latest version installed.\n\nCurrent version: {}\nLatest version: {}",
+                            "You already have the latest version installed.
+
+Current version: {}
+Latest version: {}",
                             current_version, latest_version
                         )
                     },
@@ -4893,12 +5053,18 @@ fn check_for_updates(
                 &ui.updates_title,
                 &if Settings::load().ui_language == "it" {
                     format!(
-                        "Controllo aggiornamenti non riuscito.\n\nVersione attuale: {}\nErrore: {}",
+                        "Controllo aggiornamenti non riuscito.
+
+Versione attuale: {}
+Errore: {}",
                         current_version, err
                     )
                 } else {
                     format!(
-                        "Update check failed.\n\nCurrent version: {}\nError: {}",
+                        "Update check failed.
+
+Current version: {}
+Error: {}",
                         current_version, err
                     )
                 },
@@ -5185,7 +5351,8 @@ fn primary_podcast_log_path() -> Option<PathBuf> {
 #[cfg(any(target_os = "macos", windows))]
 fn append_podcast_log(message: &str) {
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    let line = format!("[{timestamp}] {message}\n");
+    let line = format!("[{timestamp}] {message}
+");
     let Some(primary_path) = primary_podcast_log_path() else {
         println!("ERROR: Cartella documenti non disponibile per il log podcast");
         return;
@@ -5289,7 +5456,8 @@ fn append_podcast_log(message: &str) {
                 return;
             }
             let diagnostic_line =
-                format!("[{timestamp}] primary_log_path_failed {primary_failure_reason}\n");
+                format!("[{timestamp}] primary_log_path_failed {primary_failure_reason}
+");
             if let Err(err) = file.write_all(diagnostic_line.as_bytes()) {
                 println!(
                     "ERROR: Scrittura log diagnostico {} fallita: {}",
@@ -7125,11 +7293,17 @@ fn export_article_sources_to_opml(
     let mut file = std::fs::File::create(path).map_err(|err| err.to_string())?;
     writeln!(
         file,
-        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n<opml version=\"1.0\">\n<head>\n<title>Sonarpad Articles</title>\n</head>\n<body>"
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>
+<opml version=\"1.0\">
+<head>
+<title>Sonarpad Articles</title>
+</head>
+<body>"
     )
     .map_err(|err| err.to_string())?;
     write_article_opml_folder(&mut file, "", &folders, &sources, 1)?;
-    writeln!(file, "</body>\n</opml>").map_err(|err| err.to_string())?;
+    writeln!(file, "</body>
+</opml>").map_err(|err| err.to_string())?;
     Ok(sources.len())
 }
 
@@ -8849,6 +9023,24 @@ fn open_settings_dialog(
         });
     }
 
+    let rai_code_ctrl = TextCtrl::builder(&panel).build();
+    if settings_before.ui_language == "it" {
+        let rai_row = BoxSizer::builder(Orientation::Horizontal).build();
+        rai_row.add(&StaticText::builder(&panel).with_label(&ui.rai_luce_code_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+        rai_code_ctrl.set_value(&settings_before.rai_luce_code);
+        rai_row.add(&rai_code_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+        root.add_sizer(&rai_row, 0, SizerFlag::Expand, 0);
+        let request_row = BoxSizer::builder(Orientation::Horizontal).build();
+        request_row.add_spacer(1);
+        let request_code_button = Button::builder(&panel).with_label(&ui.rai_request_code_button).build();
+        request_row.add(&request_code_button, 0, SizerFlag::All, 5);
+        root.add_sizer(&request_row, 0, SizerFlag::Expand, 0);
+        let dialog_request_code = dialog;
+        request_code_button.on_click(move |_| request_rai_luce_code(&dialog_request_code));
+    } else {
+        rai_code_ctrl.show(false);
+    }
+
     let button_row = BoxSizer::builder(Orientation::Horizontal).build();
     let btn_ok = Button::builder(&panel)
         .with_id(ID_OK)
@@ -8988,6 +9180,9 @@ fn open_settings_dialog(
         if let Some(sel) = choice_volume.get_selection() {
             updated.volume = VOLUME_PRESETS[sel as usize].1;
         }
+        if settings_before.ui_language == "it" {
+            updated.rai_luce_code = rai_code_ctrl.get_value().trim().to_string();
+        }
 
         let refresh_needed = settings_before.voice != updated.voice
             || settings_before.rate != updated.rate
@@ -8995,6 +9190,7 @@ fn open_settings_dialog(
             || settings_before.volume != updated.volume;
         let changed = settings_before.ui_language != updated.ui_language
             || settings_before.language != updated.language
+            || settings_before.rai_luce_code != updated.rai_luce_code
             || refresh_needed;
 
         if changed {
@@ -9009,6 +9205,376 @@ fn open_settings_dialog(
 
     dialog.destroy();
 }
+
+fn load_saved_rai_luce_code() -> Option<String> {
+    let settings = Settings::load();
+    let trimmed = settings.rai_luce_code.trim();
+    if trimmed.is_empty() { None } else { Some(trimmed.to_string()) }
+}
+
+fn mailto_encode_component(value: &str) -> String {
+    let mut encoded = String::with_capacity(value.len());
+    for byte in value.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => encoded.push(byte as char),
+            b' ' => encoded.push_str("%20"),
+            b'\r' => encoded.push_str("%0D"),
+            b'
+' => encoded.push_str("%0A"),
+            _ => encoded.push_str(&format!("%{byte:02X}")),
+        }
+    }
+    encoded
+}
+
+fn open_url_in_default_browser(url: &str) -> Result<(), String> {
+    let status = if cfg!(target_os = "macos") {
+        Command::new("/usr/bin/open").arg(url).status()
+    } else if cfg!(windows) {
+        Command::new("cmd").args(["/C", "start", "", url]).status()
+    } else {
+        Command::new("xdg-open").arg(url).status()
+    }.map_err(|err| format!("apertura link fallita: {err}"))?;
+    if status.success() { Ok(()) } else { Err(format!("apertura link fallita con codice {:?}", status.code())) }
+}
+
+fn request_rai_luce_code(parent: &Dialog) {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.rai_request_code_button)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(460, 260).build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let name_ctrl = TextCtrl::builder(&panel).build();
+    let surname_ctrl = TextCtrl::builder(&panel).build();
+    let email_ctrl = TextCtrl::builder(&panel).build();
+    for (label, ctrl) in [(&ui.rai_name_label, &name_ctrl), (&ui.rai_surname_label, &surname_ctrl), (&ui.rai_email_label, &email_ctrl)] {
+        let row = BoxSizer::builder(Orientation::Horizontal).build();
+        row.add(&StaticText::builder(&panel).with_label(label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+        row.add(ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+        root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+    }
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    buttons.add_spacer(1);
+    buttons.add(&Button::builder(&panel).with_id(ID_OK).with_label(&ui.ok).build(), 0, SizerFlag::All, 10);
+    buttons.add(&Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.cancel).build(), 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    if dialog.show_modal() == ID_OK {
+        let nome = name_ctrl.get_value().trim().to_string();
+        let cognome = surname_ctrl.get_value().trim().to_string();
+        let mail = email_ctrl.get_value().trim().to_string();
+        if nome.is_empty() || cognome.is_empty() || mail.is_empty() {
+            show_message_subdialog(&dialog, &ui.rai_request_code_button, &ui.rai_request_code_fill_all_fields);
+        } else {
+            let body = format!("Richiesta da: {nome} {cognome}\r
+Email: {mail}\r
+Sistema operativo: macOS\r
+Lingua: Italiano");
+            let uri = format!("mailto:ambro86@gmail.com?subject={}&body={}", mailto_encode_component("Richiesta codice Sonarpad"), mailto_encode_component(&body));
+            if let Err(err) = open_url_in_default_browser(&uri) {
+                show_message_subdialog(&dialog, &ui.rai_request_code_button, &err);
+            }
+        }
+    }
+    dialog.destroy();
+}
+
+fn handle_rai_missing_code(parent: &Frame, err: &str) -> bool {
+    if !rai_audiodescrizioni::is_luce_key_missing_error(err) && !err.starts_with("Chiave Luce mancante:") { return false; }
+    let ui = current_ui_strings();
+    let ask = MessageDialog::builder(parent, &ui.rai_missing_code_message, &ui.rai_missing_code_title)
+        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion).build();
+    localize_standard_dialog_buttons(&ask);
+    if ask.show_modal() == ID_YES {
+        let dialog = Dialog::builder(parent, &ui.rai_request_code_button).build();
+        request_rai_luce_code(&dialog);
+        dialog.destroy();
+    }
+    true
+}
+
+fn rai_item_label(title: &str, subtitle: Option<&str>) -> String {
+    match subtitle.map(str::trim).filter(|value| !value.is_empty()) { Some(subtitle) => format!("{title} - {subtitle}"), None => title.to_string() }
+}
+
+fn open_rai_audio_descriptions_dialog(parent: &Frame) {
+    match rai_audiodescrizioni::load_grouped_catalog() {
+        Ok(groups) => open_rai_audio_group_dialog(parent, &groups),
+        Err(err) => if !handle_rai_missing_code(parent, &err) { show_message_dialog(parent, &current_ui_strings().rai_audio_descriptions_label, &current_ui_strings().rai_open_failed.replace("{err}", &err)); },
+    }
+}
+
+fn open_rai_audio_group_dialog(parent: &Frame, groups: &[rai_audiodescrizioni::CatalogGroup]) {
+    let ui = current_ui_strings();
+    if groups.is_empty() { show_message_dialog(parent, &ui.rai_audio_descriptions_label, &ui.rai_no_items); return; }
+    let dialog = Dialog::builder(parent, &ui.rai_audio_descriptions_label).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).with_size(620, 190).build();
+    let panel = Panel::builder(&dialog).build(); let root = BoxSizer::builder(Orientation::Vertical).build(); let choice = Choice::builder(&panel).build();
+    for group in groups { choice.append(&format!("{} ({})", group.title, group.items.len())); }
+    choice.set_selection(0); root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build(); let open_button = Button::builder(&panel).with_label(&ui.open).build(); let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build();
+    buttons.add_spacer(1); buttons.add(&open_button,0,SizerFlag::All,10); buttons.add(&close_button,0,SizerFlag::All,10); root.add_sizer(&buttons,0,SizerFlag::Expand,0); panel.set_sizer(root,true); dialog.set_escape_id(ID_CANCEL);
+    let groups_rc = Rc::new(groups.to_vec()); let dialog_open = dialog; let choice_open = choice;
+    open_button.on_click(move |_| { if let Some(sel) = choice_open.get_selection() && let Some(group) = groups_rc.get(sel as usize) { open_rai_audio_items_dialog(&dialog_open, group); } });
+    let dialog_close = dialog; close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal(); dialog.destroy();
+}
+
+fn open_rai_audio_items_dialog(parent: &Dialog, group: &rai_audiodescrizioni::CatalogGroup) {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &group.title).with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder).with_size(700, 220).build();
+    let panel = Panel::builder(&dialog).build(); let root = BoxSizer::builder(Orientation::Vertical).build(); let choice = Choice::builder(&panel).build();
+    for item in &group.items { choice.append(&rai_item_label(&item.title, Some(&item.date))); }
+    choice.set_selection(0); root.add(&choice,1,SizerFlag::Expand|SizerFlag::All,8);
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build(); let play_button=Button::builder(&panel).with_label(&ui.open).build(); let save_button=Button::builder(&panel).with_label(&ui.rai_save_content).build(); let close_button=Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build();
+    buttons.add_spacer(1); buttons.add(&play_button,0,SizerFlag::All,10); buttons.add(&save_button,0,SizerFlag::All,10); buttons.add(&close_button,0,SizerFlag::All,10); root.add_sizer(&buttons,0,SizerFlag::Expand,0); panel.set_sizer(root,true); dialog.set_escape_id(ID_CANCEL);
+    let items = Rc::new(group.items.clone()); let choice_play=choice; let parent_play=dialog; let items_play=Rc::clone(&items);
+    play_button.on_click(move |_| { if let Some(sel)=choice_play.get_selection() && let Some(item)=items_play.get(sel as usize) { if let Err(err)=rai_audiodescrizioni::resolve_audio_url(&item.audio_url).and_then(|url| open_rai_stream_with_mpv(&url, &item.title)) { show_message_subdialog(&parent_play, &current_ui_strings().rai_audio_descriptions_label, &err); } } });
+    let choice_save=choice; let parent_save=dialog; let items_save=Rc::clone(&items);
+    save_button.on_click(move |_| { if let Some(sel)=choice_save.get_selection() && let Some(item)=items_save.get(sel as usize) { match rai_audiodescrizioni::resolve_audio_url_for_clipboard(&item.audio_url).and_then(|url| save_rai_direct_media(&parent_save, &url, &item.title, "mp3")) { Ok(())=>show_message_subdialog(&parent_save,&current_ui_strings().rai_audio_descriptions_label,&current_ui_strings().rai_save_completed), Err(err)=>show_message_subdialog(&parent_save,&current_ui_strings().rai_audio_descriptions_label,&err) } } });
+    let dialog_close=dialog; close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL)); dialog.show_modal(); dialog.destroy();
+}
+
+fn open_raiplay_search_dialog(parent: &Frame) -> Option<String> {
+    let ui=current_ui_strings(); let dialog=Dialog::builder(parent,&ui.raiplay_search_label).with_style(DialogStyle::DefaultDialogStyle|DialogStyle::ResizeBorder).with_size(520,160).build();
+    let panel=Panel::builder(&dialog).build(); let root=BoxSizer::builder(Orientation::Vertical).build(); let row=BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(&StaticText::builder(&panel).with_label(&ui.keyword).build(),0,SizerFlag::AlignCenterVertical|SizerFlag::All,5); let ctrl=TextCtrl::builder(&panel).build(); row.add(&ctrl,1,SizerFlag::Expand|SizerFlag::All,5); root.add_sizer(&row,0,SizerFlag::Expand,0);
+    let buttons=BoxSizer::builder(Orientation::Horizontal).build(); buttons.add_spacer(1); buttons.add(&Button::builder(&panel).with_id(ID_OK).with_label(&ui.search).build(),0,SizerFlag::All,10); buttons.add(&Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.cancel).build(),0,SizerFlag::All,10); root.add_sizer(&buttons,0,SizerFlag::Expand,0); panel.set_sizer(root,true); dialog.set_affirmative_id(ID_OK); dialog.set_escape_id(ID_CANCEL);
+    let result=if dialog.show_modal()==ID_OK { Some(ctrl.get_value().trim().to_string()).filter(|v|!v.is_empty()) } else { None }; dialog.destroy(); result
+}
+
+fn open_raiplay_browser_dialog(parent: &Frame, search_query: Option<String>) {
+    let page = match search_query { Some(query)=>raiplay::search(&query), None=>raiplay::load_root_page() };
+    match page { Ok(page)=>open_raiplay_page_dialog(parent,page), Err(err)=>if !handle_rai_missing_code(parent,&err) { show_message_dialog(parent,&current_ui_strings().raiplay_label,&current_ui_strings().rai_open_failed.replace("{err}",&err)); } }
+}
+
+fn open_raiplay_page_dialog(parent: &Frame, page: raiplay::BrowsePage) { open_raiplay_page_dialog_inner(parent, &page.title, page.items); }
+fn open_raiplay_page_subdialog(parent: &Dialog, page: raiplay::BrowsePage) { open_raiplay_page_subdialog_inner(parent, &page.title, page.items); }
+
+fn open_raiplay_page_dialog_inner(parent: &Frame, title: &str, items: Vec<raiplay::BrowseItem>) {
+    let ui=current_ui_strings(); if items.is_empty(){show_message_dialog(parent,title,&ui.rai_no_items);return;} let dialog=Dialog::builder(parent,title).with_style(DialogStyle::DefaultDialogStyle|DialogStyle::ResizeBorder).with_size(760,240).build(); open_raiplay_items_modal(&dialog, items);
+}
+fn open_raiplay_page_subdialog_inner(parent: &Dialog, title: &str, items: Vec<raiplay::BrowseItem>) {
+    let ui=current_ui_strings(); if items.is_empty(){show_message_subdialog(parent,title,&ui.rai_no_items);return;} let dialog=Dialog::builder(parent,title).with_style(DialogStyle::DefaultDialogStyle|DialogStyle::ResizeBorder).with_size(760,240).build(); open_raiplay_items_modal(&dialog, items);
+}
+
+fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
+    let ui=current_ui_strings(); let panel=Panel::builder(dialog).build(); let root=BoxSizer::builder(Orientation::Vertical).build(); let choice=Choice::builder(&panel).build();
+    for item in &items { choice.append(&rai_item_label(&item.title, item.program_title.as_deref().or(item.description.as_deref()))); } choice.set_selection(0); root.add(&choice,1,SizerFlag::Expand|SizerFlag::All,8);
+    let buttons=BoxSizer::builder(Orientation::Horizontal).build(); let open_button=Button::builder(&panel).with_label(&ui.open).build(); let save_button=Button::builder(&panel).with_label(&ui.rai_save_content).build(); let close_button=Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build(); buttons.add_spacer(1); buttons.add(&open_button,0,SizerFlag::All,10); buttons.add(&save_button,0,SizerFlag::All,10); buttons.add(&close_button,0,SizerFlag::All,10); root.add_sizer(&buttons,0,SizerFlag::Expand,0); panel.set_sizer(root,true); dialog.set_escape_id(ID_CANCEL);
+    let items_rc=Rc::new(items); let choice_open=choice; let items_open=Rc::clone(&items_rc); let parent_open=*dialog;
+    open_button.on_click(move |_| { if let Some(sel)=choice_open.get_selection() && let Some(item)=items_open.get(sel as usize) { match item.kind { raiplay::BrowseItemKind::Page=>if let Some(path)=&item.path_id { match raiplay::load_page(path) { Ok(page)=>open_raiplay_page_subdialog(&parent_open,page), Err(err)=>show_message_subdialog(&parent_open,&current_ui_strings().raiplay_label,&err) } }, raiplay::BrowseItemKind::Media=>if let Some(url)=&item.media_url { if let Err(err)=raiplay::resolve_playback_target(url).and_then(|target| open_raiplay_target_with_mpv(&target,&item.title)) { show_message_subdialog(&parent_open,&current_ui_strings().raiplay_label,&err); } } } } });
+    let choice_save=choice; let items_save=Rc::clone(&items_rc); let parent_save=*dialog;
+    save_button.on_click(move |_| { if let Some(sel)=choice_save.get_selection() && let Some(item)=items_save.get(sel as usize) && let Some(url)=&item.media_url { match raiplay::resolve_playback_target(url).and_then(|target| save_raiplay_target_dialog(&parent_save,&target,&item.title)) { Ok(())=>show_message_subdialog(&parent_save,&current_ui_strings().raiplay_label,&current_ui_strings().rai_save_completed), Err(err)=>show_message_subdialog(&parent_save,&current_ui_strings().raiplay_label,&err) } } });
+    let dialog_close=*dialog; close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL)); dialog.show_modal(); dialog.destroy();
+}
+
+
+fn open_raiplaysound_browser_dialog(parent: &Frame) {
+    match raiplaysound::load_root_page() {
+        Ok(page) => open_raiplaysound_page_dialog(parent, page),
+        Err(err) => {
+            if !handle_rai_missing_code(parent, &err) {
+                show_message_dialog(
+                    parent,
+                    &current_ui_strings().raiplaysound_label,
+                    &current_ui_strings().rai_open_failed.replace("{err}", &err),
+                );
+            }
+        }
+    }
+}
+
+fn open_raiplaysound_page_dialog(parent: &Frame, page: raiplaysound::BrowsePage) {
+    open_raiplaysound_page_dialog_inner(parent, &page.title, page.items);
+}
+
+fn open_raiplaysound_page_subdialog(parent: &Dialog, page: raiplaysound::BrowsePage) {
+    open_raiplaysound_page_subdialog_inner(parent, &page.title, page.items);
+}
+
+fn open_raiplaysound_page_dialog_inner(parent: &Frame, title: &str, items: Vec<raiplaysound::BrowseItem>) {
+    let ui = current_ui_strings();
+    if items.is_empty() {
+        show_message_dialog(parent, title, &ui.rai_no_items);
+        return;
+    }
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 240)
+        .build();
+    open_raiplaysound_items_modal(&dialog, items);
+}
+
+fn open_raiplaysound_page_subdialog_inner(parent: &Dialog, title: &str, items: Vec<raiplaysound::BrowseItem>) {
+    let ui = current_ui_strings();
+    if items.is_empty() {
+        show_message_subdialog(parent, title, &ui.rai_no_items);
+        return;
+    }
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 240)
+        .build();
+    open_raiplaysound_items_modal(&dialog, items);
+}
+
+fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::BrowseItem>) {
+    let ui = current_ui_strings();
+    let panel = Panel::builder(dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let choice = Choice::builder(&panel).build();
+    for item in &items {
+        choice.append(&rai_item_label(&item.title, item.description.as_deref()));
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel).with_label(&ui.open).build();
+    let save_button = Button::builder(&panel).with_label(&ui.rai_save_content).build();
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&search_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let items_rc = Rc::new(items);
+    let choice_open = choice;
+    let items_open = Rc::clone(&items_rc);
+    let parent_open = *dialog;
+    open_button.on_click(move |_| {
+        if let Some(sel) = choice_open.get_selection()
+            && let Some(item) = items_open.get(sel as usize)
+        {
+            match item.kind {
+                raiplaysound::BrowseItemKind::Page => {
+                    if let Some(path) = &item.path_id {
+                        match raiplaysound::load_page(path) {
+                            Ok(page) => open_raiplaysound_page_subdialog(&parent_open, page),
+                            Err(err) => show_message_subdialog(&parent_open, &current_ui_strings().raiplaysound_label, &err),
+                        }
+                    }
+                }
+                raiplaysound::BrowseItemKind::Audio => {
+                    if let Some(url) = &item.audio_url
+                        && let Err(err) = open_rai_stream_with_mpv(url, &item.title)
+                    {
+                        show_message_subdialog(&parent_open, &current_ui_strings().raiplaysound_label, &err);
+                    }
+                }
+            }
+        }
+    });
+
+    let choice_save = choice;
+    let items_save = Rc::clone(&items_rc);
+    let parent_save = *dialog;
+    save_button.on_click(move |_| {
+        if let Some(sel) = choice_save.get_selection()
+            && let Some(item) = items_save.get(sel as usize)
+            && let Some(url) = &item.audio_url
+        {
+            match save_rai_direct_media(&parent_save, url, &item.title, "mp3") {
+                Ok(()) => show_message_subdialog(
+                    &parent_save,
+                    &current_ui_strings().raiplaysound_label,
+                    &current_ui_strings().rai_save_completed,
+                ),
+                Err(err) => show_message_subdialog(&parent_save, &current_ui_strings().raiplaysound_label, &err),
+            }
+        }
+    });
+
+    let parent_search = *dialog;
+    search_button.on_click(move |_| {
+        if let Some(query) = open_raiplaysound_search_dialog(&parent_search) {
+            match raiplaysound::search(&query) {
+                Ok(page) => open_raiplaysound_page_subdialog(&parent_search, page),
+                Err(err) => show_message_subdialog(&parent_search, &current_ui_strings().raiplaysound_label, &err),
+            }
+        }
+    });
+
+    let dialog_close = *dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn open_raiplaysound_search_dialog(parent: &Dialog) -> Option<String> {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.raiplaysound_label)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(520, 160)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let ctrl = TextCtrl::builder(&panel).build();
+    row.add(&ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    buttons.add_spacer(1);
+    buttons.add(
+        &Button::builder(&panel).with_id(ID_OK).with_label(&ui.search).build(),
+        0,
+        SizerFlag::All,
+        10,
+    );
+    buttons.add(
+        &Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.cancel).build(),
+        0,
+        SizerFlag::All,
+        10,
+    );
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let result = if dialog.show_modal() == ID_OK {
+        Some(ctrl.get_value().trim().to_string()).filter(|value| !value.is_empty())
+    } else {
+        None
+    };
+    dialog.destroy();
+    result
+}
+
+fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
+    let mpv_executable=podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv")); let mut command=Command::new(&mpv_executable); if let Some(parent_dir)=mpv_executable.parent() && !parent_dir.as_os_str().is_empty(){command.current_dir(parent_dir);} command.arg(url).arg("--no-config").arg("--force-window=yes").arg("--osc=yes").arg("--input-default-bindings=yes").arg(format!("--title=Sonarpad - {title}")); command.spawn().map_err(|err|format!("avvio mpv fallito: {err}"))?; Ok(())
+}
+fn open_raiplay_target_with_mpv(target:&raiplay::PlaybackTarget,title:&str)->Result<(),String>{open_rai_stream_with_mpv(target.playback_url(),title)}
+
+fn save_rai_direct_media(parent:&Dialog,url:&str,suggested_name:&str,extension:&str)->Result<(),String>{
+    let ui=current_ui_strings(); let default_file=format!("{}.{}",sanitize_filename(suggested_name),extension); let wildcard=format!("File (*.{extension})|*.{extension}|Tutti|*.*"); let dialog=FileDialog::builder(parent).with_message(&ui.rai_save_content).with_default_file(&default_file).with_wildcard(&wildcard).with_style(FileDialogStyle::Save|FileDialogStyle::OverwritePrompt).build(); #[cfg(target_os="macos")] set_mac_native_file_dialog_open(true); let dialog_result=dialog.show_modal(); #[cfg(target_os="macos")] set_mac_native_file_dialog_open(false); if dialog_result!=ID_OK{return Ok(());} let path=dialog.get_path().ok_or_else(||ui.save_folder_not_selected.clone())?; run_ffmpeg_save(&["-y","-i",url,"-c","copy"],Path::new(&path))
+}
+
+enum RaiSaveMode{Mp3,Mp4,Mp4AudioDescription}
+fn save_raiplay_target_dialog(parent:&Dialog,target:&raiplay::PlaybackTarget,suggested_name:&str)->Result<(),String>{
+    let ui=current_ui_strings(); let dialog=Dialog::builder(parent,&ui.rai_save_content).with_style(DialogStyle::DefaultDialogStyle|DialogStyle::ResizeBorder).with_size(500,170).build(); let panel=Panel::builder(&dialog).build(); let root=BoxSizer::builder(Orientation::Vertical).build(); let choice=Choice::builder(&panel).build(); choice.append(&ui.raiplay_save_mp3); choice.append(&ui.raiplay_save_mp4); choice.append(&ui.raiplay_save_mp4_ad); choice.set_selection(0); root.add(&choice,1,SizerFlag::Expand|SizerFlag::All,8); let buttons=BoxSizer::builder(Orientation::Horizontal).build(); buttons.add_spacer(1); buttons.add(&Button::builder(&panel).with_id(ID_OK).with_label(&ui.ok).build(),0,SizerFlag::All,10); buttons.add(&Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.cancel).build(),0,SizerFlag::All,10); root.add_sizer(&buttons,0,SizerFlag::Expand,0); panel.set_sizer(root,true); dialog.set_affirmative_id(ID_OK); dialog.set_escape_id(ID_CANCEL); let selected=if dialog.show_modal()==ID_OK{choice.get_selection().unwrap_or(0)}else{dialog.destroy();return Ok(());}; dialog.destroy(); match selected{0=>save_raiplay_with_ffmpeg(parent,target,suggested_name,"mp3",RaiSaveMode::Mp3),1=>save_raiplay_with_ffmpeg(parent,target,suggested_name,"mp4",RaiSaveMode::Mp4),_=>save_raiplay_with_ffmpeg(parent,target,suggested_name,"mp4",RaiSaveMode::Mp4AudioDescription)}
+}
+fn save_raiplay_with_ffmpeg(parent:&Dialog,target:&raiplay::PlaybackTarget,suggested_name:&str,extension:&str,mode:RaiSaveMode)->Result<(),String>{
+    let ui=current_ui_strings(); let default_file=format!("{}.{}",sanitize_filename(suggested_name),extension); let wildcard=format!("File (*.{extension})|*.{extension}|Tutti|*.*"); let dialog=FileDialog::builder(parent).with_message(&ui.rai_save_content).with_default_file(&default_file).with_wildcard(&wildcard).with_style(FileDialogStyle::Save|FileDialogStyle::OverwritePrompt).build(); #[cfg(target_os="macos")] set_mac_native_file_dialog_open(true); let dialog_result=dialog.show_modal(); #[cfg(target_os="macos")] set_mac_native_file_dialog_open(false); if dialog_result!=ID_OK{return Ok(());} let path=dialog.get_path().ok_or_else(||ui.save_folder_not_selected.clone())?; match mode{RaiSaveMode::Mp3=>run_ffmpeg_save(&["-y","-i",target.playback_url(),"-vn","-c:a","libmp3lame","-b:a","192k"],Path::new(&path)),RaiSaveMode::Mp4=>run_ffmpeg_save(&["-y","-i",target.media_url(),"-c","copy"],Path::new(&path)),RaiSaveMode::Mp4AudioDescription=>{if let Some(audio_url)=target.audio_description_url(){run_ffmpeg_save(&["-y","-i",target.media_url(),"-i",audio_url,"-map","0:v:0","-map","1:a:0","-c","copy"],Path::new(&path))}else{run_ffmpeg_save(&["-y","-i",target.media_url(),"-c","copy"],Path::new(&path))}}}
+}
+fn run_ffmpeg_save(args:&[&str],output_path:&Path)->Result<(),String>{let ffmpeg=ffmpeg_executable_path().unwrap_or_else(||PathBuf::from("ffmpeg")); let mut command=Command::new(&ffmpeg); command.args(args).arg(output_path); if let Some(parent_dir)=ffmpeg.parent() && !parent_dir.as_os_str().is_empty(){command.current_dir(parent_dir);} let status=command.status().map_err(|err|format!("avvio FFmpeg fallito: {err}"))?; if status.success(){Ok(())}else{Err(format!("FFmpeg non è riuscito a salvare il contenuto, codice {:?}.",status.code()))}}
+
 
 fn main() {
     #[cfg(windows)]
@@ -9234,22 +9800,23 @@ fn main() {
         let radio_menu_timer = Menu::from(radio_menu.as_const_ptr());
         let radio_menu_settings = Menu::from(radio_menu.as_const_ptr());
 
-        #[cfg(target_os = "macos")]
-        let menubar = MenuBar::builder()
+        let additional_features_menu = Menu::builder().build();
+        additional_features_menu.append(ID_RAI_AUDIO_DESCRIPTIONS, &ui.rai_audio_descriptions_label, &ui.rai_audio_descriptions_label, ItemKind::Normal);
+        additional_features_menu.append(ID_RAIPLAY_BROWSE, &ui.raiplay_label, &ui.raiplay_label, ItemKind::Normal);
+        additional_features_menu.append(ID_RAIPLAY_SEARCH, &ui.raiplay_search_label, &ui.raiplay_search_label, ItemKind::Normal);
+        additional_features_menu.append(ID_RAIPLAY_SOUND, &ui.raiplaysound_label, &ui.raiplaysound_label, ItemKind::Normal);
+
+        let menubar_builder = MenuBar::builder()
             .append(file_menu, &ui.menu_file)
             .append(articles_menu, &ui.menu_articles)
             .append(podcasts_menu, &ui.menu_podcasts)
-            .append(radio_menu, &ui.menu_radio)
-            .append(help_menu, &ui.menu_help)
-            .build();
-        #[cfg(not(target_os = "macos"))]
-        let menubar = MenuBar::builder()
-            .append(file_menu, &ui.menu_file)
-            .append(articles_menu, &ui.menu_articles)
-            .append(podcasts_menu, &ui.menu_podcasts)
-            .append(radio_menu, &ui.menu_radio)
-            .append(help_menu, &ui.menu_help)
-            .build();
+            .append(radio_menu, &ui.menu_radio);
+        let menubar_builder = if Settings::load().ui_language == "it" {
+            menubar_builder.append(additional_features_menu, &ui.additional_features_label)
+        } else {
+            menubar_builder
+        };
+        let menubar = menubar_builder.append(help_menu, &ui.menu_help).build();
         frame.set_menu_bar(menubar);
 
         #[cfg(target_os = "macos")]
@@ -9671,6 +10238,16 @@ fn main() {
                     #[cfg(target_os = "macos")]
                     &pending_mac_update,
                 );
+            } else if event.get_id() == ID_RAI_AUDIO_DESCRIPTIONS {
+                open_rai_audio_descriptions_dialog(&f_menu);
+            } else if event.get_id() == ID_RAIPLAY_BROWSE {
+                open_raiplay_browser_dialog(&f_menu, None);
+            } else if event.get_id() == ID_RAIPLAY_SEARCH {
+                if let Some(query) = open_raiplay_search_dialog(&f_menu) {
+                    open_raiplay_browser_dialog(&f_menu, Some(query));
+                }
+            } else if event.get_id() == ID_RAIPLAY_SOUND {
+                open_raiplaysound_browser_dialog(&f_menu);
             } else if event.get_id() == ID_ARTICLES_ADD_SOURCE {
                 if let Some((title, url)) = open_add_article_source_dialog(&f_menu) {
                     add_article_source(
@@ -9944,7 +10521,9 @@ fn main() {
                     let description = crate::reader::collapse_blank_lines(
                         &crate::reader::clean_text(&episode.description),
                     );
-                    tc_menu.set_value(&format!("{}\n\n{}", episode.title.trim(), description.trim()));
+                    tc_menu.set_value(&format!("{}
+
+{}", episode.title.trim(), description.trim()));
 
                     if episode.audio_url.trim().is_empty() {
                         append_podcast_log(&format!(
@@ -9953,7 +10532,9 @@ fn main() {
                         ));
                         let dialog = MessageDialog::builder(
                             &f_menu,
-                            "Questo episodio non espone un URL audio diretto nel feed RSS.\n\nNon posso scaricare la pagina web al posto dell'audio.",
+                            "Questo episodio non espone un URL audio diretto nel feed RSS.
+
+Non posso scaricare la pagina web al posto dell'audio.",
                             "Audio podcast non disponibile",
                         )
                         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
@@ -9999,9 +10580,13 @@ fn main() {
                             let dialog = MessageDialog::builder(
                                 &f_menu,
                                 &if Settings::load().ui_language == "it" {
-                                    format!("Impossibile aprire il podcast.\n\n{err}")
+                                    format!("Impossibile aprire il podcast.
+
+{err}")
                                 } else {
-                                    format!("Unable to open the podcast.\n\n{err}")
+                                    format!("Unable to open the podcast.
+
+{err}")
                                 },
                                 &current_ui_strings().podcast_error_title,
                             )
@@ -10718,9 +11303,13 @@ fn main() {
                     let dialog = MessageDialog::builder(
                         &f_save,
                         &if Settings::load().ui_language == "it" {
-                            format!("Impossibile salvare il podcast.\n\n{err}")
+                            format!("Impossibile salvare il podcast.
+
+{err}")
                         } else {
-                            format!("Unable to save the podcast.\n\n{err}")
+                            format!("Unable to save the podcast.
+
+{err}")
                         },
                         &ui.podcast_error_title,
                     )
