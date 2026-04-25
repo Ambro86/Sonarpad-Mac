@@ -1609,8 +1609,7 @@ fn write_docx_text(path: &Path, text: &str) -> Result<(), String> {
     let file = std::fs::File::create(path)
         .map_err(|err| format!("salvataggio file {} fallito: {}", path.display(), err))?;
     let mut docx = Docx::new();
-    for line in text.split('
-') {
+    for line in text.split('\n') {
         let line = line.strip_suffix('\r').unwrap_or(line);
         let paragraph = if line.is_empty() {
             Paragraph::new()
@@ -9219,8 +9218,7 @@ fn mailto_encode_component(value: &str) -> String {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => encoded.push(byte as char),
             b' ' => encoded.push_str("%20"),
             b'\r' => encoded.push_str("%0D"),
-            b'
-' => encoded.push_str("%0A"),
+            b'\n' => encoded.push_str("%0A"),
             _ => encoded.push_str(&format!("%{byte:02X}")),
         }
     }

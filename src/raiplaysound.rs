@@ -48,10 +48,10 @@ pub(crate) fn load_page(path_or_url: &str) -> Result<BrowsePage, String> {
 pub(crate) fn search(query: &str) -> Result<BrowsePage, String> {
     let trimmed_query = query.trim();
     if trimmed_query.is_empty() {
-        return Err("Inserisci un testo da cercare in RaiPlay Sound.".to_string();
+        return Err("Inserisci un testo da cercare in RaiPlay Sound.".to_string());
     }
     let effective_query =
-        refine_search_query(trimmed_query).unwrap_or_else(|| trimmed_query.to_string();
+        refine_search_query(trimmed_query).unwrap_or_else(|| trimmed_query.to_string());
 
     let body = serde_json::json!({
         "templateIn": RAIPLAYSOUND_SEARCH_TEMPLATE_IN,
@@ -165,7 +165,7 @@ fn load_page_from_url(url: &str) -> Result<BrowsePage, String> {
     let is_root_page = url.eq_ignore_ascii_case(&raiplaysound_genres_url()?);
     let title = string_field(&root, "title")
         .filter(|value| !value.is_empty())
-        .unwrap_or_else(|| "RaiPlay Sound".to_string();
+        .unwrap_or_else(|| "RaiPlay Sound".to_string());
     let mut items = Vec::new();
     let mut seen = HashSet::new();
 
@@ -179,7 +179,7 @@ fn load_page_from_url(url: &str) -> Result<BrowsePage, String> {
 
     if let Some(blocks) = root.get("blocks").and_then(Value::as_array) {
         for block in blocks {
-            let section = string_field(block, "title").filter(|value| !value.is_empty();
+            let section = string_field(block, "title").filter(|value| !value.is_empty());
             if let Some(cards) = block.get("cards").and_then(Value::as_array) {
                 collect_cards(
                     cards,
@@ -221,7 +221,7 @@ fn parse_card(
     _section: Option<&str>,
     is_root_page: bool,
 ) -> Result<Option<BrowseItem>, String> {
-    let path_id = string_field(card, "path_id").or_else(|| string_field(card, "pathId");
+    let path_id = string_field(card, "path_id").or_else(|| string_field(card, "pathId"));
     let title = preferred_title(card);
     if is_root_page && should_hide_root_item(&title) {
         return Ok(None);
@@ -376,7 +376,7 @@ fn resolve_raiplaysound_secret_key() -> Result<String, String> {
     if let Some(secret_key) = crate::load_saved_rai_luce_code() {
         let trimmed = secret_key.trim();
         if !trimmed.is_empty() {
-            return Ok(trimmed.to_string();
+            return Ok(trimmed.to_string());
         }
     }
     Err("Chiave Luce mancante: inserisci il codice nelle impostazioni.".to_string())
