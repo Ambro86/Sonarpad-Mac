@@ -96,7 +96,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v7
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v8
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -217,6 +217,21 @@ jobs:
             --enable-filter=anull
           make -j"$(sysctl -n hw.ncpu)"
           make install
+          LAME_DYLIB="$(
+            otool -L "../../ffmpeg-install/bin/ffmpeg" \
+              | awk '{print $1}' \
+              | grep 'libmp3lame.*\.dylib' \
+              | head -n 1 || true
+          )"
+          if [ -n "${LAME_DYLIB}" ]; then
+            mkdir -p "../../ffmpeg-install/lib"
+            LAME_DYLIB_NAME="$(basename "${LAME_DYLIB}")"
+            cp "${LAME_DYLIB}" "../../ffmpeg-install/lib/${LAME_DYLIB_NAME}"
+            chmod +x "../../ffmpeg-install/lib/${LAME_DYLIB_NAME}"
+            install_name_tool \
+              -change "${LAME_DYLIB}" "@executable_path/../lib/${LAME_DYLIB_NAME}" \
+              "../../ffmpeg-install/bin/ffmpeg"
+          fi
           "../../ffmpeg-install/bin/ffmpeg" -version
           otool -L "../../ffmpeg-install/bin/ffmpeg"
           if otool -L "../../ffmpeg-install/bin/ffmpeg" \
@@ -306,6 +321,10 @@ jobs:
           done
           cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
+          if [ -d "dist/ffmpeg-install/lib" ]; then
+            cp -R dist/ffmpeg-install/lib/. "${FFMPEG_LIB_DIR}/"
+            find "${FFMPEG_LIB_DIR}" -type f -name '*.dylib' -exec chmod +x {} \;
+          fi
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           if otool -L "${FFMPEG_BIN_DIR}/ffmpeg" \
             | tail -n +2 \

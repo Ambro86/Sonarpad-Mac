@@ -75,7 +75,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v9
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v10
 
       - name: Build release binary
         shell: bash
@@ -245,6 +245,21 @@ jobs:
             --enable-filter=anull
           make -j"$(sysctl -n hw.ncpu)"
           make install
+          LAME_DYLIB="$(
+            otool -L "../../ffmpeg-install/bin/ffmpeg" \
+              | awk '{print $1}' \
+              | grep 'libmp3lame.*\.dylib' \
+              | head -n 1 || true
+          )"
+          if [ -n "${LAME_DYLIB}" ]; then
+            mkdir -p "../../ffmpeg-install/lib"
+            LAME_DYLIB_NAME="$(basename "${LAME_DYLIB}")"
+            cp "${LAME_DYLIB}" "../../ffmpeg-install/lib/${LAME_DYLIB_NAME}"
+            chmod +x "../../ffmpeg-install/lib/${LAME_DYLIB_NAME}"
+            install_name_tool \
+              -change "${LAME_DYLIB}" "@executable_path/../lib/${LAME_DYLIB_NAME}" \
+              "../../ffmpeg-install/bin/ffmpeg"
+          fi
           "../../ffmpeg-install/bin/ffmpeg" -version
           otool -L "../../ffmpeg-install/bin/ffmpeg"
 
@@ -353,6 +368,10 @@ jobs:
           done
           cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
+          if [ -d "dist/ffmpeg-install/lib" ]; then
+            cp -R dist/ffmpeg-install/lib/. "${FFMPEG_LIB_DIR}/"
+            find "${FFMPEG_LIB_DIR}" -type f -name '*.dylib' -exec chmod +x {} \;
+          fi
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
