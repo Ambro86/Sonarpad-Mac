@@ -33,9 +33,24 @@ mod imp {
                 bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
             let mpv_input_conf = bundled_mpv_input_conf_path();
             let enable_bookmarks = crate::media_bookmarks_enabled();
-            let mpv_config_dir = crate::prepare_mpv_runtime_dirs(enable_bookmarks)?;
+            crate::prepare_mpv_runtime_dirs(enable_bookmarks)?;
             let ipc_path = podcast_ipc_socket_path();
             remove_stale_socket(&ipc_path, "podcast.mpv.socket_prep_failed")?;
+            let mut logged_args = vec![
+                stream_url.to_string(),
+                "--no-config".to_string(),
+                format!("--input-conf={}", mpv_input_conf.display()),
+                "--pause=yes".to_string(),
+                "--no-video".to_string(),
+                "--force-window=yes".to_string(),
+                "--idle=no".to_string(),
+                "--no-terminal".to_string(),
+                "--osc=yes".to_string(),
+                "--input-default-bindings=yes".to_string(),
+                "--volume-max=300".to_string(),
+                format!("--input-ipc-server={}", ipc_path.display()),
+                "--title=Sonarpad podcast".to_string(),
+            ];
 
             let mut command = Command::new(&mpv_executable);
             if let Some(parent_dir) = mpv_executable.parent()
@@ -45,7 +60,7 @@ mod imp {
             }
             command
                 .arg(stream_url)
-                .arg(format!("--config-dir={}", mpv_config_dir.display()))
+                .arg("--no-config")
                 .arg(format!("--input-conf={}", mpv_input_conf.display()))
                 .arg("--pause=yes")
                 .arg("--no-video")
@@ -66,13 +81,30 @@ mod imp {
                     .arg("--save-position-on-quit")
                     .arg("--resume-playback=yes")
                     .arg("--watch-later-options=start");
+                logged_args.extend_from_slice(&[
+                    format!(
+                        "--watch-later-dir={}",
+                        crate::mpv_watch_later_dir().display()
+                    ),
+                    "--save-position-on-quit".to_string(),
+                    "--resume-playback=yes".to_string(),
+                    "--watch-later-options=start".to_string(),
+                ]);
             } else {
                 command.arg("--resume-playback=no");
+                logged_args.push("--resume-playback=no".to_string());
             }
 
             let mut child = command
                 .spawn()
                 .map_err(|err| format!("avvio mpv podcast fallito: {err}"))?;
+            crate::log_mpv_launch_diagnostics(
+                "podcast.mpv",
+                child.id(),
+                stream_url,
+                "Sonarpad podcast",
+                &logged_args,
+            );
             activate_mpv_application();
 
             for attempt in 0..MPV_CONNECT_ATTEMPTS {

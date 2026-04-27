@@ -89,7 +89,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v4
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v5
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -141,11 +141,15 @@ jobs:
           else
             FFMPEG_ARCH="x86_64"
           fi
+          brew install lame pkg-config
+          LAME_PREFIX="$(brew --prefix lame)"
           ./configure \
             --prefix="$(pwd)/../../ffmpeg-install" \
             --cc=clang \
             --arch="${FFMPEG_ARCH}" \
             --target-os=darwin \
+            --extra-cflags="-I${LAME_PREFIX}/include" \
+            --extra-ldflags="-L${LAME_PREFIX}/lib" \
             --disable-everything \
             --disable-autodetect \
             --disable-avdevice \
@@ -175,11 +179,12 @@ jobs:
             --enable-muxer=ipod \
             --enable-muxer=mp3 \
             --enable-muxer=mp4 \
+            --enable-gpl \
+            --enable-libmp3lame \
             --enable-parser=aac \
             --enable-parser=mpegaudio \
             --enable-decoder=aac \
             --enable-decoder=mp3 \
-            --enable-encoder=libmp3lame \
             --enable-encoder=aac \
             --enable-filter=atrim \
             --enable-filter=aresample \

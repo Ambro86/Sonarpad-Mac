@@ -274,6 +274,8 @@ struct Settings {
     rai_luce_code: String,
     #[serde(default)]
     auto_media_bookmark: bool,
+    #[serde(default)]
+    auto_check_updates: bool,
     #[serde(default = "default_audiobook_format")]
     last_audiobook_format: String,
     #[serde(default)]
@@ -306,6 +308,7 @@ impl Settings {
             radio_favorites: Vec::new(),
             rai_luce_code: String::new(),
             auto_media_bookmark: false,
+            auto_check_updates: false,
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
@@ -692,6 +695,7 @@ struct UiStrings {
     tv_label: String,
     rai_luce_code_label: String,
     auto_media_bookmark_label: String,
+    auto_check_updates_label: String,
     rai_missing_code_title: String,
     rai_missing_code_message: String,
     rai_request_code_button: String,
@@ -4413,24 +4417,33 @@ fn check_for_updates(
     parent: &Frame,
     #[cfg(target_os = "macos")] pending_update: &Arc<Mutex<Option<PendingMacUpdateInstall>>>,
 ) {
+    handle_update_check_result(
+        parent,
+        #[cfg(target_os = "macos")]
+        pending_update,
+        fetch_latest_release_info(),
+    );
+}
+
+fn handle_update_check_result(
+    parent: &Frame,
+    #[cfg(target_os = "macos")] pending_update: &Arc<Mutex<Option<PendingMacUpdateInstall>>>,
+    result: Result<GithubReleaseInfo, String>,
+) {
     let ui = current_ui_strings();
     let current_version = env!("CARGO_PKG_VERSION");
-    match fetch_latest_release_info() {
+    match result {
         Ok(release) => {
             let latest_version = normalize_version_tag(&release.tag_name);
             if is_newer_version(&latest_version, current_version) {
                 let message = if Settings::load().ui_language == "it" {
                     format!(
-                        "È disponibile la versione {}.
-
-Vuoi scaricarla ora?",
+                        "È disponibile la versione {}.\n\nVuoi scaricarla ora?",
                         latest_version
                     )
                 } else {
                     format!(
-                        "Version {} is available.
-
-Do you want to download it now?",
+                        "Version {} is available.\n\nDo you want to download it now?",
                         latest_version
                     )
                 };
@@ -4454,16 +4467,12 @@ Do you want to download it now?",
                                 *pending_update.lock().unwrap() = Some(prepared_update);
                                 let install_message = if Settings::load().ui_language == "it" {
                                     format!(
-                                        "L'aggiornamento {} è pronto.
-
-Sonarpad verrà chiuso per completare l'installazione.",
+                                        "L'aggiornamento {} è pronto.\n\nSonarpad verrà chiuso per completare l'installazione.",
                                         latest_version
                                     )
                                 } else {
                                     format!(
-                                        "Update {} is ready.
-
-Sonarpad will close to complete installation.",
+                                        "Update {} is ready.\n\nSonarpad will close to complete installation.",
                                         latest_version
                                     )
                                 };
@@ -4476,16 +4485,12 @@ Sonarpad will close to complete installation.",
                                     &ui.updates_title,
                                     &if Settings::load().ui_language == "it" {
                                         format!(
-                                            "È disponibile la versione {} ma non sono riuscito a preparare l'aggiornamento.
-
-{}",
+                                            "È disponibile la versione {} ma non sono riuscito a preparare l'aggiornamento.\n\n{}",
                                             latest_version, err
                                         )
                                     } else {
                                         format!(
-                                            "Version {} is available but I could not prepare the update.
-
-{}",
+                                            "Version {} is available but I could not prepare the update.\n\n{}",
                                             latest_version, err
                                         )
                                     },
@@ -4501,16 +4506,12 @@ Sonarpad will close to complete installation.",
                             &ui.updates_title,
                             &if Settings::load().ui_language == "it" {
                                 format!(
-                                    "È disponibile la versione {} ma non sono riuscito ad aprire il link.
-
-{}",
+                                    "È disponibile la versione {} ma non sono riuscito ad aprire il link.\n\n{}",
                                     latest_version, err
                                 )
                             } else {
                                 format!(
-                                    "Version {} is available but I could not open the link.
-
-{}",
+                                    "Version {} is available but I could not open the link.\n\n{}",
                                     latest_version, err
                                 )
                             },
@@ -4523,18 +4524,12 @@ Sonarpad will close to complete installation.",
                     &ui.updates_title,
                     &if Settings::load().ui_language == "it" {
                         format!(
-                            "Hai già l'ultima versione installata.
-
-Versione attuale: {}
-Ultima versione: {}",
+                            "Hai già l'ultima versione installata.\n\nVersione attuale: {}\nUltima versione: {}",
                             current_version, latest_version
                         )
                     } else {
                         format!(
-                            "You already have the latest version installed.
-
-Current version: {}
-Latest version: {}",
+                            "You already have the latest version installed.\n\nCurrent version: {}\nLatest version: {}",
                             current_version, latest_version
                         )
                     },
@@ -4547,18 +4542,12 @@ Latest version: {}",
                 &ui.updates_title,
                 &if Settings::load().ui_language == "it" {
                     format!(
-                        "Controllo aggiornamenti non riuscito.
-
-Versione attuale: {}
-Errore: {}",
+                        "Controllo aggiornamenti non riuscito.\n\nVersione attuale: {}\nErrore: {}",
                         current_version, err
                     )
                 } else {
                     format!(
-                        "Update check failed.
-
-Current version: {}
-Error: {}",
+                        "Update check failed.\n\nCurrent version: {}\nError: {}",
                         current_version, err
                     )
                 },
@@ -8479,38 +8468,16 @@ fn open_settings_dialog(
         5,
     );
 
-    #[cfg(target_os = "macos")]
-    {
-        let file_assoc_row = BoxSizer::builder(Orientation::Horizontal).build();
-        file_assoc_row.add(
-            &StaticText::builder(&panel)
-                .with_label(&ui.file_associations_label)
-                .build(),
-            1,
-            SizerFlag::AlignCenterVertical | SizerFlag::All,
-            5,
-        );
-        let btn_file_associations = Button::builder(&panel)
-            .with_label(&ui.file_associations_button)
-            .build();
-        file_assoc_row.add(&btn_file_associations, 0, SizerFlag::All, 5);
-        root.add_sizer(&file_assoc_row, 0, SizerFlag::Expand, 0);
-
-        let dialog_file_associations = dialog;
-        let success_title = ui.settings_title.clone();
-        let success_message = ui.file_associations_success_message.clone();
-        let error_template = ui.file_associations_error_message.clone();
-        btn_file_associations.on_click(move |_| match set_macos_default_file_associations() {
-            Ok(()) => {
-                show_message_subdialog(&dialog_file_associations, &success_title, &success_message)
-            }
-            Err(err) => show_message_subdialog(
-                &dialog_file_associations,
-                &success_title,
-                &error_template.replace("{err}", &err),
-            ),
-        });
-    }
+    let auto_check_updates_checkbox = CheckBox::builder(&panel)
+        .with_label(&ui.auto_check_updates_label)
+        .build();
+    auto_check_updates_checkbox.set_value(settings_before.auto_check_updates);
+    root.add(
+        &auto_check_updates_checkbox,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        5,
+    );
 
     let rai_code_ctrl = TextCtrl::builder(&panel).build();
     if settings_before.ui_language == "it" {
@@ -8682,6 +8649,7 @@ fn open_settings_dialog(
             updated.rai_luce_code = rai_code_ctrl.get_value().trim().to_string();
         }
         updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
+        updated.auto_check_updates = auto_check_updates_checkbox.get_value();
 
         let refresh_needed = settings_before.voice != updated.voice
             || settings_before.rate != updated.rate
@@ -8691,6 +8659,7 @@ fn open_settings_dialog(
             || settings_before.language != updated.language
             || settings_before.rai_luce_code != updated.rai_luce_code
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
+            || settings_before.auto_check_updates != updated.auto_check_updates
             || refresh_needed;
 
         if changed {
@@ -9812,14 +9781,24 @@ fn open_stream_with_mpv(
     let mut command = Command::new(&mpv_executable);
     let mpv_input_conf = bundled_mpv_input_conf_path();
     let allow_bookmarks = enable_bookmarks && media_bookmarks_enabled();
-    let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
+    prepare_mpv_runtime_dirs(allow_bookmarks)?;
+    let mut logged_args = vec![
+        "--no-config".to_string(),
+        format!("--input-conf={}", mpv_input_conf.display()),
+        "--force-window=yes".to_string(),
+        "--idle=no".to_string(),
+        "--no-terminal".to_string(),
+        "--osc=yes".to_string(),
+        "--input-default-bindings=yes".to_string(),
+        "--volume-max=300".to_string(),
+    ];
     if let Some(parent_dir) = mpv_executable.parent()
         && !parent_dir.as_os_str().is_empty()
     {
         command.current_dir(parent_dir);
     }
     command
-        .arg(format!("--config-dir={}", mpv_config_dir.display()))
+        .arg("--no-config")
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
         .arg("--force-window=yes")
         .arg("--idle=no")
@@ -9836,23 +9815,48 @@ fn open_stream_with_mpv(
             .arg("--save-position-on-quit")
             .arg("--resume-playback=yes")
             .arg("--watch-later-options=start");
+        logged_args.extend_from_slice(&[
+            format!("--watch-later-dir={}", mpv_watch_later_dir().display()),
+            "--save-position-on-quit".to_string(),
+            "--resume-playback=yes".to_string(),
+            "--watch-later-options=start".to_string(),
+        ]);
     } else {
         command.arg("--resume-playback=no");
+        logged_args.push("--resume-playback=no".to_string());
     }
     if let Some(audio_track) = preferred_audio_track {
         command.arg(format!("--aid={audio_track}"));
+        logged_args.push(format!("--aid={audio_track}"));
     }
-    command.arg(format!("--title=Sonarpad - {title}")).arg(url);
-    let _child = command
+    let window_title = format!("Sonarpad - {title}");
+    command.arg(format!("--title={window_title}")).arg(url);
+    logged_args.push(format!("--title={window_title}"));
+    logged_args.push(url.to_string());
+    let child = command
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
+    #[cfg(target_os = "macos")]
+    log_mpv_launch_diagnostics("rai.mpv", child.id(), url, &window_title, &logged_args);
     #[cfg(target_os = "macos")]
     {
         let result = Command::new("osascript")
             .args(["-e", "tell application \"mpv\" to activate"])
             .output();
-        if let Err(err) = result {
-            append_podcast_log(&format!("rai.mpv.activate.error err={err}"));
+        match result {
+            Ok(output) => {
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                append_podcast_log(&format!(
+                    "rai.mpv.activate code={:?} stdout={} stderr={}",
+                    output.status.code(),
+                    stdout,
+                    stderr
+                ));
+            }
+            Err(err) => {
+                append_podcast_log(&format!("rai.mpv.activate.error err={err}"));
+            }
         }
     }
     Ok(())
@@ -9865,6 +9869,86 @@ fn bundled_mpv_input_conf_path() -> PathBuf {
         .and_then(|macos_dir| macos_dir.parent().map(Path::to_path_buf))
         .map(|contents_dir| contents_dir.join("Resources").join("mpv-input.conf"))
         .unwrap_or_else(|| PathBuf::from("mpv-input.conf"))
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn log_mpv_launch_diagnostics(
+    context: &str,
+    process_id: u32,
+    target: &str,
+    title: &str,
+    args: &[String],
+) {
+    append_podcast_log(&format!(
+        "{context}.launch pid={process_id} title={} target={} args={args:?}",
+        title, target
+    ));
+
+    for delay_ms in [300_u64, 1500, 3000] {
+        let context = context.to_string();
+        let title = title.to_string();
+        std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+            let ps_state = Command::new("ps")
+                .args(["-p", &process_id.to_string(), "-o", "state="])
+                .output();
+            match ps_state {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    append_podcast_log(&format!(
+                        "{context}.probe delay_ms={delay_ms} pid={process_id} ps_code={:?} ps_state={} ps_stderr={}",
+                        output.status.code(),
+                        stdout,
+                        stderr
+                    ));
+                }
+                Err(err) => append_podcast_log(&format!(
+                    "{context}.probe_ps_error delay_ms={delay_ms} pid={process_id} err={err}"
+                )),
+            }
+
+            let script = format!(
+                "tell application \"System Events\"\n\
+                    if exists process \"mpv\" then\n\
+                        tell process \"mpv\"\n\
+                            set front_state to frontmost\n\
+                            set window_names to name of every window\n\
+                            return \"frontmost=\" & (front_state as string) & \" windows=\" & (window_names as string)\n\
+                        end tell\n\
+                    else\n\
+                        return \"process_missing\"\n\
+                    end if\n\
+                end tell"
+            );
+            match Command::new("osascript").args(["-e", &script]).output() {
+                Ok(output) => {
+                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                    append_podcast_log(&format!(
+                        "{context}.probe_window delay_ms={delay_ms} pid={process_id} expected_title={} code={:?} stdout={} stderr={}",
+                        title,
+                        output.status.code(),
+                        stdout,
+                        stderr
+                    ));
+                }
+                Err(err) => append_podcast_log(&format!(
+                    "{context}.probe_window_error delay_ms={delay_ms} pid={process_id} err={err}"
+                )),
+            }
+        });
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+pub(crate) fn log_mpv_launch_diagnostics(
+    _context: &str,
+    _process_id: u32,
+    _target: &str,
+    _title: &str,
+    _args: &[String],
+) {
 }
 
 fn open_raiplay_target_with_mpv(
@@ -10187,6 +10271,8 @@ fn main() {
     refresh_all_radio_languages(&radio_menu_state);
     let initial_open_path = initial_open_path_from_args();
     let pending_open_files = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
+    let pending_auto_update_result =
+        Arc::new(Mutex::new(None::<Result<GithubReleaseInfo, String>>));
     let current_document = Arc::new(Mutex::new(CurrentDocumentState::default()));
 
     let _ = wxdragon::main(move |_app| {
@@ -10330,12 +10416,6 @@ fn main() {
             ItemKind::Normal,
         );
         additional_features_menu.append(
-            ID_RAIPLAY_SEARCH,
-            &ui.raiplay_search_label,
-            &ui.raiplay_search_label,
-            ItemKind::Normal,
-        );
-        additional_features_menu.append(
             ID_RAIPLAY_SOUND,
             &ui.raiplaysound_label,
             &ui.raiplaysound_label,
@@ -10441,9 +10521,12 @@ fn main() {
         let rt_articles_timer = Arc::clone(&rt);
         let tc_articles_timer = text_ctrl;
         let pending_open_files_timer = Arc::clone(&pending_open_files);
+        let pending_auto_update_result_timer = Arc::clone(&pending_auto_update_result);
         let current_document_timer = Arc::clone(&current_document);
         let timer_tick = Rc::clone(&timer);
         let frame_timer = frame;
+        #[cfg(target_os = "macos")]
+        let pending_mac_update_timer = Arc::clone(&pending_mac_update);
 
         timer_tick.on_tick(move |_| {
             let tts_status = pb_timer.lock().unwrap().status;
@@ -10616,6 +10699,19 @@ fn main() {
                 open_radio_search_dialog(&frame_timer, &settings_timer, &radio_menu_state_timer);
             }
 
+            let auto_update_result = {
+                let mut pending = pending_auto_update_result_timer.lock().unwrap();
+                pending.take()
+            };
+            if let Some(result) = auto_update_result {
+                handle_update_check_result(
+                    &frame_timer,
+                    #[cfg(target_os = "macos")]
+                    &pending_mac_update_timer,
+                    result,
+                );
+            }
+
             let pending_paths = {
                 let mut pending = pending_open_files_timer.lock().unwrap();
                 std::mem::take(&mut *pending)
@@ -10674,6 +10770,14 @@ fn main() {
             }
         });
         timer.start(200, false);
+
+        if settings.lock().unwrap().auto_check_updates {
+            let pending_auto_update_result_thread = Arc::clone(&pending_auto_update_result);
+            std::thread::spawn(move || {
+                *pending_auto_update_result_thread.lock().unwrap() =
+                    Some(fetch_latest_release_info());
+            });
+        }
 
         let timer_close = Rc::clone(&timer);
         let tc_close = text_ctrl;

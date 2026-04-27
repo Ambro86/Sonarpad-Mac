@@ -191,6 +191,7 @@
   "raiplay_search_label": "Cerca su RaiPlay",
   "rai_luce_code_label": "Codice funzioni aggiuntive Sonarpad:",
   "auto_media_bookmark_label": "Imposta il segnalibro automatico per i contenuti multimediali",
+  "auto_check_updates_label": "Controlla aggiornamenti all'avvio",
   "rai_missing_code_title": "Codice Sonarpad richiesto",
   "rai_missing_code_message": "Per usare questa funzione è necessario inserire il codice delle funzioni aggiuntive Sonarpad nelle impostazioni. Vuoi richiederlo ora?",
   "rai_request_code_button": "Richiedi codice",

@@ -75,7 +75,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v6
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v7
 
       - name: Build release binary
         shell: bash
@@ -181,14 +181,16 @@ jobs:
           fi
           tar -xf "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" -C dist/ffmpeg-build
           cd "dist/ffmpeg-build/ffmpeg-${FFMPEG_VERSION}"
+          brew install lame pkg-config
+          LAME_PREFIX="$(brew --prefix lame)"
           ./configure \
             --prefix="$(pwd)/../../ffmpeg-install" \
             --cc=clang \
             --arch=x86_64 \
             --target-os=darwin \
-            --extra-cflags="-mmacosx-version-min=10.15" \
+            --extra-cflags="-mmacosx-version-min=10.15 -I${LAME_PREFIX}/include" \
             --extra-cxxflags="-mmacosx-version-min=10.15" \
-            --extra-ldflags="-mmacosx-version-min=10.15" \
+            --extra-ldflags="-mmacosx-version-min=10.15 -L${LAME_PREFIX}/lib" \
             --disable-everything \
             --disable-autodetect \
             --disable-avdevice \
@@ -218,11 +220,12 @@ jobs:
             --enable-muxer=ipod \
             --enable-muxer=mp3 \
             --enable-muxer=mp4 \
+            --enable-gpl \
+            --enable-libmp3lame \
             --enable-parser=aac \
             --enable-parser=mpegaudio \
             --enable-decoder=aac \
             --enable-decoder=mp3 \
-            --enable-encoder=libmp3lame \
             --enable-encoder=aac \
             --enable-filter=atrim \
             --enable-filter=aresample \
