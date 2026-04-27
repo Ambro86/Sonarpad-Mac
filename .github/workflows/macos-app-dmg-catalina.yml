@@ -75,7 +75,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v3
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v4
 
       - name: Build release binary
         shell: bash
@@ -193,12 +193,10 @@ jobs:
             --disable-autodetect \
             --disable-avdevice \
             --disable-swscale \
-            --disable-network \
             --disable-iconv \
             --disable-bzlib \
             --disable-lzma \
             --disable-sdl2 \
-            --disable-securetransport \
             --disable-videotoolbox \
             --disable-audiotoolbox \
             --disable-debug \
@@ -208,13 +206,21 @@ jobs:
             --disable-shared \
             --enable-static \
             --enable-protocol=file \
+            --enable-protocol=http \
+            --enable-protocol=https \
+            --enable-protocol=tcp \
+            --enable-protocol=tls \
+            --enable-demuxer=hls \
+            --enable-demuxer=mpegts \
             --enable-demuxer=mov \
             --enable-demuxer=mp3 \
             --enable-muxer=ipod \
             --enable-muxer=mp4 \
+            --enable-parser=aac \
             --enable-parser=mpegaudio \
             --enable-decoder=aac \
             --enable-decoder=mp3 \
+            --enable-encoder=libmp3lame \
             --enable-encoder=aac \
             --enable-filter=atrim \
             --enable-filter=aresample \
@@ -332,6 +338,10 @@ jobs:
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
+          cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'
+          UP add volume 5
+          DOWN add volume -5
+          EOF
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>

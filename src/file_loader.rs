@@ -39,9 +39,62 @@ pub fn load_any_file(path: &Path) -> Result<String> {
         "html" | "htm" => load_html(path),
         _ => {
             let bytes = std::fs::read(path)?;
-            Ok(String::from_utf8_lossy(&bytes).to_string())
+            Ok(decode_text_bytes(&bytes))
         }
     }
+}
+
+fn decode_text_bytes(bytes: &[u8]) -> String {
+    if let Some(text) = decode_text_bytes_with_bom(bytes) {
+        return text;
+    }
+    if let Ok(text) = String::from_utf8(bytes.to_vec()) {
+        return text;
+    }
+    if let Some(text) = decode_utf16_without_bom(bytes) {
+        return text;
+    }
+    let (decoded, _, _) = WINDOWS_1252.decode(bytes);
+    decoded.into_owned()
+}
+
+fn decode_text_bytes_with_bom(bytes: &[u8]) -> Option<String> {
+    match bytes {
+        [0xEF, 0xBB, 0xBF, rest @ ..] => Some(String::from_utf8_lossy(rest).into_owned()),
+        [0xFF, 0xFE, rest @ ..] => Some(decode_utf16_units(rest, true)),
+        [0xFE, 0xFF, rest @ ..] => Some(decode_utf16_units(rest, false)),
+        _ => None,
+    }
+}
+
+fn decode_utf16_without_bom(bytes: &[u8]) -> Option<String> {
+    if bytes.len() < 4 || bytes.len() % 2 != 0 {
+        return None;
+    }
+    let even_nuls = bytes.iter().step_by(2).filter(|&&byte| byte == 0).count();
+    let odd_nuls = bytes.iter().skip(1).step_by(2).filter(|&&byte| byte == 0).count();
+    let pair_count = bytes.len() / 2;
+    if odd_nuls >= pair_count / 4 && even_nuls <= pair_count / 16 {
+        return Some(decode_utf16_units(bytes, true));
+    }
+    if even_nuls >= pair_count / 4 && odd_nuls <= pair_count / 16 {
+        return Some(decode_utf16_units(bytes, false));
+    }
+    None
+}
+
+fn decode_utf16_units(bytes: &[u8], little_endian: bool) -> String {
+    let units = bytes
+        .chunks_exact(2)
+        .map(|chunk| {
+            if little_endian {
+                u16::from_le_bytes([chunk[0], chunk[1]])
+            } else {
+                u16::from_be_bytes([chunk[0], chunk[1]])
+            }
+        })
+        .collect::<Vec<_>>();
+    String::from_utf16_lossy(&units)
 }
 
 fn load_doc(path: &Path) -> Result<String> {
@@ -1593,7 +1646,7 @@ fn load_spreadsheet(path: &Path) -> Result<String> {
 
 fn load_html(path: &Path) -> Result<String> {
     let bytes = std::fs::read(path)?;
-    let html = String::from_utf8_lossy(&bytes);
+    let html = decode_text_bytes(&bytes);
     Ok(html_to_text(&html))
 }
 

@@ -9346,7 +9346,7 @@ fn request_rai_luce_code(parent: &Dialog) {
             let body = format!(
                 "Richiesta da: {nome} {cognome}\r
 Email: {mail}\r
-Sistema operativo: macOS\r
+Sistema operativo: MacOS\r
 Lingua: Italiano"
             );
             let uri = format!(
@@ -9413,6 +9413,7 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
         show_message_dialog(parent, &ui.rai_audio_descriptions_label, &ui.rai_no_items);
         return;
     }
+    let has_savable_items = items.iter().any(|item| !item.audio_url.trim().is_empty());
     let dialog = Dialog::builder(parent, "Rai audiodescrizioni recenti")
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(700, 220)
@@ -9427,9 +9428,11 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let play_button = Button::builder(&panel).with_label(&ui.open).build();
-    let save_button = Button::builder(&panel)
-        .with_label(&ui.rai_save_content)
-        .build();
+    let save_button = has_savable_items.then(|| {
+        Button::builder(&panel)
+            .with_label(&ui.rai_save_content)
+            .build()
+    });
     let all_button = Button::builder(&panel)
         .with_label("Tutte le audiodescrizioni")
         .build();
@@ -9439,7 +9442,9 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
         .build();
     buttons.add_spacer(1);
     buttons.add(&play_button, 0, SizerFlag::All, 10);
-    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    if let Some(save_button) = save_button.as_ref() {
+        buttons.add(save_button, 0, SizerFlag::All, 10);
+    }
     buttons.add(&all_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
@@ -9462,29 +9467,31 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
             );
         }
     });
-    let choice_save = choice;
-    let parent_save = dialog;
-    let items_save = Rc::clone(&items);
-    save_button.on_click(move |_| {
-        if let Some(sel) = choice_save.get_selection()
-            && let Some(item) = items_save.get(sel as usize)
-        {
-            match rai_audiodescrizioni::resolve_audio_url_for_clipboard(&item.audio_url)
-                .and_then(|url| save_rai_direct_media(&parent_save, &url, &item.title, "mp3"))
+    if let Some(save_button) = save_button {
+        let choice_save = choice;
+        let parent_save = dialog;
+        let items_save = Rc::clone(&items);
+        save_button.on_click(move |_| {
+            if let Some(sel) = choice_save.get_selection()
+                && let Some(item) = items_save.get(sel as usize)
             {
-                Ok(()) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().rai_audio_descriptions_label,
-                    &current_ui_strings().rai_save_completed,
-                ),
-                Err(err) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().rai_audio_descriptions_label,
-                    &err,
-                ),
+                match rai_audiodescrizioni::resolve_audio_url_for_clipboard(&item.audio_url)
+                    .and_then(|url| save_rai_direct_media(&parent_save, &url, &item.title, "mp3"))
+                {
+                    Ok(()) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().rai_audio_descriptions_label,
+                        &current_ui_strings().rai_save_completed,
+                    ),
+                    Err(err) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().rai_audio_descriptions_label,
+                        &err,
+                    ),
+                }
             }
-        }
-    });
+        });
+    }
     let parent_all = dialog;
     all_button.on_click(move |_| match rai_audiodescrizioni::load_grouped_catalog() {
         Ok(groups) => open_rai_audio_group_subdialog(&parent_all, &groups),
@@ -9551,6 +9558,10 @@ fn open_rai_audio_group_subdialog(
 
 fn open_rai_audio_items_dialog(parent: &Dialog, group: &rai_audiodescrizioni::CatalogGroup) {
     let ui = current_ui_strings();
+    let has_savable_items = group
+        .items
+        .iter()
+        .any(|item| !item.audio_url.trim().is_empty());
     let dialog = Dialog::builder(parent, &group.title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(700, 220)
@@ -9565,16 +9576,20 @@ fn open_rai_audio_items_dialog(parent: &Dialog, group: &rai_audiodescrizioni::Ca
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let play_button = Button::builder(&panel).with_label(&ui.open).build();
-    let save_button = Button::builder(&panel)
-        .with_label(&ui.rai_save_content)
-        .build();
+    let save_button = has_savable_items.then(|| {
+        Button::builder(&panel)
+            .with_label(&ui.rai_save_content)
+            .build()
+    });
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
     buttons.add_spacer(1);
     buttons.add(&play_button, 0, SizerFlag::All, 10);
-    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    if let Some(save_button) = save_button.as_ref() {
+        buttons.add(save_button, 0, SizerFlag::All, 10);
+    }
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -9596,29 +9611,31 @@ fn open_rai_audio_items_dialog(parent: &Dialog, group: &rai_audiodescrizioni::Ca
             );
         }
     });
-    let choice_save = choice;
-    let parent_save = dialog;
-    let items_save = Rc::clone(&items);
-    save_button.on_click(move |_| {
-        if let Some(sel) = choice_save.get_selection()
-            && let Some(item) = items_save.get(sel as usize)
-        {
-            match rai_audiodescrizioni::resolve_audio_url_for_clipboard(&item.audio_url)
-                .and_then(|url| save_rai_direct_media(&parent_save, &url, &item.title, "mp3"))
+    if let Some(save_button) = save_button {
+        let choice_save = choice;
+        let parent_save = dialog;
+        let items_save = Rc::clone(&items);
+        save_button.on_click(move |_| {
+            if let Some(sel) = choice_save.get_selection()
+                && let Some(item) = items_save.get(sel as usize)
             {
-                Ok(()) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().rai_audio_descriptions_label,
-                    &current_ui_strings().rai_save_completed,
-                ),
-                Err(err) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().rai_audio_descriptions_label,
-                    &err,
-                ),
+                match rai_audiodescrizioni::resolve_audio_url_for_clipboard(&item.audio_url)
+                    .and_then(|url| save_rai_direct_media(&parent_save, &url, &item.title, "mp3"))
+                {
+                    Ok(()) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().rai_audio_descriptions_label,
+                        &current_ui_strings().rai_save_completed,
+                    ),
+                    Err(err) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().rai_audio_descriptions_label,
+                        &err,
+                    ),
+                }
             }
-        }
-    });
+        });
+    }
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
@@ -9733,6 +9750,7 @@ fn open_raiplay_page_subdialog_inner(
 
 fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
     let ui = current_ui_strings();
+    let has_savable_items = items.iter().any(|item| item.media_url.is_some());
     let panel = Panel::builder(dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let choice = Choice::builder(&panel).build();
@@ -9748,16 +9766,20 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(&ui.open).build();
-    let save_button = Button::builder(&panel)
-        .with_label(&ui.rai_save_content)
-        .build();
+    let save_button = has_savable_items.then(|| {
+        Button::builder(&panel)
+            .with_label(&ui.rai_save_content)
+            .build()
+    });
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
-    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    if let Some(save_button) = save_button.as_ref() {
+        buttons.add(save_button, 0, SizerFlag::All, 10);
+    }
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -9798,28 +9820,32 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
             }
         }
     });
-    let choice_save = choice;
-    let items_save = Rc::clone(&items_rc);
-    let parent_save = *dialog;
-    save_button.on_click(move |_| {
-        if let Some(sel) = choice_save.get_selection()
-            && let Some(item) = items_save.get(sel as usize)
-            && let Some(url) = &item.media_url
-        {
-            match raiplay::resolve_playback_target(url)
-                .and_then(|target| save_raiplay_target_dialog(&parent_save, &target, &item.title))
+    if let Some(save_button) = save_button {
+        let choice_save = choice;
+        let items_save = Rc::clone(&items_rc);
+        let parent_save = *dialog;
+        save_button.on_click(move |_| {
+            if let Some(sel) = choice_save.get_selection()
+                && let Some(item) = items_save.get(sel as usize)
+                && let Some(url) = &item.media_url
             {
-                Ok(()) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().raiplay_label,
-                    &current_ui_strings().rai_save_completed,
-                ),
-                Err(err) => {
-                    show_message_subdialog(&parent_save, &current_ui_strings().raiplay_label, &err)
+                match raiplay::resolve_playback_target(url).and_then(|target| {
+                    save_raiplay_target_dialog(&parent_save, &target, &item.title)
+                }) {
+                    Ok(()) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().raiplay_label,
+                        &current_ui_strings().rai_save_completed,
+                    ),
+                    Err(err) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().raiplay_label,
+                        &err,
+                    ),
                 }
             }
-        }
-    });
+        });
+    }
     let dialog_close = *dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
@@ -9885,6 +9911,7 @@ fn open_raiplaysound_page_subdialog_inner(
 
 fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::BrowseItem>) {
     let ui = current_ui_strings();
+    let has_savable_items = items.iter().any(|item| item.audio_url.is_some());
     let panel = Panel::builder(dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let choice = Choice::builder(&panel).build();
@@ -9896,9 +9923,11 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(&ui.open).build();
-    let save_button = Button::builder(&panel)
-        .with_label(&ui.rai_save_content)
-        .build();
+    let save_button = has_savable_items.then(|| {
+        Button::builder(&panel)
+            .with_label(&ui.rai_save_content)
+            .build()
+    });
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
@@ -9906,7 +9935,9 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
         .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
-    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    if let Some(save_button) = save_button.as_ref() {
+        buttons.add(save_button, 0, SizerFlag::All, 10);
+    }
     buttons.add(&search_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
@@ -9949,28 +9980,30 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
         }
     });
 
-    let choice_save = choice;
-    let items_save = Rc::clone(&items_rc);
-    let parent_save = *dialog;
-    save_button.on_click(move |_| {
-        if let Some(sel) = choice_save.get_selection()
-            && let Some(item) = items_save.get(sel as usize)
-            && let Some(url) = &item.audio_url
-        {
-            match save_rai_direct_media(&parent_save, url, &item.title, "mp3") {
-                Ok(()) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().raiplaysound_label,
-                    &current_ui_strings().rai_save_completed,
-                ),
-                Err(err) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().raiplaysound_label,
-                    &err,
-                ),
+    if let Some(save_button) = save_button {
+        let choice_save = choice;
+        let items_save = Rc::clone(&items_rc);
+        let parent_save = *dialog;
+        save_button.on_click(move |_| {
+            if let Some(sel) = choice_save.get_selection()
+                && let Some(item) = items_save.get(sel as usize)
+                && let Some(url) = &item.audio_url
+            {
+                match save_rai_direct_media(&parent_save, url, &item.title, "mp3") {
+                    Ok(()) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().raiplaysound_label,
+                        &current_ui_strings().rai_save_completed,
+                    ),
+                    Err(err) => show_message_subdialog(
+                        &parent_save,
+                        &current_ui_strings().raiplaysound_label,
+                        &err,
+                    ),
+                }
             }
-        }
-    });
+        });
+    }
 
     let parent_search = *dialog;
     search_button.on_click(move |_| {
@@ -10249,15 +10282,42 @@ fn run_ffmpeg_save(args: &[&str], output_path: &Path) -> Result<(), String> {
     {
         command.current_dir(parent_dir);
     }
-    let status = command
-        .status()
+    append_podcast_log(&format!(
+        "rai.ffmpeg.begin ffmpeg={} output={} args={:?}",
+        ffmpeg.display(),
+        output_path.display(),
+        args
+    ));
+    let output = command
+        .output()
         .map_err(|err| format!("avvio FFmpeg fallito: {err}"))?;
-    if status.success() {
+    if output.status.success() {
+        append_podcast_log(&format!(
+            "rai.ffmpeg.success code={:?} output={}",
+            output.status.code(),
+            output_path.display()
+        ));
         Ok(())
     } else {
+        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+        let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        append_podcast_log(&format!(
+            "rai.ffmpeg.failed code={:?} stdout={} stderr={}",
+            output.status.code(),
+            stdout,
+            stderr
+        ));
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "nessun dettaglio disponibile".to_string()
+        };
         Err(format!(
-            "FFmpeg non è riuscito a salvare il contenuto, codice {:?}.",
-            status.code()
+            "FFmpeg non è riuscito a salvare il contenuto, codice {:?}. {}",
+            output.status.code(),
+            detail
         ))
     }
 }

@@ -31,6 +31,7 @@ mod imp {
 
             let mpv_executable =
                 bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
+            let mpv_input_conf = bundled_mpv_input_conf_path();
             let ipc_path = podcast_ipc_socket_path();
             remove_stale_socket(&ipc_path, "podcast.mpv.socket_prep_failed")?;
 
@@ -43,6 +44,7 @@ mod imp {
             command
                 .arg(stream_url)
                 .arg("--no-config")
+                .arg(format!("--input-conf={}", mpv_input_conf.display()))
                 .arg("--pause=yes")
                 .arg("--no-video")
                 .arg("--force-window=yes")
@@ -57,6 +59,7 @@ mod imp {
             let mut child = command
                 .spawn()
                 .map_err(|err| format!("avvio mpv podcast fallito: {err}"))?;
+            activate_mpv_application();
 
             for attempt in 0..MPV_CONNECT_ATTEMPTS {
                 if let Ok(mut ipc) = open_mpv_ipc(&ipc_path) {
@@ -240,6 +243,15 @@ mod imp {
         candidate.exists().then_some(candidate)
     }
 
+    fn bundled_mpv_input_conf_path() -> PathBuf {
+        std::env::current_exe()
+            .ok()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .and_then(|macos_dir| macos_dir.parent().map(Path::to_path_buf))
+            .map(|contents_dir| contents_dir.join("Resources").join("mpv-input.conf"))
+            .unwrap_or_else(|| PathBuf::from("mpv-input.conf"))
+    }
+
     fn podcast_ipc_socket_path() -> PathBuf {
         Path::new("/tmp").join(format!("spd-podcast-{}.sock", Uuid::new_v4().simple()))
     }
@@ -346,6 +358,30 @@ mod imp {
                 "podcast.mpv.launch_cleanup_socket_failed path={} err={err}",
                 ipc_path.display()
             ));
+        }
+    }
+
+    fn activate_mpv_application() {
+        let result = Command::new("osascript")
+            .args(["-e", "tell application \"mpv\" to activate"])
+            .output();
+        match result {
+            Ok(output) if output.status.success() => {
+                crate::append_podcast_log("podcast.mpv.activate.ok");
+            }
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                crate::append_podcast_log(&format!(
+                    "podcast.mpv.activate.failed code={:?} stdout={} stderr={}",
+                    output.status.code(),
+                    stdout,
+                    stderr
+                ));
+            }
+            Err(err) => {
+                crate::append_podcast_log(&format!("podcast.mpv.activate.error err={err}"));
+            }
         }
     }
 }
