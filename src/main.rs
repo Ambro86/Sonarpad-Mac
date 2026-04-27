@@ -9781,24 +9781,14 @@ fn open_stream_with_mpv(
     let mut command = Command::new(&mpv_executable);
     let mpv_input_conf = bundled_mpv_input_conf_path();
     let allow_bookmarks = enable_bookmarks && media_bookmarks_enabled();
-    prepare_mpv_runtime_dirs(allow_bookmarks)?;
-    let mut logged_args = vec![
-        "--no-config".to_string(),
-        format!("--input-conf={}", mpv_input_conf.display()),
-        "--force-window=yes".to_string(),
-        "--idle=no".to_string(),
-        "--no-terminal".to_string(),
-        "--osc=yes".to_string(),
-        "--input-default-bindings=yes".to_string(),
-        "--volume-max=300".to_string(),
-    ];
+    let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
     if let Some(parent_dir) = mpv_executable.parent()
         && !parent_dir.as_os_str().is_empty()
     {
         command.current_dir(parent_dir);
     }
     command
-        .arg("--no-config")
+        .arg(format!("--config-dir={}", mpv_config_dir.display()))
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
         .arg("--force-window=yes")
         .arg("--idle=no")
@@ -9815,48 +9805,23 @@ fn open_stream_with_mpv(
             .arg("--save-position-on-quit")
             .arg("--resume-playback=yes")
             .arg("--watch-later-options=start");
-        logged_args.extend_from_slice(&[
-            format!("--watch-later-dir={}", mpv_watch_later_dir().display()),
-            "--save-position-on-quit".to_string(),
-            "--resume-playback=yes".to_string(),
-            "--watch-later-options=start".to_string(),
-        ]);
     } else {
         command.arg("--resume-playback=no");
-        logged_args.push("--resume-playback=no".to_string());
     }
     if let Some(audio_track) = preferred_audio_track {
         command.arg(format!("--aid={audio_track}"));
-        logged_args.push(format!("--aid={audio_track}"));
     }
-    let window_title = format!("Sonarpad - {title}");
-    command.arg(format!("--title={window_title}")).arg(url);
-    logged_args.push(format!("--title={window_title}"));
-    logged_args.push(url.to_string());
-    let child = command
+    command.arg(format!("--title=Sonarpad - {title}")).arg(url);
+    let _child = command
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
-    #[cfg(target_os = "macos")]
-    log_mpv_launch_diagnostics("rai.mpv", child.id(), url, &window_title, &logged_args);
     #[cfg(target_os = "macos")]
     {
         let result = Command::new("osascript")
             .args(["-e", "tell application \"mpv\" to activate"])
             .output();
-        match result {
-            Ok(output) => {
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                append_podcast_log(&format!(
-                    "rai.mpv.activate code={:?} stdout={} stderr={}",
-                    output.status.code(),
-                    stdout,
-                    stderr
-                ));
-            }
-            Err(err) => {
-                append_podcast_log(&format!("rai.mpv.activate.error err={err}"));
-            }
+        if let Err(err) = result {
+            append_podcast_log(&format!("rai.mpv.activate.error err={err}"));
         }
     }
     Ok(())
@@ -9869,86 +9834,6 @@ fn bundled_mpv_input_conf_path() -> PathBuf {
         .and_then(|macos_dir| macos_dir.parent().map(Path::to_path_buf))
         .map(|contents_dir| contents_dir.join("Resources").join("mpv-input.conf"))
         .unwrap_or_else(|| PathBuf::from("mpv-input.conf"))
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn log_mpv_launch_diagnostics(
-    context: &str,
-    process_id: u32,
-    target: &str,
-    title: &str,
-    args: &[String],
-) {
-    append_podcast_log(&format!(
-        "{context}.launch pid={process_id} title={} target={} args={args:?}",
-        title, target
-    ));
-
-    for delay_ms in [300_u64, 1500, 3000] {
-        let context = context.to_string();
-        let title = title.to_string();
-        std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_millis(delay_ms));
-            let ps_state = Command::new("ps")
-                .args(["-p", &process_id.to_string(), "-o", "state="])
-                .output();
-            match ps_state {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    append_podcast_log(&format!(
-                        "{context}.probe delay_ms={delay_ms} pid={process_id} ps_code={:?} ps_state={} ps_stderr={}",
-                        output.status.code(),
-                        stdout,
-                        stderr
-                    ));
-                }
-                Err(err) => append_podcast_log(&format!(
-                    "{context}.probe_ps_error delay_ms={delay_ms} pid={process_id} err={err}"
-                )),
-            }
-
-            let script = format!(
-                "tell application \"System Events\"\n\
-                    if exists process \"mpv\" then\n\
-                        tell process \"mpv\"\n\
-                            set front_state to frontmost\n\
-                            set window_names to name of every window\n\
-                            return \"frontmost=\" & (front_state as string) & \" windows=\" & (window_names as string)\n\
-                        end tell\n\
-                    else\n\
-                        return \"process_missing\"\n\
-                    end if\n\
-                end tell"
-            );
-            match Command::new("osascript").args(["-e", &script]).output() {
-                Ok(output) => {
-                    let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                    let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                    append_podcast_log(&format!(
-                        "{context}.probe_window delay_ms={delay_ms} pid={process_id} expected_title={} code={:?} stdout={} stderr={}",
-                        title,
-                        output.status.code(),
-                        stdout,
-                        stderr
-                    ));
-                }
-                Err(err) => append_podcast_log(&format!(
-                    "{context}.probe_window_error delay_ms={delay_ms} pid={process_id} err={err}"
-                )),
-            }
-        });
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-pub(crate) fn log_mpv_launch_diagnostics(
-    _context: &str,
-    _process_id: u32,
-    _target: &str,
-    _title: &str,
-    _args: &[String],
-) {
 }
 
 fn open_raiplay_target_with_mpv(

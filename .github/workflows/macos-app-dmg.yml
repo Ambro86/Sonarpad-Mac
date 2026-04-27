@@ -89,7 +89,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v5
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v6
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -181,9 +181,18 @@ jobs:
             --enable-muxer=mp4 \
             --enable-gpl \
             --enable-libmp3lame \
+            --enable-encoder=libmp3lame \
             --enable-parser=aac \
+            --enable-parser=h264 \
+            --enable-parser=hevc \
+            --enable-parser=mpeg4video \
+            --enable-parser=mpegvideo \
             --enable-parser=mpegaudio \
             --enable-decoder=aac \
+            --enable-decoder=h264 \
+            --enable-decoder=hevc \
+            --enable-decoder=mpeg2video \
+            --enable-decoder=mpeg4 \
             --enable-decoder=mp3 \
             --enable-encoder=aac \
             --enable-filter=atrim \
