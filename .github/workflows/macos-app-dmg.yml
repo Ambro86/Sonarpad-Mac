@@ -89,7 +89,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v3
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v4
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -173,6 +173,7 @@ jobs:
             --enable-demuxer=mov \
             --enable-demuxer=mp3 \
             --enable-muxer=ipod \
+            --enable-muxer=mp3 \
             --enable-muxer=mp4 \
             --enable-parser=aac \
             --enable-parser=mpegaudio \

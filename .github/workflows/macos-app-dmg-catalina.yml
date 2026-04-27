@@ -75,7 +75,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v5
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v6
 
       - name: Build release binary
         shell: bash
@@ -216,6 +216,7 @@ jobs:
             --enable-demuxer=mov \
             --enable-demuxer=mp3 \
             --enable-muxer=ipod \
+            --enable-muxer=mp3 \
             --enable-muxer=mp4 \
             --enable-parser=aac \
             --enable-parser=mpegaudio \

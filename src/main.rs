@@ -9541,7 +9541,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     open_button.on_click(move |_| {
         if let Some(sel) = choice_open.get_selection()
             && let Some(channel) = channels_open.get(sel as usize)
-            && let Err(err) = open_rai_stream_with_mpv(&channel.url, &channel.name)
+            && let Err(err) = open_tv_stream_with_mpv(channel)
         {
             show_message_subdialog(&parent_open, &current_ui_strings().tv_label, &err);
         }
@@ -10283,6 +10283,28 @@ fn open_raiplaysound_search_dialog(parent: &Dialog) -> Option<String> {
 }
 
 fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
+    open_stream_with_mpv(url, title, None)
+}
+
+fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
+    let preferred_audio_track = if is_tv_rai_audio_description_channel(channel) {
+        Some("2")
+    } else {
+        None
+    };
+    open_stream_with_mpv(&channel.url, &channel.name, preferred_audio_track)
+}
+
+fn is_tv_rai_audio_description_channel(channel: &tv::TvChannel) -> bool {
+    matches!(channel.name.as_str(), "Rai 1" | "Rai 2" | "Rai 3")
+        && channel.url.contains("mediapolis.rai.it/relinker/")
+}
+
+fn open_stream_with_mpv(
+    url: &str,
+    title: &str,
+    preferred_audio_track: Option<&str>,
+) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let mut command = Command::new(&mpv_executable);
@@ -10293,16 +10315,30 @@ fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
         command.current_dir(parent_dir);
     }
     command
-        .arg(url)
         .arg("--no-config")
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
         .arg("--force-window=yes")
+        .arg("--idle=no")
+        .arg("--no-terminal")
         .arg("--osc=yes")
         .arg("--input-default-bindings=yes")
-        .arg(format!("--title=Sonarpad - {title}"));
-    command
+        .arg("--volume-max=300");
+    if let Some(audio_track) = preferred_audio_track {
+        command.arg(format!("--aid={audio_track}"));
+    }
+    command.arg(format!("--title=Sonarpad - {title}")).arg(url);
+    let _child = command
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
+    #[cfg(target_os = "macos")]
+    {
+        let result = Command::new("osascript")
+            .args(["-e", "tell application \"mpv\" to activate"])
+            .output();
+        if let Err(err) = result {
+            append_podcast_log(&format!("rai.mpv.activate.error err={err}"));
+        }
+    }
     Ok(())
 }
 
