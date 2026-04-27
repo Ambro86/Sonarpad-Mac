@@ -75,7 +75,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v10
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v11
 
       - name: Build release binary
         shell: bash
@@ -172,8 +172,26 @@ jobs:
               exit 0
             fi
           fi
-          rm -rf dist/ffmpeg-install dist/ffmpeg-build
-          mkdir -p dist/ffmpeg-build dist/ffmpeg-install
+          rm -rf dist/ffmpeg-install dist/ffmpeg-build dist/lame-build dist/lame-install
+          mkdir -p dist/ffmpeg-build dist/ffmpeg-install dist/lame-src dist/lame-build dist/lame-install
+          if [ ! -f "dist/lame-src/lame-3.100.tar.gz" ]; then
+            curl -L --fail \
+              "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz" \
+              -o "dist/lame-src/lame-3.100.tar.gz"
+          fi
+          tar -xzf "dist/lame-src/lame-3.100.tar.gz" -C dist/lame-build
+          pushd dist/lame-build/lame-3.100
+          CFLAGS="-mmacosx-version-min=10.15" \
+          CXXFLAGS="-mmacosx-version-min=10.15" \
+          LDFLAGS="-mmacosx-version-min=10.15" \
+            ./configure \
+              --prefix="$(pwd)/../../lame-install" \
+              --disable-shared \
+              --enable-static \
+              --disable-frontend
+          make -j"$(sysctl -n hw.ncpu)"
+          make install
+          popd
           if [ ! -f "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then
             curl -L --fail \
               "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
@@ -181,8 +199,8 @@ jobs:
           fi
           tar -xf "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" -C dist/ffmpeg-build
           cd "dist/ffmpeg-build/ffmpeg-${FFMPEG_VERSION}"
-          brew install lame pkg-config
-          LAME_PREFIX="$(brew --prefix lame)"
+          brew install pkg-config
+          LAME_PREFIX="$(pwd)/../../lame-install"
           export PKG_CONFIG_PATH="${LAME_PREFIX}/lib/pkgconfig"
           export PKG_CONFIG_ALL_STATIC=1
           ./configure \
@@ -245,21 +263,6 @@ jobs:
             --enable-filter=anull
           make -j"$(sysctl -n hw.ncpu)"
           make install
-          LAME_DYLIB="$(
-            otool -L "../../ffmpeg-install/bin/ffmpeg" \
-              | awk '{print $1}' \
-              | grep 'libmp3lame.*\.dylib' \
-              | head -n 1 || true
-          )"
-          if [ -n "${LAME_DYLIB}" ]; then
-            mkdir -p "../../ffmpeg-install/lib"
-            LAME_DYLIB_NAME="$(basename "${LAME_DYLIB}")"
-            cp "${LAME_DYLIB}" "../../ffmpeg-install/lib/${LAME_DYLIB_NAME}"
-            chmod +x "../../ffmpeg-install/lib/${LAME_DYLIB_NAME}"
-            install_name_tool \
-              -change "${LAME_DYLIB}" "@executable_path/../lib/${LAME_DYLIB_NAME}" \
-              "../../ffmpeg-install/bin/ffmpeg"
-          fi
           "../../ffmpeg-install/bin/ffmpeg" -version
           otool -L "../../ffmpeg-install/bin/ffmpeg"
 
@@ -368,10 +371,6 @@ jobs:
           done
           cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
-          if [ -d "dist/ffmpeg-install/lib" ]; then
-            cp -R dist/ffmpeg-install/lib/. "${FFMPEG_LIB_DIR}/"
-            find "${FFMPEG_LIB_DIR}" -type f -name '*.dylib' -exec chmod +x {} \;
-          fi
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
