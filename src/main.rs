@@ -10,6 +10,7 @@ mod rai_audiodescrizioni;
 mod raiplay;
 mod raiplaysound;
 mod reader;
+mod tv;
 
 use docx_rs::{Docx, Paragraph, Run};
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
@@ -94,6 +95,7 @@ const ID_RAI_AUDIO_DESCRIPTIONS: i32 = 2360;
 const ID_RAIPLAY_BROWSE: i32 = 2361;
 const ID_RAIPLAY_SEARCH: i32 = 2362;
 const ID_RAIPLAY_SOUND: i32 = 2363;
+const ID_TV: i32 = 2364;
 const ID_RADIO_FAVORITE_BASE: i32 = 6000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
@@ -710,6 +712,7 @@ struct UiStrings {
     raiplay_label: String,
     raiplay_search_label: String,
     raiplaysound_label: String,
+    tv_label: String,
     rai_luce_code_label: String,
     rai_missing_code_title: String,
     rai_missing_code_message: String,
@@ -3319,6 +3322,7 @@ fn stop_mac_radio_session(state: &Rc<RefCell<MacRadioWindowState>>) -> Result<()
             1,
             r#"{"command":["quit"]}"#,
         )
+        .map(|_| ())
     } else {
         mac_radio_send_mpv_command_transient(&session.ipc_path, r#"{"command":["quit"]}"#)
     };
@@ -9485,6 +9489,69 @@ fn open_rai_audio_descriptions_dialog(parent: &Frame) {
     }
 }
 
+fn open_tv_dialog(parent: &Frame) {
+    match tv::load_channels() {
+        Ok(channels) => open_tv_channels_dialog(parent, channels),
+        Err(err) => {
+            if !handle_rai_missing_code(parent, &err) {
+                show_message_dialog(
+                    parent,
+                    &current_ui_strings().tv_label,
+                    &current_ui_strings().rai_open_failed.replace("{err}", &err),
+                );
+            }
+        }
+    }
+}
+
+fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
+    let ui = current_ui_strings();
+    if channels.is_empty() {
+        show_message_dialog(parent, &ui.tv_label, &ui.rai_no_items);
+        return;
+    }
+    let dialog = Dialog::builder(parent, &ui.tv_label)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(720, 220)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let choice = Choice::builder(&panel).build();
+    for channel in &channels {
+        choice.append(&channel.name);
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel).with_label(&ui.open).build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+    let channels = Rc::new(channels);
+    let choice_open = choice;
+    let channels_open = Rc::clone(&channels);
+    let parent_open = dialog;
+    open_button.on_click(move |_| {
+        if let Some(sel) = choice_open.get_selection()
+            && let Some(channel) = channels_open.get(sel as usize)
+            && let Err(err) = open_rai_stream_with_mpv(&channel.url, &channel.name)
+        {
+            show_message_subdialog(&parent_open, &current_ui_strings().tv_label, &err);
+        }
+    });
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
 fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::CatalogItem]) {
     let ui = current_ui_strings();
     if items.is_empty() {
@@ -10722,6 +10789,7 @@ fn main() {
             &ui.raiplaysound_label,
             ItemKind::Normal,
         );
+        additional_features_menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
 
         let menubar_builder = MenuBar::builder()
             .append(file_menu, &ui.menu_file)
@@ -11164,6 +11232,8 @@ fn main() {
                 }
             } else if event.get_id() == ID_RAIPLAY_SOUND {
                 open_raiplaysound_browser_dialog(&f_menu);
+            } else if event.get_id() == ID_TV {
+                open_tv_dialog(&f_menu);
             } else if event.get_id() == ID_ARTICLES_ADD_SOURCE {
                 if let Some((title, url)) = open_add_article_source_dialog(&f_menu) {
                     add_article_source(
