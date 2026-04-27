@@ -42,10 +42,7 @@ pub(crate) fn load_channels() -> Result<Vec<TvChannel>, String> {
             if name.is_empty() || url.is_empty() {
                 None
             } else {
-                Some(TvChannel {
-                    name,
-                    url,
-                })
+                Some(TvChannel { name, url })
             }
         })
         .collect())

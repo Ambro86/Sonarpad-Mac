@@ -184,10 +184,7 @@ fn load_page_from_url(url: &str) -> Result<BrowsePage, String> {
         }
     }
 
-    Ok(BrowsePage {
-        title,
-        items,
-    })
+    Ok(BrowsePage { title, items })
 }
 
 fn collect_cards(

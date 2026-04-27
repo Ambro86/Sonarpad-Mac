@@ -142,6 +142,22 @@ pub fn load_grouped_catalog() -> Result<Vec<CatalogGroup>, String> {
     Ok(normalize_grouped_catalog(parsed_groups))
 }
 
+pub fn search_catalog(query: &str) -> Result<Vec<CatalogItem>, String> {
+    let normalized_query = normalize_search_query(query)?;
+    let groups = load_grouped_catalog()?;
+    let mut matches = Vec::new();
+
+    for group in groups {
+        for item in group.items {
+            if normalize_search_key(&item.title).contains(&normalized_query) {
+                matches.push(item);
+            }
+        }
+    }
+
+    Ok(matches)
+}
+
 pub fn resolve_audio_url(audio_url: &str) -> Result<String, String> {
     let audio_url = audio_url.trim();
     if audio_url.is_empty() {
@@ -315,6 +331,19 @@ fn normalize_item_title(input: &str) -> String {
 
 fn dedupe_key(input: &str) -> String {
     sortable_label(&normalize_sort_key(&normalize_item_title(input)))
+}
+
+fn normalize_search_query(query: &str) -> Result<String, String> {
+    let normalized = normalize_search_key(query);
+    if normalized.is_empty() {
+        Err("Inserisci un testo da cercare nelle audiodescrizioni Rai.".to_string())
+    } else {
+        Ok(normalized)
+    }
+}
+
+fn normalize_search_key(input: &str) -> String {
+    normalize_sort_key(&normalize_item_title(input)).to_lowercase()
 }
 
 fn compare_natural_labels(left: &str, right: &str) -> Ordering {

@@ -72,7 +72,12 @@ fn decode_utf16_without_bom(bytes: &[u8]) -> Option<String> {
         return None;
     }
     let even_nuls = bytes.iter().step_by(2).filter(|&&byte| byte == 0).count();
-    let odd_nuls = bytes.iter().skip(1).step_by(2).filter(|&&byte| byte == 0).count();
+    let odd_nuls = bytes
+        .iter()
+        .skip(1)
+        .step_by(2)
+        .filter(|&&byte| byte == 0)
+        .count();
     let pair_count = bytes.len() / 2;
     if odd_nuls >= pair_count / 4 && even_nuls <= pair_count / 16 {
         return Some(decode_utf16_units(bytes, true));

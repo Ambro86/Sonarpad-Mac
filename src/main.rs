@@ -25,13 +25,9 @@ use std::collections::HashSet;
 use std::io::{BufReader, Cursor};
 #[cfg(any(target_os = "macos", windows))]
 use std::io::{Read, Write};
-#[cfg(target_os = "macos")]
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::rc::Rc;
-#[cfg(target_os = "macos")]
-use std::rc::Weak;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -187,28 +183,6 @@ struct RadioFavorite {
     stream_url: String,
 }
 
-#[cfg(target_os = "macos")]
-#[derive(Clone)]
-struct MacRadioMpvSession {
-    ipc_path: PathBuf,
-    process_id: u32,
-    stream_url: String,
-}
-
-#[cfg(target_os = "macos")]
-struct MacRadioWindowState {
-    session: Option<MacRadioMpvSession>,
-    ipc: Option<UnixStream>,
-    child: Option<std::process::Child>,
-    next_request_id: u64,
-    status: PlaybackStatus,
-}
-
-#[cfg(target_os = "macos")]
-thread_local! {
-    static ACTIVE_MAC_RADIO_STATES: RefCell<Vec<Weak<RefCell<MacRadioWindowState>>>> = const { RefCell::new(Vec::new()) };
-}
-
 struct RadioMenuState {
     dirty: bool,
     loading_languages: HashSet<String>,
@@ -298,6 +272,8 @@ struct Settings {
     radio_favorites: Vec<RadioFavorite>,
     #[serde(default)]
     rai_luce_code: String,
+    #[serde(default)]
+    auto_media_bookmark: bool,
     #[serde(default = "default_audiobook_format")]
     last_audiobook_format: String,
     #[serde(default)]
@@ -329,6 +305,7 @@ impl Settings {
             podcast_sources: Vec::new(),
             radio_favorites: Vec::new(),
             rai_luce_code: String::new(),
+            auto_media_bookmark: false,
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
@@ -714,6 +691,7 @@ struct UiStrings {
     raiplaysound_label: String,
     tv_label: String,
     rai_luce_code_label: String,
+    auto_media_bookmark_label: String,
     rai_missing_code_title: String,
     rai_missing_code_message: String,
     rai_request_code_button: String,
@@ -1847,32 +1825,28 @@ import Foundation
 import UniformTypeIdentifiers
 
 guard CommandLine.arguments.count >= 2 else {
-    fputs("missing app bundle path
-", stderr)
+    fputs("missing app bundle path\n", stderr)
     exit(2)
 }
 
 let bundlePath = CommandLine.arguments[1]
 let bundleUrl = URL(fileURLWithPath: bundlePath)
 guard let bundle = Bundle(url: bundleUrl) else {
-    fputs("unable to load app bundle
-", stderr)
+    fputs("unable to load app bundle\n", stderr)
     exit(3)
 }
 guard let bundleIdentifier = bundle.bundleIdentifier, !bundleIdentifier.isEmpty else {
-    fputs("missing bundle identifier
-", stderr)
+    fputs("missing bundle identifier\n", stderr)
     exit(4)
 }
 
 let registerStatus = LSRegisterURL(bundleUrl as CFURL, true)
 if registerStatus != noErr {
-    fputs("bundle registration failed: \(registerStatus)
-", stderr)
+    fputs("bundle registration failed: \(registerStatus)\n", stderr)
     exit(5)
 }
 
-let extensions = ["txt", "doc", "docx", "pdf", "epub", "rtf", "html", "htm", "xls", "xlsx", "ods", "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp", "heic"]
+let extensions = ["txt", "doc", "docx", "pdf", "epub", "rtf", "html", "htm", "xls", "xlsx", "ods", "png", "jpg", "jpeg", "gif", "bmp", "tif", "tiff", "webp", "heic", "mp3", "m4a", "m4b", "aac", "ogg", "opus", "flac", "wav", "mp4", "m4v", "mov", "mkv", "avi", "webm", "mpeg", "mpg"]
 var failures: [String] = []
 let nonFatalPermissionExtensions: Set<String> = ["html", "htm"]
 
@@ -1914,9 +1888,7 @@ if failures.isEmpty {
     exit(0)
 }
 
-fputs(failures.joined(separator: "
-") + "
-", stderr)
+fputs(failures.joined(separator: "\n") + "\n", stderr)
 exit(1)
 "#;
 
@@ -2819,6 +2791,42 @@ fn save_downloaded_podcast_file(
     Ok(())
 }
 
+fn is_media_path(path: &Path) -> bool {
+    path.extension()
+        .and_then(|ext| ext.to_str())
+        .map(|ext| ext.trim().to_ascii_lowercase())
+        .is_some_and(|ext| {
+            matches!(
+                ext.as_str(),
+                "mp3"
+                    | "m4a"
+                    | "m4b"
+                    | "aac"
+                    | "ogg"
+                    | "opus"
+                    | "flac"
+                    | "wav"
+                    | "mp4"
+                    | "m4v"
+                    | "mov"
+                    | "mkv"
+                    | "avi"
+                    | "webm"
+                    | "mpeg"
+                    | "mpg"
+            )
+        })
+}
+
+fn open_local_media_with_mpv(path: &Path) -> Result<(), String> {
+    let title = path
+        .file_stem()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or("Media");
+    open_stream_with_mpv(&path.to_string_lossy(), title, None, true)
+}
+
 fn confirm_delete_dialog(parent: &Frame, title: &str, message: &str) -> bool {
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, title)
@@ -3032,596 +3040,14 @@ fn bundled_mpv_executable_path() -> Option<PathBuf> {
 }
 
 #[cfg(target_os = "macos")]
-fn mac_radio_open_mpv_ipc(ipc_path: &Path) -> Result<UnixStream, String> {
-    UnixStream::connect(ipc_path).map_err(|err| format!("apertura canale mpv fallita: {}", err))
-}
+fn stop_all_active_mac_radio_sessions() {}
 
-#[cfg(target_os = "macos")]
-fn mac_radio_build_mpv_ipc_message(command_json: &str, request_id: u64) -> Result<String, String> {
-    let mut value: serde_json::Value = serde_json::from_str(command_json)
-        .map_err(|err| format!("comando mpv non valido: {err}"))?;
-    let Some(object) = value.as_object_mut() else {
-        return Err("comando mpv non valido".to_string());
-    };
-    object.insert(
-        "request_id".to_string(),
-        serde_json::Value::Number(serde_json::Number::from(request_id)),
-    );
-    serde_json::to_string(&value).map_err(|err| format!("comando mpv non valido: {err}"))
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_read_mpv_response(
-    ipc_path: &Path,
-    stream: &mut UnixStream,
-    request_id: u64,
-) -> Result<serde_json::Value, String> {
-    use std::io::BufRead as _;
-
-    loop {
-        let mut reader = BufReader::new(&mut *stream);
-        let mut response = String::new();
-        reader
-            .read_line(&mut response)
-            .map_err(|err| format!("lettura risposta mpv fallita: {err}"))?;
-        let trimmed = response.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-        let parsed: serde_json::Value = serde_json::from_str(trimmed)
-            .map_err(|err| format!("risposta mpv non valida: {err}"))?;
-        if parsed
-            .get("request_id")
-            .and_then(|value| value.as_u64())
-            .unwrap_or_default()
-            != request_id
-        {
-            append_podcast_log(&format!(
-                "radio.mpv.ipc.skip path={} expected_request_id={} response={trimmed}",
-                ipc_path.display(),
-                request_id
-            ));
-            continue;
-        }
-        return Ok(parsed);
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_send_mpv_command_with_stream(
-    stream: &mut UnixStream,
-    ipc_path: &Path,
-    request_id: u64,
-    command_json: &str,
-) -> Result<serde_json::Value, String> {
-    let message = mac_radio_build_mpv_ipc_message(command_json, request_id)?;
-    stream
-        .write_all(message.as_bytes())
-        .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
-    stream
-        .write_all(
-            b"
-",
-        )
-        .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
-    stream
-        .flush()
-        .map_err(|err| format!("invio comando mpv fallito: {err}"))?;
-    let response = mac_radio_read_mpv_response(ipc_path, stream, request_id)?;
-    if response
-        .get("error")
-        .and_then(|value| value.as_str())
-        .is_some_and(|value| value == "success")
-    {
-        Ok(response)
-    } else {
-        Err(format!("mpv radio error: {response}"))
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_send_mpv_command_transient(ipc_path: &Path, command_json: &str) -> Result<(), String> {
-    let mut stream = mac_radio_open_mpv_ipc(ipc_path)?;
-    mac_radio_send_mpv_command_with_stream(&mut stream, ipc_path, 1, command_json).map(|_| ())
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_ensure_ipc_connected(state: &Rc<RefCell<MacRadioWindowState>>) -> Result<(), String> {
-    let ipc_path = state
-        .borrow()
-        .session
-        .as_ref()
-        .map(|session| session.ipc_path.clone())
-        .ok_or_else(|| "nessuna sessione radio attiva".to_string())?;
-    if state.borrow().ipc.is_some() {
-        return Ok(());
-    }
-    let stream = mac_radio_open_mpv_ipc(&ipc_path)?;
-    state.borrow_mut().ipc = Some(stream);
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_send_mpv_command(
-    state: &Rc<RefCell<MacRadioWindowState>>,
-    command_json: &str,
-) -> Result<(), String> {
-    mac_radio_ensure_ipc_connected(state)?;
-    let ipc_path = state
-        .borrow()
-        .session
-        .as_ref()
-        .map(|session| session.ipc_path.clone())
-        .ok_or_else(|| "nessuna sessione radio attiva".to_string())?;
-    let request_id = {
-        let mut locked = state.borrow_mut();
-        let request_id = locked.next_request_id;
-        locked.next_request_id = locked.next_request_id.saturating_add(1);
-        request_id
-    };
-    let result = {
-        let mut locked = state.borrow_mut();
-        let stream = locked
-            .ipc
-            .as_mut()
-            .ok_or_else(|| "connessione mpv non disponibile".to_string())?;
-        mac_radio_send_mpv_command_with_stream(stream, &ipc_path, request_id, command_json)
-    };
-    if result.is_err() {
-        state.borrow_mut().ipc = None;
-    }
-    result.map(|_| ())
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_get_mpv_bool_property(
-    state: &Rc<RefCell<MacRadioWindowState>>,
-    property: &str,
-) -> Result<bool, String> {
-    mac_radio_ensure_ipc_connected(state)?;
-    let ipc_path = state
-        .borrow()
-        .session
-        .as_ref()
-        .map(|session| session.ipc_path.clone())
-        .ok_or_else(|| "nessuna sessione radio attiva".to_string())?;
-    let request_id = {
-        let mut locked = state.borrow_mut();
-        let request_id = locked.next_request_id;
-        locked.next_request_id = locked.next_request_id.saturating_add(1);
-        request_id
-    };
-    let result = {
-        let mut locked = state.borrow_mut();
-        let stream = locked
-            .ipc
-            .as_mut()
-            .ok_or_else(|| "connessione mpv non disponibile".to_string())?;
-        mac_radio_send_mpv_command_with_stream(
-            stream,
-            &ipc_path,
-            request_id,
-            &format!(r#"{{"command":["get_property","{property}"]}}"#),
-        )
-    };
-    match result {
-        Ok(response) => response
-            .get("data")
-            .and_then(|value| value.as_bool())
-            .ok_or_else(|| format!("proprietà mpv radio non booleana: {property}")),
-        Err(err) => {
-            state.borrow_mut().ipc = None;
-            Err(err)
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_set_paused(
-    state: &Rc<RefCell<MacRadioWindowState>>,
-    paused: bool,
-) -> Result<(), String> {
-    mac_radio_send_mpv_command(
-        state,
-        if paused {
-            r#"{"command":["set_property","pause",true]}"#
-        } else {
-            r#"{"command":["set_property","pause",false]}"#
-        },
-    )?;
-    if mac_radio_get_mpv_bool_property(state, "pause")? == paused {
-        return Ok(());
-    }
-    mac_radio_send_mpv_command(state, r#"{"command":["cycle","pause"]}"#)?;
-    if mac_radio_get_mpv_bool_property(state, "pause")? == paused {
-        Ok(())
-    } else {
-        Err("mpv non ha applicato la pausa radio".to_string())
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn update_mac_radio_controls(
-    state: &Rc<RefCell<MacRadioWindowState>>,
-    toggle_button: &Button,
-    stop_button: &Button,
-) {
-    let ui_language = Settings::load().ui_language;
-    let play_label = if ui_language == "it" {
-        "Riproduci"
-    } else {
-        "Play"
-    };
-    let pause_label = if ui_language == "it" {
-        "Pausa"
-    } else {
-        "Pause"
-    };
-    match state.borrow().status {
-        PlaybackStatus::Stopped => {
-            toggle_button.set_label(play_label);
-            toggle_button.enable(true);
-            stop_button.enable(false);
-        }
-        PlaybackStatus::Playing => {
-            toggle_button.set_label(pause_label);
-            toggle_button.enable(true);
-            stop_button.enable(true);
-        }
-        PlaybackStatus::Paused => {
-            toggle_button.set_label(play_label);
-            toggle_button.enable(true);
-            stop_button.enable(true);
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn register_active_mac_radio_state(state: &Rc<RefCell<MacRadioWindowState>>) {
-    ACTIVE_MAC_RADIO_STATES.with(|states| {
-        let mut states = states.borrow_mut();
-        states.retain(|entry| entry.upgrade().is_some());
-        states.push(Rc::downgrade(state));
-    });
-}
-
-#[cfg(target_os = "macos")]
-fn stop_all_active_mac_radio_sessions() {
-    ACTIVE_MAC_RADIO_STATES.with(|states| {
-        let active_states = states
-            .borrow()
-            .iter()
-            .filter_map(Weak::upgrade)
-            .collect::<Vec<_>>();
-        for state in &active_states {
-            let _ = stop_mac_radio_session(state);
-        }
-    });
-}
-
-#[cfg(target_os = "macos")]
-fn stop_mac_radio_session(state: &Rc<RefCell<MacRadioWindowState>>) -> Result<(), String> {
-    let (session, mut ipc, mut child) = {
-        let mut locked = state.borrow_mut();
-        locked.status = PlaybackStatus::Stopped;
-        locked.next_request_id = 1;
-        (
-            locked.session.take(),
-            locked.ipc.take(),
-            locked.child.take(),
-        )
-    };
-    let Some(session) = session else {
-        return Ok(());
-    };
-
-    let quit_result = if let Some(stream) = ipc.as_mut() {
-        mac_radio_send_mpv_command_with_stream(
-            stream,
-            &session.ipc_path,
-            1,
-            r#"{"command":["quit"]}"#,
-        )
-        .map(|_| ())
-    } else {
-        mac_radio_send_mpv_command_transient(&session.ipc_path, r#"{"command":["quit"]}"#)
-    };
-
-    if let Some(child) = child.as_mut() {
-        if quit_result.is_err()
-            && let Err(err) = child.kill()
-        {
-            append_podcast_log(&format!(
-                "radio.mpv.kill_failed pid={} err={err}",
-                session.process_id
-            ));
-        }
-        if let Err(err) = child.wait() {
-            append_podcast_log(&format!(
-                "radio.mpv.wait_failed pid={} err={err}",
-                session.process_id
-            ));
-        }
-    }
-
-    if let Err(err) = std::fs::remove_file(&session.ipc_path)
-        && err.kind() != std::io::ErrorKind::NotFound
-    {
-        append_podcast_log(&format!(
-            "radio.mpv.socket_cleanup_failed path={} err={err}",
-            session.ipc_path.display()
-        ));
-    }
-
-    append_podcast_log(&format!(
-        "radio.mpv.stopped pid={} url={}",
-        session.process_id, session.stream_url
-    ));
-    quit_result
-}
-
-#[cfg(target_os = "macos")]
-fn mac_radio_ipc_socket_path() -> PathBuf {
-    Path::new("/tmp").join(format!("spd-radio-{}.sock", Uuid::new_v4().simple()))
-}
-
-#[cfg(target_os = "macos")]
-fn launch_mac_radio_session(
-    state: &Rc<RefCell<MacRadioWindowState>>,
-    station_name: &str,
-    stream_url: &str,
-) -> Result<(), String> {
-    let mpv_executable = bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
-    let ipc_path = mac_radio_ipc_socket_path();
-    if let Err(err) = std::fs::remove_file(&ipc_path)
-        && err.kind() != std::io::ErrorKind::NotFound
-    {
-        append_podcast_log(&format!(
-            "radio.mpv.socket_prep_failed path={} err={err}",
-            ipc_path.display()
-        ));
-    }
-
-    let mut command = Command::new(&mpv_executable);
-    if let Some(parent_dir) = mpv_executable.parent()
-        && !parent_dir.as_os_str().is_empty()
-    {
-        command.current_dir(parent_dir);
-    }
-    command
-        .arg(stream_url)
-        .arg("--no-config")
-        .arg("--no-video")
-        .arg("--force-window=no")
-        .arg("--idle=no")
-        .arg("--no-terminal")
-        .arg("--volume-max=300")
-        .arg(format!("--input-ipc-server={}", ipc_path.display()))
-        .arg(format!("--title={station_name}"));
-
-    let mut child = command
-        .spawn()
-        .map_err(|err| format!("avvio mpv fallito: {err}"))?;
-
-    for attempt in 0..150 {
-        if let Ok(mut persistent_ipc) = mac_radio_open_mpv_ipc(&ipc_path) {
-            let handshake_result = mac_radio_send_mpv_command_with_stream(
-                &mut persistent_ipc,
-                &ipc_path,
-                1,
-                r#"{"command":["get_property","pause"]}"#,
-            );
-            if let Err(err) = &handshake_result {
-                append_podcast_log(&format!(
-                    "radio.mpv.handshake_pending attempt={} path={} err={err}",
-                    attempt + 1,
-                    ipc_path.display()
-                ));
-            }
-            let mut locked = state.borrow_mut();
-            locked.session = Some(MacRadioMpvSession {
-                ipc_path: ipc_path.clone(),
-                process_id: child.id(),
-                stream_url: stream_url.to_string(),
-            });
-            locked.ipc = Some(persistent_ipc);
-            locked.child = Some(child);
-            locked.next_request_id = 2;
-            locked.status = PlaybackStatus::Playing;
-            append_podcast_log(&format!(
-                "radio.mpv.started pid={} path={} url={} handshake_ok={}",
-                locked
-                    .session
-                    .as_ref()
-                    .map(|session| session.process_id)
-                    .unwrap_or_default(),
-                ipc_path.display(),
-                stream_url,
-                handshake_result.is_ok()
-            ));
-            return Ok(());
-        }
-        std::thread::sleep(Duration::from_millis(100));
-    }
-
-    append_podcast_log(&format!(
-        "radio.mpv.start_timeout path={} url={}",
-        ipc_path.display(),
-        stream_url
-    ));
-
-    if let Err(err) = child.kill() {
-        append_podcast_log(&format!("radio.mpv.launch_cleanup_kill_failed err={err}"));
-    }
-    if let Err(err) = child.wait() {
-        append_podcast_log(&format!("radio.mpv.launch_cleanup_wait_failed err={err}"));
-    }
-    if let Err(err) = std::fs::remove_file(&ipc_path)
-        && err.kind() != std::io::ErrorKind::NotFound
-    {
-        append_podcast_log(&format!(
-            "radio.mpv.launch_cleanup_socket_failed path={} err={err}",
-            ipc_path.display()
-        ));
-    }
-    Err("inizializzazione controllo radio fallita".to_string())
-}
-
-#[cfg(target_os = "macos")]
-fn open_radio_station(
-    parent: &impl WxWidget,
-    station_name: &str,
-    stream_url: &str,
-) -> Result<(), String> {
-    append_podcast_log(&format!(
-        "radio.macos.open.begin name={} url={}",
-        station_name, stream_url
-    ));
-    let dialog = Dialog::builder(parent, station_name)
-        .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
-        .with_size(360, 150)
-        .build();
-    let panel = Panel::builder(&dialog).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
-    let ui = current_ui_strings();
-
-    let title = StaticText::builder(&panel).with_label(station_name).build();
-    root.add(
-        &title,
-        0,
-        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
-        12,
-    );
-
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let toggle_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" {
-            "Riproduci"
-        } else {
-            "Play"
-        })
-        .build();
-    let stop_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" {
-            "Ferma"
-        } else {
-            "Stop"
-        })
-        .build();
-    let close_button = Button::builder(&panel).with_label(&ui.close).build();
-    buttons.add(&toggle_button, 0, SizerFlag::All, 8);
-    buttons.add(&stop_button, 0, SizerFlag::All, 8);
-    buttons.add(&close_button, 0, SizerFlag::All, 8);
-    root.add_sizer(
-        &buttons,
-        0,
-        SizerFlag::AlignCentre | SizerFlag::Bottom | SizerFlag::Top,
-        8,
-    );
-
-    panel.set_sizer(root, true);
-
-    let state = Rc::new(RefCell::new(MacRadioWindowState {
-        session: None,
-        ipc: None,
-        child: None,
-        next_request_id: 1,
-        status: PlaybackStatus::Stopped,
-    }));
-    register_active_mac_radio_state(&state);
-
-    launch_mac_radio_session(&state, station_name, stream_url)?;
-    update_mac_radio_controls(&state, &toggle_button, &stop_button);
-
-    let state_toggle = Rc::clone(&state);
-    let toggle_button_toggle = toggle_button;
-    let stop_button_toggle = stop_button;
-    let station_name_toggle = station_name.to_string();
-    let stream_url_toggle = stream_url.to_string();
-    let dialog_toggle = dialog;
-    toggle_button.on_click(move |_| {
-        let result = match state_toggle.borrow().status {
-            PlaybackStatus::Playing => mac_radio_set_paused(&state_toggle, true).map(|()| {
-                state_toggle.borrow_mut().status = PlaybackStatus::Paused;
-            }),
-            PlaybackStatus::Paused => mac_radio_set_paused(&state_toggle, false).map(|()| {
-                state_toggle.borrow_mut().status = PlaybackStatus::Playing;
-            }),
-            PlaybackStatus::Stopped => {
-                let _ = stop_mac_radio_session(&state_toggle);
-                launch_mac_radio_session(&state_toggle, &station_name_toggle, &stream_url_toggle)
-            }
-        };
-        if let Err(err) = result {
-            show_message_subdialog(&dialog_toggle, "Radio", &err);
-        }
-        update_mac_radio_controls(&state_toggle, &toggle_button_toggle, &stop_button_toggle);
-    });
-
-    let state_stop = Rc::clone(&state);
-    let toggle_button_stop = toggle_button;
-    let stop_button_stop = stop_button;
-    let dialog_stop = dialog;
-    stop_button.on_click(move |_| {
-        if let Err(err) = stop_mac_radio_session(&state_stop) {
-            show_message_subdialog(&dialog_stop, "Radio", &err);
-        }
-        update_mac_radio_controls(&state_stop, &toggle_button_stop, &stop_button_stop);
-    });
-
-    let dialog_close_button = dialog;
-    close_button.on_click(move |_| {
-        dialog_close_button.close(true);
-    });
-
-    let timer = Rc::new(Timer::new(&dialog));
-    let timer_tick = Rc::clone(&timer);
-    let timer_tick_stop = Rc::clone(&timer);
-    let dialog_tick = dialog;
-    let state_tick = Rc::clone(&state);
-    timer_tick.on_tick(move |_| {
-        let exited = {
-            let mut locked = state_tick.borrow_mut();
-            if let Some(child) = locked.child.as_mut() {
-                match child.try_wait() {
-                    Ok(Some(_status)) => true,
-                    Ok(None) => false,
-                    Err(err) => {
-                        append_podcast_log(&format!("radio.mpv.try_wait_failed err={err}"));
-                        true
-                    }
-                }
-            } else {
-                false
-            }
-        };
-        if exited {
-            let _ = stop_mac_radio_session(&state_tick);
-            timer_tick_stop.stop();
-            dialog_tick.destroy();
-        }
-    });
-    timer.start(500, false);
-
-    let timer_close = Rc::clone(&timer);
-    let state_close = Rc::clone(&state);
-    dialog.on_close(move |event| {
-        timer_close.stop();
-        let _ = stop_mac_radio_session(&state_close);
-        event.skip(true);
-    });
-
-    dialog.show(true);
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
 fn open_radio_station(
     _parent: &impl WxWidget,
-    _station_name: &str,
+    station_name: &str,
     stream_url: &str,
 ) -> Result<(), String> {
-    open_url_in_browser(stream_url)
+    open_stream_with_mpv(stream_url, station_name, None, false)
 }
 
 #[derive(Deserialize)]
@@ -5371,6 +4797,40 @@ fn app_storage_path(file_name: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(file_name))
 }
 
+pub(crate) fn media_bookmarks_enabled() -> bool {
+    Settings::load().auto_media_bookmark
+}
+
+pub(crate) fn mpv_runtime_config_dir() -> PathBuf {
+    app_storage_path("mpv-config")
+}
+
+pub(crate) fn mpv_watch_later_dir() -> PathBuf {
+    app_storage_path("mpv-watch-later")
+}
+
+pub(crate) fn prepare_mpv_runtime_dirs(enable_bookmarks: bool) -> Result<PathBuf, String> {
+    let config_dir = mpv_runtime_config_dir();
+    std::fs::create_dir_all(&config_dir).map_err(|err| {
+        format!(
+            "creazione cartella configurazione mpv {} fallita: {}",
+            config_dir.display(),
+            err
+        )
+    })?;
+    if enable_bookmarks {
+        let watch_later_dir = mpv_watch_later_dir();
+        std::fs::create_dir_all(&watch_later_dir).map_err(|err| {
+            format!(
+                "creazione cartella segnalibri mpv {} fallita: {}",
+                watch_later_dir.display(),
+                err
+            )
+        })?;
+    }
+    Ok(config_dir)
+}
+
 fn read_app_storage_text(file_name: &str) -> Option<String> {
     let storage_path = app_storage_path(file_name);
     if let Ok(data) = std::fs::read_to_string(&storage_path) {
@@ -5902,82 +5362,7 @@ fn download_podcast_episode_with_progress(
 
 #[cfg(any(target_os = "macos", windows))]
 fn open_downloaded_podcast_file(file_path: &Path) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    {
-        return open_podcast_file_with_mpv(file_path);
-    }
-
-    #[cfg(windows)]
-    {
-        open_podcast_file_with_default_app(file_path)
-    }
-}
-
-#[cfg(any(target_os = "macos", windows))]
-fn open_podcast_file_with_default_app(file_path: &Path) -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    let status = std::process::Command::new("/usr/bin/open")
-        .arg(file_path)
-        .status()
-        .map_err(|err| format!("avvio app predefinita fallito: {}", err))?;
-
-    #[cfg(windows)]
-    let file_path_string = file_path.display().to_string();
-
-    #[cfg(windows)]
-    let status = std::process::Command::new("cmd")
-        .args(["/C", "start", "", &file_path_string])
-        .status()
-        .map_err(|err| format!("avvio app predefinita fallito: {}", err))?;
-
-    if status.success() {
-        append_podcast_log(&format!(
-            "external_open.success path={}",
-            file_path.display()
-        ));
-        Ok(())
-    } else {
-        Err(format!(
-            "apertura file podcast fallita con codice {:?}",
-            status.code()
-        ))
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn open_podcast_file_with_mpv(file_path: &Path) -> Result<(), String> {
-    let mpv_executable =
-        podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
-    let mut command = std::process::Command::new(&mpv_executable);
-    if let Some(parent_dir) = mpv_executable.parent()
-        && !parent_dir.as_os_str().is_empty()
-    {
-        command.current_dir(parent_dir);
-    }
-
-    let status = command
-        .arg(file_path)
-        .arg("--no-config")
-        .arg("--no-video")
-        .arg("--force-window=yes")
-        .arg("--osc=yes")
-        .arg("--input-default-bindings=yes")
-        .arg("--title=Sonarpad podcast")
-        .status()
-        .map_err(|err| format!("avvio mpv podcast fallito: {}", err))?;
-
-    if status.success() {
-        append_podcast_log(&format!(
-            "external_open.success path={}",
-            file_path.display()
-        ));
-        Ok(())
-    } else {
-        Err(format!(
-            "apertura file podcast con mpv fallita con codice {:?}",
-            status.code()
-        ))
-    }
+    open_local_media_with_mpv(file_path)
 }
 
 fn load_cached_voices() -> Option<Vec<edge_tts::VoiceInfo>> {
@@ -8987,7 +8372,7 @@ fn open_settings_dialog(
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, if cfg!(target_os = "macos") { 380 } else { 320 })
+        .with_size(560, if cfg!(target_os = "macos") { 420 } else { 360 })
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -9082,6 +8467,17 @@ fn open_settings_dialog(
         .set_selection(nearest_preset_index(&VOLUME_PRESETS, settings_before.volume) as u32);
     volume_row.add(&choice_volume, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&volume_row, 0, SizerFlag::Expand, 0);
+
+    let auto_media_bookmark_checkbox = CheckBox::builder(&panel)
+        .with_label(&ui.auto_media_bookmark_label)
+        .build();
+    auto_media_bookmark_checkbox.set_value(settings_before.auto_media_bookmark);
+    root.add(
+        &auto_media_bookmark_checkbox,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        5,
+    );
 
     #[cfg(target_os = "macos")]
     {
@@ -9285,6 +8681,7 @@ fn open_settings_dialog(
         if settings_before.ui_language == "it" {
             updated.rai_luce_code = rai_code_ctrl.get_value().trim().to_string();
         }
+        updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
 
         let refresh_needed = settings_before.voice != updated.voice
             || settings_before.rate != updated.rate
@@ -9293,6 +8690,7 @@ fn open_settings_dialog(
         let changed = settings_before.ui_language != updated.ui_language
             || settings_before.language != updated.language
             || settings_before.rai_luce_code != updated.rai_luce_code
+            || settings_before.auto_media_bookmark != updated.auto_media_bookmark
             || refresh_needed;
 
         if changed {
@@ -9463,12 +8861,7 @@ fn rai_item_label(title: &str, subtitle: Option<&str>) -> String {
     }
 }
 
-fn update_choice_button_visibility(
-    dialog: &Dialog,
-    panel: &Panel,
-    button: &Button,
-    visible: bool,
-) {
+fn update_choice_button_visibility(dialog: &Dialog, panel: &Panel, button: &Button, visible: bool) {
     button.show(visible);
     panel.layout();
     dialog.layout();
@@ -9564,6 +8957,20 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
     let choice = Choice::builder(&panel).build();
     for item in items {
         choice.append(&rai_item_label(&item.title, Some(&item.date)));
@@ -9654,24 +9061,44 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
         );
     });
     let parent_all = dialog;
-    all_button.on_click(move |_| match rai_audiodescrizioni::load_grouped_catalog() {
-        Ok(groups) => open_rai_audio_group_subdialog(&parent_all, &groups),
-        Err(err) => show_message_subdialog(
-            &parent_all,
-            &current_ui_strings().rai_audio_descriptions_label,
-            &err,
-        ),
+    all_button.on_click(
+        move |_| match rai_audiodescrizioni::load_grouped_catalog() {
+            Ok(groups) => open_rai_audio_group_subdialog(&parent_all, &groups),
+            Err(err) => show_message_subdialog(
+                &parent_all,
+                &current_ui_strings().rai_audio_descriptions_label,
+                &err,
+            ),
+        },
+    );
+    let parent_search = dialog;
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match rai_audiodescrizioni::search_catalog(&query) {
+            Ok(results) => open_rai_audio_items_dialog_from_items(
+                &parent_search,
+                &format!("Risultati per {query}"),
+                results,
+            ),
+            Err(err) => show_message_subdialog(
+                &parent_search,
+                &current_ui_strings().rai_audio_descriptions_label,
+                &err,
+            ),
+        }
     });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
     dialog.destroy();
 }
 
-fn open_rai_audio_group_subdialog(
-    parent: &Dialog,
-    groups: &[rai_audiodescrizioni::CatalogGroup],
-) {
+fn open_rai_audio_group_subdialog(parent: &Dialog, groups: &[rai_audiodescrizioni::CatalogGroup]) {
     let ui = current_ui_strings();
     if groups.is_empty() {
         show_message_subdialog(parent, &ui.rai_audio_descriptions_label, &ui.rai_no_items);
@@ -9683,6 +9110,20 @@ fn open_rai_audio_group_subdialog(
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
     let choice = Choice::builder(&panel).build();
     for group in groups {
         choice.append(&format!("{} ({})", group.title, group.items.len()));
@@ -9711,6 +9152,27 @@ fn open_rai_audio_group_subdialog(
             open_rai_audio_items_dialog(&dialog_open, group);
         }
     });
+    let parent_search = dialog;
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match rai_audiodescrizioni::search_catalog(&query) {
+            Ok(results) => open_rai_audio_items_dialog_from_items(
+                &parent_search,
+                &format!("Risultati per {query}"),
+                results,
+            ),
+            Err(err) => show_message_subdialog(
+                &parent_search,
+                &current_ui_strings().rai_audio_descriptions_label,
+                &err,
+            ),
+        }
+    });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
@@ -9718,15 +9180,41 @@ fn open_rai_audio_group_subdialog(
 }
 
 fn open_rai_audio_items_dialog(parent: &Dialog, group: &rai_audiodescrizioni::CatalogGroup) {
+    open_rai_audio_items_dialog_from_items(parent, &group.title, group.items.clone());
+}
+
+fn open_rai_audio_items_dialog_from_items(
+    parent: &Dialog,
+    title: &str,
+    items_input: Vec<rai_audiodescrizioni::CatalogItem>,
+) {
     let ui = current_ui_strings();
-    let dialog = Dialog::builder(parent, &group.title)
+    if items_input.is_empty() {
+        show_message_subdialog(parent, &ui.rai_audio_descriptions_label, &ui.rai_no_items);
+        return;
+    }
+    let dialog = Dialog::builder(parent, title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(700, 220)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
     let choice = Choice::builder(&panel).build();
-    for item in &group.items {
+    for item in &items_input {
         choice.append(&rai_item_label(&item.title, Some(&item.date)));
     }
     choice.set_selection(0);
@@ -9747,7 +9235,7 @@ fn open_rai_audio_items_dialog(parent: &Dialog, group: &rai_audiodescrizioni::Ca
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
-    let items = Rc::new(group.items.clone());
+    let items = Rc::new(items_input);
     if let Some(sel) = choice.get_selection() {
         let visible = items
             .get(sel as usize)
@@ -9810,6 +9298,27 @@ fn open_rai_audio_items_dialog(parent: &Dialog, group: &rai_audiodescrizioni::Ca
             visible,
         );
     });
+    let parent_search = dialog;
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match rai_audiodescrizioni::search_catalog(&query) {
+            Ok(results) => open_rai_audio_items_dialog_from_items(
+                &parent_search,
+                &format!("Risultati per {query}"),
+                results,
+            ),
+            Err(err) => show_message_subdialog(
+                &parent_search,
+                &current_ui_strings().rai_audio_descriptions_label,
+                &err,
+            ),
+        }
+    });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
@@ -9926,6 +9435,20 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
     let ui = current_ui_strings();
     let panel = Panel::builder(dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
     let choice = Choice::builder(&panel).build();
     for item in &items {
         choice.append(&rai_item_label(
@@ -10011,11 +9534,9 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
                     &current_ui_strings().raiplay_label,
                     &current_ui_strings().rai_save_completed,
                 ),
-                Err(err) => show_message_subdialog(
-                    &parent_save,
-                    &current_ui_strings().raiplay_label,
-                    &err,
-                ),
+                Err(err) => {
+                    show_message_subdialog(&parent_save, &current_ui_strings().raiplay_label, &err)
+                }
             }
         }
     });
@@ -10036,6 +9557,21 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
             visible,
         );
     });
+    let parent_search = *dialog;
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match raiplay::search(&query) {
+            Ok(page) => open_raiplay_page_subdialog(&parent_search, page),
+            Err(err) => {
+                show_message_subdialog(&parent_search, &current_ui_strings().raiplay_label, &err)
+            }
+        }
+    });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
     let dialog_close = *dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
@@ -10103,6 +9639,20 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     let ui = current_ui_strings();
     let panel = Panel::builder(dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
     let choice = Choice::builder(&panel).build();
     for item in &items {
         choice.append(&rai_item_label(&item.title, item.description.as_deref()));
@@ -10115,7 +9665,6 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     let save_button = Button::builder(&panel)
         .with_label(&ui.rai_save_content)
         .build();
-    let search_button = Button::builder(&panel).with_label(&ui.search).build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
@@ -10123,7 +9672,6 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
-    buttons.add(&search_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -10212,18 +9760,22 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     });
 
     let parent_search = *dialog;
-    search_button.on_click(move |_| {
-        if let Some(query) = open_raiplaysound_search_dialog(&parent_search) {
-            match raiplaysound::search(&query) {
-                Ok(page) => open_raiplaysound_page_subdialog(&parent_search, page),
-                Err(err) => show_message_subdialog(
-                    &parent_search,
-                    &current_ui_strings().raiplaysound_label,
-                    &err,
-                ),
-            }
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match raiplaysound::search(&query) {
+            Ok(page) => open_raiplaysound_page_subdialog(&parent_search, page),
+            Err(err) => show_message_subdialog(
+                &parent_search,
+                &current_ui_strings().raiplaysound_label,
+                &err,
+            ),
         }
     });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
 
     let dialog_close = *dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
@@ -10231,59 +9783,8 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     dialog.destroy();
 }
 
-fn open_raiplaysound_search_dialog(parent: &Dialog) -> Option<String> {
-    let ui = current_ui_strings();
-    let dialog = Dialog::builder(parent, &ui.raiplaysound_label)
-        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(520, 160)
-        .build();
-    let panel = Panel::builder(&dialog).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
-    let row = BoxSizer::builder(Orientation::Horizontal).build();
-    row.add(
-        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
-    let ctrl = TextCtrl::builder(&panel).build();
-    row.add(&ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    buttons.add_spacer(1);
-    buttons.add(
-        &Button::builder(&panel)
-            .with_id(ID_OK)
-            .with_label(&ui.search)
-            .build(),
-        0,
-        SizerFlag::All,
-        10,
-    );
-    buttons.add(
-        &Button::builder(&panel)
-            .with_id(ID_CANCEL)
-            .with_label(&ui.cancel)
-            .build(),
-        0,
-        SizerFlag::All,
-        10,
-    );
-    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
-    panel.set_sizer(root, true);
-    dialog.set_affirmative_id(ID_OK);
-    dialog.set_escape_id(ID_CANCEL);
-    let result = if dialog.show_modal() == ID_OK {
-        Some(ctrl.get_value().trim().to_string()).filter(|value| !value.is_empty())
-    } else {
-        None
-    };
-    dialog.destroy();
-    result
-}
-
 fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
-    open_stream_with_mpv(url, title, None)
+    open_stream_with_mpv(url, title, None, true)
 }
 
 fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
@@ -10292,7 +9793,7 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
     } else {
         None
     };
-    open_stream_with_mpv(&channel.url, &channel.name, preferred_audio_track)
+    open_stream_with_mpv(&channel.url, &channel.name, preferred_audio_track, false)
 }
 
 fn is_tv_rai_audio_description_channel(channel: &tv::TvChannel) -> bool {
@@ -10304,18 +9805,21 @@ fn open_stream_with_mpv(
     url: &str,
     title: &str,
     preferred_audio_track: Option<&str>,
+    enable_bookmarks: bool,
 ) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let mut command = Command::new(&mpv_executable);
     let mpv_input_conf = bundled_mpv_input_conf_path();
+    let allow_bookmarks = enable_bookmarks && media_bookmarks_enabled();
+    let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
     if let Some(parent_dir) = mpv_executable.parent()
         && !parent_dir.as_os_str().is_empty()
     {
         command.current_dir(parent_dir);
     }
     command
-        .arg("--no-config")
+        .arg(format!("--config-dir={}", mpv_config_dir.display()))
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
         .arg("--force-window=yes")
         .arg("--idle=no")
@@ -10323,6 +9827,18 @@ fn open_stream_with_mpv(
         .arg("--osc=yes")
         .arg("--input-default-bindings=yes")
         .arg("--volume-max=300");
+    if allow_bookmarks {
+        command
+            .arg(format!(
+                "--watch-later-dir={}",
+                mpv_watch_later_dir().display()
+            ))
+            .arg("--save-position-on-quit")
+            .arg("--resume-playback=yes")
+            .arg("--watch-later-options=start");
+    } else {
+        command.arg("--resume-playback=no");
+    }
     if let Some(audio_track) = preferred_audio_track {
         command.arg(format!("--aid={audio_track}"));
     }
@@ -11109,6 +10625,30 @@ fn main() {
                     "app.open_files_event.begin path={}",
                     path.display()
                 ));
+                if is_media_path(&path) {
+                    match open_local_media_with_mpv(&path) {
+                        Ok(()) => {
+                            podcast_playback_timer.borrow_mut().selected_episode = None;
+                            tc_articles_timer.set_value("");
+                            tc_articles_timer.set_modified(false);
+                            set_current_document_state(&current_document_timer, None);
+                            append_podcast_log(&format!(
+                                "app.open_files_event.media_opened path={}",
+                                path.display()
+                            ));
+                        }
+                        Err(err) => {
+                            append_podcast_log(&format!(
+                                "app.open_files_event.media_failed path={} err={}",
+                                path.display(),
+                                err
+                            ));
+                            let ui = current_ui_strings();
+                            show_message_dialog(&frame_timer, &ui.open_document_title, &err);
+                        }
+                    }
+                    continue;
+                }
                 match load_file_for_display(&frame_timer, &path) {
                     Ok(content) => {
                         podcast_playback_timer.borrow_mut().selected_episode = None;
@@ -11208,7 +10748,7 @@ fn main() {
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
             if event.get_id() == ID_OPEN {
-                let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.webp;*.heic|Tutti|*.*").build();
+                let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.webp;*.heic;*.mp3;*.m4a;*.m4b;*.aac;*.ogg;*.opus;*.flac;*.wav;*.mp4;*.m4v;*.mov;*.mkv;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*").build();
                 #[cfg(target_os = "macos")]
                 set_mac_native_file_dialog_open(true);
                 let dialog_result = dialog.show_modal();
@@ -11218,6 +10758,17 @@ fn main() {
                     && let Some(path) = dialog.get_path()
                 {
                     let path = Path::new(&path);
+                    if is_media_path(path) {
+                        if let Err(err) = open_local_media_with_mpv(path) {
+                            show_message_dialog(&f_menu, &ui.open_document_title, &err);
+                        } else {
+                            podcast_selection_menu.borrow_mut().selected_episode = None;
+                            tc_menu.set_value("");
+                            tc_menu.set_modified(false);
+                            set_current_document_state(&current_document_menu, None);
+                        }
+                        return;
+                    }
                     let content = load_file_for_display(&f_menu, path);
                     if let Ok(c) = content {
                         podcast_selection_menu.borrow_mut().selected_episode = None;

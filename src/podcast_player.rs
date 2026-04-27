@@ -32,6 +32,8 @@ mod imp {
             let mpv_executable =
                 bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
             let mpv_input_conf = bundled_mpv_input_conf_path();
+            let enable_bookmarks = crate::media_bookmarks_enabled();
+            let mpv_config_dir = crate::prepare_mpv_runtime_dirs(enable_bookmarks)?;
             let ipc_path = podcast_ipc_socket_path();
             remove_stale_socket(&ipc_path, "podcast.mpv.socket_prep_failed")?;
 
@@ -43,7 +45,7 @@ mod imp {
             }
             command
                 .arg(stream_url)
-                .arg("--no-config")
+                .arg(format!("--config-dir={}", mpv_config_dir.display()))
                 .arg(format!("--input-conf={}", mpv_input_conf.display()))
                 .arg("--pause=yes")
                 .arg("--no-video")
@@ -55,6 +57,18 @@ mod imp {
                 .arg("--volume-max=300")
                 .arg(format!("--input-ipc-server={}", ipc_path.display()))
                 .arg("--title=Sonarpad podcast");
+            if enable_bookmarks {
+                command
+                    .arg(format!(
+                        "--watch-later-dir={}",
+                        crate::mpv_watch_later_dir().display()
+                    ))
+                    .arg("--save-position-on-quit")
+                    .arg("--resume-playback=yes")
+                    .arg("--watch-later-options=start");
+            } else {
+                command.arg("--resume-playback=no");
+            }
 
             let mut child = command
                 .spawn()
