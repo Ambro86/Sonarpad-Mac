@@ -29,7 +29,6 @@ pub(crate) struct BrowseItem {
 
 #[derive(Clone, Debug)]
 pub(crate) struct BrowsePage {
-    pub(crate) source: String,
     pub(crate) title: String,
     pub(crate) items: Vec<BrowseItem>,
 }
@@ -94,7 +93,6 @@ pub(crate) fn search(query: &str) -> Result<BrowsePage, String> {
     }
 
     Ok(BrowsePage {
-        source: format!("{RAIPLAYSOUND_SEARCH_SOURCE_PREFIX}{trimmed_query}"),
         title: format!("Risultati per {trimmed_query}"),
         items,
     })
@@ -110,18 +108,14 @@ fn refine_search_query(query: &str) -> Option<String> {
     let body_text = match serde_json::to_string(&body) {
         Ok(value) => value,
         Err(err) => {
-            eprintln!(
-                "RaiPlay Sound suggestion request serialization failed: {err}"
-            );
+            eprintln!("RaiPlay Sound suggestion request serialization failed: {err}");
             return None;
         }
     };
     let suggestion_url = match raiplaysound_suggestion_url() {
         Ok(value) => value,
         Err(err) => {
-            eprintln!(
-                "RaiPlay Sound suggestion URL decode failed: {err}"
-            );
+            eprintln!("RaiPlay Sound suggestion URL decode failed: {err}");
             return None;
         }
     };
@@ -139,9 +133,7 @@ fn refine_search_query(query: &str) -> Option<String> {
     let root: Value = match serde_json::from_slice(&bytes) {
         Ok(value) => value,
         Err(err) => {
-            eprintln!(
-                "RaiPlay Sound suggestion JSON decode failed: {err}"
-            );
+            eprintln!("RaiPlay Sound suggestion JSON decode failed: {err}");
             return None;
         }
     };
@@ -193,7 +185,6 @@ fn load_page_from_url(url: &str) -> Result<BrowsePage, String> {
     }
 
     Ok(BrowsePage {
-        source: url.to_string(),
         title,
         items,
     })

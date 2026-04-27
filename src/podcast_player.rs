@@ -146,10 +146,6 @@ mod imp {
             Ok(())
         }
 
-        pub fn position_seconds(&self) -> Result<f64, String> {
-            self.get_property_f64("time-pos")
-        }
-
         pub fn duration_seconds(&self) -> Result<Option<f64>, String> {
             match self.get_property("duration")? {
                 Value::Number(number) => Ok(number
@@ -356,6 +352,8 @@ mod imp {
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
+    use std::path::PathBuf;
+
     pub struct PodcastPlayer;
 
     impl PodcastPlayer {
@@ -387,16 +385,15 @@ mod imp {
             Err("Player podcast interno disponibile solo su macOS".to_string())
         }
 
-        pub fn position_seconds(&self) -> Result<f64, String> {
-            Err("Player podcast interno disponibile solo su macOS".to_string())
-        }
-
         pub fn duration_seconds(&self) -> Result<Option<f64>, String> {
             Err("Player podcast interno disponibile solo su macOS".to_string())
         }
     }
+
+    pub fn bundled_mpv_executable_path() -> Option<PathBuf> {
+        None
+    }
 }
 
 pub use imp::PodcastPlayer;
-#[cfg(target_os = "macos")]
 pub use imp::bundled_mpv_executable_path;

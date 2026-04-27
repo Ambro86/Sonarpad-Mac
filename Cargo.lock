@@ -3782,6 +3782,7 @@ dependencies = [
  "encoding_rs",
  "epub",
  "feed-rs",
+ "flate2",
  "futures-util",
  "hex",
  "hound",

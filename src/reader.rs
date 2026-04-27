@@ -259,7 +259,7 @@ fn pick_best_json_article_text(json_text: &str) -> Option<String> {
         let strict = format!("\"{key}\":\"");
         for val in extract_json_values(json_text, &strict)
             .into_iter()
-            .chain(extract_json_values_loose(json_text, key).into_iter())
+            .chain(extract_json_values_loose(json_text, key))
         {
             if val.len() < 80 {
                 continue;
@@ -289,7 +289,7 @@ fn pick_teaser_json_article_text(json_text: &str) -> Option<String> {
     let strict = "\"articleBody\":\"";
     for val in extract_json_values(json_text, strict)
         .into_iter()
-        .chain(extract_json_values_loose(json_text, "articleBody").into_iter())
+        .chain(extract_json_values_loose(json_text, "articleBody"))
     {
         let cleaned = collapse_blank_lines(&clean_text(&val));
         let trimmed = cleaned.trim();

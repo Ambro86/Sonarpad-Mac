@@ -222,10 +222,8 @@ pub async fn synthesize_text_chunk(
         };
         let msg = msg?;
         match msg {
-            Message::Text(t) => {
-                if t.contains("Path:turn.end") {
-                    break;
-                }
+            Message::Text(t) if t.contains("Path:turn.end") => {
+                break;
             }
             Message::Binary(data) => {
                 if let Some(audio) = parse_edge_binary_audio_payload(&data)? {
@@ -336,10 +334,8 @@ impl EdgeRealtimeSession {
             };
             let msg = msg?;
             match msg {
-                Message::Text(t) => {
-                    if t.contains("Path:turn.end") {
-                        break;
-                    }
+                Message::Text(t) if t.contains("Path:turn.end") => {
+                    break;
                 }
                 Message::Binary(data) => {
                     if let Some(audio) = parse_edge_binary_audio_payload(&data)? {

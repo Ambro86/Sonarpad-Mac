@@ -51,6 +51,56 @@ impl CurlClient {
         Ok(data)
     }
 
+    pub fn resolve_final_url_iphone_impersonated(url: &str) -> Result<String, String> {
+        let mut easy = Easy::new();
+        easy.url(url).map_err(|err| err.to_string())?;
+        easy.follow_location(true).map_err(|err| err.to_string())?;
+        easy.max_redirections(10).map_err(|err| err.to_string())?;
+        easy.timeout(Duration::from_secs(30))
+            .map_err(|err| err.to_string())?;
+        easy.connect_timeout(Duration::from_secs(30))
+            .map_err(|err| err.to_string())?;
+        easy.accept_encoding("gzip, deflate, br")
+            .map_err(|err| err.to_string())?;
+        easy.pipewait(true).map_err(|err| err.to_string())?;
+        easy.cookie_file("").map_err(|err| err.to_string())?;
+        easy.range("0-0").map_err(|err| err.to_string())?;
+
+        let mut headers = List::new();
+        headers
+            .append("User-Agent: Mozilla/5.0 (iPhone; CPU iPhone OS 17_5 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.5 Mobile/15E148 Safari/604.1")
+            .map_err(|err| err.to_string())?;
+        headers
+            .append("Accept: text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8")
+            .map_err(|err| err.to_string())?;
+        headers
+            .append("Accept-Language: it-IT,it;q=0.9,en-US;q=0.8")
+            .map_err(|err| err.to_string())?;
+        headers
+            .append("Upgrade-Insecure-Requests: 1")
+            .map_err(|err| err.to_string())?;
+        headers
+            .append("Connection: keep-alive")
+            .map_err(|err| err.to_string())?;
+        easy.http_headers(headers).map_err(|err| err.to_string())?;
+
+        {
+            let mut transfer = easy.transfer();
+            transfer
+                .write_function(|new_data| Ok(new_data.len()))
+                .map_err(|err| err.to_string())?;
+            transfer.perform().map_err(|err| err.to_string())?;
+        }
+
+        if let Some(effective_url) = easy.effective_url().map_err(|err| err.to_string())?
+            && !effective_url.trim().is_empty()
+        {
+            return Ok(effective_url.to_string());
+        }
+
+        Ok(url.to_string())
+    }
+
     fn fetch_with_profile(url: &str, iphone_profile: bool) -> Result<Vec<u8>, String> {
         let mut easy = Easy::new();
         easy.url(url).map_err(|err| err.to_string())?;
