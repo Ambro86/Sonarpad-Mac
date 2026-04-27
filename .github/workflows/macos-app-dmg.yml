@@ -89,7 +89,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v2
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v3
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -162,6 +162,7 @@ jobs:
             --enable-ffmpeg \
             --disable-shared \
             --enable-static \
+            --enable-securetransport \
             --enable-protocol=file \
             --enable-protocol=http \
             --enable-protocol=https \
