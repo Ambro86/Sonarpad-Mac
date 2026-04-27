@@ -75,7 +75,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v8
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v9
 
       - name: Build release binary
         shell: bash
@@ -183,14 +183,18 @@ jobs:
           cd "dist/ffmpeg-build/ffmpeg-${FFMPEG_VERSION}"
           brew install lame pkg-config
           LAME_PREFIX="$(brew --prefix lame)"
+          export PKG_CONFIG_PATH="${LAME_PREFIX}/lib/pkgconfig"
+          export PKG_CONFIG_ALL_STATIC=1
           ./configure \
             --prefix="$(pwd)/../../ffmpeg-install" \
             --cc=clang \
             --arch=x86_64 \
             --target-os=darwin \
+            --pkg-config-flags="--static" \
             --extra-cflags="-mmacosx-version-min=10.15 -I${LAME_PREFIX}/include" \
             --extra-cxxflags="-mmacosx-version-min=10.15" \
             --extra-ldflags="-mmacosx-version-min=10.15 -L${LAME_PREFIX}/lib" \
+            --extra-libs="${LAME_PREFIX}/lib/libmp3lame.a" \
             --disable-everything \
             --disable-autodetect \
             --disable-avdevice \

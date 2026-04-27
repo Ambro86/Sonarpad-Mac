@@ -73,7 +73,6 @@ mod imp {
             let mut child = command
                 .spawn()
                 .map_err(|err| format!("avvio mpv podcast fallito: {err}"))?;
-            activate_mpv_application();
 
             for attempt in 0..MPV_CONNECT_ATTEMPTS {
                 if let Ok(mut ipc) = open_mpv_ipc(&ipc_path) {
@@ -375,29 +374,6 @@ mod imp {
         }
     }
 
-    fn activate_mpv_application() {
-        let result = Command::new("osascript")
-            .args(["-e", "tell application \"mpv\" to activate"])
-            .output();
-        match result {
-            Ok(output) if output.status.success() => {
-                crate::append_podcast_log("podcast.mpv.activate.ok");
-            }
-            Ok(output) => {
-                let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
-                let stdout = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                crate::append_podcast_log(&format!(
-                    "podcast.mpv.activate.failed code={:?} stdout={} stderr={}",
-                    output.status.code(),
-                    stdout,
-                    stderr
-                ));
-            }
-            Err(err) => {
-                crate::append_podcast_log(&format!("podcast.mpv.activate.error err={err}"));
-            }
-        }
-    }
 }
 
 #[cfg(not(target_os = "macos"))]

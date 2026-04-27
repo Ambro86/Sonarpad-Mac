@@ -9815,15 +9815,6 @@ fn open_stream_with_mpv(
     let _child = command
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
-    #[cfg(target_os = "macos")]
-    {
-        let result = Command::new("osascript")
-            .args(["-e", "tell application \"mpv\" to activate"])
-            .output();
-        if let Err(err) = result {
-            append_podcast_log(&format!("rai.mpv.activate.error err={err}"));
-        }
-    }
     Ok(())
 }
 

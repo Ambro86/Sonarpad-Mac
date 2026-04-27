@@ -21,6 +21,7 @@ jobs:
           - runs_on: macos-14
             rust_target: aarch64-apple-darwin
             build_flavor: apple-silicon
+            ffmpeg_macos_min: "11.0"
             pdfium_archive: pdfium-mac-arm64.tgz
             dmg_name: Sonarpad-macOS-AppleSilicon.dmg
             dmg_artifact_name: sonarpad-macos-dmg-apple-silicon
@@ -29,6 +30,7 @@ jobs:
           - runs_on: macos-15-intel
             rust_target: x86_64-apple-darwin
             build_flavor: intel
+            ffmpeg_macos_min: "10.15"
             pdfium_archive: pdfium-mac-x64.tgz
             dmg_name: Sonarpad-macOS-Intel.dmg
             dmg_artifact_name: sonarpad-macos-dmg-intel
@@ -37,6 +39,11 @@ jobs:
     runs-on: ${{ matrix.runs_on }}
     env:
       CMAKE_ARGS: -DwxUSE_OPENGL=OFF
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.ffmpeg_macos_min }}
+      CMAKE_OSX_DEPLOYMENT_TARGET: ${{ matrix.ffmpeg_macos_min }}
+      CFLAGS: -mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}
+      CXXFLAGS: -mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}
+      LDFLAGS: -mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}
       CURL_CFFI_VERSION: "0.7.0"
       SONARPAD_MACOS_BUILD_FLAVOR: ${{ matrix.build_flavor }}
 
@@ -89,7 +96,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v6
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v7
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -125,7 +132,12 @@ jobs:
           mkdir -p dist/ffmpeg-src dist/ffmpeg-build dist/ffmpeg-install
           if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
             "dist/ffmpeg-install/bin/ffmpeg" -version
-            exit 0
+            if ! otool -L "dist/ffmpeg-install/bin/ffmpeg" \
+              | tail -n +2 \
+              | awk '{print $1}' \
+              | grep -vE '^(/System/|/usr/lib/|@)'; then
+              exit 0
+            fi
           fi
           rm -rf dist/ffmpeg-build dist/ffmpeg-install
           mkdir -p dist/ffmpeg-build dist/ffmpeg-install
@@ -143,13 +155,18 @@ jobs:
           fi
           brew install lame pkg-config
           LAME_PREFIX="$(brew --prefix lame)"
+          export PKG_CONFIG_PATH="${LAME_PREFIX}/lib/pkgconfig"
+          export PKG_CONFIG_ALL_STATIC=1
           ./configure \
             --prefix="$(pwd)/../../ffmpeg-install" \
             --cc=clang \
             --arch="${FFMPEG_ARCH}" \
             --target-os=darwin \
-            --extra-cflags="-I${LAME_PREFIX}/include" \
-            --extra-ldflags="-L${LAME_PREFIX}/lib" \
+            --pkg-config-flags="--static" \
+            --extra-cflags="-mmacosx-version-min=${{ matrix.ffmpeg_macos_min }} -I${LAME_PREFIX}/include" \
+            --extra-cxxflags="-mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}" \
+            --extra-ldflags="-mmacosx-version-min=${{ matrix.ffmpeg_macos_min }} -L${LAME_PREFIX}/lib" \
+            --extra-libs="${LAME_PREFIX}/lib/libmp3lame.a" \
             --disable-everything \
             --disable-autodetect \
             --disable-avdevice \
@@ -202,6 +219,13 @@ jobs:
           make install
           "../../ffmpeg-install/bin/ffmpeg" -version
           otool -L "../../ffmpeg-install/bin/ffmpeg"
+          if otool -L "../../ffmpeg-install/bin/ffmpeg" \
+            | tail -n +2 \
+            | awk '{print $1}' \
+            | grep -vE '^(/System/|/usr/lib/|@)'; then
+            echo "ffmpeg still has non-system dynamic dependencies"
+            exit 1
+          fi
 
       - name: Download curl-impersonate for macOS
         shell: bash
@@ -283,6 +307,13 @@ jobs:
           cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
+          if otool -L "${FFMPEG_BIN_DIR}/ffmpeg" \
+            | tail -n +2 \
+            | awk '{print $1}' \
+            | grep -vE '^(/System/|/usr/lib/|@)'; then
+            echo "Bundled ffmpeg still has non-system dynamic dependencies"
+            exit 1
+          fi
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
           cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'
