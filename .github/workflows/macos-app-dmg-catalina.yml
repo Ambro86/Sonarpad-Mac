@@ -374,6 +374,8 @@ jobs:
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
+          curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
+          chmod +x "${RESOURCES_DIR}/yt-dlp"
           cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'
           UP add volume 5
           DOWN add volume -5
@@ -683,6 +685,7 @@ jobs:
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks/libpdfium.dylib"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/mpv.app/Contents/MacOS/mpv"
+          test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/yt-dlp"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name '*.dylib' -print
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet
