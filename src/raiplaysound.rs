@@ -1,6 +1,7 @@
 use base64::Engine;
 use serde_json::Value;
 use std::collections::HashSet;
+use std::time::Duration;
 
 const RAIPLAYSOUND_BASE_URL_B64: &str = "BT9NUQVqHVc7T1RfJlUTPlshCyReBjdSSi9E";
 const RAIPLAYSOUND_GENRES_URL_B64: &str = "BT9NUQVqHVc7T1RfJlUTPlshCyReBjdSSi9ERy1WGycIPFwmQi0H";
@@ -288,7 +289,10 @@ fn preferred_description(card: &Value) -> Option<String> {
 }
 
 fn fetch_json(url: &str) -> Result<Value, String> {
-    let bytes = crate::curl_client::CurlClient::fetch_url_impersonated(url)
+    let bytes = crate::curl_client::CurlClient::fetch_url_impersonated_with_timeout(
+        url,
+        Duration::from_secs(300),
+    )
         .map_err(|err| format!("Impossibile caricare i dati di RaiPlay Sound: {err}"))?;
     serde_json::from_slice(&bytes)
         .map_err(|err| format!("Risposta JSON RaiPlay Sound non valida: {err}"))

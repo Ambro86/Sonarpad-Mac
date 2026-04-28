@@ -5,11 +5,18 @@ pub struct CurlClient;
 
 impl CurlClient {
     pub fn fetch_url_impersonated(url: &str) -> Result<Vec<u8>, String> {
-        Self::fetch_with_profile(url, false)
+        Self::fetch_with_profile(url, false, Duration::from_secs(30))
+    }
+
+    pub fn fetch_url_impersonated_with_timeout(
+        url: &str,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, String> {
+        Self::fetch_with_profile(url, false, timeout)
     }
 
     pub fn fetch_url_iphone_impersonated(url: &str) -> Result<Vec<u8>, String> {
-        Self::fetch_with_profile(url, true)
+        Self::fetch_with_profile(url, true, Duration::from_secs(30))
     }
 
     pub fn post_form_impersonated(
@@ -101,13 +108,16 @@ impl CurlClient {
         Ok(url.to_string())
     }
 
-    fn fetch_with_profile(url: &str, iphone_profile: bool) -> Result<Vec<u8>, String> {
+    fn fetch_with_profile(
+        url: &str,
+        iphone_profile: bool,
+        timeout: Duration,
+    ) -> Result<Vec<u8>, String> {
         let mut easy = Easy::new();
         easy.url(url).map_err(|err| err.to_string())?;
         easy.follow_location(true).map_err(|err| err.to_string())?;
         easy.max_redirections(10).map_err(|err| err.to_string())?;
-        easy.timeout(Duration::from_secs(30))
-            .map_err(|err| err.to_string())?;
+        easy.timeout(timeout).map_err(|err| err.to_string())?;
         easy.connect_timeout(Duration::from_secs(10))
             .map_err(|err| err.to_string())?;
         easy.accept_encoding("gzip, deflate, br")

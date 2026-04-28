@@ -446,6 +446,18 @@ jobs:
           MPV_APP_DIR="${APP_DIR}/Contents/Resources/mpv.app"
           MPV_BIN="${MPV_APP_DIR}/Contents/MacOS/mpv"
           YTDLP_BIN="${APP_DIR}/Contents/Resources/yt-dlp"
+          YTDLP_ENTITLEMENTS="dist/ytdlp-entitlements.plist"
+
+          cat > "${YTDLP_ENTITLEMENTS}" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>
+PLIST
 
           if [ -f "${FFMPEG_BIN}" ]; then
             codesign --force --options runtime --timestamp \
@@ -482,6 +494,7 @@ jobs:
             chmod +x "${YTDLP_BIN}"
             xattr -cr "${YTDLP_BIN}" || true
             codesign --force --options runtime --timestamp \
+              --entitlements "${YTDLP_ENTITLEMENTS}" \
               --sign "Developer ID Application" \
               "${YTDLP_BIN}"
             codesign --verify --strict --verbose=4 "${YTDLP_BIN}"
@@ -490,6 +503,22 @@ jobs:
           codesign --force --deep --options runtime --timestamp \
             --sign "Developer ID Application" \
             "${APP_DIR}"
+
+          if [ -f "${YTDLP_BIN}" ]; then
+            codesign --force --options runtime --timestamp \
+              --entitlements "${YTDLP_ENTITLEMENTS}" \
+              --sign "Developer ID Application" \
+              "${YTDLP_BIN}"
+          fi
+
+          codesign --force --options runtime --timestamp \
+            --sign "Developer ID Application" \
+            "${APP_DIR}"
+
+          if [ -f "${YTDLP_BIN}" ]; then
+            codesign -d --entitlements :- "${YTDLP_BIN}" 2>/dev/null \
+              | grep -q "com.apple.security.cs.disable-library-validation"
+          fi
 
           codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 
@@ -642,5 +671,3 @@ jobs:
         with:
           name: ${{ matrix.zip_artifact_name }}
           path: dist/${{ matrix.zip_name }}
-
-

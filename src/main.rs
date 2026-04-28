@@ -547,7 +547,6 @@ struct UiStrings {
     tools_youtube_label: String,
     wikipedia_title: String,
     wikipedia_search_label: String,
-    wikipedia_results_label: String,
     wikipedia_open_preview: String,
     wikipedia_import_editor: String,
     youtube_title: String,
@@ -9070,10 +9069,6 @@ struct YoutubeSearchResult {
     is_collection: bool,
 }
 
-fn url_encode(value: &str) -> String {
-    url::form_urlencoded::byte_serialize(value.as_bytes()).collect()
-}
-
 fn wikipedia_api_language() -> &'static str {
     if Settings::load().ui_language == "it" { "it" } else { "en" }
 }
@@ -9537,23 +9532,6 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
         let url = entry.get("webpage_url").or_else(|| entry.get("url")).and_then(|v| v.as_str()).unwrap_or_default().to_string();
         if url.is_empty() { None } else { Some(YoutubeSearchResult { title, url, is_collection: false }) }
     }).collect())
-}
-
-fn resolve_youtube_playback_url(url: &str) -> Result<String, String> {
-    let ytdlp = ytdlp_executable_path();
-    let output = Command::new(&ytdlp)
-        .args(["-g", "-f", "bestaudio/best", url])
-        .output()
-        .map_err(|err| format!("yt-dlp non avviato: {err}"))?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
-    }
-    String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(ToString::to_string)
-        .ok_or_else(|| "yt-dlp non ha restituito un URL riproducibile.".to_string())
 }
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
@@ -10024,6 +10002,7 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
                     &err,
                 ),
             }
+            choice_save.set_focus();
         }
     });
     let choice_visibility = choice;
@@ -10262,6 +10241,7 @@ fn open_rai_audio_items_dialog_from_items(
                     &err,
                 ),
             }
+            choice_save.set_focus();
         }
     });
     let choice_visibility = choice;
@@ -10909,8 +10889,11 @@ fn save_rai_direct_media(
     let path = dialog
         .get_path()
         .ok_or_else(|| ui.save_folder_not_selected.clone())?;
-    let bytes = crate::curl_client::CurlClient::fetch_url_impersonated(url)
-        .map_err(|err| format!("download contenuto Rai fallito: {err}"))?;
+    let bytes = crate::curl_client::CurlClient::fetch_url_impersonated_with_timeout(
+        url,
+        Duration::from_secs(300),
+    )
+    .map_err(|err| format!("download contenuto Rai fallito: {err}"))?;
     std::fs::write(&path, bytes).map_err(|err| format!("salvataggio file Rai fallito: {err}"))
 }
 
@@ -11497,6 +11480,8 @@ fn main() {
         let podcast_playback_timer = Rc::clone(&podcast_playback);
         let rt_articles_timer = Arc::clone(&rt);
         let tc_articles_timer = text_ctrl;
+        let startup_editor_focus_pending = Rc::new(RefCell::new(5usize));
+        let startup_editor_focus_timer = Rc::clone(&startup_editor_focus_pending);
         let pending_open_files_timer = Arc::clone(&pending_open_files);
         let pending_auto_update_result_timer = Arc::clone(&pending_auto_update_result);
         let current_document_timer = Arc::clone(&current_document);
@@ -11551,6 +11536,15 @@ fn main() {
                 *podcast_seek_choice_minutes_timer.borrow_mut() = 0;
             }
             panel_timer.layout();
+            {
+                let mut pending_ticks = startup_editor_focus_timer.borrow_mut();
+                if *pending_ticks > 0 {
+                    *pending_ticks -= 1;
+                    if *pending_ticks == 0 {
+                        tc_articles_timer.set_focus();
+                    }
+                }
+            }
             #[cfg(target_os = "macos")]
             if mac_should_defer_menu_rebuilds() {
                 return;
