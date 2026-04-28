@@ -993,101 +993,6 @@ fn settings_menu_label(label: &str) -> String {
     label.to_string()
 }
 
-fn update_menu_item_label(menubar: &MenuBar, id: i32, label: &str) {
-    if let Some(item) = menubar.find_item(id) {
-        item.set_label(label);
-    }
-}
-
-type MainMenuStates<'a> = (
-    &'a Arc<Mutex<ArticleMenuState>>,
-    &'a Arc<Mutex<PodcastMenuState>>,
-    &'a Arc<Mutex<RadioMenuState>>,
-);
-
-fn refresh_localized_main_ui(
-    frame: &Frame,
-    settings: &Arc<Mutex<Settings>>,
-    menus: (&Menu, &Menu, &Menu),
-    menu_states: MainMenuStates<'_>,
-    buttons: (&Button, &Button, &Button, &Button),
-) {
-    let ui_language = settings.lock().unwrap().ui_language.clone();
-    let ui = ui_strings(&ui_language);
-    let (articles_menu, podcasts_menu, radio_menu) = menus;
-    let (article_menu_state, podcast_menu_state, radio_menu_state) = menu_states;
-    let (btn_save, btn_settings, btn_podcast_back, btn_podcast_forward) = buttons;
-
-    if let Some(menubar) = frame.get_menu_bar() {
-        #[cfg(target_os = "macos")]
-        if menubar.get_menu_count() >= 5 {
-            menubar.set_menu_label(0, &ui.menu_file);
-            menubar.set_menu_label(1, &ui.menu_articles);
-            menubar.set_menu_label(2, &ui.menu_podcasts);
-            menubar.set_menu_label(3, &ui.menu_radio);
-            menubar.set_menu_label(4, &ui.menu_help);
-        }
-        #[cfg(not(target_os = "macos"))]
-        if menubar.get_menu_count() >= 5 {
-            menubar.set_menu_label(0, &ui.menu_file);
-            menubar.set_menu_label(1, &ui.menu_articles);
-            menubar.set_menu_label(2, &ui.menu_podcasts);
-            menubar.set_menu_label(3, &ui.menu_radio);
-            menubar.set_menu_label(4, &ui.menu_help);
-        }
-
-        update_menu_item_label(&menubar, ID_OPEN, &ui.menu_open);
-        update_menu_item_label(&menubar, ID_SAVE_TEXT, &ui.menu_save_text);
-        update_menu_item_label(&menubar, ID_SAVE_TEXT_AS, &ui.menu_save_text_as);
-        #[cfg(not(target_os = "macos"))]
-        update_menu_item_label(&menubar, ID_EXIT, &ui.menu_exit);
-        #[cfg(not(target_os = "macos"))]
-        update_menu_item_label(&menubar, ID_ABOUT, &ui.menu_about);
-        update_menu_item_label(&menubar, ID_DONATIONS, &ui.menu_donations);
-        update_menu_item_label(&menubar, ID_CHANGELOG, &ui.menu_changelog);
-        update_menu_item_label(&menubar, ID_CHECK_UPDATES, &ui.menu_updates);
-
-        #[cfg(target_os = "macos")]
-        {
-            update_menu_item_label(&menubar, ID_START_PLAYBACK, &ui.menu_start);
-            update_menu_item_label(&menubar, ID_PLAY_PAUSE, &ui.menu_play_pause);
-            update_menu_item_label(&menubar, ID_STOP, &ui.menu_stop);
-            update_menu_item_label(&menubar, ID_SAVE, &ui.menu_save);
-            update_menu_item_label(
-                &menubar,
-                ID_SETTINGS,
-                &settings_menu_label(&ui.menu_settings),
-            );
-        }
-    }
-
-    let article_loading_urls = article_menu_state.lock().unwrap().loading_urls.clone();
-    rebuild_articles_menu(articles_menu, settings, &article_loading_urls);
-
-    let (podcast_loading_urls, category_results, category_loading) = {
-        let state = podcast_menu_state.lock().unwrap();
-        (
-            state.loading_urls.clone(),
-            state.category_results.clone(),
-            state.category_loading.clone(),
-        )
-    };
-    rebuild_podcasts_menu(
-        podcasts_menu,
-        settings,
-        &podcast_loading_urls,
-        &category_results,
-        &category_loading,
-    );
-    rebuild_radio_menu(radio_menu, settings, radio_menu_state);
-
-    btn_save.set_label(&save_button_label());
-    btn_settings.set_label(&settings_button_label());
-    btn_podcast_back.set_label(&format!("{} ({}+Left)", ui.button_back_30, MOD_CMD));
-    btn_podcast_forward.set_label(&format!("{} ({}+Right)", ui.button_forward_30, MOD_CMD));
-    frame.layout();
-}
-
 #[cfg(target_os = "macos")]
 fn command_shortcut_down(key_event: &KeyboardEvent) -> bool {
     key_event.cmd_down()
@@ -1283,6 +1188,8 @@ fn changelog_message() -> String {
 \
 Versione 0.2.7 - 28 aprile 2026
 \
+- Migliorato il supporto per i file con diacritici e con codifiche diverse da UTF-8 (incluso il supporto per caratteri cinesi e altre lingue internazionali).
+\
 - Corretto il problema per cui la virgola, digitata in un campo di testo, apriva erroneamente le impostazioni.
 \
 - Migliorata la rapidità di lettura: ora anche gli articoli lunghi vengono letti più velocemente ed è stata rimossa la pausa dopo i paragrafi.
@@ -1392,6 +1299,8 @@ Versione 0.2.0
 
 \
 Version 0.2.7 - April 28, 2026
+\
+- Improved support for text files with diacritics and non-UTF-8 encodings (including support for Chinese characters and other international languages).
 \
 - Fixed an issue where typing a comma in a text field incorrectly opened the settings.
 \
@@ -1605,6 +1514,14 @@ fn show_message_dialog(parent: &Frame, title: &str, message: &str) {
     dialog.show_modal();
 }
 
+fn ask_yes_no_dialog(parent: &Frame, title: &str, message: &str) -> bool {
+    let dialog = MessageDialog::builder(parent, message, title)
+        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+        .build();
+    localize_standard_dialog_buttons(&dialog);
+    dialog.show_modal() == ID_YES
+}
+
 fn show_message_subdialog(parent: &Dialog, title: &str, message: &str) {
     let dialog = MessageDialog::builder(parent, message, title)
         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
@@ -1808,6 +1725,29 @@ fn ffmpeg_executable_path() -> Option<PathBuf> {
         }
     }
     None
+}
+
+fn restart_sonarpad() -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let app_bundle = current_macos_app_bundle_path()?;
+        Command::new("/usr/bin/open")
+            .arg("-n")
+            .arg(&app_bundle)
+            .spawn()
+            .map_err(|err| format!("riavvio Sonarpad non riuscito: {err}"))?;
+        return Ok(());
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        let exe_path = std::env::current_exe()
+            .map_err(|err| format!("lettura percorso app fallita: {err}"))?;
+        Command::new(&exe_path)
+            .spawn()
+            .map_err(|err| format!("riavvio Sonarpad non riuscito: {err}"))?;
+        Ok(())
+    }
 }
 
 #[cfg(target_os = "macos")]
@@ -10466,7 +10406,6 @@ fn main() {
         let articles_menu = Menu::builder().build();
         rebuild_articles_menu(&articles_menu, &settings, &HashSet::new());
         let articles_menu_timer = Menu::from(articles_menu.as_const_ptr());
-        let articles_menu_settings = Menu::from(articles_menu.as_const_ptr());
         let podcasts_menu = Menu::builder().build();
         rebuild_podcasts_menu(
             &podcasts_menu,
@@ -10476,11 +10415,9 @@ fn main() {
             &HashSet::new(),
         );
         let podcasts_menu_timer = Menu::from(podcasts_menu.as_const_ptr());
-        let podcasts_menu_settings = Menu::from(podcasts_menu.as_const_ptr());
         let radio_menu = Menu::builder().build();
         rebuild_radio_menu(&radio_menu, &settings, &radio_menu_state);
         let radio_menu_timer = Menu::from(radio_menu.as_const_ptr());
-        let radio_menu_settings = Menu::from(radio_menu.as_const_ptr());
 
         let additional_features_menu = Menu::builder().build();
         additional_features_menu.append(
@@ -12514,13 +12451,6 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let voices_state = Arc::clone(&voices_data);
         let languages_state = Arc::clone(&languages);
         let playback_state = Arc::clone(&playback);
-        let article_menu_state_settings = Arc::clone(&article_menu_state);
-        let podcast_menu_state_settings = Arc::clone(&podcast_menu_state);
-        let radio_menu_state_settings = Arc::clone(&radio_menu_state);
-        let btn_save_settings = btn_save;
-        let btn_settings_settings = btn_settings;
-        let btn_podcast_back_settings = btn_podcast_back;
-        let btn_podcast_forward_settings = btn_podcast_forward;
         let settings_action: Rc<dyn Fn()> = Rc::new(move || {
             append_podcast_log("settings_dialog.open");
             let previous_ui_language = settings_state.lock().unwrap().ui_language.clone();
@@ -12533,26 +12463,18 @@ Non posso scaricare la pagina web al posto dell'audio.",
             );
             let updated_ui_language = settings_state.lock().unwrap().ui_language.clone();
             if previous_ui_language != updated_ui_language {
-                refresh_localized_main_ui(
-                    &frame_settings,
-                    &settings_state,
-                    (
-                        &articles_menu_settings,
-                        &podcasts_menu_settings,
-                        &radio_menu_settings,
-                    ),
-                    (
-                        &article_menu_state_settings,
-                        &podcast_menu_state_settings,
-                        &radio_menu_state_settings,
-                    ),
-                    (
-                        &btn_save_settings,
-                        &btn_settings_settings,
-                        &btn_podcast_back_settings,
-                        &btn_podcast_forward_settings,
-                    ),
-                );
+                let ui = ui_strings(&updated_ui_language);
+                let message = if updated_ui_language == "it" {
+                    "Per applicare i cambiamenti occorre riavviare Sonarpad.\n\nVuoi farlo adesso?"
+                } else {
+                    "Sonarpad must be restarted to apply the changes.\n\nDo you want to restart now?"
+                };
+                if ask_yes_no_dialog(&frame_settings, &ui.settings_title, message) {
+                    match restart_sonarpad() {
+                        Ok(()) => frame_settings.close(true),
+                        Err(err) => show_message_dialog(&frame_settings, &ui.settings_title, &err),
+                    }
+                }
             }
         });
 
