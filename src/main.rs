@@ -9719,9 +9719,136 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) -> Result<(), String> {
+fn youtube_unique_output_path(dir: &Path, title: &str, ext: &str) -> PathBuf {
+    let name = sanitize_filename(title);
+    let first = dir.join(format!("{name}.{ext}"));
+    if !first.exists() {
+        return first;
+    }
+    for index in 2..=999 {
+        let candidate = dir.join(format!("{name} ({index}).{ext}"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    first
+}
+
+fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
+    let entries = std::fs::read_dir(downloads_dir)
+        .map_err(|err| format!("Impossibile leggere la cartella download: {err}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|err| format!("Impossibile leggere un file download: {err}"))?;
+        let path = entry.path();
+        if path.is_file()
+            && path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(prefix))
+        {
+            return Ok(path);
+        }
+    }
+    Err("yt-dlp non ha prodotto un file audio da convertire.".to_string())
+}
+
+fn save_youtube_mp3_with_ffmpeg(url: &str, title: &str, downloads_dir: &Path, ytdlp: &Path) -> Result<(), String> {
+    let ffmpeg = ffmpeg_executable_path()
+        .ok_or_else(|| "FFmpeg non trovato: impossibile convertire in MP3.".to_string())?;
+    let stamp = chrono::Local::now().timestamp_millis();
+    let prefix = format!("sonarpad_youtube_{}_{}", std::process::id(), stamp);
+    let temp_template = downloads_dir.join(format!("{prefix}.%(ext)s"));
+    append_podcast_log(&format!(
+        "ytdlp.save_mp3.download_begin url={} output_template={} ffmpeg={}",
+        url,
+        temp_template.display(),
+        ffmpeg.display()
+    ));
+    let output = Command::new(ytdlp)
+        .arg("--no-playlist")
+        .arg("--socket-timeout")
+        .arg("10")
+        .arg("--no-warnings")
+        .arg("-f")
+        .arg("bestaudio/best")
+        .arg("-o")
+        .arg(temp_template.to_string_lossy().to_string())
+        .arg("--")
+        .arg(url)
+        .output()
+        .map_err(|err| {
+            ytdlp_log_spawn_error("save_mp3_download", &err);
+            format!("yt-dlp non avviato: {err}")
+        })?;
+    ytdlp_log_output("save_mp3_download", output.status, &output.stdout, &output.stderr);
+    if !output.status.success() {
+        let details = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&output.stderr),
+            String::from_utf8_lossy(&output.stdout)
+        )
+        .trim()
+        .to_string();
+        return Err(if details.is_empty() {
+            "yt-dlp non ha completato il download audio.".to_string()
+        } else {
+            details
+        });
+    }
+    let downloaded_path = find_youtube_temp_download(downloads_dir, &prefix)?;
+    let output_path = youtube_unique_output_path(downloads_dir, title, "mp3");
+    append_podcast_log(&format!(
+        "ytdlp.save_mp3.ffmpeg_begin input={} output={}",
+        downloaded_path.display(),
+        output_path.display()
+    ));
+    let ffmpeg_output = Command::new(&ffmpeg)
+        .arg("-y")
+        .arg("-i")
+        .arg(downloaded_path.to_string_lossy().to_string())
+        .arg("-vn")
+        .arg("-codec:a")
+        .arg("libmp3lame")
+        .arg("-q:a")
+        .arg("2")
+        .arg(output_path.to_string_lossy().to_string())
+        .output()
+        .map_err(|err| format!("avvio FFmpeg fallito: {err}"))?;
+    ytdlp_log_output(
+        "save_mp3_ffmpeg",
+        ffmpeg_output.status,
+        &ffmpeg_output.stdout,
+        &ffmpeg_output.stderr,
+    );
+    if ffmpeg_output.status.success() {
+        if let Err(err) = std::fs::remove_file(&downloaded_path) {
+            append_podcast_log(&format!(
+                "ytdlp.save_mp3.cleanup_failed path={} err={}",
+                downloaded_path.display(),
+                err
+            ));
+        }
+        Ok(())
+    } else {
+        let details = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&ffmpeg_output.stderr),
+            String::from_utf8_lossy(&ffmpeg_output.stdout)
+        )
+        .trim()
+        .to_string();
+        Err(if details.is_empty() {
+            "FFmpeg non ha completato la conversione MP3.".to_string()
+        } else {
+            details
+        })
+    }
+}
+
+fn save_youtube_result(parent: &Dialog, url: &str, title: &str, format: &str, quality: &str) -> Result<(), String> {
     let ytdlp = ytdlp_executable_path();
-    let outtmpl = app_storage_path("downloads").join("%(title)s.%(ext)s");
+    let downloads_dir = app_storage_path("downloads");
+    let outtmpl = downloads_dir.join("%(title)s.%(ext)s");
     ytdlp_log_path_state("save", &ytdlp);
     append_podcast_log(&format!(
         "ytdlp.save.begin url={} format={} quality={} output_template={}",
@@ -9733,6 +9860,11 @@ fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) 
     if let Some(parent_dir) = outtmpl.parent() {
         std::fs::create_dir_all(parent_dir)
             .map_err(|err| format!("Impossibile creare la cartella download: {err}"))?;
+    }
+    if format == "mp3" {
+        save_youtube_mp3_with_ffmpeg(url, title, &downloads_dir, &ytdlp)?;
+        show_message_subdialog(parent, &current_ui_strings().youtube_title, if Settings::load().ui_language == "it" { "Salvataggio completato." } else { "Save completed." });
+        return Ok(());
     }
     let mut command = Command::new(&ytdlp);
     command
@@ -9750,22 +9882,10 @@ fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) 
     } else {
         append_podcast_log("ytdlp.save.ffmpeg missing");
     }
-    if format == "mp3" {
-        command.args(["-f", "bestaudio/best", "-x", "--audio-format", "mp3"]);
-    } else if quality == "best" {
-        command.args([
-            "--merge-output-format",
-            "mp4",
-            "-f",
-            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
-        ]);
+    if quality == "best" {
+        command.args(["-f", "best[ext=mp4]/best"]);
     } else {
-        command.args([
-            "--merge-output-format",
-            "mp4",
-            "-f",
-            "best[ext=mp4][height<=720]/best[height<=720]/best",
-        ]);
+        command.args(["-f", "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best"]);
     }
     let output = command
         .arg("--")
@@ -9904,7 +10024,7 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
         {
             let format = if format_choice_save.get_selection().unwrap_or(0) == 0 { "mp3" } else { "mp4" };
             let quality = if quality_choice_save.get_selection().unwrap_or(0) == 0 { "best" } else { "standard" };
-            if let Err(err) = save_youtube_result(&dialog_save, &result.url, format, quality) {
+            if let Err(err) = save_youtube_result(&dialog_save, &result.url, &result.title, format, quality) {
                 show_message_subdialog(&dialog_save, &current_ui_strings().youtube_title, &err);
             }
         }
