@@ -9474,9 +9474,18 @@ fn ytdlp_executable_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     {
         if let Ok(exe) = std::env::current_exe()
-            && let Some(contents_dir) = exe.parent().and_then(|dir| dir.parent()).and_then(|dir| dir.parent())
+            && let Some(contents_dir) = exe.parent().and_then(|dir| dir.parent())
         {
             let bundled = contents_dir.join("Resources").join("yt-dlp");
+            if bundled.exists() { return bundled; }
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(exe) = std::env::current_exe()
+            && let Some(exe_dir) = exe.parent()
+        {
+            let bundled = exe_dir.join("yt-dlp.exe");
             if bundled.exists() { return bundled; }
         }
     }
@@ -9530,6 +9539,23 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     }).collect())
 }
 
+fn resolve_youtube_playback_url(url: &str) -> Result<String, String> {
+    let ytdlp = ytdlp_executable_path();
+    let output = Command::new(&ytdlp)
+        .args(["-g", "-f", "bestaudio/best", url])
+        .output()
+        .map_err(|err| format!("yt-dlp non avviato: {err}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .ok_or_else(|| "yt-dlp non ha restituito un URL riproducibile.".to_string())
+}
+
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
 
 fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
@@ -9546,7 +9572,6 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
         command.current_dir(parent_dir);
     }
     command
-        .arg(url)
         .arg(format!("--config-dir={}", mpv_config_dir.display()))
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
         .arg("--force-window=yes")
@@ -9555,11 +9580,10 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
         .arg("--osc=yes")
         .arg("--input-default-bindings=yes")
         .arg("--volume-max=300")
-        .arg(format!(
-            "--script-opts=ytdl_hook-ytdl_path={}",
-            ytdlp.to_string_lossy()
-        ))
         .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
+    if ytdlp.exists() {
+        command.arg(format!("--script-opts=ytdl_hook-ytdl_path={}", ytdlp.display()));
+    }
     if allow_bookmarks {
         command
             .arg(format!(
@@ -9572,10 +9596,10 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     } else {
         command.arg("--resume-playback=no");
     }
-    command.arg(format!("--title=Sonarpad - {title}"));
+    command.arg(format!("--title=Sonarpad - {title}")).arg(url);
     let _child = command
         .spawn()
-        .map_err(|err| format!("avvio mpv YouTube fallito: {err}"))?;
+        .map_err(|err| format!("avvio mpv fallito: {err}"))?;
     Ok(())
 }
 
@@ -9712,16 +9736,21 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
-    let favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
-    favorite_row.add(&StaticText::builder(&panel).with_label(&ui.youtube_favorites_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
-    let favorite_choice = Choice::builder(&panel).build();
     let favorites = settings.lock().unwrap().youtube_favorites.clone();
-    for favorite in &favorites { favorite_choice.append(&favorite.title); }
-    if !favorites.is_empty() { favorite_choice.set_selection(0); }
-    favorite_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
-    favorite_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
-    root.add_sizer(&favorite_row, 0, SizerFlag::Expand, 0);
+    let favorite_controls = if favorites.is_empty() {
+        None
+    } else {
+        let favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
+        favorite_row.add(&StaticText::builder(&panel).with_label(&ui.youtube_favorites_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+        let favorite_choice = Choice::builder(&panel).build();
+        for favorite in &favorites { favorite_choice.append(&favorite.title); }
+        favorite_choice.set_selection(0);
+        favorite_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+        let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
+        favorite_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
+        root.add_sizer(&favorite_row, 0, SizerFlag::Expand, 0);
+        Some((favorite_choice, favorite_open_button))
+    };
     let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build();
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     buttons.add_spacer(1);
@@ -9744,20 +9773,22 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     search_button.on_click(move |_| perform_search_button());
     let perform_search_enter = Rc::clone(&perform_search);
     query_ctrl.on_text_enter(move |_| perform_search_enter());
-    let favorites_open = Rc::new(favorites);
-    let favorite_choice_open = favorite_choice;
-    let dialog_favorite_open = dialog;
-    let settings_favorite_open = Arc::clone(settings);
-    favorite_open_button.on_click(move |_| {
-        if let Some(sel) = favorite_choice_open.get_selection()
-            && let Some(favorite) = favorites_open.get(sel as usize)
-        {
-            match youtube_collection_entries(&favorite.url) {
-                Ok(entries) => open_youtube_results_dialog(&dialog_favorite_open, &settings_favorite_open, entries),
-                Err(err) => show_message_subdialog(&dialog_favorite_open, &current_ui_strings().youtube_title, &err),
+    if let Some((favorite_choice, favorite_open_button)) = favorite_controls {
+        let favorites_open = Rc::new(favorites);
+        let favorite_choice_open = favorite_choice;
+        let dialog_favorite_open = dialog;
+        let settings_favorite_open = Arc::clone(settings);
+        favorite_open_button.on_click(move |_| {
+            if let Some(sel) = favorite_choice_open.get_selection()
+                && let Some(favorite) = favorites_open.get(sel as usize)
+            {
+                match youtube_collection_entries(&favorite.url) {
+                    Ok(entries) => open_youtube_results_dialog(&dialog_favorite_open, &settings_favorite_open, entries),
+                    Err(err) => show_message_subdialog(&dialog_favorite_open, &current_ui_strings().youtube_title, &err),
+                }
             }
-        }
-    });
+        });
+    }
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
