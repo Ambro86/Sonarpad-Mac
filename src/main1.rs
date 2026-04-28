@@ -9530,53 +9530,26 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     }).collect())
 }
 
-const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
+fn resolve_youtube_playback_url(url: &str) -> Result<String, String> {
+    let ytdlp = ytdlp_executable_path();
+    let output = Command::new(&ytdlp)
+        .args(["-g", "-f", "bestaudio/best", url])
+        .output()
+        .map_err(|err| format!("yt-dlp non avviato: {err}"))?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(ToString::to_string)
+        .ok_or_else(|| "yt-dlp non ha restituito un URL riproducibile.".to_string())
+}
 
 fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
-    let mpv_executable =
-        podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
-    let ytdlp = ytdlp_executable_path();
-    let mut command = Command::new(&mpv_executable);
-    let mpv_input_conf = bundled_mpv_input_conf_path();
-    let allow_bookmarks = media_bookmarks_enabled();
-    let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
-    if let Some(parent_dir) = mpv_executable.parent()
-        && !parent_dir.as_os_str().is_empty()
-    {
-        command.current_dir(parent_dir);
-    }
-    command
-        .arg(url)
-        .arg(format!("--config-dir={}", mpv_config_dir.display()))
-        .arg(format!("--input-conf={}", mpv_input_conf.display()))
-        .arg("--force-window=yes")
-        .arg("--idle=no")
-        .arg("--no-terminal")
-        .arg("--osc=yes")
-        .arg("--input-default-bindings=yes")
-        .arg("--volume-max=300")
-        .arg(format!(
-            "--script-opts=ytdl_hook-ytdl_path={}",
-            ytdlp.to_string_lossy()
-        ))
-        .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
-    if allow_bookmarks {
-        command
-            .arg(format!(
-                "--watch-later-dir={}",
-                mpv_watch_later_dir().display()
-            ))
-            .arg("--save-position-on-quit")
-            .arg("--resume-playback=yes")
-            .arg("--watch-later-options=start");
-    } else {
-        command.arg("--resume-playback=no");
-    }
-    command.arg(format!("--title=Sonarpad - {title}"));
-    let _child = command
-        .spawn()
-        .map_err(|err| format!("avvio mpv YouTube fallito: {err}"))?;
-    Ok(())
+    let playback_url = resolve_youtube_playback_url(url)?;
+    open_stream_with_mpv(&playback_url, title, None, true)
 }
 
 fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) -> Result<(), String> {
