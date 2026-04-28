@@ -274,7 +274,7 @@ struct Settings {
     rai_luce_code: String,
     #[serde(default)]
     auto_media_bookmark: bool,
-    #[serde(default)]
+    #[serde(default = "default_auto_check_updates")]
     auto_check_updates: bool,
     #[serde(default = "default_audiobook_format")]
     last_audiobook_format: String,
@@ -308,7 +308,7 @@ impl Settings {
             radio_favorites: Vec::new(),
             rai_luce_code: String::new(),
             auto_media_bookmark: false,
-            auto_check_updates: false,
+            auto_check_updates: default_auto_check_updates(),
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
@@ -360,6 +360,10 @@ fn default_audiobook_format() -> String {
 
 fn default_text_save_format() -> String {
     "txt".to_string()
+}
+
+fn default_auto_check_updates() -> bool {
+    true
 }
 
 #[cfg(target_os = "macos")]
@@ -1277,6 +1281,33 @@ fn changelog_message() -> String {
             "Sonarpad Per Mac {}
 
 \
+Versione 0.2.7 - 28 aprile 2026
+\
+- Corretto il problema per cui la virgola, digitata in un campo di testo, apriva erroneamente le impostazioni.
+\
+- Migliorata la rapidità di lettura: ora anche gli articoli lunghi vengono letti più velocemente ed è stata rimossa la pausa dopo i paragrafi.
+\
+- Aggiunta la possibilità di aprire con Sonarpad anche file JPG e formati simili, così da poter eseguire l'OCR anche sugli articoli inviati come immagini o fotografie.
+\
+- Aggiunta la possibilità di impostare Sonarpad come programma predefinito.
+\
+- Da ora Sonarpad può aprire non solo file di testo, ma anche file audio e video, utilizzando il player MPV.
+\
+- Aggiunta nelle opzioni la funzione di segnalibro automatico: se si chiude un file, un podcast o un qualsiasi contenuto multimediale, questo verrà riaperto dall'esatta posizione in cui era stato lasciato.
+\
+- Da ora le radio non vengono più aperte in Safari, ma vengono riprodotte direttamente tramite il player di Sonarpad.
+\
+- Inseriti i moduli aggiuntivi di RaiPlay, Rai Audiodescrizioni, RaiPlay Sound e canali TV. Per utilizzarli sarà necessario richiedere un codice all'autore.
+\
+- Per ottenere il codice, seguire la procedura indicata dal programma e inviare la mail generata, assicurandosi che sia effettivamente presente nella posta inviata. Se la procedura viene eseguita correttamente, il codice verrà ricevuto entro circa un minuto.
+\
+- Il codice va inserito aprendo le impostazioni con Command + , e spostandosi con VO + freccia destra fino al campo Codice Sonarpad per funzionalità aggiuntive.
+\
+- Nota: se aprendo una funzionalità aggiuntiva, ad esempio RaiPlay, compare un errore, significa probabilmente che il codice non è stato copiato integralmente.
+\
+- Nei moduli Rai sono state aggiunte la ricerca e la consultazione dei contenuti, che vengono riprodotti tramite il player di Sonarpad.
+
+\
 Versione 0.2.6
 \
 - Corretto un bug di wx/macOS per cui all'avvio poteva comparire un errore e sono stati stabilizzati i menu collegati.
@@ -1354,6 +1385,23 @@ Versione 0.2.0
     } else {
         format!(
             "Sonarpad Per Mac {}
+
+\
+Version 0.2.7 - April 28, 2026
+\
+- Fixed an issue where typing a comma in a text field incorrectly opened the settings.
+\
+- Improved reading speed: long articles are now read faster, and the pause after paragraphs has been removed.
+\
+- Added the ability to open JPG files and similar formats with Sonarpad, allowing OCR to be performed on articles sent as images or photos.
+\
+- Added the ability to set Sonarpad as the default program.
+\
+- Sonarpad can now open not only text files, but also audio and video files, using the MPV player.
+\
+- Added an automatic bookmark option: when closing any file, podcast, or media content, Sonarpad will reopen it from the exact position where it was left.
+\
+- Radio stations are no longer opened in Safari; they are now played directly through Sonarpad's player.
 
 \
 Version 0.2.6
@@ -10085,7 +10133,7 @@ fn run_ffmpeg_save(parent: &Dialog, args: &[&str], output_path: &Path) -> Result
 
     let progress =
         ProgressDialog::builder(parent, &ui.rai_save_content, &ui.rai_save_in_progress, 100)
-            .with_style(ProgressDialogStyle::Smooth)
+            .with_style(ProgressDialogStyle::AutoHide | ProgressDialogStyle::Smooth)
             .build();
 
     let mut progress_value = 0;
