@@ -1297,6 +1297,10 @@ Versione 0.2.7 - 28 aprile 2026
 \
 - Da ora le radio non vengono più aperte in Safari, ma vengono riprodotte direttamente tramite il player di Sonarpad.
 \
+- Da questa versione l'app è firmata e non richiede più alcuna autorizzazione da parte dell'utente, rendendo l'installazione più semplice.
+\
+- Inserito un aggiornamento automatico del programma che controlla, scarica e aggiorna automaticamente Sonarpad.
+\
 - Inseriti i moduli aggiuntivi di RaiPlay, Rai Audiodescrizioni, RaiPlay Sound e canali TV. Per utilizzarli sarà necessario richiedere un codice all'autore.
 \
 - Per ottenere il codice, seguire la procedura indicata dal programma e inviare la mail generata, assicurandosi che sia effettivamente presente nella posta inviata. Se la procedura viene eseguita correttamente, il codice verrà ricevuto entro circa un minuto.
@@ -1402,6 +1406,10 @@ Version 0.2.7 - April 28, 2026
 - Added an automatic bookmark option: when closing any file, podcast, or media content, Sonarpad will reopen it from the exact position where it was left.
 \
 - Radio stations are no longer opened in Safari; they are now played directly through Sonarpad's player.
+\
+- Starting with this version, the app is signed and no longer requires any user authorization, making installation simpler.
+\
+- Added automatic program updates: Sonarpad now checks, downloads, and updates itself automatically.
 
 \
 Version 0.2.6
@@ -4410,6 +4418,45 @@ fn prepare_macos_update_install(
 }
 
 #[cfg(target_os = "macos")]
+fn prepare_macos_update_install_with_progress(
+    parent: &Frame,
+    asset: GithubReleaseAsset,
+) -> Result<PendingMacUpdateInstall, String> {
+    let ui = current_ui_strings();
+    let message = if Settings::load().ui_language == "it" {
+        "Scaricamento aggiornamento in corso..."
+    } else {
+        "Downloading update..."
+    };
+    let progress = ProgressDialog::builder(parent, &ui.updates_title, message, 100)
+        .with_style(ProgressDialogStyle::AutoHide | ProgressDialogStyle::Smooth)
+        .build();
+    let result_state = Arc::new(Mutex::new(None::<Result<PendingMacUpdateInstall, String>>));
+    let result_state_thread = Arc::clone(&result_state);
+
+    std::thread::spawn(move || {
+        let result = prepare_macos_update_install(&asset);
+        *result_state_thread.lock().unwrap() = Some(result);
+    });
+
+    let mut progress_value = 0;
+    loop {
+        std::thread::sleep(Duration::from_millis(150));
+        if let Some(result) = result_state.lock().unwrap().take() {
+            progress.update(100, Some(message));
+            progress.destroy();
+            return result;
+        }
+
+        progress_value += 2;
+        if progress_value >= 95 {
+            progress_value = 10;
+        }
+        progress.update(progress_value, Some(message));
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn launch_pending_macos_update_install(
     pending_update: &Arc<Mutex<Option<PendingMacUpdateInstall>>>,
 ) -> Result<(), String> {
@@ -4471,6 +4518,7 @@ fn check_for_updates(
         #[cfg(target_os = "macos")]
         pending_update,
         fetch_latest_release_info(),
+        true,
     );
 }
 
@@ -4478,6 +4526,7 @@ fn handle_update_check_result(
     parent: &Frame,
     #[cfg(target_os = "macos")] pending_update: &Arc<Mutex<Option<PendingMacUpdateInstall>>>,
     result: Result<GithubReleaseInfo, String>,
+    manual: bool,
 ) {
     let ui = current_ui_strings();
     let current_version = env!("CARGO_PKG_VERSION");
@@ -4510,8 +4559,9 @@ fn handle_update_check_result(
                                     expected_macos_release_zip_name()
                                 )
                             })
-                            .and_then(|asset| prepare_macos_update_install(&asset))
-                        {
+                            .and_then(|asset| {
+                                prepare_macos_update_install_with_progress(parent, asset)
+                            }) {
                             Ok(prepared_update) => {
                                 *pending_update.lock().unwrap() = Some(prepared_update);
                                 let install_message = if Settings::load().ui_language == "it" {
@@ -4568,39 +4618,43 @@ fn handle_update_check_result(
                     }
                 }
             } else {
+                if manual {
+                    show_message_dialog(
+                        parent,
+                        &ui.updates_title,
+                        &if Settings::load().ui_language == "it" {
+                            format!(
+                                "Hai già l'ultima versione installata.\n\nVersione attuale: {}\nUltima versione: {}",
+                                current_version, latest_version
+                            )
+                        } else {
+                            format!(
+                                "You already have the latest version installed.\n\nCurrent version: {}\nLatest version: {}",
+                                current_version, latest_version
+                            )
+                        },
+                    );
+                }
+            }
+        }
+        Err(err) => {
+            if manual {
                 show_message_dialog(
                     parent,
                     &ui.updates_title,
                     &if Settings::load().ui_language == "it" {
                         format!(
-                            "Hai già l'ultima versione installata.\n\nVersione attuale: {}\nUltima versione: {}",
-                            current_version, latest_version
+                            "Controllo aggiornamenti non riuscito.\n\nVersione attuale: {}\nErrore: {}",
+                            current_version, err
                         )
                     } else {
                         format!(
-                            "You already have the latest version installed.\n\nCurrent version: {}\nLatest version: {}",
-                            current_version, latest_version
+                            "Update check failed.\n\nCurrent version: {}\nError: {}",
+                            current_version, err
                         )
                     },
                 );
             }
-        }
-        Err(err) => {
-            show_message_dialog(
-                parent,
-                &ui.updates_title,
-                &if Settings::load().ui_language == "it" {
-                    format!(
-                        "Controllo aggiornamenti non riuscito.\n\nVersione attuale: {}\nErrore: {}",
-                        current_version, err
-                    )
-                } else {
-                    format!(
-                        "Update check failed.\n\nCurrent version: {}\nError: {}",
-                        current_version, err
-                    )
-                },
-            );
         }
     }
 }
@@ -10735,6 +10789,7 @@ fn main() {
                     #[cfg(target_os = "macos")]
                     &pending_mac_update_timer,
                     result,
+                    false,
                 );
             }
 
