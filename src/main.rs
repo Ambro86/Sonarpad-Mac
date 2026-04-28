@@ -1237,6 +1237,10 @@ Versione 0.2.8 - 29 aprile 2026
 - Per le radio e stato aggiunto un pulsante per andare direttamente alla pagina selezionata nei risultati, senza dover usare ogni volta Vai alla pagina successiva.
 \
 - Esteso il segnalibro automatico anche ai file di testo.
+\
+- Corretto un problema per cui a volte le audiodescrizioni non venivano salvate per problemi di timeout.
+\
+- Aggiunta la possibilita di impostare delle TV preferite.
 
 \
 Versione 0.2.7 - 28 aprile 2026
@@ -9517,12 +9521,68 @@ fn ytdlp_executable_path() -> PathBuf {
     if cfg!(windows) { PathBuf::from("yt-dlp.exe") } else { PathBuf::from("yt-dlp") }
 }
 
+fn ytdlp_runtime_label() -> &'static str {
+    if cfg!(target_os = "macos") {
+        if cfg!(target_arch = "x86_64") {
+            "macos-x86_64"
+        } else if cfg!(target_arch = "aarch64") {
+            "macos-aarch64"
+        } else {
+            "macos-other"
+        }
+    } else if cfg!(windows) {
+        "windows"
+    } else {
+        "other"
+    }
+}
+
+fn ytdlp_log_path_state(context: &str, ytdlp: &Path) {
+    let metadata = std::fs::metadata(ytdlp);
+    let state = match metadata {
+        Ok(metadata) => format!(
+            "exists=true is_file={} len={}",
+            metadata.is_file(),
+            metadata.len()
+        ),
+        Err(err) => format!("exists=false metadata_error={err}"),
+    };
+    append_podcast_log(&format!(
+        "ytdlp.{context}.path runtime={} path={} {}",
+        ytdlp_runtime_label(),
+        ytdlp.display(),
+        state
+    ));
+}
+
+fn ytdlp_log_output(context: &str, status: std::process::ExitStatus, stdout: &[u8], stderr: &[u8]) {
+    let stdout = String::from_utf8_lossy(stdout);
+    let stderr = String::from_utf8_lossy(stderr);
+    append_podcast_log(&format!(
+        "ytdlp.{context}.done success={} code={:?} stdout={} stderr={}",
+        status.success(),
+        status.code(),
+        stdout.trim().chars().take(2000).collect::<String>(),
+        stderr.trim().chars().take(4000).collect::<String>()
+    ));
+}
+
+fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
+    append_podcast_log(&format!("ytdlp.{context}.spawn_error {err}"));
+}
+
 fn youtube_search(query: &str) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
+    ytdlp_log_path_state("search", &ytdlp);
+    append_podcast_log(&format!("ytdlp.search.begin query_len={}", query.chars().count()));
     let output = Command::new(&ytdlp)
         .args(["--flat-playlist", "--dump-single-json", "--playlist-end", "30", &format!("ytsearch30:{query}")])
         .output()
-        .map_err(|err| format!("yt-dlp non avviato: {err}"))?;
+        .map_err(|err| {
+            ytdlp_log_spawn_error("search", &err);
+            format!("yt-dlp non avviato: {err}")
+        })?;
+    ytdlp_log_output("search", output.status, &output.stdout, &output.stderr);
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -9543,10 +9603,16 @@ fn youtube_search(query: &str) -> Result<Vec<YoutubeSearchResult>, String> {
 
 fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
+    ytdlp_log_path_state("collection", &ytdlp);
+    append_podcast_log(&format!("ytdlp.collection.begin url={url}"));
     let output = Command::new(&ytdlp)
         .args(["--flat-playlist", "--dump-single-json", "--playlist-end", "50", url])
         .output()
-        .map_err(|err| format!("yt-dlp non avviato: {err}"))?;
+        .map_err(|err| {
+            ytdlp_log_spawn_error("collection", &err);
+            format!("yt-dlp non avviato: {err}")
+        })?;
+    ytdlp_log_output("collection", output.status, &output.stdout, &output.stderr);
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
@@ -9577,6 +9643,8 @@ fn youtube_members_only_message() -> &'static str {
 }
 
 fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), String> {
+    ytdlp_log_path_state("probe", ytdlp_path);
+    append_podcast_log(&format!("ytdlp.probe.begin url={url}"));
     let output = Command::new(ytdlp_path)
         .arg("--no-playlist")
         .arg("--no-warnings")
@@ -9588,7 +9656,11 @@ fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), Str
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| {
+            ytdlp_log_spawn_error("probe", &err);
+            err.to_string()
+        })?;
+    ytdlp_log_output("probe", output.status, &output.stdout, &output.stderr);
     if output.status.success() {
         return Ok(());
     }
@@ -9650,6 +9722,14 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
 fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) -> Result<(), String> {
     let ytdlp = ytdlp_executable_path();
     let outtmpl = app_storage_path("downloads").join("%(title)s.%(ext)s");
+    ytdlp_log_path_state("save", &ytdlp);
+    append_podcast_log(&format!(
+        "ytdlp.save.begin url={} format={} quality={} output_template={}",
+        url,
+        format,
+        quality,
+        outtmpl.display()
+    ));
     if let Some(parent_dir) = outtmpl.parent() {
         std::fs::create_dir_all(parent_dir)
             .map_err(|err| format!("Impossibile creare la cartella download: {err}"))?;
@@ -9662,13 +9742,13 @@ fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) 
         .arg("--no-warnings")
         .arg("-o")
         .arg(outtmpl.to_string_lossy().to_string());
-    if let Some(ffmpeg_path) = ffmpeg_executable_path()
-        && let Some(ffmpeg_dir) = ffmpeg_path.parent()
-        && !ffmpeg_dir.as_os_str().is_empty()
-    {
+    if let Some(ffmpeg_path) = ffmpeg_executable_path() {
+        append_podcast_log(&format!("ytdlp.save.ffmpeg path={}", ffmpeg_path.display()));
         command
             .arg("--ffmpeg-location")
-            .arg(ffmpeg_dir.to_string_lossy().to_string());
+            .arg(ffmpeg_path.to_string_lossy().to_string());
+    } else {
+        append_podcast_log("ytdlp.save.ffmpeg missing");
     }
     if format == "mp3" {
         command.args(["-f", "bestaudio/best", "-x", "--audio-format", "mp3"]);
@@ -9691,7 +9771,11 @@ fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) 
         .arg("--")
         .arg(url)
         .output()
-        .map_err(|err| format!("yt-dlp non avviato: {err}"))?;
+        .map_err(|err| {
+            ytdlp_log_spawn_error("save", &err);
+            format!("yt-dlp non avviato: {err}")
+        })?;
+    ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
     if output.status.success() {
         show_message_subdialog(parent, &current_ui_strings().youtube_title, if Settings::load().ui_language == "it" { "Salvataggio completato." } else { "Save completed." });
         Ok(())
@@ -10005,23 +10089,34 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     fav_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
     fav_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
+    let favorite_remove_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" { "Rimuovi" } else { "Remove" })
+        .build();
+    fav_row.add(&favorite_remove_button, 0, SizerFlag::All, 5);
     root.add_sizer(&fav_row, 0, SizerFlag::Expand, 0);
     let refresh_tv_favorites = Rc::new({
         let favorites = Rc::clone(&favorites);
-        move |choice: &Choice, open_button: &Button, selected_index: Option<usize>| {
+        move |choice: &Choice, open_button: &Button, remove_button: &Button, selected_index: Option<usize>| {
             choice.clear();
             let favorites = favorites.borrow();
             for favorite in favorites.iter() {
                 choice.append(&favorite.name);
             }
-            open_button.enable(!favorites.is_empty());
+            let has_favorites = !favorites.is_empty();
+            open_button.enable(has_favorites);
+            remove_button.enable(has_favorites);
             if !favorites.is_empty() {
                 let max_index = favorites.len().saturating_sub(1);
                 choice.set_selection(selected_index.unwrap_or(0).min(max_index) as u32);
             }
         }
     });
-    refresh_tv_favorites(&favorite_choice, &favorite_open_button, Some(0));
+    refresh_tv_favorites(
+        &favorite_choice,
+        &favorite_open_button,
+        &favorite_remove_button,
+        Some(0),
+    );
 
     let favorites_open = Rc::clone(&favorites);
     let favorite_choice_open = favorite_choice;
@@ -10036,6 +10131,40 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             };
             if let Err(err) = open_tv_stream_with_mpv(&channel) {
                 show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
+            }
+        }
+    });
+    let favorites_remove = Rc::clone(&favorites);
+    let favorite_choice_remove = favorite_choice;
+    let favorite_open_button_remove = favorite_open_button;
+    let favorite_remove_button_remove = favorite_remove_button;
+    let refresh_tv_favorites_remove = Rc::clone(&refresh_tv_favorites);
+    let dialog_favorite_remove = dialog;
+    favorite_remove_button.on_click(move |_| {
+        if let Some(sel) = favorite_choice_remove.get_selection() {
+            let index = sel as usize;
+            let mut settings = Settings::load();
+            if index < settings.tv_favorites.len() {
+                settings.tv_favorites.remove(index);
+                normalize_settings_data(&mut settings);
+                settings.save();
+                *favorites_remove.borrow_mut() = settings.tv_favorites.clone();
+                let next_index = if settings.tv_favorites.is_empty() {
+                    None
+                } else {
+                    Some(index.min(settings.tv_favorites.len().saturating_sub(1)))
+                };
+                refresh_tv_favorites_remove(
+                    &favorite_choice_remove,
+                    &favorite_open_button_remove,
+                    &favorite_remove_button_remove,
+                    next_index,
+                );
+                show_message_subdialog(
+                    &dialog_favorite_remove,
+                    &current_ui_strings().tv_label,
+                    if Settings::load().ui_language == "it" { "TV rimossa dai preferiti." } else { "TV removed from favorites." },
+                );
             }
         }
     });
@@ -10077,6 +10206,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let dialog_favorite = dialog;
     let favorite_choice_refresh = favorite_choice;
     let favorite_open_button_refresh = favorite_open_button;
+    let favorite_remove_button_refresh = favorite_remove_button;
     let favorites_refresh = Rc::clone(&favorites);
     let refresh_tv_favorites_button = Rc::clone(&refresh_tv_favorites);
     favorite_button.on_click(move |_| {
@@ -10099,6 +10229,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 refresh_tv_favorites_button(
                     &favorite_choice_refresh,
                     &favorite_open_button_refresh,
+                    &favorite_remove_button_refresh,
                     selected_index,
                 );
                 show_message_subdialog(
