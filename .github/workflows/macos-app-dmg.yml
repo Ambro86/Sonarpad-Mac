@@ -445,6 +445,7 @@ jobs:
           FFMPEG_LIB_DIR="${APP_DIR}/Contents/Resources/ffmpeg/lib"
           MPV_APP_DIR="${APP_DIR}/Contents/Resources/mpv.app"
           MPV_BIN="${MPV_APP_DIR}/Contents/MacOS/mpv"
+          YTDLP_BIN="${APP_DIR}/Contents/Resources/yt-dlp"
 
           if [ -f "${FFMPEG_BIN}" ]; then
             codesign --force --options runtime --timestamp \
@@ -475,6 +476,15 @@ jobs:
             codesign --force --deep --options runtime --timestamp \
               --sign "Developer ID Application" \
               "${MPV_APP_DIR}"
+          fi
+
+          if [ -f "${YTDLP_BIN}" ]; then
+            chmod +x "${YTDLP_BIN}"
+            xattr -cr "${YTDLP_BIN}" || true
+            codesign --force --options runtime --timestamp \
+              --sign "Developer ID Application" \
+              "${YTDLP_BIN}"
+            codesign --verify --strict --verbose=4 "${YTDLP_BIN}"
           fi
 
           codesign --force --deep --options runtime --timestamp \
