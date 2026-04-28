@@ -1224,6 +1224,21 @@ fn changelog_message() -> String {
             "Sonarpad Per Mac {}
 
 \
+Versione 0.2.8 - 29 aprile 2026
+\
+- Aggiunto il menu Strumenti con due nuove voci: Cerca e importa da Wikipedia e Riproduci audio da streaming.
+\
+- Cerca e importa da Wikipedia permette di cercare e importare articoli, leggerli e salvarli come audiolibri.
+\
+- Riproduci audio da streaming permette di riprodurre contenuti in streaming, ad esempio da YouTube.
+\
+- Nella casella di ricerca dello streaming si puo digitare qualunque contenuto: il programma lo cerchera e potra aprire anche canali e playlist.
+\
+- Per le radio e stato aggiunto un pulsante per andare direttamente alla pagina selezionata nei risultati, senza dover usare ogni volta Vai alla pagina successiva.
+\
+- Esteso il segnalibro automatico anche ai file di testo.
+
+\
 Versione 0.2.7 - 28 aprile 2026
 \
 - Migliorato il supporto per i file con diacritici e con codifiche diverse da UTF-8 (incluso il supporto per caratteri cinesi e altre lingue internazionali).
@@ -1334,6 +1349,21 @@ Versione 0.2.0
     } else {
         format!(
             "Sonarpad Per Mac {}
+
+\
+Version 0.2.8 - April 29, 2026
+\
+- Added the Tools menu with two new items: Search and import from Wikipedia and Play streaming audio.
+\
+- Search and import from Wikipedia lets you search for and import articles, read them, and save them as audiobooks.
+\
+- Play streaming audio can play streaming content, such as YouTube.
+\
+- In the streaming search box, you can type any content: the program will search for it and can also open channels and playlists.
+\
+- For radio results, added a button to go directly to the selected results page without repeatedly using Go to next page.
+\
+- Extended the automatic bookmark feature to text files as well.
 
 \
 Version 0.2.7 - April 28, 2026
@@ -9620,22 +9650,60 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
 fn save_youtube_result(parent: &Dialog, url: &str, format: &str, quality: &str) -> Result<(), String> {
     let ytdlp = ytdlp_executable_path();
     let outtmpl = app_storage_path("downloads").join("%(title)s.%(ext)s");
-    if let Some(parent_dir) = outtmpl.parent() { let _ = std::fs::create_dir_all(parent_dir); }
-    let mut command = Command::new(&ytdlp);
-    command.arg("-o").arg(outtmpl.to_string_lossy().to_string());
-    if format == "mp3" {
-        command.args(["-x", "--audio-format", "mp3"]);
-    } else if quality == "best" {
-        command.args(["-f", "bestvideo+bestaudio/best"]);
-    } else {
-        command.args(["-f", "best"]);
+    if let Some(parent_dir) = outtmpl.parent() {
+        std::fs::create_dir_all(parent_dir)
+            .map_err(|err| format!("Impossibile creare la cartella download: {err}"))?;
     }
-    let status = command.arg(url).status().map_err(|err| err.to_string())?;
-    if status.success() {
+    let mut command = Command::new(&ytdlp);
+    command
+        .arg("--no-playlist")
+        .arg("--socket-timeout")
+        .arg("10")
+        .arg("--no-warnings")
+        .arg("-o")
+        .arg(outtmpl.to_string_lossy().to_string());
+    if let Some(ffmpeg_path) = ffmpeg_executable_path()
+        && let Some(ffmpeg_dir) = ffmpeg_path.parent()
+        && !ffmpeg_dir.as_os_str().is_empty()
+    {
+        command
+            .arg("--ffmpeg-location")
+            .arg(ffmpeg_dir.to_string_lossy().to_string());
+    }
+    if format == "mp3" {
+        command.args(["-f", "bestaudio/best", "-x", "--audio-format", "mp3"]);
+    } else if quality == "best" {
+        command.args([
+            "--merge-output-format",
+            "mp4",
+            "-f",
+            "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+        ]);
+    } else {
+        command.args([
+            "--merge-output-format",
+            "mp4",
+            "-f",
+            "best[ext=mp4][height<=720]/best[height<=720]/best",
+        ]);
+    }
+    let output = command
+        .arg("--")
+        .arg(url)
+        .output()
+        .map_err(|err| format!("yt-dlp non avviato: {err}"))?;
+    if output.status.success() {
         show_message_subdialog(parent, &current_ui_strings().youtube_title, if Settings::load().ui_language == "it" { "Salvataggio completato." } else { "Save completed." });
         Ok(())
     } else {
-        Err("yt-dlp non ha completato il salvataggio.".to_string())
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let details = format!("{stderr}\n{stdout}").trim().to_string();
+        if details.is_empty() {
+            Err("yt-dlp non ha completato il salvataggio.".to_string())
+        } else {
+            Err(details)
+        }
     }
 }
 
@@ -9680,10 +9748,12 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
     dialog.set_escape_id(ID_CANCEL);
     let results = Rc::new(results);
     let youtube_pending_result = Arc::new(Mutex::new(None::<Result<Vec<YoutubeSearchResult>, String>>));
+    let youtube_pending_playback = Arc::new(Mutex::new(None::<Result<(), String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
     let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
+    let youtube_pending_playback_timer = Arc::clone(&youtube_pending_playback);
     let youtube_busy_timer = Arc::clone(&youtube_busy);
     let settings_timer = Arc::clone(settings);
     let dialog_timer = dialog;
@@ -9700,29 +9770,42 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
                 ),
             }
         }
+        let playback_result = youtube_pending_playback_timer.lock().unwrap().take();
+        if let Some(playback_result) = playback_result {
+            youtube_busy_timer.store(false, Ordering::SeqCst);
+            if let Err(err) = playback_result {
+                show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err);
+            }
+        }
     });
     youtube_result_timer.start(100, false);
     let choice_open = choice;
     let results_open = Rc::clone(&results);
-    let dialog_open = dialog;
     let youtube_pending_result_open = Arc::clone(&youtube_pending_result);
+    let youtube_pending_playback_open = Arc::clone(&youtube_pending_playback);
     let youtube_busy_open = Arc::clone(&youtube_busy);
     open_button.on_click(move |_| {
         if let Some(sel) = choice_open.get_selection()
             && let Some(result) = results_open.get(sel as usize)
         {
+            if youtube_busy_open.swap(true, Ordering::SeqCst) {
+                return;
+            }
             if result.is_collection {
-                if youtube_busy_open.swap(true, Ordering::SeqCst) {
-                    return;
-                }
                 let url = result.url.clone();
                 let pending = Arc::clone(&youtube_pending_result_open);
                 std::thread::spawn(move || {
                     let result = youtube_collection_entries(&url);
                     *pending.lock().unwrap() = Some(result);
                 });
-            } else if let Err(err) = open_youtube_with_mpv(&result.url, &result.title) {
-                show_message_subdialog(&dialog_open, &current_ui_strings().youtube_title, &err);
+            } else {
+                let url = result.url.clone();
+                let title = result.title.clone();
+                let pending = Arc::clone(&youtube_pending_playback_open);
+                std::thread::spawn(move || {
+                    let result = open_youtube_with_mpv(&url, &title);
+                    *pending.lock().unwrap() = Some(result);
+                });
             }
         }
     });
@@ -9782,6 +9865,7 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let query_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
     search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_button.set_default();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
     let favorites = settings.lock().unwrap().youtube_favorites.clone();
@@ -9909,42 +9993,52 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
-    let favorites = Settings::load().tv_favorites;
-    if !favorites.is_empty() {
-        let fav_row = BoxSizer::builder(Orientation::Horizontal).build();
-        fav_row.add(
-            &StaticText::builder(&panel).with_label(&ui.tv_favorites_label).build(),
-            0,
-            SizerFlag::AlignCenterVertical | SizerFlag::All,
-            5,
-        );
-        let favorite_choice = Choice::builder(&panel).build();
-        for favorite in &favorites {
-            favorite_choice.append(&favorite.name);
-        }
-        favorite_choice.set_selection(0);
-        fav_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-        let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
-        fav_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
-        root.add_sizer(&fav_row, 0, SizerFlag::Expand, 0);
-
-        let favorites_open = Rc::new(favorites.clone());
-        let favorite_choice_open = favorite_choice;
-        let dialog_favorite_open = dialog;
-        favorite_open_button.on_click(move |_| {
-            if let Some(sel) = favorite_choice_open.get_selection()
-                && let Some(favorite) = favorites_open.get(sel as usize)
-            {
-                let channel = tv::TvChannel {
-                    name: favorite.name.clone(),
-                    url: favorite.url.clone(),
-                };
-                if let Err(err) = open_tv_stream_with_mpv(&channel) {
-                    show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
-                }
+    let favorites = Rc::new(RefCell::new(Settings::load().tv_favorites));
+    let fav_row = BoxSizer::builder(Orientation::Horizontal).build();
+    fav_row.add(
+        &StaticText::builder(&panel).with_label(&ui.tv_favorites_label).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let favorite_choice = Choice::builder(&panel).build();
+    fav_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
+    fav_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&fav_row, 0, SizerFlag::Expand, 0);
+    let refresh_tv_favorites = Rc::new({
+        let favorites = Rc::clone(&favorites);
+        move |choice: &Choice, open_button: &Button, selected_index: Option<usize>| {
+            choice.clear();
+            let favorites = favorites.borrow();
+            for favorite in favorites.iter() {
+                choice.append(&favorite.name);
             }
-        });
-    }
+            open_button.enable(!favorites.is_empty());
+            if !favorites.is_empty() {
+                let max_index = favorites.len().saturating_sub(1);
+                choice.set_selection(selected_index.unwrap_or(0).min(max_index) as u32);
+            }
+        }
+    });
+    refresh_tv_favorites(&favorite_choice, &favorite_open_button, Some(0));
+
+    let favorites_open = Rc::clone(&favorites);
+    let favorite_choice_open = favorite_choice;
+    let dialog_favorite_open = dialog;
+    favorite_open_button.on_click(move |_| {
+        if let Some(sel) = favorite_choice_open.get_selection()
+            && let Some(favorite) = favorites_open.borrow().get(sel as usize)
+        {
+            let channel = tv::TvChannel {
+                name: favorite.name.clone(),
+                url: favorite.url.clone(),
+            };
+            if let Err(err) = open_tv_stream_with_mpv(&channel) {
+                show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
+            }
+        }
+    });
 
     let choice = Choice::builder(&panel).build();
     for channel in &channels {
@@ -9981,6 +10075,10 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let choice_favorite = choice;
     let channels_favorite = Rc::clone(&channels);
     let dialog_favorite = dialog;
+    let favorite_choice_refresh = favorite_choice;
+    let favorite_open_button_refresh = favorite_open_button;
+    let favorites_refresh = Rc::clone(&favorites);
+    let refresh_tv_favorites_button = Rc::clone(&refresh_tv_favorites);
     favorite_button.on_click(move |_| {
         if let Some(sel) = choice_favorite.get_selection()
             && let Some(channel) = channels_favorite.get(sel as usize)
@@ -9993,6 +10091,16 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 });
                 normalize_settings_data(&mut settings);
                 settings.save();
+                *favorites_refresh.borrow_mut() = settings.tv_favorites.clone();
+                let selected_index = favorites_refresh
+                    .borrow()
+                    .iter()
+                    .position(|favorite| favorite.url == channel.url);
+                refresh_tv_favorites_button(
+                    &favorite_choice_refresh,
+                    &favorite_open_button_refresh,
+                    selected_index,
+                );
                 show_message_subdialog(
                     &dialog_favorite,
                     &current_ui_strings().tv_label,
