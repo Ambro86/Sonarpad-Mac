@@ -28,7 +28,7 @@ use std::io::{BufReader, Cursor};
 #[cfg(any(target_os = "macos", windows))]
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -9487,13 +9487,8 @@ fn ytdlp_executable_path() -> PathBuf {
     if cfg!(windows) { PathBuf::from("yt-dlp.exe") } else { PathBuf::from("yt-dlp") }
 }
 
-fn run_ytdlp_update(ytdlp: &Path) {
-    let _ = Command::new(ytdlp).arg("-U").output();
-}
-
 fn youtube_search(query: &str) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
-    run_ytdlp_update(&ytdlp);
     let output = Command::new(&ytdlp)
         .args(["--flat-playlist", "--dump-single-json", "--playlist-end", "30", &format!("ytsearch30:{query}")])
         .output()
@@ -9536,10 +9531,51 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
 
+fn is_members_only_youtube_error(err: &str) -> bool {
+    let err_lc = err.to_ascii_lowercase();
+    err_lc.contains("members-only")
+        || err_lc.contains("members only")
+        || err_lc.contains("join this channel to get access to members-only content")
+}
+
+fn youtube_members_only_message() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Questo video e riservato ai membri del canale. Scegli un altro contenuto."
+    } else {
+        "This video is reserved for channel members. Choose another content item."
+    }
+}
+
+fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), String> {
+    let output = Command::new(ytdlp_path)
+        .arg("--no-playlist")
+        .arg("--no-warnings")
+        .arg("--skip-download")
+        .arg("--print")
+        .arg("id")
+        .arg("--")
+        .arg(url)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| err.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(format!("{stderr}\n{stdout}").trim().to_string())
+}
+
 fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let ytdlp = ytdlp_executable_path();
+    if let Err(err) = probe_youtube_stream_playable(&ytdlp, url)
+        && is_members_only_youtube_error(&err)
+    {
+        return Err(youtube_members_only_message().to_string());
+    }
     let mut command = Command::new(&mpv_executable);
     let mpv_input_conf = bundled_mpv_input_conf_path();
     let allow_bookmarks = media_bookmarks_enabled();
@@ -9643,19 +9679,48 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let results = Rc::new(results);
+    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<Vec<YoutubeSearchResult>, String>>));
+    let youtube_busy = Arc::new(AtomicBool::new(false));
+    let youtube_result_timer = Rc::new(Timer::new(&dialog));
+    let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
+    let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
+    let youtube_busy_timer = Arc::clone(&youtube_busy);
+    let settings_timer = Arc::clone(settings);
+    let dialog_timer = dialog;
+    youtube_result_timer_tick.on_tick(move |_| {
+        let result = youtube_pending_result_timer.lock().unwrap().take();
+        if let Some(result) = result {
+            youtube_busy_timer.store(false, Ordering::SeqCst);
+            match result {
+                Ok(entries) => open_youtube_results_dialog(&dialog_timer, &settings_timer, entries),
+                Err(err) => show_message_subdialog(
+                    &dialog_timer,
+                    &current_ui_strings().youtube_title,
+                    &err,
+                ),
+            }
+        }
+    });
+    youtube_result_timer.start(100, false);
     let choice_open = choice;
     let results_open = Rc::clone(&results);
     let dialog_open = dialog;
-    let settings_open = Arc::clone(settings);
+    let youtube_pending_result_open = Arc::clone(&youtube_pending_result);
+    let youtube_busy_open = Arc::clone(&youtube_busy);
     open_button.on_click(move |_| {
         if let Some(sel) = choice_open.get_selection()
             && let Some(result) = results_open.get(sel as usize)
         {
             if result.is_collection {
-                match youtube_collection_entries(&result.url) {
-                    Ok(entries) => open_youtube_results_dialog(&dialog_open, &settings_open, entries),
-                    Err(err) => show_message_subdialog(&dialog_open, &current_ui_strings().youtube_title, &err),
+                if youtube_busy_open.swap(true, Ordering::SeqCst) {
+                    return;
                 }
+                let url = result.url.clone();
+                let pending = Arc::clone(&youtube_pending_result_open);
+                std::thread::spawn(move || {
+                    let result = youtube_collection_entries(&url);
+                    *pending.lock().unwrap() = Some(result);
+                });
             } else if let Err(err) = open_youtube_with_mpv(&result.url, &result.title) {
                 show_message_subdialog(&dialog_open, &current_ui_strings().youtube_title, &err);
             }
@@ -9693,6 +9758,11 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
                 show_message_subdialog(&dialog_favorite, &current_ui_strings().youtube_title, if Settings::load().ui_language == "it" { "Canale o playlist aggiunto ai preferiti." } else { "Channel or playlist added to favorites." });
             }
         }
+    });
+    let youtube_result_timer_destroy = Rc::clone(&youtube_result_timer);
+    dialog.on_destroy(move |event| {
+        youtube_result_timer_destroy.stop();
+        event.skip(true);
     });
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
@@ -9736,16 +9806,43 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
-    let settings_search = Arc::clone(settings);
-    let dialog_search = dialog;
     let query_ctrl_search = query_ctrl;
+    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<Vec<YoutubeSearchResult>, String>>));
+    let youtube_busy = Arc::new(AtomicBool::new(false));
+    let youtube_result_timer = Rc::new(Timer::new(&dialog));
+    let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
+    let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
+    let youtube_busy_timer = Arc::clone(&youtube_busy);
+    let settings_timer = Arc::clone(settings);
+    let dialog_timer = dialog;
+    youtube_result_timer_tick.on_tick(move |_| {
+        let result = youtube_pending_result_timer.lock().unwrap().take();
+        if let Some(result) = result {
+            youtube_busy_timer.store(false, Ordering::SeqCst);
+            match result {
+                Ok(results) => open_youtube_results_dialog(&dialog_timer, &settings_timer, results),
+                Err(err) => show_message_subdialog(
+                    &dialog_timer,
+                    &current_ui_strings().youtube_title,
+                    &err,
+                ),
+            }
+        }
+    });
+    youtube_result_timer.start(100, false);
+    let youtube_pending_result_search = Arc::clone(&youtube_pending_result);
+    let youtube_busy_search = Arc::clone(&youtube_busy);
     let perform_search = Rc::new(move || {
         let query = query_ctrl_search.get_value().trim().to_string();
         if query.is_empty() { return; }
-        match youtube_search(&query) {
-            Ok(results) => open_youtube_results_dialog(&dialog_search, &settings_search, results),
-            Err(err) => show_message_subdialog(&dialog_search, &current_ui_strings().youtube_title, &err),
+        if youtube_busy_search.swap(true, Ordering::SeqCst) {
+            return;
         }
+        let pending = Arc::clone(&youtube_pending_result_search);
+        std::thread::spawn(move || {
+            let result = youtube_search(&query);
+            *pending.lock().unwrap() = Some(result);
+        });
     });
     let perform_search_button = Rc::clone(&perform_search);
     search_button.on_click(move |_| perform_search_button());
@@ -9754,19 +9851,29 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     if let Some((favorite_choice, favorite_open_button)) = favorite_controls {
         let favorites_open = Rc::new(favorites);
         let favorite_choice_open = favorite_choice;
-        let dialog_favorite_open = dialog;
-        let settings_favorite_open = Arc::clone(settings);
+        let youtube_pending_result_favorite = Arc::clone(&youtube_pending_result);
+        let youtube_busy_favorite = Arc::clone(&youtube_busy);
         favorite_open_button.on_click(move |_| {
             if let Some(sel) = favorite_choice_open.get_selection()
                 && let Some(favorite) = favorites_open.get(sel as usize)
             {
-                match youtube_collection_entries(&favorite.url) {
-                    Ok(entries) => open_youtube_results_dialog(&dialog_favorite_open, &settings_favorite_open, entries),
-                    Err(err) => show_message_subdialog(&dialog_favorite_open, &current_ui_strings().youtube_title, &err),
+                if youtube_busy_favorite.swap(true, Ordering::SeqCst) {
+                    return;
                 }
+                let url = favorite.url.clone();
+                let pending = Arc::clone(&youtube_pending_result_favorite);
+                std::thread::spawn(move || {
+                    let result = youtube_collection_entries(&url);
+                    *pending.lock().unwrap() = Some(result);
+                });
             }
         });
     }
+    let youtube_result_timer_destroy = Rc::clone(&youtube_result_timer);
+    dialog.on_destroy(move |event| {
+        youtube_result_timer_destroy.stop();
+        event.skip(true);
+    });
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
