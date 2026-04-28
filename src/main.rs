@@ -9103,6 +9103,12 @@ struct YoutubeSearchResult {
     is_collection: bool,
 }
 
+#[derive(Clone)]
+struct YoutubeSearchContext {
+    query: String,
+    page: usize,
+}
+
 fn wikipedia_api_language() -> &'static str {
     if Settings::load().ui_language == "it" { "it" } else { "en" }
 }
@@ -9571,12 +9577,56 @@ fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
     append_podcast_log(&format!("ytdlp.{context}.spawn_error {err}"));
 }
 
+fn configure_ytdlp_for_current_macos(command: &mut Command) {
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        append_podcast_log("ytdlp.configure macos_intel player_client=web socket_timeout=10");
+        command
+            .arg("--socket-timeout")
+            .arg("10")
+            .arg("--extractor-args")
+            .arg("youtube:player_client=web");
+    }
+
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    {
+        let _ = command;
+    }
+}
+
+const YOUTUBE_SEARCH_LIMIT: usize = 15;
+
 fn youtube_search(query: &str) -> Result<Vec<YoutubeSearchResult>, String> {
+    youtube_search_page(query, 0)
+}
+
+fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
+    let start = page.saturating_mul(YOUTUBE_SEARCH_LIMIT).saturating_add(1);
+    let end = page.saturating_add(1).saturating_mul(YOUTUBE_SEARCH_LIMIT);
+    let start_arg = start.to_string();
+    let end_arg = end.to_string();
+    let search_arg = format!("ytsearch{end}:{query}");
     ytdlp_log_path_state("search", &ytdlp);
-    append_podcast_log(&format!("ytdlp.search.begin query_len={}", query.chars().count()));
-    let output = Command::new(&ytdlp)
-        .args(["--flat-playlist", "--dump-single-json", "--playlist-end", "30", &format!("ytsearch30:{query}")])
+    append_podcast_log(&format!(
+        "ytdlp.search.begin query_len={} page={} start={} end={}",
+        query.chars().count(),
+        page,
+        start,
+        end
+    ));
+    let mut command = Command::new(&ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
+    let output = command
+        .args([
+            "--flat-playlist",
+            "--dump-single-json",
+            "--playlist-start",
+            &start_arg,
+            "--playlist-end",
+            &end_arg,
+            &search_arg,
+        ])
         .output()
         .map_err(|err| {
             ytdlp_log_spawn_error("search", &err);
@@ -9605,7 +9655,9 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     let ytdlp = ytdlp_executable_path();
     ytdlp_log_path_state("collection", &ytdlp);
     append_podcast_log(&format!("ytdlp.collection.begin url={url}"));
-    let output = Command::new(&ytdlp)
+    let mut command = Command::new(&ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
+    let output = command
         .args(["--flat-playlist", "--dump-single-json", "--playlist-end", "50", url])
         .output()
         .map_err(|err| {
@@ -9645,7 +9697,9 @@ fn youtube_members_only_message() -> &'static str {
 fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), String> {
     ytdlp_log_path_state("probe", ytdlp_path);
     append_podcast_log(&format!("ytdlp.probe.begin url={url}"));
-    let output = Command::new(ytdlp_path)
+    let mut command = Command::new(ytdlp_path);
+    configure_ytdlp_for_current_macos(&mut command);
+    let output = command
         .arg("--no-playlist")
         .arg("--no-warnings")
         .arg("--skip-download")
@@ -9764,7 +9818,9 @@ fn save_youtube_mp3_with_ffmpeg(url: &str, title: &str, downloads_dir: &Path, yt
         temp_template.display(),
         ffmpeg.display()
     ));
-    let output = Command::new(ytdlp)
+    let mut command = Command::new(ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
+    let output = command
         .arg("--no-playlist")
         .arg("--socket-timeout")
         .arg("10")
@@ -9867,6 +9923,7 @@ fn save_youtube_result(parent: &Dialog, url: &str, title: &str, format: &str, qu
         return Ok(());
     }
     let mut command = Command::new(&ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
     command
         .arg("--no-playlist")
         .arg("--socket-timeout")
@@ -9911,7 +9968,14 @@ fn save_youtube_result(parent: &Dialog, url: &str, title: &str, format: &str, qu
     }
 }
 
-fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>, results: Vec<YoutubeSearchResult>) {
+type YoutubeResultsPayload = (Vec<YoutubeSearchResult>, Option<YoutubeSearchContext>);
+
+fn open_youtube_results_dialog(
+    parent: &Dialog,
+    settings: &Arc<Mutex<Settings>>,
+    results: Vec<YoutubeSearchResult>,
+    search_context: Option<YoutubeSearchContext>,
+) {
     let ui = current_ui_strings();
     if results.is_empty() {
         show_message_subdialog(parent, &ui.youtube_title, &ui.youtube_no_results);
@@ -9941,17 +10005,23 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
     let open_button = Button::builder(&panel).with_label(&ui.open).build();
     let save_button = Button::builder(&panel).with_label(&ui.youtube_save).build();
     let favorite_button = Button::builder(&panel).with_label(&ui.youtube_add_favorite).build();
+    let more_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" { "Altri risultati" } else { "More results" })
+        .build();
     let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
     buttons.add(&favorite_button, 0, SizerFlag::All, 10);
+    if search_context.is_some() {
+        buttons.add(&more_button, 0, SizerFlag::All, 10);
+    }
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let results = Rc::new(results);
-    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<Vec<YoutubeSearchResult>, String>>));
+    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_pending_playback = Arc::new(Mutex::new(None::<Result<(), String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
@@ -9966,7 +10036,9 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
         if let Some(result) = result {
             youtube_busy_timer.store(false, Ordering::SeqCst);
             match result {
-                Ok(entries) => open_youtube_results_dialog(&dialog_timer, &settings_timer, entries),
+                Ok((entries, context)) => {
+                    open_youtube_results_dialog(&dialog_timer, &settings_timer, entries, context)
+                }
                 Err(err) => show_message_subdialog(
                     &dialog_timer,
                     &current_ui_strings().youtube_title,
@@ -9999,7 +10071,7 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
                 let url = result.url.clone();
                 let pending = Arc::clone(&youtube_pending_result_open);
                 std::thread::spawn(move || {
-                    let result = youtube_collection_entries(&url);
+                    let result = youtube_collection_entries(&url).map(|entries| (entries, None));
                     *pending.lock().unwrap() = Some(result);
                 });
             } else {
@@ -10046,6 +10118,30 @@ fn open_youtube_results_dialog(parent: &Dialog, settings: &Arc<Mutex<Settings>>,
             }
         }
     });
+    if let Some(search_context) = search_context {
+        let youtube_pending_result_more = Arc::clone(&youtube_pending_result);
+        let youtube_busy_more = Arc::clone(&youtube_busy);
+        more_button.on_click(move |_| {
+            if youtube_busy_more.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let query = search_context.query.clone();
+            let next_page = search_context.page.saturating_add(1);
+            let pending = Arc::clone(&youtube_pending_result_more);
+            std::thread::spawn(move || {
+                let result = youtube_search_page(&query, next_page).map(|entries| {
+                    (
+                        entries,
+                        Some(YoutubeSearchContext {
+                            query,
+                            page: next_page,
+                        }),
+                    )
+                });
+                *pending.lock().unwrap() = Some(result);
+            });
+        });
+    }
     let youtube_result_timer_destroy = Rc::clone(&youtube_result_timer);
     dialog.on_destroy(move |event| {
         youtube_result_timer_destroy.stop();
@@ -10095,7 +10191,7 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let query_ctrl_search = query_ctrl;
-    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<Vec<YoutubeSearchResult>, String>>));
+    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
@@ -10108,7 +10204,9 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
         if let Some(result) = result {
             youtube_busy_timer.store(false, Ordering::SeqCst);
             match result {
-                Ok(results) => open_youtube_results_dialog(&dialog_timer, &settings_timer, results),
+                Ok((results, context)) => {
+                    open_youtube_results_dialog(&dialog_timer, &settings_timer, results, context)
+                }
                 Err(err) => show_message_subdialog(
                     &dialog_timer,
                     &current_ui_strings().youtube_title,
@@ -10128,7 +10226,11 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
         }
         let pending = Arc::clone(&youtube_pending_result_search);
         std::thread::spawn(move || {
-            let result = youtube_search(&query);
+            let context = YoutubeSearchContext {
+                query: query.clone(),
+                page: 0,
+            };
+            let result = youtube_search(&query).map(|results| (results, Some(context)));
             *pending.lock().unwrap() = Some(result);
         });
     });
@@ -10151,7 +10253,7 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
                 let url = favorite.url.clone();
                 let pending = Arc::clone(&youtube_pending_result_favorite);
                 std::thread::spawn(move || {
-                    let result = youtube_collection_entries(&url);
+                    let result = youtube_collection_entries(&url).map(|entries| (entries, None));
                     *pending.lock().unwrap() = Some(result);
                 });
             }
