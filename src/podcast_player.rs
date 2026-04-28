@@ -373,7 +373,6 @@ mod imp {
             ));
         }
     }
-
 }
 
 #[cfg(not(target_os = "macos"))]

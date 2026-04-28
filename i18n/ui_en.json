@@ -204,6 +204,7 @@
   "raiplay_save_mp3": "Save MP3",
   "raiplay_save_mp4": "Save MP4",
   "raiplay_save_mp4_ad": "Save MP4 with audio description",
+  "rai_save_in_progress": "Saving content...",
   "rai_save_completed": "Content saved successfully.",
   "rai_no_items": "No items available.",
   "search": "Search",

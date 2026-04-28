@@ -708,6 +708,7 @@ struct UiStrings {
     raiplay_save_mp3: String,
     raiplay_save_mp4: String,
     raiplay_save_mp4_ad: String,
+    rai_save_in_progress: String,
     rai_save_completed: String,
     rai_no_items: String,
     search: String,
@@ -8479,6 +8480,32 @@ fn open_settings_dialog(
         5,
     );
 
+    #[cfg(target_os = "macos")]
+    {
+        let file_assoc_row = BoxSizer::builder(Orientation::Horizontal).build();
+        file_assoc_row.add_spacer(1);
+        let btn_file_associations = Button::builder(&panel)
+            .with_label(&ui.file_associations_button)
+            .build();
+        file_assoc_row.add(&btn_file_associations, 0, SizerFlag::All, 5);
+        root.add_sizer(&file_assoc_row, 0, SizerFlag::Expand, 0);
+
+        let dialog_file_associations = dialog;
+        let success_title = ui.settings_title.clone();
+        let success_message = ui.file_associations_success_message.clone();
+        let error_template = ui.file_associations_error_message.clone();
+        btn_file_associations.on_click(move |_| match set_macos_default_file_associations() {
+            Ok(()) => {
+                show_message_subdialog(&dialog_file_associations, &success_title, &success_message)
+            }
+            Err(err) => show_message_subdialog(
+                &dialog_file_associations,
+                &success_title,
+                &error_template.replace("{err}", &err),
+            ),
+        });
+    }
+
     let rai_code_ctrl = TextCtrl::builder(&panel).build();
     if settings_before.ui_language == "it" {
         let rai_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -9758,7 +9785,7 @@ fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
 
 fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
     let preferred_audio_track = if is_tv_rai_audio_description_channel(channel) {
-        Some("2")
+        Some("3")
     } else {
         None
     };
@@ -9809,13 +9836,48 @@ fn open_stream_with_mpv(
         command.arg("--resume-playback=no");
     }
     if let Some(audio_track) = preferred_audio_track {
-        command.arg(format!("--aid={audio_track}"));
+        if audio_track == "3" {
+            let script_path = write_mpv_preferred_audio_fallback_script(&mpv_config_dir, 3)?;
+            command.arg(format!("--script={}", script_path.display()));
+        } else {
+            command.arg(format!("--aid={audio_track}"));
+        }
     }
     command.arg(format!("--title=Sonarpad - {title}")).arg(url);
     let _child = command
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
     Ok(())
+}
+
+fn write_mpv_preferred_audio_fallback_script(
+    mpv_config_dir: &Path,
+    preferred_aid: u32,
+) -> Result<PathBuf, String> {
+    let script_path = mpv_config_dir.join(format!("sonarpad-prefer-aid-{preferred_aid}.lua"));
+    let script = format!(
+        r#"local preferred_aid = {preferred_aid}
+
+mp.register_event("file-loaded", function()
+    local tracks = mp.get_property_native("track-list", {{}})
+    for _, track in ipairs(tracks) do
+        if track.type == "audio" and track.id == preferred_aid then
+            mp.set_property_number("aid", preferred_aid)
+            return
+        end
+    end
+    mp.set_property("aid", "auto")
+end)
+"#
+    );
+    std::fs::write(&script_path, script).map_err(|err| {
+        format!(
+            "scrittura script configurazione mpv {} fallita: {}",
+            script_path.display(),
+            err
+        )
+    })?;
+    Ok(script_path)
 }
 
 fn bundled_mpv_input_conf_path() -> PathBuf {
@@ -9960,6 +10022,7 @@ fn save_raiplay_with_ffmpeg(
         .ok_or_else(|| ui.save_folder_not_selected.clone())?;
     match mode {
         RaiSaveMode::Mp3 => run_ffmpeg_save(
+            parent,
             &[
                 "-y",
                 "-i",
@@ -9973,12 +10036,14 @@ fn save_raiplay_with_ffmpeg(
             Path::new(&path),
         ),
         RaiSaveMode::Mp4 => run_ffmpeg_save(
+            parent,
             &["-y", "-i", target.media_url(), "-c", "copy"],
             Path::new(&path),
         ),
         RaiSaveMode::Mp4AudioDescription => {
             if let Some(audio_url) = target.audio_description_url() {
                 run_ffmpeg_save(
+                    parent,
                     &[
                         "-y",
                         "-i",
@@ -9996,6 +10061,7 @@ fn save_raiplay_with_ffmpeg(
                 )
             } else {
                 run_ffmpeg_save(
+                    parent,
                     &["-y", "-i", target.media_url(), "-c", "copy"],
                     Path::new(&path),
                 )
@@ -10003,7 +10069,43 @@ fn save_raiplay_with_ffmpeg(
         }
     }
 }
-fn run_ffmpeg_save(args: &[&str], output_path: &Path) -> Result<(), String> {
+fn run_ffmpeg_save(parent: &Dialog, args: &[&str], output_path: &Path) -> Result<(), String> {
+    let ui = current_ui_strings();
+    let args = args.iter().map(|arg| arg.to_string()).collect::<Vec<_>>();
+    let output_path = output_path.to_path_buf();
+    let result_state = Arc::new(Mutex::new(None::<Result<(), String>>));
+    let result_state_thread = Arc::clone(&result_state);
+    let thread_args = args.clone();
+    let thread_output_path = output_path.clone();
+
+    std::thread::spawn(move || {
+        let result = run_ffmpeg_save_blocking(&thread_args, &thread_output_path);
+        *result_state_thread.lock().unwrap() = Some(result);
+    });
+
+    let progress =
+        ProgressDialog::builder(parent, &ui.rai_save_content, &ui.rai_save_in_progress, 100)
+            .with_style(ProgressDialogStyle::Smooth)
+            .build();
+
+    let mut progress_value = 0;
+    loop {
+        std::thread::sleep(Duration::from_millis(150));
+        if let Some(result) = result_state.lock().unwrap().take() {
+            progress.update(100, Some(&ui.rai_save_completed));
+            progress.destroy();
+            return result;
+        }
+
+        progress_value += 3;
+        if progress_value >= 95 {
+            progress_value = 10;
+        }
+        progress.update(progress_value, Some(&ui.rai_save_in_progress));
+    }
+}
+
+fn run_ffmpeg_save_blocking(args: &[String], output_path: &Path) -> Result<(), String> {
     let ffmpeg = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
     let mut command = Command::new(&ffmpeg);
     command.args(args).arg(output_path);

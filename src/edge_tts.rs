@@ -21,6 +21,7 @@ pub const VOICE_LIST_URL: &str =
     "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list";
 pub const EDGE_TTS_MAX_BYTES: usize = 1800;
 pub const EDGE_TTS_REALTIME_MAX_BYTES: usize = EDGE_TTS_MAX_BYTES;
+const EDGE_TTS_REALTIME_FIRST_CHUNK_MAX_BYTES: usize = 700;
 const EDGE_TTS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const EDGE_TTS_READ_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -593,6 +594,14 @@ fn split_text_lazy_with_limit<'a>(
     text: &'a str,
     max_bytes: usize,
 ) -> impl Iterator<Item = String> + 'a {
+    split_text_lazy_with_limits(text, max_bytes, max_bytes)
+}
+
+fn split_text_lazy_with_limits<'a>(
+    text: &'a str,
+    first_max_bytes: usize,
+    max_bytes: usize,
+) -> impl Iterator<Item = String> + 'a {
     let normalized = normalize_for_tts(text);
     let mut sentences: VecDeque<String> = split_sentences_lazy(&normalized)
         .map(str::trim)
@@ -601,22 +610,27 @@ fn split_text_lazy_with_limit<'a>(
         .collect();
     let mut current = String::new();
     let mut pending = VecDeque::<String>::new();
+    let mut emitted = false;
 
     std::iter::from_fn(move || {
         if let Some(part) = pending.pop_front() {
+            emitted = true;
             return Some(part);
         }
 
         while let Some(sentence) = sentences.pop_front() {
-            if sentence.len() > max_bytes {
+            let active_max_bytes = if emitted { max_bytes } else { first_max_bytes };
+            if sentence.len() > active_max_bytes {
                 if !current.is_empty() {
                     let res = std::mem::take(&mut current);
                     pending.extend(split_long_text_by_whitespace(&sentence, max_bytes));
+                    emitted = true;
                     return Some(res);
                 }
 
                 pending.extend(split_long_text_by_whitespace(&sentence, max_bytes));
                 if let Some(part) = pending.pop_front() {
+                    emitted = true;
                     return Some(part);
                 }
                 continue;
@@ -624,9 +638,10 @@ fn split_text_lazy_with_limit<'a>(
 
             if current.is_empty() {
                 current.push_str(&sentence);
-            } else if current.len() + 1 + sentence.len() > max_bytes {
+            } else if current.len() + 1 + sentence.len() > active_max_bytes {
                 let res = std::mem::take(&mut current);
                 current.push_str(&sentence);
+                emitted = true;
                 return Some(res);
             } else {
                 current.push(' ');
@@ -635,6 +650,7 @@ fn split_text_lazy_with_limit<'a>(
         }
 
         if !current.is_empty() {
+            emitted = true;
             return Some(std::mem::take(&mut current));
         }
         None
@@ -646,5 +662,9 @@ pub fn split_text_lazy<'a>(text: &'a str) -> impl Iterator<Item = String> + 'a {
 }
 
 pub fn split_text_realtime_lazy<'a>(text: &'a str) -> impl Iterator<Item = String> + 'a {
-    split_text_lazy_with_limit(text, EDGE_TTS_REALTIME_MAX_BYTES)
+    split_text_lazy_with_limits(
+        text,
+        EDGE_TTS_REALTIME_FIRST_CHUNK_MAX_BYTES,
+        EDGE_TTS_REALTIME_MAX_BYTES,
+    )
 }
