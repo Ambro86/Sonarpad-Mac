@@ -583,8 +583,7 @@ jobs:
           if [ -f "${YTDLP_BIN}" ]; then
             chmod +x "${YTDLP_BIN}"
             xattr -cr "${YTDLP_BIN}" || true
-            codesign --force --options runtime --timestamp \
-              --entitlements "${YTDLP_ENTITLEMENTS}" \
+            codesign --force --timestamp \
               --sign "Developer ID Application" \
               "${YTDLP_BIN}"
             codesign --verify --strict --verbose=4 "${YTDLP_BIN}"
@@ -595,8 +594,7 @@ jobs:
             "${APP_DIR}"
 
           if [ -f "${YTDLP_BIN}" ]; then
-            codesign --force --options runtime --timestamp \
-              --entitlements "${YTDLP_ENTITLEMENTS}" \
+            codesign --force --timestamp \
               --sign "Developer ID Application" \
               "${YTDLP_BIN}"
           fi
@@ -605,10 +603,7 @@ jobs:
             --sign "Developer ID Application" \
             "${APP_DIR}"
 
-          if [ -f "${YTDLP_BIN}" ]; then
-            codesign -d --entitlements :- "${YTDLP_BIN}" 2>/dev/null \
-              | grep -q "com.apple.security.cs.disable-library-validation"
-          fi
+          codesign --verify --strict --verbose=4 "${YTDLP_BIN}"
 
           codesign --verify --deep --strict --verbose=2 "${APP_DIR}"
 
