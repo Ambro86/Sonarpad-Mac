@@ -293,7 +293,7 @@ fn fetch_json(url: &str) -> Result<Value, String> {
         url,
         Duration::from_secs(300),
     )
-        .map_err(|err| format!("Impossibile caricare i dati di RaiPlay Sound: {err}"))?;
+    .map_err(|err| format!("Impossibile caricare i dati di RaiPlay Sound: {err}"))?;
     serde_json::from_slice(&bytes)
         .map_err(|err| format!("Risposta JSON RaiPlay Sound non valida: {err}"))
 }

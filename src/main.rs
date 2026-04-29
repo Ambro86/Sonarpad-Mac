@@ -12,15 +12,16 @@ mod raiplaysound;
 mod reader;
 mod tv;
 
+use chrono::Datelike;
 use docx_rs::{Docx, Paragraph, Run};
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
 use quick_xml::Reader;
 use quick_xml::events::Event;
 use reqwest::Url;
-use scraper::{ElementRef, Html, Selector};
 use rodio::{Decoder, OutputStream, Sink, Source};
+use scraper::{ElementRef, Html, Selector};
 use serde::{Deserialize, Serialize};
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -782,6 +783,19 @@ fn current_ui_strings() -> &'static UiStrings {
     ui_strings(&ui_language)
 }
 
+fn log_background_refresh_error(message: &str) {
+    if std::env::var_os("SONARPAD_BACKGROUND_LOG").is_some() {
+        println!("BACKGROUND: {message}");
+    }
+}
+
+fn automatic_background_refresh_enabled() -> bool {
+    if std::env::var_os("SONARPAD_BACKGROUND_REFRESH").is_some() {
+        return true;
+    }
+    !cfg!(debug_assertions)
+}
+
 fn get_language_name(locale: &str) -> String {
     if Settings::load().ui_language == "en" {
         return get_language_name_en(locale);
@@ -1164,6 +1178,54 @@ fn handle_shortcut_event(
     }
 }
 
+fn text_editor_user_cursor_event(event: &WindowEventData) -> bool {
+    let WindowEventData::Keyboard(key_event) = event else {
+        return false;
+    };
+    if command_shortcut_down(key_event) || key_event.alt_down() {
+        return false;
+    }
+
+    let key_code = key_event.get_key_code().unwrap_or_default();
+    let unicode_key = key_event.get_unicode_key().unwrap_or_default();
+    if matches!(key_code, 9 | 27) {
+        return false;
+    }
+
+    let _ = unicode_key;
+    matches!(
+        key_code,
+        WXK_LEFT | WXK_RIGHT | 312 | 313 | 315 | 317 | 366 | 367
+    )
+}
+
+fn text_from_user_reading_start(
+    text: &str,
+    insertion_point: i64,
+    cursor_moved_by_user: bool,
+) -> String {
+    if !cursor_moved_by_user {
+        return text.to_string();
+    }
+
+    let byte_index = text_control_position_to_byte_index(text, insertion_point.max(0) as usize);
+    text[byte_index..].to_string()
+}
+
+fn text_control_position_to_byte_index(text: &str, target_position: usize) -> usize {
+    let mut control_position = 0usize;
+    for (byte_index, ch) in text.char_indices() {
+        if control_position >= target_position {
+            return byte_index;
+        }
+        control_position += if ch == '\n' { 2 } else { 1 };
+        if control_position > target_position {
+            return byte_index + ch.len_utf8();
+        }
+    }
+    text.len()
+}
+
 #[cfg(target_os = "macos")]
 fn matches_ascii_key(key_code: i32, unicode_key: i32, expected: char) -> bool {
     let expected_upper = expected.to_ascii_uppercase() as i32;
@@ -1243,6 +1305,8 @@ Versione 0.2.8 - 29 aprile 2026
 - Aggiunta la possibilita di impostare delle TV preferite.
 \
 - Nella lista dei canali TV e stata aggiunta l'indicazione del programma ora in onda.
+\
+- Inserita una guida TV completa, consultabile dal giorno precedente fino a cinque giorni dopo la data corrente.
 
 \
 Versione 0.2.7 - 28 aprile 2026
@@ -2401,7 +2465,6 @@ fn is_plain_text_path(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
 }
 
-
 fn load_text_bookmarks() -> HashMap<String, usize> {
     read_app_storage_text("text_bookmarks.json")
         .and_then(|data| serde_json::from_str::<HashMap<String, usize>>(&data).ok())
@@ -2418,7 +2481,11 @@ fn text_bookmark_key(path: &Path) -> String {
     path.to_string_lossy().to_string()
 }
 
-fn remember_text_bookmark(settings: &Arc<Mutex<Settings>>, text_ctrl: &TextCtrl, document_state: &Arc<Mutex<CurrentDocumentState>>) {
+fn remember_text_bookmark(
+    settings: &Arc<Mutex<Settings>>,
+    text_ctrl: &TextCtrl,
+    document_state: &Arc<Mutex<CurrentDocumentState>>,
+) {
     if !settings.lock().unwrap().auto_media_bookmark {
         return;
     }
@@ -2434,15 +2501,21 @@ fn remember_text_bookmark(settings: &Arc<Mutex<Settings>>, text_ctrl: &TextCtrl,
     save_text_bookmarks(&bookmarks);
 }
 
-fn restore_text_bookmark(settings: &Arc<Mutex<Settings>>, text_ctrl: &TextCtrl, path: &Path) {
+fn restore_text_bookmark(
+    settings: &Arc<Mutex<Settings>>,
+    text_ctrl: &TextCtrl,
+    path: &Path,
+) -> bool {
     if !settings.lock().unwrap().auto_media_bookmark {
-        return;
+        return false;
     }
     let bookmarks = load_text_bookmarks();
     if let Some(position) = bookmarks.get(&text_bookmark_key(path)).copied() {
         let max_pos = text_ctrl.get_value().chars().count();
         text_ctrl.set_insertion_point(position.min(max_pos) as i64);
+        return true;
     }
+    false
 }
 
 fn set_current_document_state(state: &Arc<Mutex<CurrentDocumentState>>, path: Option<PathBuf>) {
@@ -4888,6 +4961,7 @@ fn show_article_item(
     rt: &Arc<Runtime>,
     text_ctrl: &TextCtrl,
     podcast_playback: &Rc<RefCell<PodcastPlaybackState>>,
+    cursor_moved_by_user: &Rc<Cell<bool>>,
 ) {
     append_podcast_log(&format!(
         "article_menu.show_item.begin title={} link={}",
@@ -4897,6 +4971,7 @@ fn show_article_item(
         Ok(text) if !text.trim().is_empty() => {
             podcast_playback.borrow_mut().selected_episode = None;
             text_ctrl.set_value(&text);
+            cursor_moved_by_user.set(false);
             append_podcast_log(&format!(
                 "article_menu.show_item.applied title={} chars={}",
                 item.title,
@@ -5602,12 +5677,12 @@ fn normalize_settings_data(settings: &mut Settings) {
     settings.radio_favorites.retain(|favorite| {
         !favorite.name.trim().is_empty() && !favorite.stream_url.trim().is_empty()
     });
-    settings.youtube_favorites.retain(|favorite| {
-        !favorite.title.trim().is_empty() && !favorite.url.trim().is_empty()
-    });
-    settings.tv_favorites.retain(|favorite| {
-        !favorite.name.trim().is_empty() && !favorite.url.trim().is_empty()
-    });
+    settings
+        .youtube_favorites
+        .retain(|favorite| !favorite.title.trim().is_empty() && !favorite.url.trim().is_empty());
+    settings
+        .tv_favorites
+        .retain(|favorite| !favorite.name.trim().is_empty() && !favorite.url.trim().is_empty());
     let mut seen_stream_urls = HashSet::new();
     settings
         .radio_favorites
@@ -6365,10 +6440,10 @@ fn refresh_all_article_sources(
                     updated_sources.push(effective_source);
                 }
                 Err(err) => {
-                    println!(
-                        "ERROR: Aggiornamento articoli fallito per {}: {}",
+                    log_background_refresh_error(&format!(
+                        "Aggiornamento articoli fallito per {}: {}",
                         source.title, err
-                    );
+                    ));
                     updated_sources.push(source);
                 }
             }
@@ -6431,10 +6506,10 @@ fn refresh_single_article_source(
                     }
                 }
                 Err(err) => {
-                    println!(
-                        "ERROR: Aggiornamento articoli fallito per {}: {}",
+                    log_background_refresh_error(&format!(
+                        "Aggiornamento articoli fallito per {}: {}",
                         source.title, err
-                    );
+                    ));
                 }
             }
         }
@@ -6485,10 +6560,10 @@ fn refresh_single_podcast_source(
                     }
                 }
                 Err(err) => {
-                    println!(
-                        "ERROR: Aggiornamento podcast fallito per {}: {}",
+                    log_background_refresh_error(&format!(
+                        "Aggiornamento podcast fallito per {}: {}",
                         source.title, err
-                    );
+                    ));
                 }
             }
         }
@@ -6536,10 +6611,10 @@ fn refresh_all_podcast_categories(
             let results = rt_refresh
                 .block_on(podcasts::search_itunes_category(category.id))
                 .unwrap_or_else(|err| {
-                    println!(
-                        "ERROR: Caricamento categoria podcast fallito per {}: {}",
+                    log_background_refresh_error(&format!(
+                        "Caricamento categoria podcast fallito per {}: {}",
                         category.name, err
-                    );
+                    ));
                     Vec::new()
                 });
 
@@ -6584,10 +6659,10 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
                         .insert(language_code.clone(), merged_stations);
                 }
                 Err(err) => {
-                    println!(
-                        "ERROR: Caricamento radio fallito per lingua {}: {}",
+                    log_background_refresh_error(&format!(
+                        "Caricamento radio fallito per lingua {}: {}",
                         language_code, err
-                    );
+                    ));
                     state.failed_languages.insert(language_code.clone());
                 }
             }
@@ -9112,7 +9187,11 @@ struct YoutubeSearchContext {
 }
 
 fn wikipedia_api_language() -> &'static str {
-    if Settings::load().ui_language == "it" { "it" } else { "en" }
+    if Settings::load().ui_language == "it" {
+        "it"
+    } else {
+        "en"
+    }
 }
 
 fn wikipedia_validate_lang(lang: &str) -> Result<(), String> {
@@ -9160,8 +9239,14 @@ fn wikipedia_parse_url(lang: &str, pageid: i64) -> Result<Url, String> {
 
 fn wikipedia_api_error(value: &serde_json::Value) -> Option<String> {
     let error = value.get("error")?;
-    let code = error.get("code").and_then(|v| v.as_str()).unwrap_or("error");
-    let info = error.get("info").and_then(|v| v.as_str()).unwrap_or("MediaWiki API error");
+    let code = error
+        .get("code")
+        .and_then(|v| v.as_str())
+        .unwrap_or("error");
+    let info = error
+        .get("info")
+        .and_then(|v| v.as_str())
+        .unwrap_or("MediaWiki API error");
     Some(format!("MediaWiki API error ({code}): {info}"))
 }
 
@@ -9206,7 +9291,15 @@ fn html_fragment_to_text(html: &str) -> String {
 
                 if matches!(
                     tag_name.as_str(),
-                    "head" | "style" | "script" | "title" | "sup" | "table" | "figure" | "figcaption" | "noscript"
+                    "head"
+                        | "style"
+                        | "script"
+                        | "title"
+                        | "sup"
+                        | "table"
+                        | "figure"
+                        | "figcaption"
+                        | "noscript"
                 ) {
                     if is_closing {
                         if let Some(pos) = skip_stack.iter().rposition(|t| t == &tag_name) {
@@ -9220,8 +9313,28 @@ fn html_fragment_to_text(html: &str) -> String {
                 }
                 if matches!(
                     tag_name.as_str(),
-                    "br" | "p" | "div" | "li" | "tr" | "hr" | "ul" | "ol" | "table" | "blockquote" | "dl" | "dt" | "dd" | "h1" | "h2" | "h3" | "h4" | "h5" | "h6"
-                ) && skip_stack.is_empty() && !last_newline && !out.is_empty() {
+                    "br" | "p"
+                        | "div"
+                        | "li"
+                        | "tr"
+                        | "hr"
+                        | "ul"
+                        | "ol"
+                        | "table"
+                        | "blockquote"
+                        | "dl"
+                        | "dt"
+                        | "dd"
+                        | "h1"
+                        | "h2"
+                        | "h3"
+                        | "h4"
+                        | "h5"
+                        | "h6"
+                ) && skip_stack.is_empty()
+                    && !last_newline
+                    && !out.is_empty()
+                {
                     out.push('\n');
                     last_newline = true;
                 }
@@ -9273,7 +9386,10 @@ fn normalize_wikipedia_text_block(text: &str) -> String {
 
 fn should_skip_parse_element(element: &ElementRef<'_>) -> bool {
     let name = element.value().name();
-    if matches!(name, "table" | "style" | "script" | "figure" | "figcaption" | "noscript") {
+    if matches!(
+        name,
+        "table" | "style" | "script" | "figure" | "figcaption" | "noscript"
+    ) {
         return true;
     }
 
@@ -9311,7 +9427,11 @@ fn heading_text(name: &str, text: &str) -> String {
         "h6" => "======",
         _ => "",
     };
-    if marks.is_empty() { text.to_string() } else { format!("{marks} {text} {marks}") }
+    if marks.is_empty() {
+        text.to_string()
+    } else {
+        format!("{marks} {text} {marks}")
+    }
 }
 
 fn parse_wikipedia_article_html_to_text(html: &str) -> String {
@@ -9326,16 +9446,25 @@ fn parse_wikipedia_article_html_to_text(html: &str) -> String {
 
     let mut blocks = Vec::new();
     for child in container.children() {
-        let Some(element) = ElementRef::wrap(child) else { continue; };
-        if should_skip_parse_element(&element) { continue; }
+        let Some(element) = ElementRef::wrap(child) else {
+            continue;
+        };
+        if should_skip_parse_element(&element) {
+            continue;
+        }
 
         let name = element.value().name();
-        if !matches!(name, "p" | "ul" | "ol" | "dl" | "div" | "blockquote" | "h2" | "h3" | "h4" | "h5" | "h6") {
+        if !matches!(
+            name,
+            "p" | "ul" | "ol" | "dl" | "div" | "blockquote" | "h2" | "h3" | "h4" | "h5" | "h6"
+        ) {
             continue;
         }
 
         let text = normalize_wikipedia_text_block(&html_fragment_to_text(&element.html()));
-        if text.is_empty() { continue; }
+        if text.is_empty() {
+            continue;
+        }
 
         if name.starts_with('h') {
             blocks.push(heading_text(name, &text));
@@ -9353,7 +9482,9 @@ fn parse_wikipedia_article_html_to_text(html: &str) -> String {
 
 fn wikipedia_search(query: &str) -> Result<Vec<WikipediaSearchResult>, String> {
     let trimmed = query.trim();
-    if trimmed.is_empty() { return Ok(Vec::new()); }
+    if trimmed.is_empty() {
+        return Ok(Vec::new());
+    }
     let url = wikipedia_search_url(wikipedia_api_language(), trimmed, 20)?;
     let value: serde_json::Value = wikipedia_client()?
         .get(url)
@@ -9362,11 +9493,20 @@ fn wikipedia_search(query: &str) -> Result<Vec<WikipediaSearchResult>, String> {
         .map_err(|err| err.to_string())?
         .json()
         .map_err(|err| err.to_string())?;
-    if let Some(err) = wikipedia_api_error(&value) { return Err(err); }
-    let parsed: WikipediaSearchResponse = serde_json::from_value(value).map_err(|err| err.to_string())?;
-    Ok(parsed.query.search.into_iter()
+    if let Some(err) = wikipedia_api_error(&value) {
+        return Err(err);
+    }
+    let parsed: WikipediaSearchResponse =
+        serde_json::from_value(value).map_err(|err| err.to_string())?;
+    Ok(parsed
+        .query
+        .search
+        .into_iter()
         .filter(|hit| !hit.title.trim().is_empty())
-        .map(|hit| WikipediaSearchResult { pageid: hit.pageid, title: hit.title })
+        .map(|hit| WikipediaSearchResult {
+            pageid: hit.pageid,
+            title: hit.title,
+        })
         .collect())
 }
 
@@ -9379,8 +9519,11 @@ fn fetch_wikipedia_article_text(pageid: i64) -> Result<String, String> {
         .map_err(|err| err.to_string())?
         .json()
         .map_err(|err| err.to_string())?;
-    if let Some(err) = wikipedia_api_error(&value) { return Err(err); }
-    let parsed: WikipediaParseResponse = serde_json::from_value(value).map_err(|err| err.to_string())?;
+    if let Some(err) = wikipedia_api_error(&value) {
+        return Err(err);
+    }
+    let parsed: WikipediaParseResponse =
+        serde_json::from_value(value).map_err(|err| err.to_string())?;
     let text = parse_wikipedia_article_html_to_text(&parsed.parse.text);
     if text.trim().is_empty() {
         Err("Articolo Wikipedia non disponibile.".to_string())
@@ -9402,7 +9545,10 @@ fn show_text_preview_dialog(parent: &Dialog, title: &str, text_value: &str) {
         .build();
     text.set_value(text_value);
     root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 8);
-    let ok_button = Button::builder(&panel).with_id(ID_OK).with_label(&ui.ok).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     buttons.add_spacer(1);
     buttons.add(&ok_button, 0, SizerFlag::All, 10);
@@ -9415,7 +9561,7 @@ fn show_text_preview_dialog(parent: &Dialog, title: &str, text_value: &str) {
     dialog.destroy();
 }
 
-fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl) {
+fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: Rc<Cell<bool>>) {
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, &ui.wikipedia_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -9424,8 +9570,17 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl) {
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
-    search_row.add(&StaticText::builder(&panel).with_label(&ui.wikipedia_search_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
-    let query_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
+    search_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.wikipedia_search_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let query_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
     search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -9433,9 +9588,16 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl) {
     let result_choice = Choice::builder(&panel).build();
     root.add(&result_choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let preview_button = Button::builder(&panel).with_label(&ui.wikipedia_open_preview).build();
-    let import_button = Button::builder(&panel).with_label(&ui.wikipedia_import_editor).build();
-    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build();
+    let preview_button = Button::builder(&panel)
+        .with_label(&ui.wikipedia_open_preview)
+        .build();
+    let import_button = Button::builder(&panel)
+        .with_label(&ui.wikipedia_import_editor)
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
     buttons.add_spacer(1);
     buttons.add(&preview_button, 0, SizerFlag::All, 10);
     buttons.add(&import_button, 0, SizerFlag::All, 10);
@@ -9451,15 +9613,23 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl) {
         let dialog = dialog;
         move || {
             let query = query_ctrl.get_value().trim().to_string();
-            if query.is_empty() { return; }
+            if query.is_empty() {
+                return;
+            }
             match wikipedia_search(&query) {
                 Ok(found) => {
                     result_choice.clear();
-                    for item in &found { result_choice.append(&item.title); }
-                    if !found.is_empty() { result_choice.set_selection(0); }
+                    for item in &found {
+                        result_choice.append(&item.title);
+                    }
+                    if !found.is_empty() {
+                        result_choice.set_selection(0);
+                    }
                     *results.borrow_mut() = found;
                 }
-                Err(err) => show_message_subdialog(&dialog, &current_ui_strings().wikipedia_title, &err),
+                Err(err) => {
+                    show_message_subdialog(&dialog, &current_ui_strings().wikipedia_title, &err)
+                }
             }
         }
     });
@@ -9476,7 +9646,11 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl) {
         {
             match fetch_wikipedia_article_text(item.pageid) {
                 Ok(text) => show_text_preview_dialog(&dialog_preview, &item.title, &text),
-                Err(err) => show_message_subdialog(&dialog_preview, &current_ui_strings().wikipedia_title, &err),
+                Err(err) => show_message_subdialog(
+                    &dialog_preview,
+                    &current_ui_strings().wikipedia_title,
+                    &err,
+                ),
             }
         }
     });
@@ -9484,6 +9658,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl) {
     let result_choice_import = result_choice;
     let editor_import = editor;
     let dialog_import = dialog;
+    let cursor_moved_import = cursor_moved_by_user;
     import_button.on_click(move |_| {
         if let Some(sel) = result_choice_import.get_selection()
             && let Some(item) = results_import.borrow().get(sel as usize).cloned()
@@ -9491,13 +9666,22 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl) {
             match fetch_wikipedia_article_text(item.pageid) {
                 Ok(text) => {
                     let existing = editor_import.get_value();
-                    let new_text = if existing.trim().is_empty() { text } else { format!("{}\n\n{}", existing, text) };
+                    let new_text = if existing.trim().is_empty() {
+                        text
+                    } else {
+                        format!("{}\n\n{}", existing, text)
+                    };
                     editor_import.set_value(&new_text);
                     editor_import.set_modified(true);
+                    cursor_moved_import.set(false);
                     dialog_import.end_modal(ID_OK);
                     editor_import.set_focus();
                 }
-                Err(err) => show_message_subdialog(&dialog_import, &current_ui_strings().wikipedia_title, &err),
+                Err(err) => show_message_subdialog(
+                    &dialog_import,
+                    &current_ui_strings().wikipedia_title,
+                    &err,
+                ),
             }
         }
     });
@@ -9514,7 +9698,9 @@ fn ytdlp_executable_path() -> PathBuf {
             && let Some(contents_dir) = exe.parent().and_then(|dir| dir.parent())
         {
             let bundled = contents_dir.join("Resources").join("yt-dlp");
-            if bundled.exists() { return bundled; }
+            if bundled.exists() {
+                return bundled;
+            }
         }
     }
     #[cfg(windows)]
@@ -9523,10 +9709,16 @@ fn ytdlp_executable_path() -> PathBuf {
             && let Some(exe_dir) = exe.parent()
         {
             let bundled = exe_dir.join("yt-dlp.exe");
-            if bundled.exists() { return bundled; }
+            if bundled.exists() {
+                return bundled;
+            }
         }
     }
-    if cfg!(windows) { PathBuf::from("yt-dlp.exe") } else { PathBuf::from("yt-dlp") }
+    if cfg!(windows) {
+        PathBuf::from("yt-dlp.exe")
+    } else {
+        PathBuf::from("yt-dlp")
+    }
 }
 
 fn ytdlp_runtime_label() -> &'static str {
@@ -9580,7 +9772,11 @@ fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
 }
 
 fn ytdlp_log_command_output(context: &str, command: &mut Command) {
-    match command.stdout(Stdio::piped()).stderr(Stdio::piped()).output() {
+    match command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+    {
         Ok(output) => ytdlp_log_output(context, output.status, &output.stdout, &output.stderr),
         Err(err) => ytdlp_log_spawn_error(context, &err),
     }
@@ -9613,17 +9809,79 @@ fn ytdlp_log_macos_signature(context: &str, ytdlp: &Path) {
 }
 
 #[cfg(not(target_os = "macos"))]
-fn ytdlp_log_macos_signature(_context: &str, _ytdlp: &Path) {
-}
+fn ytdlp_log_macos_signature(_context: &str, _ytdlp: &Path) {}
 
 fn ytdlp_log_basic_diagnostics(context: &str, ytdlp: &Path) {
     ytdlp_log_version(context, ytdlp);
     ytdlp_log_macos_signature(context, ytdlp);
 }
 
+fn ytdlp_unavailable_message() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "La riproduzione da streaming non è disponibile su questo Mac perché yt-dlp non riesce ad avviarsi correttamente."
+    } else {
+        "Streaming playback is not available on this Mac because yt-dlp cannot start correctly."
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn ytdlp_quick_startup_check() -> Result<(), String> {
+    let ytdlp = ytdlp_executable_path();
+    ytdlp_log_path_state("startup_check", &ytdlp);
+    append_podcast_log("ytdlp.startup_check.begin");
+    let mut child = Command::new(&ytdlp)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|err| {
+            ytdlp_log_spawn_error("startup_check", &err);
+            err.to_string()
+        })?;
+    let started = std::time::Instant::now();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                append_podcast_log(&format!(
+                    "ytdlp.startup_check.done success={} code={:?}",
+                    status.success(),
+                    status.code()
+                ));
+                return if status.success() {
+                    Ok(())
+                } else {
+                    Err(format!("yt-dlp exited with status {status}"))
+                };
+            }
+            Ok(None) if started.elapsed() >= Duration::from_secs(5) => {
+                if let Err(err) = child.kill() {
+                    append_podcast_log(&format!("ytdlp.startup_check.kill_failed {err}"));
+                }
+                if let Err(err) = child.wait() {
+                    append_podcast_log(&format!("ytdlp.startup_check.wait_failed {err}"));
+                }
+                append_podcast_log("ytdlp.startup_check.timeout");
+                return Err("yt-dlp startup timeout".to_string());
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(err) => {
+                append_podcast_log(&format!("ytdlp.startup_check.wait_error {err}"));
+                return Err(err.to_string());
+            }
+        }
+    }
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn ytdlp_quick_startup_check() -> Result<(), String> {
+    Ok(())
+}
+
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_log_intel_verbose_probe(context: &str, ytdlp: &Path, url: &str) {
-    append_podcast_log(&format!("ytdlp.{context}.intel_verbose_probe.begin url={url}"));
+    append_podcast_log(&format!(
+        "ytdlp.{context}.intel_verbose_probe.begin url={url}"
+    ));
     let mut command = Command::new(ytdlp);
     command
         .arg("-v")
@@ -9635,11 +9893,9 @@ fn ytdlp_log_intel_verbose_probe(context: &str, ytdlp: &Path, url: &str) {
 }
 
 #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-fn ytdlp_log_intel_verbose_probe(_context: &str, _ytdlp: &Path, _url: &str) {
-}
+fn ytdlp_log_intel_verbose_probe(_context: &str, _ytdlp: &Path, _url: &str) {}
 
-fn configure_ytdlp_for_current_macos(_command: &mut Command) {
-}
+fn configure_ytdlp_for_current_macos(_command: &mut Command) {}
 
 const YOUTUBE_SEARCH_LIMIT: usize = 15;
 
@@ -9684,17 +9940,45 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|err| err.to_string())?;
-    let entries = value.get("entries").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|err| err.to_string())?;
+    let entries = value
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
     Ok(entries
         .into_iter()
         .filter_map(|entry| {
-            let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or("YouTube").to_string();
-            let url = entry.get("webpage_url").or_else(|| entry.get("url")).and_then(|v| v.as_str()).unwrap_or_default().to_string();
-            if url.is_empty() { return None; }
-            let extractor = entry.get("extractor_key").and_then(|v| v.as_str()).unwrap_or_default().to_ascii_lowercase();
-            let is_collection = extractor.contains("playlist") || extractor.contains("channel") || url.contains("/playlist") || url.contains("/channel/") || url.contains("/@");
-            Some(YoutubeSearchResult { title, url, is_collection })
+            let title = entry
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("YouTube")
+                .to_string();
+            let url = entry
+                .get("webpage_url")
+                .or_else(|| entry.get("url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if url.is_empty() {
+                return None;
+            }
+            let extractor = entry
+                .get("extractor_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let is_collection = extractor.contains("playlist")
+                || extractor.contains("channel")
+                || url.contains("/playlist")
+                || url.contains("/channel/")
+                || url.contains("/@");
+            Some(YoutubeSearchResult {
+                title,
+                url,
+                is_collection,
+            })
         })
         .collect())
 }
@@ -9708,7 +9992,13 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
     let output = command
-        .args(["--flat-playlist", "--dump-single-json", "--playlist-end", "50", url])
+        .args([
+            "--flat-playlist",
+            "--dump-single-json",
+            "--playlist-end",
+            "50",
+            url,
+        ])
         .output()
         .map_err(|err| {
             ytdlp_log_spawn_error("collection", &err);
@@ -9718,13 +10008,38 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout).map_err(|err| err.to_string())?;
-    let entries = value.get("entries").and_then(|v| v.as_array()).cloned().unwrap_or_default();
-    Ok(entries.into_iter().filter_map(|entry| {
-        let title = entry.get("title").and_then(|v| v.as_str()).unwrap_or("YouTube").to_string();
-        let url = entry.get("webpage_url").or_else(|| entry.get("url")).and_then(|v| v.as_str()).unwrap_or_default().to_string();
-        if url.is_empty() { None } else { Some(YoutubeSearchResult { title, url, is_collection: false }) }
-    }).collect())
+    let value: serde_json::Value =
+        serde_json::from_slice(&output.stdout).map_err(|err| err.to_string())?;
+    let entries = value
+        .get("entries")
+        .and_then(|v| v.as_array())
+        .cloned()
+        .unwrap_or_default();
+    Ok(entries
+        .into_iter()
+        .filter_map(|entry| {
+            let title = entry
+                .get("title")
+                .and_then(|v| v.as_str())
+                .unwrap_or("YouTube")
+                .to_string();
+            let url = entry
+                .get("webpage_url")
+                .or_else(|| entry.get("url"))
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            if url.is_empty() {
+                None
+            } else {
+                Some(YoutubeSearchResult {
+                    title,
+                    url,
+                    is_collection: false,
+                })
+            }
+        })
+        .collect())
 }
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
@@ -9804,7 +10119,10 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
         .arg("--volume-max=300")
         .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
     if ytdlp.exists() {
-        command.arg(format!("--script-opts=ytdl_hook-ytdl_path={}", ytdlp.display()));
+        command.arg(format!(
+            "--script-opts=ytdl_hook-ytdl_path={}",
+            ytdlp.display()
+        ));
     }
     if allow_bookmarks {
         command
@@ -9825,21 +10143,6 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn youtube_unique_output_path(dir: &Path, title: &str, ext: &str) -> PathBuf {
-    let name = sanitize_filename(title);
-    let first = dir.join(format!("{name}.{ext}"));
-    if !first.exists() {
-        return first;
-    }
-    for index in 2..=999 {
-        let candidate = dir.join(format!("{name} ({index}).{ext}"));
-        if !candidate.exists() {
-            return candidate;
-        }
-    }
-    first
-}
-
 fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
     let entries = std::fs::read_dir(downloads_dir)
         .map_err(|err| format!("Impossibile leggere la cartella download: {err}"))?;
@@ -9858,7 +10161,50 @@ fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<Path
     Err("yt-dlp non ha prodotto un file audio da convertire.".to_string())
 }
 
-fn save_youtube_mp3_with_ffmpeg(url: &str, title: &str, downloads_dir: &Path, ytdlp: &Path) -> Result<(), String> {
+fn prompt_youtube_save_path(
+    parent: &Dialog,
+    title: &str,
+    format: &str,
+) -> Result<Option<PathBuf>, String> {
+    let ui = current_ui_strings();
+    let extension = if format == "mp3" { "mp3" } else { "mp4" };
+    let default_file = format!("{}.{}", sanitize_filename(title), extension);
+    let wildcard = format!("File (*.{extension})|*.{extension}|Tutti|*.*");
+    let dialog = FileDialog::builder(parent)
+        .with_message(&ui.youtube_title)
+        .with_default_file(&default_file)
+        .with_wildcard(&wildcard)
+        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+        .build();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+    if dialog_result != ID_OK {
+        return Ok(None);
+    }
+    dialog
+        .get_path()
+        .map(PathBuf::from)
+        .map(Some)
+        .ok_or_else(|| ui.save_folder_not_selected.clone())
+}
+
+fn youtube_save_completed_message(path: &Path) -> String {
+    if Settings::load().ui_language == "it" {
+        format!("Salvataggio completato: {}", path.display())
+    } else {
+        format!("Save completed: {}", path.display())
+    }
+}
+
+fn save_youtube_mp3_with_ffmpeg(
+    url: &str,
+    downloads_dir: &Path,
+    output_path: &Path,
+    ytdlp: &Path,
+) -> Result<(), String> {
     let ffmpeg = ffmpeg_executable_path()
         .ok_or_else(|| "FFmpeg non trovato: impossibile convertire in MP3.".to_string())?;
     let stamp = chrono::Local::now().timestamp_millis();
@@ -9888,7 +10234,12 @@ fn save_youtube_mp3_with_ffmpeg(url: &str, title: &str, downloads_dir: &Path, yt
             ytdlp_log_spawn_error("save_mp3_download", &err);
             format!("yt-dlp non avviato: {err}")
         })?;
-    ytdlp_log_output("save_mp3_download", output.status, &output.stdout, &output.stderr);
+    ytdlp_log_output(
+        "save_mp3_download",
+        output.status,
+        &output.stdout,
+        &output.stderr,
+    );
     if !output.status.success() {
         let details = format!(
             "{}\n{}",
@@ -9904,7 +10255,6 @@ fn save_youtube_mp3_with_ffmpeg(url: &str, title: &str, downloads_dir: &Path, yt
         });
     }
     let downloaded_path = find_youtube_temp_download(downloads_dir, &prefix)?;
-    let output_path = youtube_unique_output_path(downloads_dir, title, "mp3");
     append_podcast_log(&format!(
         "ytdlp.save_mp3.ffmpeg_begin input={} output={}",
         downloaded_path.display(),
@@ -9953,27 +10303,41 @@ fn save_youtube_mp3_with_ffmpeg(url: &str, title: &str, downloads_dir: &Path, yt
     }
 }
 
-fn save_youtube_result(parent: &Dialog, url: &str, title: &str, format: &str, quality: &str) -> Result<(), String> {
+fn save_youtube_result(
+    parent: &Dialog,
+    url: &str,
+    title: &str,
+    format: &str,
+    quality: &str,
+) -> Result<(), String> {
+    let Some(output_path) = prompt_youtube_save_path(parent, title, format)? else {
+        return Ok(());
+    };
     let ytdlp = ytdlp_executable_path();
     let downloads_dir = app_storage_path("downloads");
-    let outtmpl = downloads_dir.join("%(title)s.%(ext)s");
     ytdlp_log_path_state("save", &ytdlp);
     ytdlp_log_basic_diagnostics("save", &ytdlp);
     ytdlp_log_intel_verbose_probe("save", &ytdlp, url);
     append_podcast_log(&format!(
-        "ytdlp.save.begin url={} format={} quality={} output_template={}",
+        "ytdlp.save.begin url={} format={} quality={} output={}",
         url,
         format,
         quality,
-        outtmpl.display()
+        output_path.display()
     ));
-    if let Some(parent_dir) = outtmpl.parent() {
+    std::fs::create_dir_all(&downloads_dir)
+        .map_err(|err| format!("Impossibile creare la cartella download temporanea: {err}"))?;
+    if let Some(parent_dir) = output_path.parent() {
         std::fs::create_dir_all(parent_dir)
             .map_err(|err| format!("Impossibile creare la cartella download: {err}"))?;
     }
     if format == "mp3" {
-        save_youtube_mp3_with_ffmpeg(url, title, &downloads_dir, &ytdlp)?;
-        show_message_subdialog(parent, &current_ui_strings().youtube_title, if Settings::load().ui_language == "it" { "Salvataggio completato." } else { "Save completed." });
+        save_youtube_mp3_with_ffmpeg(url, &downloads_dir, &output_path, &ytdlp)?;
+        show_message_subdialog(
+            parent,
+            &current_ui_strings().youtube_title,
+            &youtube_save_completed_message(&output_path),
+        );
         return Ok(());
     }
     let mut command = Command::new(&ytdlp);
@@ -9984,7 +10348,7 @@ fn save_youtube_result(parent: &Dialog, url: &str, title: &str, format: &str, qu
         .arg("10")
         .arg("--no-warnings")
         .arg("-o")
-        .arg(outtmpl.to_string_lossy().to_string());
+        .arg(output_path.to_string_lossy().to_string());
     if let Some(ffmpeg_path) = ffmpeg_executable_path() {
         append_podcast_log(&format!("ytdlp.save.ffmpeg path={}", ffmpeg_path.display()));
         command
@@ -9996,19 +10360,22 @@ fn save_youtube_result(parent: &Dialog, url: &str, title: &str, format: &str, qu
     if quality == "best" {
         command.args(["-f", "best[ext=mp4]/best"]);
     } else {
-        command.args(["-f", "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best"]);
+        command.args([
+            "-f",
+            "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best",
+        ]);
     }
-    let output = command
-        .arg("--")
-        .arg(url)
-        .output()
-        .map_err(|err| {
-            ytdlp_log_spawn_error("save", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
+    let output = command.arg("--").arg(url).output().map_err(|err| {
+        ytdlp_log_spawn_error("save", &err);
+        format!("yt-dlp non avviato: {err}")
+    })?;
     ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
     if output.status.success() {
-        show_message_subdialog(parent, &current_ui_strings().youtube_title, if Settings::load().ui_language == "it" { "Salvataggio completato." } else { "Save completed." });
+        show_message_subdialog(
+            parent,
+            &current_ui_strings().youtube_title,
+            &youtube_save_completed_message(&output_path),
+        );
         Ok(())
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr);
@@ -10069,27 +10436,56 @@ fn open_youtube_results_dialog(
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let choice = Choice::builder(&panel).build();
-    for result in &results { choice.append(&result.title); }
+    for result in &results {
+        choice.append(&result.title);
+    }
     choice.set_selection(0);
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let options = BoxSizer::builder(Orientation::Horizontal).build();
-    options.add(&StaticText::builder(&panel).with_label(&ui.youtube_format_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    options.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.youtube_format_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let format_choice = Choice::builder(&panel).build();
-    format_choice.append("mp3"); format_choice.append("mp4"); format_choice.set_selection(0);
+    format_choice.append("mp3");
+    format_choice.append("mp4");
+    format_choice.set_selection(0);
     options.add(&format_choice, 0, SizerFlag::All, 5);
-    options.add(&StaticText::builder(&panel).with_label(&ui.youtube_quality_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    options.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.youtube_quality_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let quality_choice = Choice::builder(&panel).build();
-    quality_choice.append("best"); quality_choice.append("standard"); quality_choice.set_selection(0);
+    quality_choice.append("best");
+    quality_choice.append("standard");
+    quality_choice.set_selection(0);
     options.add(&quality_choice, 0, SizerFlag::All, 5);
     root.add_sizer(&options, 0, SizerFlag::Expand, 0);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(&ui.open).build();
     let save_button = Button::builder(&panel).with_label(&ui.youtube_save).build();
-    let favorite_button = Button::builder(&panel).with_label(&ui.youtube_add_favorite).build();
-    let more_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" { "Altri risultati" } else { "More results" })
+    let favorite_button = Button::builder(&panel)
+        .with_label(&ui.youtube_add_favorite)
         .build();
-    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build();
+    let more_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" {
+            "Altri risultati"
+        } else {
+            "More results"
+        })
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
@@ -10102,7 +10498,8 @@ fn open_youtube_results_dialog(
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let results = Rc::new(results);
-    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
+    let youtube_pending_result =
+        Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_pending_playback = Arc::new(Mutex::new(None::<Result<(), String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
@@ -10120,11 +10517,9 @@ fn open_youtube_results_dialog(
                 Ok((entries, context)) => {
                     open_youtube_results_dialog(&dialog_timer, &settings_timer, entries, context)
                 }
-                Err(err) => show_message_subdialog(
-                    &dialog_timer,
-                    &current_ui_strings().youtube_title,
-                    &err,
-                ),
+                Err(err) => {
+                    show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
+                }
             }
         }
         let playback_result = youtube_pending_playback_timer.lock().unwrap().take();
@@ -10175,9 +10570,19 @@ fn open_youtube_results_dialog(
         if let Some(sel) = choice_save.get_selection()
             && let Some(result) = results_save.get(sel as usize)
         {
-            let format = if format_choice_save.get_selection().unwrap_or(0) == 0 { "mp3" } else { "mp4" };
-            let quality = if quality_choice_save.get_selection().unwrap_or(0) == 0 { "best" } else { "standard" };
-            if let Err(err) = save_youtube_result(&dialog_save, &result.url, &result.title, format, quality) {
+            let format = if format_choice_save.get_selection().unwrap_or(0) == 0 {
+                "mp3"
+            } else {
+                "mp4"
+            };
+            let quality = if quality_choice_save.get_selection().unwrap_or(0) == 0 {
+                "best"
+            } else {
+                "standard"
+            };
+            if let Err(err) =
+                save_youtube_result(&dialog_save, &result.url, &result.title, format, quality)
+            {
                 show_message_subdialog(&dialog_save, &current_ui_strings().youtube_title, &err);
             }
         }
@@ -10192,10 +10597,25 @@ fn open_youtube_results_dialog(
             && result.is_collection
         {
             let mut locked = settings_favorite.lock().unwrap();
-            if !locked.youtube_favorites.iter().any(|favorite| favorite.url == result.url) {
-                locked.youtube_favorites.push(YoutubeFavorite { title: result.title.clone(), url: result.url.clone() });
+            if !locked
+                .youtube_favorites
+                .iter()
+                .any(|favorite| favorite.url == result.url)
+            {
+                locked.youtube_favorites.push(YoutubeFavorite {
+                    title: result.title.clone(),
+                    url: result.url.clone(),
+                });
                 locked.save();
-                show_message_subdialog(&dialog_favorite, &current_ui_strings().youtube_title, if Settings::load().ui_language == "it" { "Canale o playlist aggiunto ai preferiti." } else { "Channel or playlist added to favorites." });
+                show_message_subdialog(
+                    &dialog_favorite,
+                    &current_ui_strings().youtube_title,
+                    if Settings::load().ui_language == "it" {
+                        "Canale o playlist aggiunto ai preferiti."
+                    } else {
+                        "Channel or playlist added to favorites."
+                    },
+                );
             }
         }
     });
@@ -10236,6 +10656,10 @@ fn open_youtube_results_dialog(
 
 fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let ui = current_ui_strings();
+    if ytdlp_quick_startup_check().is_err() {
+        show_message_dialog(parent, &ui.youtube_title, ytdlp_unavailable_message());
+        return;
+    }
     let dialog = Dialog::builder(parent, &ui.youtube_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(720, 240)
@@ -10243,7 +10667,9 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
-    let query_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
+    let query_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
     search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_button.set_default();
@@ -10254,9 +10680,18 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
         None
     } else {
         let favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
-        favorite_row.add(&StaticText::builder(&panel).with_label(&ui.youtube_favorites_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+        favorite_row.add(
+            &StaticText::builder(&panel)
+                .with_label(&ui.youtube_favorites_label)
+                .build(),
+            0,
+            SizerFlag::AlignCenterVertical | SizerFlag::All,
+            5,
+        );
         let favorite_choice = Choice::builder(&panel).build();
-        for favorite in &favorites { favorite_choice.append(&favorite.title); }
+        for favorite in &favorites {
+            favorite_choice.append(&favorite.title);
+        }
         favorite_choice.set_selection(0);
         favorite_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
         let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
@@ -10264,7 +10699,10 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
         root.add_sizer(&favorite_row, 0, SizerFlag::Expand, 0);
         Some((favorite_choice, favorite_open_button))
     };
-    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&ui.close).build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     buttons.add_spacer(1);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
@@ -10272,7 +10710,8 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let query_ctrl_search = query_ctrl;
-    let youtube_pending_result = Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
+    let youtube_pending_result =
+        Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_search_progress = Rc::new(RefCell::new(None::<Dialog>));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
@@ -10293,11 +10732,9 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
                 Ok((results, context)) => {
                     open_youtube_results_dialog(&dialog_timer, &settings_timer, results, context)
                 }
-                Err(err) => show_message_subdialog(
-                    &dialog_timer,
-                    &current_ui_strings().youtube_title,
-                    &err,
-                ),
+                Err(err) => {
+                    show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
+                }
             }
         }
     });
@@ -10308,7 +10745,9 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let dialog_search_progress = dialog;
     let perform_search = Rc::new(move || {
         let query = query_ctrl_search.get_value().trim().to_string();
-        if query.is_empty() { return; }
+        if query.is_empty() {
+            return;
+        }
         if youtube_busy_search.swap(true, Ordering::SeqCst) {
             return;
         }
@@ -10366,7 +10805,6 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     dialog.destroy();
 }
 
-
 fn open_tv_dialog(parent: &Frame) {
     match tv::load_channels() {
         Ok(channels) => open_tv_channels_dialog(parent, channels),
@@ -10380,6 +10818,172 @@ fn open_tv_dialog(parent: &Frame) {
             }
         }
     }
+}
+
+fn tv_guide_button_label() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Guida TV"
+    } else {
+        "TV guide"
+    }
+}
+
+fn tv_guide_unavailable_message() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Guida TV non disponibile per questo canale."
+    } else {
+        "TV guide is not available for this channel."
+    }
+}
+
+fn tv_guide_day_labels() -> Vec<(String, i64)> {
+    let ui_language = Settings::load().ui_language;
+    let today = chrono::Local::now().date_naive();
+    (-1..=5)
+        .map(|offset| {
+            let date = today + chrono::Duration::days(offset);
+            let label = match offset {
+                -1 if ui_language == "it" => "Ieri".to_string(),
+                -1 => "Yesterday".to_string(),
+                0 if ui_language == "it" => "Oggi".to_string(),
+                0 => "Today".to_string(),
+                1 if ui_language == "it" => "Domani".to_string(),
+                1 => "Tomorrow".to_string(),
+                _ if ui_language == "it" => format!(
+                    "{} {} {}",
+                    date.format("%-d"),
+                    italian_month_name(date.month()),
+                    date.format("%Y")
+                ),
+                _ => date.format("%B %-d, %Y").to_string(),
+            };
+            (label, offset)
+        })
+        .collect()
+}
+
+fn italian_month_name(month: u32) -> &'static str {
+    match month {
+        1 => "gennaio",
+        2 => "febbraio",
+        3 => "marzo",
+        4 => "aprile",
+        5 => "maggio",
+        6 => "giugno",
+        7 => "luglio",
+        8 => "agosto",
+        9 => "settembre",
+        10 => "ottobre",
+        11 => "novembre",
+        12 => "dicembre",
+        _ => "",
+    }
+}
+
+fn tv_program_label(program: &tv::TvProgram) -> String {
+    if program.hour.trim().is_empty() {
+        program.title.clone()
+    } else {
+        format!("{} {}", program.hour.trim(), program.title)
+    }
+}
+
+fn refresh_tv_guide_programs(program_choice: &Choice, programs: &[tv::TvProgram]) {
+    program_choice.clear();
+    for program in programs {
+        program_choice.append(&tv_program_label(program));
+    }
+    program_choice.enable(!programs.is_empty());
+    if !programs.is_empty() {
+        program_choice.set_selection(0);
+    }
+}
+
+fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
+    let Some(guide_channel) = channel.guide_channel.as_deref() else {
+        show_message_subdialog(
+            parent,
+            &current_ui_strings().tv_label,
+            tv_guide_unavailable_message(),
+        );
+        return;
+    };
+    let title = format!("{} - {}", tv_guide_button_label(), channel.name);
+    let day_labels = tv_guide_day_labels();
+    let initial_programs =
+        tv::load_channel_guide(guide_channel, 0).unwrap_or_else(|_| channel.programs.clone());
+    let dialog = Dialog::builder(parent, &title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(620, 260)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let day_row = BoxSizer::builder(Orientation::Horizontal).build();
+    day_row.add(
+        &StaticText::builder(&panel)
+            .with_label(if Settings::load().ui_language == "it" {
+                "Giorno"
+            } else {
+                "Day"
+            })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let day_choice = Choice::builder(&panel).build();
+    for (label, _) in &day_labels {
+        day_choice.append(label);
+    }
+    day_choice.set_selection(1);
+    day_row.add(&day_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&day_row, 0, SizerFlag::Expand, 0);
+    let program_row = BoxSizer::builder(Orientation::Horizontal).build();
+    program_row.add(
+        &StaticText::builder(&panel)
+            .with_label(if Settings::load().ui_language == "it" {
+                "Programmi"
+            } else {
+                "Programs"
+            })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let program_choice = Choice::builder(&panel).build();
+    refresh_tv_guide_programs(&program_choice, &initial_programs);
+    program_row.add(&program_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&program_row, 1, SizerFlag::Expand, 0);
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&current_ui_strings().close)
+        .build();
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    buttons.add_spacer(1);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+    let program_choice_day = program_choice;
+    let guide_channel_day = guide_channel.to_string();
+    day_choice.on_selection_changed(move |_| {
+        if let Some(sel) = day_choice.get_selection()
+            && let Some((_, offset)) = day_labels.get(sel as usize)
+        {
+            match tv::load_channel_guide(&guide_channel_day, *offset) {
+                Ok(programs) => refresh_tv_guide_programs(&program_choice_day, &programs),
+                Err(_) => {
+                    program_choice_day.clear();
+                    program_choice_day.enable(false);
+                }
+            }
+        }
+    });
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
 }
 
 fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
@@ -10404,7 +11008,9 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let favorites = Rc::new(RefCell::new(Settings::load().tv_favorites));
     let fav_row = BoxSizer::builder(Orientation::Horizontal).build();
     fav_row.add(
-        &StaticText::builder(&panel).with_label(&ui.tv_favorites_label).build(),
+        &StaticText::builder(&panel)
+            .with_label(&ui.tv_favorites_label)
+            .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -10414,14 +11020,21 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
     fav_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
     let favorite_remove_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" { "Rimuovi" } else { "Remove" })
+        .with_label(if Settings::load().ui_language == "it" {
+            "Rimuovi dai preferiti"
+        } else {
+            "Remove from favorites"
+        })
         .build();
     fav_row.add(&favorite_remove_button, 0, SizerFlag::All, 5);
     root.add_sizer(&fav_row, 0, SizerFlag::Expand, 0);
     let refresh_tv_favorites = Rc::new({
         let favorites = Rc::clone(&favorites);
         let tv_display_names_by_url = Rc::clone(&tv_display_names_by_url);
-        move |choice: &Choice, open_button: &Button, remove_button: &Button, selected_index: Option<usize>| {
+        move |choice: &Choice,
+              open_button: &Button,
+              remove_button: &Button,
+              selected_index: Option<usize>| {
             choice.clear();
             let favorites = favorites.borrow();
             for favorite in favorites.iter() {
@@ -10459,6 +11072,8 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 name: favorite.name.clone(),
                 url: favorite.url.clone(),
                 current_program: None,
+                programs: Vec::new(),
+                guide_channel: None,
             };
             if let Err(err) = open_tv_stream_with_mpv(&channel) {
                 show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
@@ -10494,7 +11109,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 show_message_subdialog(
                     &dialog_favorite_remove,
                     &current_ui_strings().tv_label,
-                    if Settings::load().ui_language == "it" { "TV rimossa dai preferiti." } else { "TV removed from favorites." },
+                    if Settings::load().ui_language == "it" {
+                        "TV rimossa dai preferiti."
+                    } else {
+                        "TV removed from favorites."
+                    },
                 );
             }
         }
@@ -10508,19 +11127,40 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(&ui.open).build();
-    let favorite_button = Button::builder(&panel).with_label(&ui.tv_add_favorite).build();
+    let guide_button = Button::builder(&panel)
+        .with_label(tv_guide_button_label())
+        .build();
+    guide_button.enable(
+        channels
+            .first()
+            .is_some_and(|channel| !channel.programs.is_empty()),
+    );
+    let favorite_button = Button::builder(&panel)
+        .with_label(&ui.tv_add_favorite)
+        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&guide_button, 0, SizerFlag::All, 10);
     buttons.add(&favorite_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let channels = Rc::new(channels);
+    let choice_guide_visibility = choice;
+    let guide_button_visibility = guide_button;
+    let channels_guide_visibility = Rc::clone(&channels);
+    choice.on_selection_changed(move |_| {
+        let has_guide = choice_guide_visibility
+            .get_selection()
+            .and_then(|sel| channels_guide_visibility.get(sel as usize))
+            .is_some_and(|channel| !channel.programs.is_empty());
+        guide_button_visibility.enable(has_guide);
+    });
     let choice_open = choice;
     let channels_open = Rc::clone(&channels);
     let parent_open = dialog;
@@ -10530,6 +11170,16 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             && let Err(err) = open_tv_stream_with_mpv(channel)
         {
             show_message_subdialog(&parent_open, &current_ui_strings().tv_label, &err);
+        }
+    });
+    let choice_guide = choice;
+    let channels_guide = Rc::clone(&channels);
+    let parent_guide = dialog;
+    guide_button.on_click(move |_| {
+        if let Some(sel) = choice_guide.get_selection()
+            && let Some(channel) = channels_guide.get(sel as usize)
+        {
+            open_tv_guide_dialog(&parent_guide, channel);
         }
     });
     let choice_favorite = choice;
@@ -10545,7 +11195,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             && let Some(channel) = channels_favorite.get(sel as usize)
         {
             let mut settings = Settings::load();
-            if !settings.tv_favorites.iter().any(|favorite| favorite.url == channel.url) {
+            if !settings
+                .tv_favorites
+                .iter()
+                .any(|favorite| favorite.url == channel.url)
+            {
                 settings.tv_favorites.push(TvFavorite {
                     name: channel.name.clone(),
                     url: channel.url.clone(),
@@ -10566,13 +11220,21 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 show_message_subdialog(
                     &dialog_favorite,
                     &current_ui_strings().tv_label,
-                    if Settings::load().ui_language == "it" { "TV aggiunta ai preferiti." } else { "TV added to favorites." },
+                    if Settings::load().ui_language == "it" {
+                        "TV aggiunta ai preferiti."
+                    } else {
+                        "TV added to favorites."
+                    },
                 );
             } else {
                 show_message_subdialog(
                     &dialog_favorite,
                     &current_ui_strings().tv_label,
-                    if Settings::load().ui_language == "it" { "La TV selezionata è già nei preferiti." } else { "The selected TV is already in favorites." },
+                    if Settings::load().ui_language == "it" {
+                        "La TV selezionata è già nei preferiti."
+                    } else {
+                        "The selected TV is already in favorites."
+                    },
                 );
             }
         }
@@ -11869,31 +12531,33 @@ fn main() {
         apply_loaded_voices(&settings, &voices_data, &languages, cached_voices);
     }
 
-    let rt_refresh = Arc::clone(&rt);
-    let settings_refresh = Arc::clone(&settings);
-    let voices_refresh = Arc::clone(&voices_data);
-    let languages_refresh = Arc::clone(&languages);
-    std::thread::spawn(
-        move || match rt_refresh.block_on(edge_tts::get_edge_voices()) {
-            Ok(voices) => {
-                save_cached_voices(&voices);
-                apply_loaded_voices(
-                    &settings_refresh,
-                    &voices_refresh,
-                    &languages_refresh,
-                    voices,
-                );
-            }
-            Err(err) => {
-                println!("ERROR: Aggiornamento voci fallito: {}", err);
-            }
-        },
-    );
+    if automatic_background_refresh_enabled() {
+        let rt_refresh = Arc::clone(&rt);
+        let settings_refresh = Arc::clone(&settings);
+        let voices_refresh = Arc::clone(&voices_data);
+        let languages_refresh = Arc::clone(&languages);
+        std::thread::spawn(
+            move || match rt_refresh.block_on(edge_tts::get_edge_voices()) {
+                Ok(voices) => {
+                    save_cached_voices(&voices);
+                    apply_loaded_voices(
+                        &settings_refresh,
+                        &voices_refresh,
+                        &languages_refresh,
+                        voices,
+                    );
+                }
+                Err(err) => {
+                    log_background_refresh_error(&format!("Aggiornamento voci fallito: {}", err));
+                }
+            },
+        );
 
-    refresh_all_article_sources(&rt, &settings, &article_menu_state);
-    refresh_all_podcast_sources(&rt, &settings, &podcast_menu_state);
-    refresh_all_podcast_categories(&rt, &podcast_menu_state);
-    refresh_all_radio_languages(&radio_menu_state);
+        refresh_all_article_sources(&rt, &settings, &article_menu_state);
+        refresh_all_podcast_sources(&rt, &settings, &podcast_menu_state);
+        refresh_all_podcast_categories(&rt, &podcast_menu_state);
+        refresh_all_radio_languages(&radio_menu_state);
+    }
     let initial_open_path = initial_open_path_from_args();
     let pending_open_files = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
     let pending_auto_update_result =
@@ -12084,6 +12748,7 @@ fn main() {
         let text_ctrl = TextCtrl::builder(&panel)
             .with_style(TextCtrlStyle::MultiLine)
             .build();
+        let cursor_moved_by_user = Rc::new(Cell::new(false));
         main_sizer.add(&text_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
         let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
@@ -12157,6 +12822,7 @@ fn main() {
         let podcast_playback_timer = Rc::clone(&podcast_playback);
         let rt_articles_timer = Arc::clone(&rt);
         let tc_articles_timer = text_ctrl;
+        let cursor_moved_timer = Rc::clone(&cursor_moved_by_user);
         let startup_editor_focus_pending = Rc::new(RefCell::new(5usize));
         let startup_editor_focus_timer = Rc::clone(&startup_editor_focus_pending);
         let pending_open_files_timer = Arc::clone(&pending_open_files);
@@ -12290,6 +12956,7 @@ fn main() {
                         &rt_articles_timer,
                         &tc_articles_timer,
                         &podcast_playback_timer,
+                        &cursor_moved_timer,
                     );
                 } else {
                     append_podcast_log("article_menu.pending_dialog.no_selection");
@@ -12370,12 +13037,17 @@ fn main() {
                     "app.open_files_event.begin path={}",
                     path.display()
                 ));
-                remember_text_bookmark(&settings_timer, &tc_articles_timer, &current_document_timer);
+                remember_text_bookmark(
+                    &settings_timer,
+                    &tc_articles_timer,
+                    &current_document_timer,
+                );
                 if is_media_path(&path) {
                     match open_local_media_with_mpv(&path) {
                         Ok(()) => {
                             podcast_playback_timer.borrow_mut().selected_episode = None;
                             tc_articles_timer.set_value("");
+                            cursor_moved_timer.set(false);
                             tc_articles_timer.set_modified(false);
                             set_current_document_state(&current_document_timer, None);
                             append_podcast_log(&format!(
@@ -12399,7 +13071,9 @@ fn main() {
                     Ok(content) => {
                         podcast_playback_timer.borrow_mut().selected_episode = None;
                         tc_articles_timer.set_value(&content);
-                        restore_text_bookmark(&settings_timer, &tc_articles_timer, &path);
+                        let bookmark_restored =
+                            restore_text_bookmark(&settings_timer, &tc_articles_timer, &path);
+                        cursor_moved_timer.set(bookmark_restored);
                         tc_articles_timer.set_modified(false);
                         set_current_document_state(&current_document_timer, Some(path.clone()));
                         append_podcast_log(&format!(
@@ -12501,6 +13175,7 @@ fn main() {
         let radio_menu_state_menu = Arc::clone(&radio_menu_state);
         let rt_articles_menu = Arc::clone(&rt);
         let podcast_selection_menu = Rc::clone(&podcast_playback);
+        let cursor_moved_menu = Rc::clone(&cursor_moved_by_user);
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
             if event.get_id() == ID_OPEN {
@@ -12521,6 +13196,7 @@ fn main() {
                         } else {
                             podcast_selection_menu.borrow_mut().selected_episode = None;
                             tc_menu.set_value("");
+                            cursor_moved_menu.set(false);
                             tc_menu.set_modified(false);
                             set_current_document_state(&current_document_menu, None);
                         }
@@ -12530,7 +13206,9 @@ fn main() {
                     if let Ok(c) = content {
                         podcast_selection_menu.borrow_mut().selected_episode = None;
                         tc_menu.set_value(&c);
-                        restore_text_bookmark(&settings_menu, &tc_menu, path);
+                        let bookmark_restored =
+                            restore_text_bookmark(&settings_menu, &tc_menu, path);
+                        cursor_moved_menu.set(bookmark_restored);
                         tc_menu.set_modified(false);
                         set_current_document_state(&current_document_menu, Some(path.to_path_buf()));
                     }
@@ -12568,7 +13246,7 @@ fn main() {
                     &pending_mac_update,
                 );
             } else if event.get_id() == ID_TOOLS_WIKIPEDIA {
-                open_wikipedia_dialog(&f_menu, tc_menu);
+                open_wikipedia_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
             } else if event.get_id() == ID_TOOLS_YOUTUBE {
                 open_youtube_dialog(&f_menu, &settings_menu);
             } else if event.get_id() == ID_RAI_AUDIO_DESCRIPTIONS {
@@ -12963,7 +13641,13 @@ Non posso scaricare la pagina web al posto dell'audio.",
                     .and_then(|source| source.items.get(item_index))
                     .cloned();
                 if let Some(item) = item {
-                    show_article_item(&item, &rt_articles_menu, &tc_menu, &podcast_selection_menu);
+                    show_article_item(
+                        &item,
+                        &rt_articles_menu,
+                        &tc_menu,
+                        &podcast_selection_menu,
+                        &cursor_moved_menu,
+                    );
                 }
             }
         });
@@ -13115,6 +13799,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let f_play_start = frame;
         let s_play_start = Arc::clone(&settings);
         let podcast_playback_start = Rc::clone(&podcast_playback);
+        let cursor_moved_start = Rc::clone(&cursor_moved_by_user);
         let start_action: Rc<dyn Fn()> = Rc::new(move || {
             let selected_episode = podcast_playback_start.borrow().selected_episode.clone();
             if let Some(episode) = selected_episode
@@ -13215,7 +13900,12 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 ));
                 stop_tts_playback(&pb_p_start);
             }
-            let text = tc_p_start.get_value();
+            let full_text = tc_p_start.get_value();
+            let text = text_from_user_reading_start(
+                &full_text,
+                tc_p_start.get_insertion_point(),
+                cursor_moved_start.get(),
+            );
             if text.trim().is_empty() {
                 append_podcast_log("start_action.text_empty");
                 return;
@@ -14351,7 +15041,11 @@ Non posso scaricare la pagina web al posto dell'audio.",
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
+            let cursor_moved_shortcut = Rc::clone(&cursor_moved_by_user);
             text_ctrl.on_key_down(move |event| {
+                if text_editor_user_cursor_event(&event) {
+                    cursor_moved_shortcut.set(true);
+                }
                 handle_shortcut_event(
                     event,
                     &shortcut_actions,
@@ -14372,7 +15066,11 @@ Non posso scaricare la pagina web al posto dell'audio.",
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
+            let cursor_moved_shortcut = Rc::clone(&cursor_moved_by_user);
             text_ctrl.on_key_down(move |event| {
+                if text_editor_user_cursor_event(&event) {
+                    cursor_moved_shortcut.set(true);
+                }
                 handle_shortcut_event(
                     event,
                     &shortcut_actions,
@@ -14388,6 +15086,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 Ok(content) => {
                     podcast_playback.borrow_mut().selected_episode = None;
                     text_ctrl.set_value(&content);
+                    cursor_moved_by_user.set(false);
                     text_ctrl.set_modified(false);
                     set_current_document_state(&current_document, Some(path.clone()));
                     append_podcast_log(&format!(
