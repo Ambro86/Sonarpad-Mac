@@ -321,8 +321,9 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          python3 -m pip install --upgrade pip
-          python3 -m pip install --upgrade "yt-dlp[default]" pyinstaller
+          python3 -m venv dist/yt-dlp-venv
+          dist/yt-dlp-venv/bin/python -m pip install --upgrade pip
+          dist/yt-dlp-venv/bin/python -m pip install --upgrade "yt-dlp[default]" pyinstaller
           mkdir -p dist/yt-dlp-intel
           cat > dist/yt-dlp-intel/yt_dlp_entry.py <<'PY'
           from yt_dlp import main
@@ -330,7 +331,7 @@ jobs:
           if __name__ == "__main__":
               main()
           PY
-          python3 -m PyInstaller \
+          dist/yt-dlp-venv/bin/python -m PyInstaller \
             --onefile \
             --name yt-dlp \
             --distpath dist/yt-dlp-intel \

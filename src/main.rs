@@ -9846,13 +9846,13 @@ fn configure_youtube_save_client_profile(command: &mut Command, profile: usize) 
         1 => {
             command.args([
                 "--extractor-args",
-                "youtube:player_client=default,-android_vr",
+                "youtube:player_client=web,web_safari,mweb",
             ]);
         }
         2 => {
             command.args([
                 "--extractor-args",
-                "youtube:player_client=mweb,tv,web_safari;player_skip=webpage",
+                "youtube:player_client=tv,tv_simply,mweb;player_skip=webpage",
             ]);
         }
         _ => {}
