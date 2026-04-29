@@ -296,6 +296,33 @@ jobs:
           test -x "${MPV_APP_DIR}/Contents/MacOS/mpv"
           echo "MPV_APP_DIR=${MPV_APP_DIR}" >> "${GITHUB_ENV}"
 
+      - name: Build Intel-only yt-dlp
+        if: matrix.build_flavor == 'intel'
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m pip install --upgrade pip
+          python3 -m pip install --upgrade "yt-dlp[default]" pyinstaller
+          mkdir -p dist/yt-dlp-intel
+          cat > dist/yt-dlp-intel/yt_dlp_entry.py <<'PY'
+          from yt_dlp import main
+
+          if __name__ == "__main__":
+              main()
+          PY
+          python3 -m PyInstaller \
+            --onefile \
+            --name yt-dlp \
+            --distpath dist/yt-dlp-intel \
+            --workpath dist/yt-dlp-intel-build \
+            --specpath dist/yt-dlp-intel-spec \
+            --collect-all yt_dlp \
+            --collect-all certifi \
+            dist/yt-dlp-intel/yt_dlp_entry.py
+          chmod +x dist/yt-dlp-intel/yt-dlp
+          file dist/yt-dlp-intel/yt-dlp
+          dist/yt-dlp-intel/yt-dlp --version
+
       - name: Package .app and .dmg
         shell: bash
         run: |
@@ -337,7 +364,11 @@ jobs:
           fi
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
-          curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
+          if [ "${{ matrix.build_flavor }}" = "intel" ]; then
+            cp "dist/yt-dlp-intel/yt-dlp" "${RESOURCES_DIR}/yt-dlp"
+          else
+            curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
+          fi
           chmod +x "${RESOURCES_DIR}/yt-dlp"
           cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'
           UP add volume 5

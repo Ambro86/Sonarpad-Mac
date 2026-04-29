@@ -10470,7 +10470,7 @@ fn youtube_search_progress_label() -> &'static str {
 
 struct YoutubeSearchProgressDialog {
     dialog: Dialog,
-    timer: Rc<Timer>,
+    timer: Rc<Timer<Dialog>>,
 }
 
 impl YoutubeSearchProgressDialog {
@@ -10505,7 +10505,7 @@ fn open_youtube_search_progress_dialog(parent: &Dialog) -> YoutubeSearchProgress
     dialog.show(true);
     let timer = Rc::new(Timer::new(&dialog));
     let timer_tick = Rc::clone(&timer);
-    let progress_value = Rc::new(Cell::new(8));
+    let progress_value = Rc::new(Cell::new(8i32));
     let progress_value_tick = Rc::clone(&progress_value);
     timer_tick.on_tick(move |_| {
         let mut value = progress_value_tick.get().saturating_add(7);
