@@ -9835,12 +9835,34 @@ fn is_youtube_format_unavailable_error(message: &str) -> bool {
         .contains("requested format is not available")
 }
 
+fn is_youtube_drm_error(stderr: &str) -> bool {
+    let lower = stderr.to_ascii_lowercase();
+    lower.contains("drm")
+        || lower.contains("widevine")
+        || lower.contains("license")
+        || lower.contains("licence")
+        || lower.contains("encrypted")
+        || lower.contains("protected")
+}
+
+fn youtube_drm_message() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Questo contenuto risulta protetto da DRM e non può essere salvato."
+    } else {
+        "This content appears to be DRM-protected and cannot be saved."
+    }
+}
+
 fn youtube_bot_check_message() -> &'static str {
     if Settings::load().ui_language == "it" {
         "YouTube richiede una verifica anti-bot per questo contenuto. Riprova più tardi oppure scegli un altro risultato."
     } else {
         "YouTube is requiring an anti-bot verification for this content. Try again later or choose another result."
     }
+}
+
+fn youtube_tools_available() -> bool {
+    !cfg!(all(target_os = "macos", target_arch = "x86_64"))
 }
 
 fn youtube_save_client_profile_count() -> usize {
@@ -10100,6 +10122,16 @@ fn is_members_only_youtube_error(err: &str) -> bool {
         || err_lc.contains("join this channel to get access to members-only content")
 }
 
+fn is_blocking_youtube_probe_error(err: &str) -> bool {
+    let err_lc = err.to_ascii_lowercase();
+    is_members_only_youtube_error(err)
+        || err_lc.contains("private video")
+        || err_lc.contains("this video is private")
+        || err_lc.contains("video unavailable")
+        || err_lc.contains("this video is unavailable")
+        || err_lc.contains("not available in your country")
+}
+
 fn youtube_members_only_message() -> &'static str {
     if Settings::load().ui_language == "it" {
         "Questo video e riservato ai membri del canale. Scegli un altro contenuto."
@@ -10143,10 +10175,14 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let ytdlp = ytdlp_executable_path();
-    if let Err(err) = probe_youtube_stream_playable(&ytdlp, url)
-        && is_members_only_youtube_error(&err)
-    {
-        return Err(youtube_members_only_message().to_string());
+    if let Err(err) = probe_youtube_stream_playable(&ytdlp, url) {
+        if is_members_only_youtube_error(&err) {
+            return Err(youtube_members_only_message().to_string());
+        }
+        if is_blocking_youtube_probe_error(&err) {
+            return Err(err);
+        }
+        append_podcast_log(&format!("ytdlp.probe.ignored_error {}", err));
     }
     let mut command = Command::new(&mpv_executable);
     let allow_bookmarks = media_bookmarks_enabled();
@@ -10297,22 +10333,19 @@ fn save_youtube_mp3_with_ffmpeg(
             download_succeeded = true;
             break;
         }
-        let details = format!(
-            "{}\n{}",
-            String::from_utf8_lossy(&output.stderr),
-            String::from_utf8_lossy(&output.stdout)
-        )
-        .trim()
-        .to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let details = format!("{stderr}\n{stdout}").trim().to_string();
         last_details = if details.is_empty() {
             "yt-dlp non ha completato il download audio.".to_string()
         } else {
             details
         };
-        if !is_youtube_bot_check_error(&last_details)
+        if is_youtube_drm_error(&stderr)
+            && !is_youtube_bot_check_error(&last_details)
             && !is_youtube_format_unavailable_error(&last_details)
         {
-            return Err(last_details);
+            return Err(youtube_drm_message().to_string());
         }
     }
     if !download_succeeded {
@@ -10459,8 +10492,11 @@ fn save_youtube_result(
         } else {
             details
         };
-        if !is_youtube_bot_check_error(&last_details) {
-            return Err(last_details);
+        if is_youtube_drm_error(&stderr)
+            && !is_youtube_bot_check_error(&last_details)
+            && !is_youtube_format_unavailable_error(&last_details)
+        {
+            return Err(youtube_drm_message().to_string());
         }
     }
     Err(if is_youtube_bot_check_error(&last_details) {
@@ -12816,12 +12852,14 @@ fn main() {
             &ui.tools_wikipedia_label,
             ItemKind::Normal,
         );
-        tools_menu.append(
-            ID_TOOLS_YOUTUBE,
-            &ui.tools_youtube_label,
-            &ui.tools_youtube_label,
-            ItemKind::Normal,
-        );
+        if youtube_tools_available() {
+            tools_menu.append(
+                ID_TOOLS_YOUTUBE,
+                &ui.tools_youtube_label,
+                &ui.tools_youtube_label,
+                ItemKind::Normal,
+            );
+        }
 
         let additional_features_menu = Menu::builder().build();
         additional_features_menu.append(
