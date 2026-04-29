@@ -10149,7 +10149,6 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
         return Err(youtube_members_only_message().to_string());
     }
     let mut command = Command::new(&mpv_executable);
-    let mpv_input_conf = bundled_mpv_input_conf_path();
     let allow_bookmarks = media_bookmarks_enabled();
     let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
     if let Some(parent_dir) = mpv_executable.parent()
@@ -10158,19 +10157,16 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
         command.current_dir(parent_dir);
     }
     command
-        .arg(format!("--config-dir={}", mpv_config_dir.display()))
-        .arg(format!("--input-conf={}", mpv_input_conf.display()))
-        .arg("--force-window=yes")
-        .arg("--idle=no")
+        .arg(url)
         .arg("--no-terminal")
-        .arg("--osc=yes")
-        .arg("--input-default-bindings=yes")
         .arg("--volume-max=300")
+        .arg("--no-video")
+        .arg("--force-window=no")
         .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
     if ytdlp.exists() {
         command.arg(format!(
             "--script-opts=ytdl_hook-ytdl_path={}",
-            ytdlp.display()
+            ytdlp.to_string_lossy()
         ));
     }
     if allow_bookmarks {
@@ -10185,7 +10181,7 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     } else {
         command.arg("--resume-playback=no");
     }
-    command.arg(format!("--title=Sonarpad - {title}")).arg(url);
+    command.arg(format!("--title=Sonarpad - {title}"));
     let _child = command
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
