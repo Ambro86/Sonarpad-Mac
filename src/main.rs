@@ -9664,6 +9664,7 @@ fn youtube_mp3_download_format_for_profile(profile: usize) -> &'static str {
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_quick_startup_check() -> Result<(), String> {
+    const INTEL_YTDLP_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
     let ytdlp = ytdlp_executable_path();
     ytdlp_log_path_state("startup_check", &ytdlp);
     append_podcast_log("ytdlp.startup_check.begin");
@@ -9692,14 +9693,25 @@ fn ytdlp_quick_startup_check() -> Result<(), String> {
                     Err(format!("yt-dlp exited with status {status}"))
                 };
             }
-            Ok(None) if started.elapsed() >= Duration::from_secs(5) => {
+            Ok(None) if started.elapsed() >= INTEL_YTDLP_STARTUP_TIMEOUT => {
                 if let Err(err) = child.kill() {
                     append_podcast_log(&format!("ytdlp.startup_check.kill_failed {err}"));
                 }
-                if let Err(err) = child.wait() {
-                    append_podcast_log(&format!("ytdlp.startup_check.wait_failed {err}"));
+                match child.wait_with_output() {
+                    Ok(output) => ytdlp_log_output(
+                        "startup_check.timeout",
+                        output.status,
+                        &output.stdout,
+                        &output.stderr,
+                    ),
+                    Err(err) => {
+                        append_podcast_log(&format!("ytdlp.startup_check.wait_failed {err}"))
+                    }
                 }
-                append_podcast_log("ytdlp.startup_check.timeout");
+                append_podcast_log(&format!(
+                    "ytdlp.startup_check.timeout after_secs={}",
+                    INTEL_YTDLP_STARTUP_TIMEOUT.as_secs()
+                ));
                 return Err("yt-dlp startup timeout".to_string());
             }
             Ok(None) => std::thread::sleep(Duration::from_millis(50)),
