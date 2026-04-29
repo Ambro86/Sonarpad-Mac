@@ -10508,6 +10508,14 @@ fn youtube_search_progress_label() -> &'static str {
     }
 }
 
+fn youtube_save_progress_label() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Salvataggio in corso"
+    } else {
+        "Save in progress"
+    }
+}
+
 struct YoutubeSearchProgressDialog {
     dialog: Dialog,
     timer: Rc<Timer<Dialog>>,
@@ -10521,7 +10529,14 @@ impl YoutubeSearchProgressDialog {
 }
 
 fn open_youtube_search_progress_dialog(parent: &Dialog) -> YoutubeSearchProgressDialog {
-    let label = youtube_search_progress_label();
+    open_youtube_progress_dialog(parent, youtube_search_progress_label())
+}
+
+fn open_youtube_save_progress_dialog(parent: &Dialog) -> YoutubeSearchProgressDialog {
+    open_youtube_progress_dialog(parent, youtube_save_progress_label())
+}
+
+fn open_youtube_progress_dialog(parent: &Dialog, label: &str) -> YoutubeSearchProgressDialog {
     let dialog = Dialog::builder(parent, label)
         .with_style(DialogStyle::Caption)
         .with_size(340, 135)
@@ -10644,6 +10659,7 @@ fn open_youtube_results_dialog(
     let youtube_pending_playback = Arc::new(Mutex::new(None::<Result<(), String>>));
     let youtube_pending_save = Arc::new(Mutex::new(None::<Result<PathBuf, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
+    let youtube_save_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
     let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
@@ -10652,6 +10668,7 @@ fn open_youtube_results_dialog(
     let youtube_busy_timer = Arc::clone(&youtube_busy);
     let settings_timer = Arc::clone(settings);
     let choice_save_focus_timer = choice;
+    let youtube_save_progress_timer = Rc::clone(&youtube_save_progress);
     let dialog_timer = dialog;
     youtube_result_timer_tick.on_tick(move |_| {
         let result = youtube_pending_result_timer.lock().unwrap().take();
@@ -10675,6 +10692,9 @@ fn open_youtube_results_dialog(
         }
         let save_result = youtube_pending_save_timer.lock().unwrap().take();
         if let Some(save_result) = save_result {
+            if let Some(progress_dialog) = youtube_save_progress_timer.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
             youtube_busy_timer.store(false, Ordering::SeqCst);
             match save_result {
                 Ok(path) => show_message_subdialog(
@@ -10727,6 +10747,7 @@ fn open_youtube_results_dialog(
     let dialog_save = dialog;
     let youtube_pending_save_click = Arc::clone(&youtube_pending_save);
     let youtube_busy_save = Arc::clone(&youtube_busy);
+    let youtube_save_progress_click = Rc::clone(&youtube_save_progress);
     save_button.on_click(move |_| {
         if let Some(sel) = choice_save.get_selection()
             && let Some(result) = results_save.get(sel as usize)
@@ -10760,6 +10781,10 @@ fn open_youtube_results_dialog(
             let format = format.to_string();
             let quality = quality.to_string();
             let pending = Arc::clone(&youtube_pending_save_click);
+            if youtube_save_progress_click.borrow().is_none() {
+                *youtube_save_progress_click.borrow_mut() =
+                    Some(open_youtube_save_progress_dialog(&dialog_save));
+            }
             std::thread::spawn(move || {
                 let result = save_youtube_to_path(&url, &format, &quality, output_path);
                 *pending.lock().unwrap() = Some(result);
