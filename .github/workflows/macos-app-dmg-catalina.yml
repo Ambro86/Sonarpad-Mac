@@ -75,7 +75,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v11
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v12
 
       - name: Build release binary
         shell: bash

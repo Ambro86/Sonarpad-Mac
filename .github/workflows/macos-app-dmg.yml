@@ -96,7 +96,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v9
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v10
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
