@@ -9444,6 +9444,14 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
 }
 
 fn ytdlp_executable_path() -> PathBuf {
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        match intel_external_ytdlp_executable_path() {
+            Ok(path) => return path,
+            Err(err) => append_podcast_log(&format!("ytdlp.intel_external.unavailable {err}")),
+        }
+    }
+
     #[cfg(target_os = "macos")]
     {
         if let Ok(exe) = std::env::current_exe()
@@ -9471,6 +9479,184 @@ fn ytdlp_executable_path() -> PathBuf {
     } else {
         PathBuf::from("yt-dlp")
     }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+static INTEL_EXTERNAL_YTDLP_PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn intel_external_ytdlp_executable_path() -> Result<PathBuf, String> {
+    INTEL_EXTERNAL_YTDLP_PATH
+        .get_or_init(prepare_intel_external_ytdlp)
+        .clone()
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn intel_external_ytdlp_path() -> PathBuf {
+    app_storage_path("tools").join("yt-dlp")
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn ytdlp_command_version(ytdlp: &Path) -> Result<String, String> {
+    let output = Command::new(ytdlp)
+        .arg("--version")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| format!("avvio yt-dlp --version fallito: {err}"))?;
+    ytdlp_log_output(
+        "intel_external.local_version",
+        output.status,
+        &output.stdout,
+        &output.stderr,
+    );
+    if !output.status.success() {
+        return Err(format!("yt-dlp --version exited with {}", output.status));
+    }
+    let version = String::from_utf8_lossy(&output.stdout).trim().to_string();
+    if version.is_empty() {
+        Err("yt-dlp --version non ha restituito una versione".to_string())
+    } else {
+        Ok(version)
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn latest_ytdlp_version() -> Result<String, String> {
+    #[derive(Deserialize)]
+    struct GithubRelease {
+        tag_name: String,
+    }
+
+    let release = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .build()
+        .map_err(|err| format!("client release yt-dlp fallito: {err}"))?
+        .get("https://api.github.com/repos/yt-dlp/yt-dlp/releases/latest")
+        .header(reqwest::header::USER_AGENT, "Sonarpad")
+        .send()
+        .map_err(|err| format!("controllo release yt-dlp fallito: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("controllo release yt-dlp HTTP fallito: {err}"))?
+        .json::<GithubRelease>()
+        .map_err(|err| format!("lettura release yt-dlp fallita: {err}"))?;
+    Ok(release.tag_name.trim_start_matches('v').to_string())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn clear_macos_quarantine(path: &Path) {
+    match Command::new("/usr/bin/xattr")
+        .args(["-cr"])
+        .arg(path)
+        .output()
+    {
+        Ok(output) => ytdlp_log_output(
+            "intel_external.xattr",
+            output.status,
+            &output.stdout,
+            &output.stderr,
+        ),
+        Err(err) => append_podcast_log(&format!("ytdlp.intel_external.xattr.spawn_error {err}")),
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn make_macos_executable(path: &Path) {
+    match Command::new("/bin/chmod").arg("+x").arg(path).output() {
+        Ok(output) => ytdlp_log_output(
+            "intel_external.chmod",
+            output.status,
+            &output.stdout,
+            &output.stderr,
+        ),
+        Err(err) => append_podcast_log(&format!("ytdlp.intel_external.chmod.spawn_error {err}")),
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn download_intel_external_ytdlp(path: &Path) -> Result<(), String> {
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("cartella yt-dlp non valida: {}", path.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|err| format!("creazione cartella yt-dlp fallita: {err}"))?;
+    let temp_path = path.with_extension("download");
+    append_podcast_log(&format!(
+        "ytdlp.intel_external.download.begin path={}",
+        path.display()
+    ));
+    let bytes = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(120))
+        .build()
+        .map_err(|err| format!("client download yt-dlp fallito: {err}"))?
+        .get("https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos")
+        .header(reqwest::header::USER_AGENT, "Sonarpad")
+        .send()
+        .map_err(|err| format!("download yt-dlp fallito: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("download yt-dlp HTTP fallito: {err}"))?
+        .bytes()
+        .map_err(|err| format!("lettura download yt-dlp fallita: {err}"))?;
+    std::fs::write(&temp_path, &bytes)
+        .map_err(|err| format!("scrittura yt-dlp temporaneo fallita: {err}"))?;
+    make_macos_executable(&temp_path);
+    clear_macos_quarantine(&temp_path);
+    std::fs::rename(&temp_path, path).map_err(|err| {
+        format!(
+            "installazione yt-dlp fallita da {} a {}: {err}",
+            temp_path.display(),
+            path.display()
+        )
+    })?;
+    make_macos_executable(path);
+    clear_macos_quarantine(path);
+    append_podcast_log(&format!(
+        "ytdlp.intel_external.download.done path={} bytes={}",
+        path.display(),
+        bytes.len()
+    ));
+    Ok(())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn prepare_intel_external_ytdlp() -> Result<PathBuf, String> {
+    let path = intel_external_ytdlp_path();
+    let local_version = if path.is_file() {
+        make_macos_executable(&path);
+        clear_macos_quarantine(&path);
+        ytdlp_command_version(&path).ok()
+    } else {
+        None
+    };
+    let latest_version = match latest_ytdlp_version() {
+        Ok(version) => version,
+        Err(err) => {
+            if local_version.is_some() {
+                append_podcast_log(&format!(
+                    "ytdlp.intel_external.latest_check_failed_using_local {err}"
+                ));
+                return Ok(path);
+            }
+            return Err(err);
+        }
+    };
+    append_podcast_log(&format!(
+        "ytdlp.intel_external.version local={:?} latest={}",
+        local_version, latest_version
+    ));
+    if local_version.as_deref() != Some(latest_version.as_str()) {
+        download_intel_external_ytdlp(&path)?;
+        let installed_version = ytdlp_command_version(&path)?;
+        append_podcast_log(&format!(
+            "ytdlp.intel_external.installed version={installed_version}"
+        ));
+    } else {
+        append_podcast_log(&format!(
+            "ytdlp.intel_external.up_to_date path={}",
+            path.display()
+        ));
+    }
+    Ok(path)
 }
 
 fn ytdlp_runtime_label() -> &'static str {
