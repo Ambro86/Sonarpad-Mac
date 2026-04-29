@@ -9824,6 +9824,41 @@ fn ytdlp_unavailable_message() -> &'static str {
     }
 }
 
+fn is_youtube_bot_check_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("confirm you're not a bot") || lower.contains("confirm you’re not a bot")
+}
+
+fn youtube_bot_check_message() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "YouTube richiede una verifica anti-bot per questo contenuto. Riprova più tardi oppure scegli un altro risultato."
+    } else {
+        "YouTube is requiring an anti-bot verification for this content. Try again later or choose another result."
+    }
+}
+
+fn youtube_save_client_profile_count() -> usize {
+    3
+}
+
+fn configure_youtube_save_client_profile(command: &mut Command, profile: usize) {
+    match profile {
+        1 => {
+            command.args([
+                "--extractor-args",
+                "youtube:player_client=default,-android_vr",
+            ]);
+        }
+        2 => {
+            command.args([
+                "--extractor-args",
+                "youtube:player_client=mweb,tv,web_safari;player_skip=webpage",
+            ]);
+        }
+        _ => {}
+    }
+}
+
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_quick_startup_check() -> Result<(), String> {
     let ytdlp = ytdlp_executable_path();
@@ -10216,31 +10251,42 @@ fn save_youtube_mp3_with_ffmpeg(
         temp_template.display(),
         ffmpeg.display()
     ));
-    let mut command = Command::new(ytdlp);
-    configure_ytdlp_for_current_macos(&mut command);
-    let output = command
-        .arg("--no-playlist")
-        .arg("--socket-timeout")
-        .arg("10")
-        .arg("--no-warnings")
-        .arg("-f")
-        .arg("bestaudio/best")
-        .arg("-o")
-        .arg(temp_template.to_string_lossy().to_string())
-        .arg("--")
-        .arg(url)
-        .output()
-        .map_err(|err| {
-            ytdlp_log_spawn_error("save_mp3_download", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
-    ytdlp_log_output(
-        "save_mp3_download",
-        output.status,
-        &output.stdout,
-        &output.stderr,
-    );
-    if !output.status.success() {
+    let mut last_details = String::new();
+    let mut download_succeeded = false;
+    for profile in 0..youtube_save_client_profile_count() {
+        append_podcast_log(&format!(
+            "ytdlp.save_mp3_download.attempt profile={profile}"
+        ));
+        let mut command = Command::new(ytdlp);
+        configure_ytdlp_for_current_macos(&mut command);
+        configure_youtube_save_client_profile(&mut command, profile);
+        let output = command
+            .arg("--no-playlist")
+            .arg("--socket-timeout")
+            .arg("10")
+            .arg("--no-warnings")
+            .arg("--force-overwrites")
+            .arg("-f")
+            .arg("bestaudio/best")
+            .arg("-o")
+            .arg(temp_template.to_string_lossy().to_string())
+            .arg("--")
+            .arg(url)
+            .output()
+            .map_err(|err| {
+                ytdlp_log_spawn_error("save_mp3_download", &err);
+                format!("yt-dlp non avviato: {err}")
+            })?;
+        ytdlp_log_output(
+            "save_mp3_download",
+            output.status,
+            &output.stdout,
+            &output.stderr,
+        );
+        if output.status.success() {
+            download_succeeded = true;
+            break;
+        }
         let details = format!(
             "{}\n{}",
             String::from_utf8_lossy(&output.stderr),
@@ -10248,10 +10294,20 @@ fn save_youtube_mp3_with_ffmpeg(
         )
         .trim()
         .to_string();
-        return Err(if details.is_empty() {
+        last_details = if details.is_empty() {
             "yt-dlp non ha completato il download audio.".to_string()
         } else {
             details
+        };
+        if !is_youtube_bot_check_error(&last_details) {
+            return Err(last_details);
+        }
+    }
+    if !download_succeeded {
+        return Err(if is_youtube_bot_check_error(&last_details) {
+            youtube_bot_check_message().to_string()
+        } else {
+            last_details
         });
     }
     let downloaded_path = find_youtube_temp_download(downloads_dir, &prefix)?;
@@ -10340,53 +10396,66 @@ fn save_youtube_result(
         );
         return Ok(());
     }
-    let mut command = Command::new(&ytdlp);
-    configure_ytdlp_for_current_macos(&mut command);
-    command
-        .arg("--no-playlist")
-        .arg("--socket-timeout")
-        .arg("10")
-        .arg("--no-warnings")
-        .arg("-o")
-        .arg(output_path.to_string_lossy().to_string());
-    if let Some(ffmpeg_path) = ffmpeg_executable_path() {
-        append_podcast_log(&format!("ytdlp.save.ffmpeg path={}", ffmpeg_path.display()));
+    let mut last_details = String::new();
+    for profile in 0..youtube_save_client_profile_count() {
+        append_podcast_log(&format!("ytdlp.save.attempt profile={profile}"));
+        let mut command = Command::new(&ytdlp);
+        configure_ytdlp_for_current_macos(&mut command);
+        configure_youtube_save_client_profile(&mut command, profile);
         command
-            .arg("--ffmpeg-location")
-            .arg(ffmpeg_path.to_string_lossy().to_string());
-    } else {
-        append_podcast_log("ytdlp.save.ffmpeg missing");
-    }
-    if quality == "best" {
-        command.args(["-f", "best[ext=mp4]/best"]);
-    } else {
-        command.args([
-            "-f",
-            "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best",
-        ]);
-    }
-    let output = command.arg("--").arg(url).output().map_err(|err| {
-        ytdlp_log_spawn_error("save", &err);
-        format!("yt-dlp non avviato: {err}")
-    })?;
-    ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
-    if output.status.success() {
-        show_message_subdialog(
-            parent,
-            &current_ui_strings().youtube_title,
-            &youtube_save_completed_message(&output_path),
-        );
-        Ok(())
-    } else {
+            .arg("--no-playlist")
+            .arg("--socket-timeout")
+            .arg("10")
+            .arg("--no-warnings")
+            .arg("--force-overwrites")
+            .arg("-o")
+            .arg(output_path.to_string_lossy().to_string());
+        if let Some(ffmpeg_path) = ffmpeg_executable_path() {
+            append_podcast_log(&format!("ytdlp.save.ffmpeg path={}", ffmpeg_path.display()));
+            command
+                .arg("--ffmpeg-location")
+                .arg(ffmpeg_path.to_string_lossy().to_string());
+        } else {
+            append_podcast_log("ytdlp.save.ffmpeg missing");
+        }
+        if quality == "best" {
+            command.args(["-f", "best[ext=mp4]/best"]);
+        } else {
+            command.args([
+                "-f",
+                "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best",
+            ]);
+        }
+        let output = command.arg("--").arg(url).output().map_err(|err| {
+            ytdlp_log_spawn_error("save", &err);
+            format!("yt-dlp non avviato: {err}")
+        })?;
+        ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
+        if output.status.success() {
+            show_message_subdialog(
+                parent,
+                &current_ui_strings().youtube_title,
+                &youtube_save_completed_message(&output_path),
+            );
+            return Ok(());
+        }
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let details = format!("{stderr}\n{stdout}").trim().to_string();
-        if details.is_empty() {
-            Err("yt-dlp non ha completato il salvataggio.".to_string())
+        last_details = if details.is_empty() {
+            "yt-dlp non ha completato il salvataggio.".to_string()
         } else {
-            Err(details)
+            details
+        };
+        if !is_youtube_bot_check_error(&last_details) {
+            return Err(last_details);
         }
     }
+    Err(if is_youtube_bot_check_error(&last_details) {
+        youtube_bot_check_message().to_string()
+    } else {
+        last_details
+    })
 }
 
 type YoutubeResultsPayload = (Vec<YoutubeSearchResult>, Option<YoutubeSearchContext>);
@@ -10399,11 +10468,23 @@ fn youtube_search_progress_label() -> &'static str {
     }
 }
 
-fn open_youtube_search_progress_dialog(parent: &Dialog) -> Dialog {
+struct YoutubeSearchProgressDialog {
+    dialog: Dialog,
+    timer: Rc<Timer>,
+}
+
+impl YoutubeSearchProgressDialog {
+    fn destroy(self) {
+        self.timer.stop();
+        self.dialog.destroy();
+    }
+}
+
+fn open_youtube_search_progress_dialog(parent: &Dialog) -> YoutubeSearchProgressDialog {
     let label = youtube_search_progress_label();
     let dialog = Dialog::builder(parent, label)
         .with_style(DialogStyle::Caption)
-        .with_size(320, 110)
+        .with_size(340, 135)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -10413,9 +10494,29 @@ fn open_youtube_search_progress_dialog(parent: &Dialog) -> Dialog {
         SizerFlag::Expand | SizerFlag::All,
         16,
     );
+    let gauge = Gauge::builder(&panel).with_range(100).build();
+    root.add(
+        &gauge,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+        16,
+    );
     panel.set_sizer(root, true);
     dialog.show(true);
-    dialog
+    let timer = Rc::new(Timer::new(&dialog));
+    let timer_tick = Rc::clone(&timer);
+    let progress_value = Rc::new(Cell::new(8));
+    let progress_value_tick = Rc::clone(&progress_value);
+    timer_tick.on_tick(move |_| {
+        let mut value = progress_value_tick.get().saturating_add(7);
+        if value >= 95 {
+            value = 8;
+        }
+        progress_value_tick.set(value);
+        gauge.set_value(value);
+    });
+    timer.start(250, false);
+    YoutubeSearchProgressDialog { dialog, timer }
 }
 
 fn open_youtube_results_dialog(
@@ -10713,7 +10814,7 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let youtube_pending_result =
         Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
-    let youtube_search_progress = Rc::new(RefCell::new(None::<Dialog>));
+    let youtube_search_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
     let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
@@ -10822,9 +10923,17 @@ fn open_tv_dialog(parent: &Frame) {
 
 fn tv_guide_button_label() -> &'static str {
     if Settings::load().ui_language == "it" {
-        "Guida TV"
+        "Guida TV del canale selezionato"
     } else {
-        "TV guide"
+        "TV guide for selected channel"
+    }
+}
+
+fn tv_guide_window_title(channel_name: &str) -> String {
+    if Settings::load().ui_language == "it" {
+        format!("Guida TV - {channel_name}")
+    } else {
+        format!("TV guide - {channel_name}")
     }
 }
 
@@ -10908,7 +11017,7 @@ fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
         );
         return;
     };
-    let title = format!("{} - {}", tv_guide_button_label(), channel.name);
+    let title = tv_guide_window_title(&channel.name);
     let day_labels = tv_guide_day_labels();
     let initial_programs =
         tv::load_channel_guide(guide_channel, 0).unwrap_or_else(|_| channel.programs.clone());
