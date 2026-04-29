@@ -496,16 +496,10 @@ jobs:
           if [ -f "${YTDLP_BIN}" ]; then
             chmod +x "${YTDLP_BIN}"
             xattr -cr "${YTDLP_BIN}" || true
-            if [ "${{ matrix.rust_target }}" = "x86_64-apple-darwin" ]; then
-              codesign --force --timestamp \
-                --sign "Developer ID Application" \
-                "${YTDLP_BIN}"
-            else
-              codesign --force --options runtime --timestamp \
-                --entitlements "${YTDLP_ENTITLEMENTS}" \
-                --sign "Developer ID Application" \
-                "${YTDLP_BIN}"
-            fi
+            codesign --force --options runtime --timestamp \
+              --entitlements "${YTDLP_ENTITLEMENTS}" \
+              --sign "Developer ID Application" \
+              "${YTDLP_BIN}"
             codesign --verify --strict --verbose=4 "${YTDLP_BIN}"
           fi
 
@@ -514,23 +508,17 @@ jobs:
             "${APP_DIR}"
 
           if [ -f "${YTDLP_BIN}" ]; then
-            if [ "${{ matrix.rust_target }}" = "x86_64-apple-darwin" ]; then
-              codesign --force --timestamp \
-                --sign "Developer ID Application" \
-                "${YTDLP_BIN}"
-            else
-              codesign --force --options runtime --timestamp \
-                --entitlements "${YTDLP_ENTITLEMENTS}" \
-                --sign "Developer ID Application" \
-                "${YTDLP_BIN}"
-            fi
+            codesign --force --options runtime --timestamp \
+              --entitlements "${YTDLP_ENTITLEMENTS}" \
+              --sign "Developer ID Application" \
+              "${YTDLP_BIN}"
           fi
 
           codesign --force --options runtime --timestamp \
             --sign "Developer ID Application" \
             "${APP_DIR}"
 
-          if [ -f "${YTDLP_BIN}" ] && [ "${{ matrix.rust_target }}" != "x86_64-apple-darwin" ]; then
+          if [ -f "${YTDLP_BIN}" ]; then
             codesign -d --entitlements :- "${YTDLP_BIN}" 2>/dev/null \
               | grep -q "com.apple.security.cs.disable-library-validation"
           fi

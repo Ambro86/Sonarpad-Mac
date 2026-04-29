@@ -1241,6 +1241,8 @@ Versione 0.2.8 - 29 aprile 2026
 - Corretto un problema per cui a volte le audiodescrizioni non venivano salvate per problemi di timeout.
 \
 - Aggiunta la possibilita di impostare delle TV preferite.
+\
+- Nella lista dei canali TV e stata aggiunta l'indicazione del programma ora in onda.
 
 \
 Versione 0.2.7 - 28 aprile 2026
@@ -10022,6 +10024,33 @@ fn save_youtube_result(parent: &Dialog, url: &str, title: &str, format: &str, qu
 
 type YoutubeResultsPayload = (Vec<YoutubeSearchResult>, Option<YoutubeSearchContext>);
 
+fn youtube_search_progress_label() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Ricerca in corso"
+    } else {
+        "Search in progress"
+    }
+}
+
+fn open_youtube_search_progress_dialog(parent: &Dialog) -> Dialog {
+    let label = youtube_search_progress_label();
+    let dialog = Dialog::builder(parent, label)
+        .with_style(DialogStyle::Caption)
+        .with_size(320, 110)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    root.add(
+        &StaticText::builder(&panel).with_label(label).build(),
+        1,
+        SizerFlag::Expand | SizerFlag::All,
+        16,
+    );
+    panel.set_sizer(root, true);
+    dialog.show(true);
+    dialog
+}
+
 fn open_youtube_results_dialog(
     parent: &Dialog,
     settings: &Arc<Mutex<Settings>>,
@@ -10245,15 +10274,20 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let query_ctrl_search = query_ctrl;
     let youtube_pending_result = Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
+    let youtube_search_progress = Rc::new(RefCell::new(None::<Dialog>));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
     let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
     let youtube_busy_timer = Arc::clone(&youtube_busy);
+    let youtube_search_progress_timer = Rc::clone(&youtube_search_progress);
     let settings_timer = Arc::clone(settings);
     let dialog_timer = dialog;
     youtube_result_timer_tick.on_tick(move |_| {
         let result = youtube_pending_result_timer.lock().unwrap().take();
         if let Some(result) = result {
+            if let Some(progress_dialog) = youtube_search_progress_timer.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
             youtube_busy_timer.store(false, Ordering::SeqCst);
             match result {
                 Ok((results, context)) => {
@@ -10270,11 +10304,17 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     youtube_result_timer.start(100, false);
     let youtube_pending_result_search = Arc::clone(&youtube_pending_result);
     let youtube_busy_search = Arc::clone(&youtube_busy);
+    let youtube_search_progress_search = Rc::clone(&youtube_search_progress);
+    let dialog_search_progress = dialog;
     let perform_search = Rc::new(move || {
         let query = query_ctrl_search.get_value().trim().to_string();
         if query.is_empty() { return; }
         if youtube_busy_search.swap(true, Ordering::SeqCst) {
             return;
+        }
+        if youtube_search_progress_search.borrow().is_none() {
+            *youtube_search_progress_search.borrow_mut() =
+                Some(open_youtube_search_progress_dialog(&dialog_search_progress));
         }
         let pending = Arc::clone(&youtube_pending_result_search);
         std::thread::spawn(move || {
@@ -10312,7 +10352,11 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
         });
     }
     let youtube_result_timer_destroy = Rc::clone(&youtube_result_timer);
+    let youtube_search_progress_destroy = Rc::clone(&youtube_search_progress);
     dialog.on_destroy(move |event| {
+        if let Some(progress_dialog) = youtube_search_progress_destroy.borrow_mut().take() {
+            progress_dialog.destroy();
+        }
         youtube_result_timer_destroy.stop();
         event.skip(true);
     });
@@ -10351,6 +10395,12 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
+    let tv_display_names_by_url = Rc::new(
+        channels
+            .iter()
+            .map(|channel| (channel.url.clone(), channel.display_name()))
+            .collect::<HashMap<_, _>>(),
+    );
     let favorites = Rc::new(RefCell::new(Settings::load().tv_favorites));
     let fav_row = BoxSizer::builder(Orientation::Horizontal).build();
     fav_row.add(
@@ -10370,11 +10420,17 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     root.add_sizer(&fav_row, 0, SizerFlag::Expand, 0);
     let refresh_tv_favorites = Rc::new({
         let favorites = Rc::clone(&favorites);
+        let tv_display_names_by_url = Rc::clone(&tv_display_names_by_url);
         move |choice: &Choice, open_button: &Button, remove_button: &Button, selected_index: Option<usize>| {
             choice.clear();
             let favorites = favorites.borrow();
             for favorite in favorites.iter() {
-                choice.append(&favorite.name);
+                choice.append(
+                    tv_display_names_by_url
+                        .get(&favorite.url)
+                        .map(String::as_str)
+                        .unwrap_or(favorite.name.as_str()),
+                );
             }
             let has_favorites = !favorites.is_empty();
             open_button.enable(has_favorites);
@@ -10402,6 +10458,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             let channel = tv::TvChannel {
                 name: favorite.name.clone(),
                 url: favorite.url.clone(),
+                current_program: None,
             };
             if let Err(err) = open_tv_stream_with_mpv(&channel) {
                 show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
@@ -10445,7 +10502,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
 
     let choice = Choice::builder(&panel).build();
     for channel in &channels {
-        choice.append(&channel.name);
+        choice.append(&channel.display_name());
     }
     choice.set_selection(0);
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
