@@ -237,6 +237,7 @@ jobs:
             --enable-protocol=tls \
             --enable-demuxer=hls \
             --enable-demuxer=mpegts \
+            --enable-demuxer=matroska \
             --enable-demuxer=mov \
             --enable-demuxer=mp3 \
             --enable-muxer=ipod \
@@ -251,12 +252,14 @@ jobs:
             --enable-parser=mpeg4video \
             --enable-parser=mpegvideo \
             --enable-parser=mpegaudio \
+            --enable-parser=opus \
             --enable-decoder=aac \
             --enable-decoder=h264 \
             --enable-decoder=hevc \
             --enable-decoder=mpeg2video \
             --enable-decoder=mpeg4 \
             --enable-decoder=mp3 \
+            --enable-decoder=opus \
             --enable-encoder=aac \
             --enable-filter=atrim \
             --enable-filter=aresample \

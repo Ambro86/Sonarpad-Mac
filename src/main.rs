@@ -9600,7 +9600,152 @@ fn youtube_search(query: &str) -> Result<Vec<YoutubeSearchResult>, String> {
     youtube_search_page(query, 0)
 }
 
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn extract_balanced_json_after_marker(text: &str, marker: &str) -> Option<String> {
+    let marker_pos = text.find(marker)?;
+    let after_marker = &text[marker_pos + marker.len()..];
+    let start_rel = after_marker.find('{')?;
+    let start = marker_pos + marker.len() + start_rel;
+    let mut depth = 0_i32;
+    let mut in_string = false;
+    let mut escape = false;
+    for (offset, ch) in text[start..].char_indices() {
+        if in_string {
+            if escape {
+                escape = false;
+            } else if ch == '\\' {
+                escape = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth += 1,
+            '}' => {
+                depth -= 1;
+                if depth == 0 {
+                    let end = start + offset + ch.len_utf8();
+                    return Some(text[start..end].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn collect_youtube_web_renderers<'a>(value: &'a serde_json::Value, out: &mut Vec<&'a serde_json::Value>) {
+    match value {
+        serde_json::Value::Object(map) => {
+            for key in ["videoRenderer", "playlistRenderer", "channelRenderer"] {
+                if let Some(renderer) = map.get(key) {
+                    out.push(renderer);
+                }
+            }
+            for child in map.values() {
+                collect_youtube_web_renderers(child, out);
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                collect_youtube_web_renderers(item, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn youtube_web_text(value: Option<&serde_json::Value>) -> Option<String> {
+    let value = value?;
+    if let Some(text) = value.get("simpleText").and_then(|text| text.as_str()) {
+        return Some(text.to_string());
+    }
+    value
+        .get("runs")
+        .and_then(|runs| runs.as_array())
+        .map(|runs| {
+            runs.iter()
+                .filter_map(|run| run.get("text").and_then(|text| text.as_str()))
+                .collect::<String>()
+        })
+        .filter(|text| !text.trim().is_empty())
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn youtube_search_page_web(query: &str, page: usize) -> Result<Vec<YoutubeSearchResult>, String> {
+    let url = format!(
+        "https://www.youtube.com/results?search_query={}",
+        percent_encode(query)
+    );
+    append_podcast_log(&format!(
+        "ytdlp.search_web.begin query_len={} page={} url={}",
+        query.chars().count(),
+        page,
+        url
+    ));
+    let html = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(20))
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15")
+        .build()
+        .map_err(|err| err.to_string())?
+        .get(&url)
+        .send()
+        .map_err(|err| err.to_string())?
+        .error_for_status()
+        .map_err(|err| err.to_string())?
+        .text()
+        .map_err(|err| err.to_string())?;
+    let initial_data = extract_balanced_json_after_marker(&html, "var ytInitialData =")
+        .or_else(|| extract_balanced_json_after_marker(&html, "window[\"ytInitialData\"] ="))
+        .ok_or_else(|| "Dati risultati YouTube non trovati.".to_string())?;
+    let value: serde_json::Value = serde_json::from_str(&initial_data).map_err(|err| err.to_string())?;
+    let mut renderers = Vec::new();
+    collect_youtube_web_renderers(&value, &mut renderers);
+    let start = page.saturating_mul(YOUTUBE_SEARCH_LIMIT);
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+    for renderer in renderers.into_iter().skip(start).take(YOUTUBE_SEARCH_LIMIT) {
+        let (url, is_collection) = if let Some(video_id) = renderer.get("videoId").and_then(|id| id.as_str()) {
+            (format!("https://www.youtube.com/watch?v={video_id}"), false)
+        } else if let Some(playlist_id) = renderer.get("playlistId").and_then(|id| id.as_str()) {
+            (format!("https://www.youtube.com/playlist?list={playlist_id}"), true)
+        } else if let Some(channel_id) = renderer.get("channelId").and_then(|id| id.as_str()) {
+            (format!("https://www.youtube.com/channel/{channel_id}"), true)
+        } else {
+            continue;
+        };
+        if !seen.insert(url.clone()) {
+            continue;
+        }
+        let title = youtube_web_text(renderer.get("title"))
+            .or_else(|| youtube_web_text(renderer.get("shortBylineText")))
+            .unwrap_or_else(|| "YouTube".to_string());
+        results.push(YoutubeSearchResult {
+            title,
+            url,
+            is_collection,
+        });
+    }
+    append_podcast_log(&format!(
+        "ytdlp.search_web.done count={} page={}",
+        results.len(),
+        page
+    ));
+    Ok(results)
+}
+
 fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResult>, String> {
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    {
+        return youtube_search_page_web(query, page);
+    }
+
+    #[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+    {
     let ytdlp = ytdlp_executable_path();
     let start = page.saturating_mul(YOUTUBE_SEARCH_LIMIT).saturating_add(1);
     let end = page.saturating_add(1).saturating_mul(YOUTUBE_SEARCH_LIMIT);
@@ -9649,6 +9794,7 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
             Some(YoutubeSearchResult { title, url, is_collection })
         })
         .collect())
+    }
 }
 
 fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, String> {
