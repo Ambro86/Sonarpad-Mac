@@ -296,17 +296,6 @@ jobs:
           test -x "${MPV_APP_DIR}/Contents/MacOS/mpv"
           echo "MPV_APP_DIR=${MPV_APP_DIR}" >> "${GITHUB_ENV}"
 
-      - name: Download Python zipapp yt-dlp for Intel
-        if: matrix.build_flavor == 'intel'
-        shell: bash
-        run: |
-          set -euxo pipefail
-          mkdir -p dist/yt-dlp-intel
-          curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o "dist/yt-dlp-intel/yt-dlp"
-          chmod +x dist/yt-dlp-intel/yt-dlp
-          file dist/yt-dlp-intel/yt-dlp
-          python3 dist/yt-dlp-intel/yt-dlp --version
-
       - name: Package .app and .dmg
         shell: bash
         run: |
@@ -349,7 +338,8 @@ jobs:
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
           if [ "${{ matrix.build_flavor }}" = "intel" ]; then
-            cp "dist/yt-dlp-intel/yt-dlp" "${RESOURCES_DIR}/yt-dlp"
+            curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
+            xattr -cr "${RESOURCES_DIR}/yt-dlp" || true
           else
             curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
           fi

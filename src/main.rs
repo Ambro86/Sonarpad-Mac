@@ -9523,6 +9523,20 @@ fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
     append_podcast_log(&format!("ytdlp.{context}.spawn_error {err}"));
 }
 
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn ytdlp_log_command_state(context: &str, ytdlp: &Path, command: &Command) {
+    let path_line = format!("YTDLP PATH = {ytdlp:?}");
+    let exists_line = format!("YTDLP EXISTS = {}", ytdlp.exists());
+    let is_file_line = format!("YTDLP IS FILE = {}", ytdlp.is_file());
+    let command_line = format!("YTDLP COMMAND = {command:?}");
+    append_podcast_log(&format!(
+        "ytdlp.{context}.command_state {path_line} {exists_line} {is_file_line} {command_line}"
+    ));
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn ytdlp_log_command_state(_context: &str, _ytdlp: &Path, _command: &Command) {}
+
 fn ytdlp_log_command_output(context: &str, command: &mut Command) {
     match command
         .stdout(Stdio::piped())
@@ -9538,6 +9552,7 @@ fn ytdlp_log_version(context: &str, ytdlp: &Path) {
     append_podcast_log(&format!("ytdlp.{context}.version.begin"));
     let mut command = Command::new(ytdlp);
     command.arg("--version");
+    ytdlp_log_command_state(&format!("{context}.version"), ytdlp, &command);
     ytdlp_log_command_output(&format!("{context}.version"), &mut command);
 }
 
@@ -9614,7 +9629,7 @@ fn youtube_bot_check_message() -> &'static str {
 }
 
 fn youtube_tools_available() -> bool {
-    !cfg!(all(target_os = "macos", target_arch = "x86_64"))
+    true
 }
 
 fn youtube_save_client_profile_count() -> usize {
@@ -9652,15 +9667,16 @@ fn ytdlp_quick_startup_check() -> Result<(), String> {
     let ytdlp = ytdlp_executable_path();
     ytdlp_log_path_state("startup_check", &ytdlp);
     append_podcast_log("ytdlp.startup_check.begin");
-    let mut child = Command::new(&ytdlp)
+    let mut command = Command::new(&ytdlp);
+    command
         .arg("--version")
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|err| {
-            ytdlp_log_spawn_error("startup_check", &err);
-            err.to_string()
-        })?;
+        .stderr(Stdio::piped());
+    ytdlp_log_command_state("startup_check", &ytdlp, &command);
+    let mut child = command.spawn().map_err(|err| {
+        ytdlp_log_spawn_error("startup_check", &err);
+        err.to_string()
+    })?;
     let started = std::time::Instant::now();
     loop {
         match child.try_wait() {
@@ -9712,6 +9728,7 @@ fn ytdlp_log_intel_verbose_probe(context: &str, ytdlp: &Path, url: &str) {
         .arg("--simulate")
         .arg("--")
         .arg(url);
+    ytdlp_log_command_state(&format!("{context}.intel_verbose_probe"), ytdlp, &command);
     ytdlp_log_command_output(&format!("{context}.intel_verbose_probe"), &mut command);
 }
 
@@ -9744,21 +9761,20 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
     ));
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
-    let output = command
-        .args([
-            "--flat-playlist",
-            "--dump-single-json",
-            "--playlist-start",
-            &start_arg,
-            "--playlist-end",
-            &end_arg,
-            &search_arg,
-        ])
-        .output()
-        .map_err(|err| {
-            ytdlp_log_spawn_error("search", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
+    command.args([
+        "--flat-playlist",
+        "--dump-single-json",
+        "--playlist-start",
+        &start_arg,
+        "--playlist-end",
+        &end_arg,
+        &search_arg,
+    ]);
+    ytdlp_log_command_state("search", &ytdlp, &command);
+    let output = command.output().map_err(|err| {
+        ytdlp_log_spawn_error("search", &err);
+        format!("yt-dlp non avviato: {err}")
+    })?;
     ytdlp_log_output("search", output.status, &output.stdout, &output.stderr);
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -9814,19 +9830,18 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     append_podcast_log(&format!("ytdlp.collection.begin url={url}"));
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
-    let output = command
-        .args([
-            "--flat-playlist",
-            "--dump-single-json",
-            "--playlist-end",
-            "50",
-            url,
-        ])
-        .output()
-        .map_err(|err| {
-            ytdlp_log_spawn_error("collection", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
+    command.args([
+        "--flat-playlist",
+        "--dump-single-json",
+        "--playlist-end",
+        "50",
+        url,
+    ]);
+    ytdlp_log_command_state("collection", &ytdlp, &command);
+    let output = command.output().map_err(|err| {
+        ytdlp_log_spawn_error("collection", &err);
+        format!("yt-dlp non avviato: {err}")
+    })?;
     ytdlp_log_output("collection", output.status, &output.stdout, &output.stderr);
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
@@ -9899,7 +9914,7 @@ fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), Str
     append_podcast_log(&format!("ytdlp.probe.begin url={url}"));
     let mut command = Command::new(ytdlp_path);
     configure_ytdlp_for_current_macos(&mut command);
-    let output = command
+    command
         .arg("--no-playlist")
         .arg("--no-warnings")
         .arg("--skip-download")
@@ -9908,12 +9923,12 @@ fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), Str
         .arg("--")
         .arg(url)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| {
-            ytdlp_log_spawn_error("probe", &err);
-            err.to_string()
-        })?;
+        .stderr(Stdio::piped());
+    ytdlp_log_command_state("probe", ytdlp_path, &command);
+    let output = command.output().map_err(|err| {
+        ytdlp_log_spawn_error("probe", &err);
+        err.to_string()
+    })?;
     ytdlp_log_output("probe", output.status, &output.stdout, &output.stderr);
     if output.status.success() {
         return Ok(());
@@ -10064,7 +10079,7 @@ fn save_youtube_mp3_with_ffmpeg(
         let mut command = Command::new(ytdlp);
         configure_ytdlp_for_current_macos(&mut command);
         configure_youtube_save_client_profile(&mut command, profile);
-        let output = command
+        command
             .arg("--no-playlist")
             .arg("--socket-timeout")
             .arg("10")
@@ -10075,12 +10090,12 @@ fn save_youtube_mp3_with_ffmpeg(
             .arg("-o")
             .arg(temp_template.to_string_lossy().to_string())
             .arg("--")
-            .arg(url)
-            .output()
-            .map_err(|err| {
-                ytdlp_log_spawn_error("save_mp3_download", &err);
-                format!("yt-dlp non avviato: {err}")
-            })?;
+            .arg(url);
+        ytdlp_log_command_state("save_mp3_download", ytdlp, &command);
+        let output = command.output().map_err(|err| {
+            ytdlp_log_spawn_error("save_mp3_download", &err);
+            format!("yt-dlp non avviato: {err}")
+        })?;
         ytdlp_log_output(
             "save_mp3_download",
             output.status,
@@ -10220,7 +10235,9 @@ fn save_youtube_to_path(
                 "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best",
             ]);
         }
-        let output = command.arg("--").arg(url).output().map_err(|err| {
+        command.arg("--").arg(url);
+        ytdlp_log_command_state("save", &ytdlp, &command);
+        let output = command.output().map_err(|err| {
             ytdlp_log_spawn_error("save", &err);
             format!("yt-dlp non avviato: {err}")
         })?;
