@@ -9829,6 +9829,12 @@ fn is_youtube_bot_check_error(message: &str) -> bool {
     lower.contains("confirm you're not a bot") || lower.contains("confirm you’re not a bot")
 }
 
+fn is_youtube_format_unavailable_error(message: &str) -> bool {
+    message
+        .to_ascii_lowercase()
+        .contains("requested format is not available")
+}
+
 fn youtube_bot_check_message() -> &'static str {
     if Settings::load().ui_language == "it" {
         "YouTube richiede una verifica anti-bot per questo contenuto. Riprova più tardi oppure scegli un altro risultato."
@@ -9856,6 +9862,14 @@ fn configure_youtube_save_client_profile(command: &mut Command, profile: usize) 
             ]);
         }
         _ => {}
+    }
+}
+
+fn youtube_mp3_download_format_for_profile(profile: usize) -> &'static str {
+    if profile == 0 {
+        "bestaudio/best"
+    } else {
+        "best"
     }
 }
 
@@ -10267,7 +10281,7 @@ fn save_youtube_mp3_with_ffmpeg(
             .arg("--no-warnings")
             .arg("--force-overwrites")
             .arg("-f")
-            .arg("bestaudio/best")
+            .arg(youtube_mp3_download_format_for_profile(profile))
             .arg("-o")
             .arg(temp_template.to_string_lossy().to_string())
             .arg("--")
@@ -10299,7 +10313,9 @@ fn save_youtube_mp3_with_ffmpeg(
         } else {
             details
         };
-        if !is_youtube_bot_check_error(&last_details) {
+        if !is_youtube_bot_check_error(&last_details)
+            && !is_youtube_format_unavailable_error(&last_details)
+        {
             return Err(last_details);
         }
     }
