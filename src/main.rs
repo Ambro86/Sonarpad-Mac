@@ -10187,6 +10187,7 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     let mut command = Command::new(&mpv_executable);
     let allow_bookmarks = media_bookmarks_enabled();
     let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
+    let mpv_input_conf = bundled_mpv_input_conf_path();
     if let Some(parent_dir) = mpv_executable.parent()
         && !parent_dir.as_os_str().is_empty()
     {
@@ -10194,10 +10195,15 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     }
     command
         .arg(url)
+        .arg(format!("--config-dir={}", mpv_config_dir.display()))
+        .arg(format!("--input-conf={}", mpv_input_conf.display()))
+        .arg("--force-window=yes")
+        .arg("--idle=no")
         .arg("--no-terminal")
+        .arg("--osc=yes")
+        .arg("--input-default-bindings=yes")
         .arg("--volume-max=300")
         .arg("--no-video")
-        .arg("--force-window=no")
         .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
     if ytdlp.exists() {
         command.arg(format!(
@@ -10404,16 +10410,12 @@ fn save_youtube_mp3_with_ffmpeg(
     }
 }
 
-fn save_youtube_result(
-    parent: &Dialog,
+fn save_youtube_to_path(
     url: &str,
-    title: &str,
     format: &str,
     quality: &str,
-) -> Result<(), String> {
-    let Some(output_path) = prompt_youtube_save_path(parent, title, format)? else {
-        return Ok(());
-    };
+    output_path: PathBuf,
+) -> Result<PathBuf, String> {
     let ytdlp = ytdlp_executable_path();
     let downloads_dir = app_storage_path("downloads");
     ytdlp_log_path_state("save", &ytdlp);
@@ -10434,12 +10436,7 @@ fn save_youtube_result(
     }
     if format == "mp3" {
         save_youtube_mp3_with_ffmpeg(url, &downloads_dir, &output_path, &ytdlp)?;
-        show_message_subdialog(
-            parent,
-            &current_ui_strings().youtube_title,
-            &youtube_save_completed_message(&output_path),
-        );
-        return Ok(());
+        return Ok(output_path);
     }
     let mut last_details = String::new();
     for profile in 0..youtube_save_client_profile_count() {
@@ -10477,12 +10474,7 @@ fn save_youtube_result(
         })?;
         ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
         if output.status.success() {
-            show_message_subdialog(
-                parent,
-                &current_ui_strings().youtube_title,
-                &youtube_save_completed_message(&output_path),
-            );
-            return Ok(());
+            return Ok(output_path);
         }
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -10650,13 +10642,16 @@ fn open_youtube_results_dialog(
     let youtube_pending_result =
         Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_pending_playback = Arc::new(Mutex::new(None::<Result<(), String>>));
+    let youtube_pending_save = Arc::new(Mutex::new(None::<Result<PathBuf, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
     let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
     let youtube_pending_playback_timer = Arc::clone(&youtube_pending_playback);
+    let youtube_pending_save_timer = Arc::clone(&youtube_pending_save);
     let youtube_busy_timer = Arc::clone(&youtube_busy);
     let settings_timer = Arc::clone(settings);
+    let choice_save_focus_timer = choice;
     let dialog_timer = dialog;
     youtube_result_timer_tick.on_tick(move |_| {
         let result = youtube_pending_result_timer.lock().unwrap().take();
@@ -10677,6 +10672,21 @@ fn open_youtube_results_dialog(
             if let Err(err) = playback_result {
                 show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err);
             }
+        }
+        let save_result = youtube_pending_save_timer.lock().unwrap().take();
+        if let Some(save_result) = save_result {
+            youtube_busy_timer.store(false, Ordering::SeqCst);
+            match save_result {
+                Ok(path) => show_message_subdialog(
+                    &dialog_timer,
+                    &current_ui_strings().youtube_title,
+                    &youtube_save_completed_message(&path),
+                ),
+                Err(err) => {
+                    show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
+                }
+            }
+            choice_save_focus_timer.set_focus();
         }
     });
     youtube_result_timer.start(100, false);
@@ -10715,10 +10725,15 @@ fn open_youtube_results_dialog(
     let format_choice_save = format_choice;
     let quality_choice_save = quality_choice;
     let dialog_save = dialog;
+    let youtube_pending_save_click = Arc::clone(&youtube_pending_save);
+    let youtube_busy_save = Arc::clone(&youtube_busy);
     save_button.on_click(move |_| {
         if let Some(sel) = choice_save.get_selection()
             && let Some(result) = results_save.get(sel as usize)
         {
+            if youtube_busy_save.swap(true, Ordering::SeqCst) {
+                return;
+            }
             let format = if format_choice_save.get_selection().unwrap_or(0) == 0 {
                 "mp3"
             } else {
@@ -10729,11 +10744,28 @@ fn open_youtube_results_dialog(
             } else {
                 "standard"
             };
-            if let Err(err) =
-                save_youtube_result(&dialog_save, &result.url, &result.title, format, quality)
-            {
-                show_message_subdialog(&dialog_save, &current_ui_strings().youtube_title, &err);
-            }
+            let output_path = match prompt_youtube_save_path(&dialog_save, &result.title, format) {
+                Ok(Some(path)) => path,
+                Ok(None) => {
+                    youtube_busy_save.store(false, Ordering::SeqCst);
+                    return;
+                }
+                Err(err) => {
+                    youtube_busy_save.store(false, Ordering::SeqCst);
+                    show_message_subdialog(&dialog_save, &current_ui_strings().youtube_title, &err);
+                    return;
+                }
+            };
+            let url = result.url.clone();
+            let format = format.to_string();
+            let quality = quality.to_string();
+            let pending = Arc::clone(&youtube_pending_save_click);
+            std::thread::spawn(move || {
+                let result = save_youtube_to_path(&url, &format, &quality, output_path);
+                *pending.lock().unwrap() = Some(result);
+            });
+        } else {
+            youtube_busy_save.store(false, Ordering::SeqCst);
         }
     });
     let choice_favorite = choice;
