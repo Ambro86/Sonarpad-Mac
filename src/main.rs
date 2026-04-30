@@ -9695,6 +9695,14 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
 }
 
 fn ytdlp_executable_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        match macos_python_ytdlp_executable_path() {
+            Ok(path) => return path,
+            Err(err) => append_podcast_log(&format!("ytdlp.python_venv.unavailable {err}")),
+        }
+    }
+
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     {
         match intel_external_ytdlp_executable_path() {
@@ -9729,6 +9737,212 @@ fn ytdlp_executable_path() -> PathBuf {
         PathBuf::from("yt-dlp.exe")
     } else {
         PathBuf::from("yt-dlp")
+    }
+}
+
+#[cfg(target_os = "macos")]
+static MACOS_PYTHON_YTDLP_PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+#[cfg(target_os = "macos")]
+static MACOS_PYTHON3_INSTALL_PROMPT_SHOWN: AtomicBool = AtomicBool::new(false);
+#[cfg(target_os = "macos")]
+const MACOS_PYTHON3_NOT_FOUND_ERROR: &str = "python3 non trovato";
+#[cfg(target_os = "macos")]
+const PYTHON_MACOS_DOWNLOAD_URL: &str = "https://www.python.org/downloads/macos/";
+
+#[cfg(target_os = "macos")]
+fn macos_python_ytdlp_executable_path() -> Result<PathBuf, String> {
+    MACOS_PYTHON_YTDLP_PATH
+        .get_or_init(prepare_macos_python_ytdlp)
+        .clone()
+}
+
+#[cfg(target_os = "macos")]
+fn macos_python_ytdlp_missing_python3() -> bool {
+    MACOS_PYTHON_YTDLP_PATH
+        .get()
+        .is_some_and(|result| matches!(result, Err(err) if err == MACOS_PYTHON3_NOT_FOUND_ERROR))
+}
+
+#[cfg(target_os = "macos")]
+fn macos_python_ytdlp_dir() -> PathBuf {
+    app_storage_path("tools").join("sonarpad")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_python_ytdlp_bin_path(venv_dir: &Path) -> PathBuf {
+    venv_dir.join("bin").join("yt-dlp")
+}
+
+#[cfg(target_os = "macos")]
+fn macos_python_ytdlp_python_path(venv_dir: &Path) -> PathBuf {
+    let python3 = venv_dir.join("bin").join("python3");
+    if python3.is_file() {
+        python3
+    } else {
+        venv_dir.join("bin").join("python")
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn macos_python3_candidates() -> [PathBuf; 4] {
+    [
+        PathBuf::from("/usr/bin/python3"),
+        PathBuf::from("/opt/homebrew/bin/python3"),
+        PathBuf::from("/usr/local/bin/python3"),
+        PathBuf::from("python3"),
+    ]
+}
+
+#[cfg(target_os = "macos")]
+fn find_macos_python3() -> Result<PathBuf, String> {
+    for candidate in macos_python3_candidates() {
+        match Command::new(&candidate)
+            .arg("--version")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+        {
+            Ok(output) => {
+                ytdlp_log_output(
+                    "python_venv.python3_check",
+                    output.status,
+                    &output.stdout,
+                    &output.stderr,
+                );
+                if output.status.success() {
+                    append_podcast_log(&format!(
+                        "ytdlp.python_venv.python3 path={}",
+                        candidate.display()
+                    ));
+                    return Ok(candidate);
+                }
+            }
+            Err(err) => append_podcast_log(&format!(
+                "ytdlp.python_venv.python3_check.spawn_error path={} error={err}",
+                candidate.display()
+            )),
+        }
+    }
+    Err(MACOS_PYTHON3_NOT_FOUND_ERROR.to_string())
+}
+
+#[cfg(target_os = "macos")]
+fn run_macos_python_ytdlp_command(
+    command: &mut Command,
+    log_name: &str,
+    error_context: &str,
+) -> Result<(), String> {
+    let output = command
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| format!("{error_context}: {err}"))?;
+    ytdlp_log_output(log_name, output.status, &output.stdout, &output.stderr);
+    if output.status.success() {
+        Ok(())
+    } else {
+        Err(format!("{error_context}: {}", output.status))
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn ensure_macos_python_ytdlp_venv(python3: &Path, venv_dir: &Path) -> Result<(), String> {
+    let venv_python = macos_python_ytdlp_python_path(venv_dir);
+    if venv_python.is_file() {
+        append_podcast_log(&format!(
+            "ytdlp.python_venv.exists path={}",
+            venv_dir.display()
+        ));
+        return Ok(());
+    }
+    let parent = venv_dir
+        .parent()
+        .ok_or_else(|| format!("cartella venv non valida: {}", venv_dir.display()))?;
+    std::fs::create_dir_all(parent)
+        .map_err(|err| format!("creazione cartella tools fallita: {err}"))?;
+    append_podcast_log(&format!(
+        "ytdlp.python_venv.create.begin python={} path={}",
+        python3.display(),
+        venv_dir.display()
+    ));
+    let mut command = Command::new(python3);
+    command.args(["-m", "venv"]).arg(venv_dir);
+    run_macos_python_ytdlp_command(
+        &mut command,
+        "python_venv.create",
+        "creazione venv yt-dlp fallita",
+    )?;
+    append_podcast_log(&format!(
+        "ytdlp.python_venv.create.done path={}",
+        venv_dir.display()
+    ));
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn update_macos_python_ytdlp(venv_python: &Path, ytdlp_path: &Path) -> Result<(), String> {
+    append_podcast_log(&format!(
+        "ytdlp.python_venv.update.begin python={} ytdlp={}",
+        venv_python.display(),
+        ytdlp_path.display()
+    ));
+    let mut command = Command::new(venv_python);
+    command.args([
+        "-m",
+        "pip",
+        "install",
+        "-U",
+        "pip",
+        "yt-dlp",
+        "certifi",
+    ]);
+    match run_macos_python_ytdlp_command(
+        &mut command,
+        "python_venv.pip_install",
+        "installazione o aggiornamento yt-dlp nella venv fallito",
+    ) {
+        Ok(()) => {
+            append_podcast_log(&format!(
+                "ytdlp.python_venv.update.done ytdlp={}",
+                ytdlp_path.display()
+            ));
+            Ok(())
+        }
+        Err(err) if ytdlp_path.is_file() => {
+            append_podcast_log(&format!(
+                "ytdlp.python_venv.update_failed_using_existing {err}"
+            ));
+            Ok(())
+        }
+        Err(err) => Err(err),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn prepare_macos_python_ytdlp() -> Result<PathBuf, String> {
+    let python3 = find_macos_python3()?;
+    let venv_dir = macos_python_ytdlp_dir();
+    ensure_macos_python_ytdlp_venv(&python3, &venv_dir)?;
+    let venv_python = macos_python_ytdlp_python_path(&venv_dir);
+    if !venv_python.is_file() {
+        return Err(format!(
+            "python venv non trovato dopo la creazione: {}",
+            venv_python.display()
+        ));
+    }
+    let ytdlp_path = macos_python_ytdlp_bin_path(&venv_dir);
+    update_macos_python_ytdlp(&venv_python, &ytdlp_path)?;
+    if ytdlp_path.is_file() {
+        append_podcast_log(&format!(
+            "ytdlp.python_venv.ready path={}",
+            ytdlp_path.display()
+        ));
+        Ok(ytdlp_path)
+    } else {
+        Err(format!(
+            "yt-dlp non trovato nella venv dopo installazione: {}",
+            ytdlp_path.display()
+        ))
     }
 }
 
@@ -10802,6 +11016,41 @@ fn youtube_open_progress_label() -> &'static str {
     }
 }
 
+fn youtube_startup_progress_label() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Caricamento streaming"
+    } else {
+        "Loading streaming"
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn prompt_install_python3_for_ytdlp(parent: &Frame) {
+    let ui = current_ui_strings();
+    let message = if Settings::load().ui_language == "it" {
+        "Attenzione, per le prestazioni migliori occorre installare Python 3. Vuoi installarlo ora?"
+    } else {
+        "For best performance, Python 3 should be installed. Do you want to install it now?"
+    };
+    if ask_yes_no_dialog(parent, &ui.youtube_title, message)
+        && let Err(err) = open_url_in_browser(PYTHON_MACOS_DOWNLOAD_URL)
+    {
+        show_message_dialog(parent, &ui.youtube_title, &err);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn maybe_prompt_install_python3_for_ytdlp(parent: &Frame) {
+    if macos_python_ytdlp_missing_python3()
+        && !MACOS_PYTHON3_INSTALL_PROMPT_SHOWN.swap(true, Ordering::SeqCst)
+    {
+        prompt_install_python3_for_ytdlp(parent);
+    }
+}
+
+#[cfg(not(target_os = "macos"))]
+fn maybe_prompt_install_python3_for_ytdlp(_parent: &Frame) {}
+
 struct YoutubeSearchProgressDialog {
     dialog: Dialog,
     timer: Rc<Timer<Dialog>>,
@@ -10814,19 +11063,23 @@ impl YoutubeSearchProgressDialog {
     }
 }
 
-fn open_youtube_search_progress_dialog(parent: &Dialog) -> YoutubeSearchProgressDialog {
+fn open_youtube_search_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProgressDialog {
     open_youtube_progress_dialog(parent, youtube_search_progress_label())
 }
 
-fn open_youtube_save_progress_dialog(parent: &Dialog) -> YoutubeSearchProgressDialog {
+fn open_youtube_save_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProgressDialog {
     open_youtube_progress_dialog(parent, youtube_save_progress_label())
 }
 
-fn open_youtube_open_progress_dialog(parent: &Dialog) -> YoutubeSearchProgressDialog {
+fn open_youtube_open_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProgressDialog {
     open_youtube_progress_dialog(parent, youtube_open_progress_label())
 }
 
-fn open_youtube_progress_dialog(parent: &Dialog, label: &str) -> YoutubeSearchProgressDialog {
+fn open_youtube_startup_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProgressDialog {
+    open_youtube_progress_dialog(parent, youtube_startup_progress_label())
+}
+
+fn open_youtube_progress_dialog(parent: &dyn WxWidget, label: &str) -> YoutubeSearchProgressDialog {
     let dialog = Dialog::builder(parent, label)
         .with_style(DialogStyle::Caption)
         .with_size(340, 135)
@@ -11387,11 +11640,48 @@ fn open_youtube_results_dialog(
 }
 
 fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
+    let pending_startup_check = Arc::new(Mutex::new(None::<Result<(), String>>));
+    let pending_startup_check_thread = Arc::clone(&pending_startup_check);
+    std::thread::spawn(move || {
+        *pending_startup_check_thread.lock().unwrap() = Some(ytdlp_quick_startup_check());
+    });
+    let progress_dialog = open_youtube_startup_progress_dialog(parent);
+    let startup_timer = Rc::new(Timer::new(&progress_dialog.dialog));
+    let progress_dialog = Rc::new(RefCell::new(Some(progress_dialog)));
+    let startup_timer_tick = Rc::clone(&startup_timer);
+    let startup_timer_stop = Rc::clone(&startup_timer);
+    let progress_dialog_done = Rc::clone(&progress_dialog);
+    let parent_startup = *parent;
+    let settings_startup = Arc::clone(settings);
+    startup_timer_tick.on_tick(move |_| {
+        let startup_result = pending_startup_check.lock().unwrap().take();
+        if let Some(startup_result) = startup_result {
+            startup_timer_stop.stop();
+            if let Some(progress_dialog) = progress_dialog_done.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
+            match startup_result {
+                Ok(()) => {
+                    maybe_prompt_install_python3_for_ytdlp(&parent_startup);
+                    open_youtube_dialog_ready(&parent_startup, &settings_startup);
+                }
+                Err(_) => {
+                    maybe_prompt_install_python3_for_ytdlp(&parent_startup);
+                    let ui = current_ui_strings();
+                    show_message_dialog(
+                        &parent_startup,
+                        &ui.youtube_title,
+                        ytdlp_unavailable_message(),
+                    );
+                }
+            }
+        }
+    });
+    startup_timer.start(100, false);
+}
+
+fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let ui = current_ui_strings();
-    if ytdlp_quick_startup_check().is_err() {
-        show_message_dialog(parent, &ui.youtube_title, ytdlp_unavailable_message());
-        return;
-    }
     let dialog = Dialog::builder(parent, &ui.youtube_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(720, 240)
