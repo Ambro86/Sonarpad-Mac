@@ -1,6 +1,6 @@
 [package]
 name = "sonarpad-minimal"
-version = "0.2.9"
+version = "0.2.8"
 edition = "2024"
 
 [dependencies]

@@ -2,10 +2,12 @@ Changelog
 
 Version 0.2.9 - April 30, 2026
 - Extended YouTube features to Intel Macs and Catalina.
+- Greatly improved YouTube search speed.
 - Improved YouTube results handling, placing channels and playlists at the top.
 - Added the ability to add and remove channels and playlists from favorites.
 - Added a Voice preview button in the options.
 - Added a Select all button when removing sources.
+- Added a progress bar for Wikipedia search.
 
 Version 0.2.8 - April 29, 2026
 - Added the Tools menu with two new items: Search and import from Wikipedia and Play streaming audio.

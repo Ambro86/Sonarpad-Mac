@@ -2,10 +2,14 @@ Changelog
 
 Versione 0.2.9 - 30 aprile 2026
 - Estese le funzionalità YouTube anche per i Mac Intel e Catalina.
+- Velocizzata enormemente la ricerca YouTube.
 - Migliore gestione dei risultati YouTube, con canali e playlist inseriti all'inizio.
 - Aggiunta la possibilità di aggiungere e rimuovere canali e playlist dai preferiti.
 - Aggiunto nelle opzioni il pulsante Anteprima voce.
 - Aggiunto in Rimuovi fonti il pulsante Seleziona tutto.
+- Aggiunta una barra di progresso per la ricerca da Wikipedia.
+- Aggiunto il canale TV Videolina.
+- Spostate le voci del menu per le funzionalità aggiuntive in Strumenti, per allineare Sonarpad alla versione per Windows.
 - Corretto il comportamento per cui a volte nelle TV non venivano mostrati i programmi ora in onda.
 
 Versione 0.2.8 - 29 aprile 2026

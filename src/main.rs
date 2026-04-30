@@ -728,7 +728,6 @@ struct UiStrings {
     delete_radio_favorite: String,
     radio_label: String,
     radio_url_label: String,
-    additional_features_label: String,
     rai_audio_descriptions_label: String,
     raiplay_label: String,
     raiplay_search_label: String,
@@ -3355,6 +3354,99 @@ fn open_add_radio_dialog(parent: &Frame) -> Option<(String, String)> {
     url_row.add(
         &StaticText::builder(&panel)
             .with_label(&ui.radio_url_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let url_ctrl = TextCtrl::builder(&panel).build();
+    url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.ok)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let result = if dialog.show_modal() == ID_OK {
+        let title = title_ctrl.get_value().trim().to_string();
+        let url = url_ctrl.get_value().trim().to_string();
+        if title.is_empty() || url.is_empty() {
+            None
+        } else {
+            Some((title, url))
+        }
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
+fn tv_add_channel_button_label() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Aggiungi canale"
+    } else {
+        "Add channel"
+    }
+}
+
+fn tv_add_channel_title() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Aggiungi canale TV"
+    } else {
+        "Add TV channel"
+    }
+}
+
+fn tv_channel_url_label() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "URL canale"
+    } else {
+        "Channel URL"
+    }
+}
+
+fn open_add_tv_channel_dialog(parent: &Dialog) -> Option<(String, String)> {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, tv_add_channel_title())
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 220)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let title_row = BoxSizer::builder(Orientation::Horizontal).build();
+    title_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.title_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let title_ctrl = TextCtrl::builder(&panel).build();
+    title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
+
+    let url_row = BoxSizer::builder(Orientation::Horizontal).build();
+    url_row.add(
+        &StaticText::builder(&panel)
+            .with_label(tv_channel_url_label())
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -9140,6 +9232,59 @@ struct YoutubeSearchResult {
 struct YoutubeSearchContext {
     query: String,
     page: usize,
+    continuation: Option<YoutubeContinuation>,
+    seen_urls: HashSet<String>,
+}
+
+#[derive(Clone)]
+struct YoutubeContinuation {
+    endpoint: YoutubeContinuationEndpoint,
+    token: String,
+    api_key: String,
+    client_version: String,
+}
+
+#[derive(Clone, Copy)]
+enum YoutubeContinuationEndpoint {
+    Search,
+    Browse,
+}
+
+fn youtube_result_dedup_key(url: &str) -> String {
+    Url::parse(url.trim())
+        .map(|mut parsed| {
+            parsed.set_fragment(None);
+            let mut value = parsed.to_string();
+            if value.ends_with('/') {
+                value.pop();
+            }
+            value.to_ascii_lowercase()
+        })
+        .unwrap_or_else(|_| url.trim().trim_end_matches('/').to_ascii_lowercase())
+}
+
+fn youtube_seen_urls(results: &[YoutubeSearchResult]) -> HashSet<String> {
+    results
+        .iter()
+        .map(|result| youtube_result_dedup_key(&result.url))
+        .collect()
+}
+
+fn youtube_filter_seen_results(
+    results: Vec<YoutubeSearchResult>,
+    context: Option<YoutubeSearchContext>,
+    seen_urls: &HashSet<String>,
+) -> YoutubeResultsPayload {
+    let mut seen_urls = seen_urls.clone();
+    let results = results
+        .into_iter()
+        .filter(|result| seen_urls.insert(youtube_result_dedup_key(&result.url)))
+        .collect();
+    let context = context.map(|mut context| {
+        context.seen_urls = seen_urls;
+        context
+    });
+    (results, context)
 }
 
 fn wikipedia_api_language() -> &'static str {
@@ -9961,28 +10106,7 @@ fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
 }
 
 fn ytdlp_command(ytdlp: &Path) -> Command {
-    #[cfg(target_os = "macos")]
-    {
-        let work_dir = ytdlp
-            .parent()
-            .filter(|parent| !parent.as_os_str().is_empty())
-            .map(Path::to_path_buf)
-            .unwrap_or_else(|| PathBuf::from("."));
-        let mut command = Command::new("/bin/zsh");
-        command
-            .arg("-l")
-            .arg("-c")
-            .arg("cd \"$1\" && shift && exec \"$@\"")
-            .arg("sonarpad-ytdlp-shell")
-            .arg(work_dir)
-            .arg(ytdlp);
-        command
-    }
-
-    #[cfg(not(target_os = "macos"))]
-    {
-        Command::new(ytdlp)
-    }
+    Command::new(ytdlp)
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -10010,6 +10134,7 @@ fn ytdlp_log_command_output(context: &str, command: &mut Command) {
     }
 }
 
+#[cfg(not(target_os = "macos"))]
 fn ytdlp_log_version(context: &str, ytdlp: &Path) {
     append_podcast_log(&format!("ytdlp.{context}.version.begin"));
     let mut command = ytdlp_command(ytdlp);
@@ -10018,39 +10143,14 @@ fn ytdlp_log_version(context: &str, ytdlp: &Path) {
     ytdlp_log_command_output(&format!("{context}.version"), &mut command);
 }
 
-#[cfg(target_os = "macos")]
-fn ytdlp_log_macos_signature(context: &str, ytdlp: &Path) {
-    append_podcast_log(&format!("ytdlp.{context}.codesign.begin"));
-    let mut codesign = Command::new("codesign");
-    codesign
-        .arg("-dv")
-        .arg("--verbose=4")
-        .arg(ytdlp.to_string_lossy().to_string());
-    ytdlp_log_command_output(&format!("{context}.codesign"), &mut codesign);
-
-    append_podcast_log(&format!("ytdlp.{context}.spctl.begin"));
-    let mut spctl = Command::new("spctl");
-    spctl
-        .arg("-a")
-        .arg("-vv")
-        .arg(ytdlp.to_string_lossy().to_string());
-    ytdlp_log_command_output(&format!("{context}.spctl"), &mut spctl);
-}
-
 #[cfg(not(target_os = "macos"))]
-fn ytdlp_log_macos_signature(_context: &str, _ytdlp: &Path) {}
-
 fn ytdlp_log_basic_diagnostics(context: &str, ytdlp: &Path) {
     ytdlp_log_version(context, ytdlp);
-    ytdlp_log_macos_signature(context, ytdlp);
 }
 
-fn ytdlp_unavailable_message() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "La riproduzione da streaming non è disponibile su questo Mac perché yt-dlp non riesce ad avviarsi correttamente."
-    } else {
-        "Streaming playback is not available on this Mac because yt-dlp cannot start correctly."
-    }
+#[cfg(target_os = "macos")]
+fn ytdlp_log_basic_diagnostics(context: &str, _ytdlp: &Path) {
+    append_podcast_log(&format!("ytdlp.{context}.diagnostics.skipped_macos"));
 }
 
 fn is_youtube_bot_check_error(message: &str) -> bool {
@@ -10124,85 +10224,6 @@ fn youtube_mp3_download_format_for_profile(profile: usize) -> &'static str {
     }
 }
 
-fn ytdlp_quick_startup_check() -> Result<(), String> {
-    #[cfg(target_os = "macos")]
-    return ytdlp_quick_search_startup_check();
-
-    #[cfg(not(target_os = "macos"))]
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn ytdlp_quick_search_startup_check() -> Result<(), String> {
-    const MACOS_YTDLP_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
-    let ytdlp = ytdlp_executable_path();
-    ytdlp_log_path_state("startup_check", &ytdlp);
-    append_podcast_log("ytdlp.startup_check.begin");
-    let mut command = ytdlp_command(&ytdlp);
-    command
-        .args([
-            "--extractor-args",
-            "youtube:lang=it",
-            "--flat-playlist",
-            "--dump-single-json",
-            "--playlist-start",
-            "1",
-            "--playlist-end",
-            "1",
-            "ytsearch1:sonarpad",
-        ])
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    ytdlp_log_command_state("startup_check", &ytdlp, &command);
-    let mut child = command.spawn().map_err(|err| {
-        ytdlp_log_spawn_error("startup_check", &err);
-        err.to_string()
-    })?;
-    let started = std::time::Instant::now();
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                append_podcast_log(&format!(
-                    "ytdlp.startup_check.done success={} code={:?}",
-                    status.success(),
-                    status.code()
-                ));
-                return if status.success() {
-                    Ok(())
-                } else {
-                    Err(format!("yt-dlp exited with status {status}"))
-                };
-            }
-            Ok(None) if started.elapsed() >= MACOS_YTDLP_STARTUP_TIMEOUT => {
-                if let Err(err) = child.kill() {
-                    append_podcast_log(&format!("ytdlp.startup_check.kill_failed {err}"));
-                }
-                match child.wait_with_output() {
-                    Ok(output) => ytdlp_log_output(
-                        "startup_check.timeout",
-                        output.status,
-                        &output.stdout,
-                        &output.stderr,
-                    ),
-                    Err(err) => {
-                        append_podcast_log(&format!("ytdlp.startup_check.wait_failed {err}"))
-                    }
-                }
-                append_podcast_log(&format!(
-                    "ytdlp.startup_check.timeout after_secs={}",
-                    MACOS_YTDLP_STARTUP_TIMEOUT.as_secs()
-                ));
-                return Err("yt-dlp startup timeout".to_string());
-            }
-            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
-            Err(err) => {
-                append_podcast_log(&format!("ytdlp.startup_check.wait_error {err}"));
-                return Err(err.to_string());
-            }
-        }
-    }
-}
-
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_log_intel_verbose_probe(context: &str, ytdlp: &Path, url: &str) {
     append_podcast_log(&format!(
@@ -10232,11 +10253,467 @@ fn configure_youtube_metadata_language(command: &mut Command) {
 
 const YOUTUBE_SEARCH_LIMIT: usize = 15;
 
-fn youtube_search(query: &str) -> Result<Vec<YoutubeSearchResult>, String> {
-    youtube_search_page(query, 0)
+const YOUTUBE_DIRECT_CLIENT_VERSION: &str = "2.20240401.00.00";
+
+fn youtube_direct_client() -> Result<reqwest::blocking::Client, String> {
+    reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .user_agent("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+        .build()
+        .map_err(|err| format!("client YouTube non disponibile: {err}"))
 }
 
-fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResult>, String> {
+fn youtube_direct_fetch_page(url: &str) -> Result<String, String> {
+    append_podcast_log(&format!("youtube.direct.fetch url={url}"));
+    youtube_direct_client()?
+        .get(url)
+        .header(reqwest::header::ACCEPT_LANGUAGE, "it-IT,it;q=0.9,en-US;q=0.8")
+        .send()
+        .map_err(|err| format!("richiesta YouTube fallita: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("risposta YouTube non valida: {err}"))?
+        .text()
+        .map_err(|err| format!("lettura risposta YouTube fallita: {err}"))
+}
+
+fn find_json_object_after_marker(text: &str, marker: &str) -> Option<String> {
+    let marker_index = text.find(marker)?;
+    let object_start = text[marker_index..].find('{')? + marker_index;
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for (offset, ch) in text[object_start..].char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match ch {
+            '"' => in_string = true,
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                depth = depth.saturating_sub(1);
+                if depth == 0 {
+                    let object_end = object_start + offset + ch.len_utf8();
+                    return Some(text[object_start..object_end].to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn youtube_extract_initial_data(html: &str) -> Result<serde_json::Value, String> {
+    let json = find_json_object_after_marker(html, "ytInitialData")
+        .ok_or_else(|| "Dati YouTube non trovati nella pagina.".to_string())?;
+    serde_json::from_str(&json).map_err(|err| format!("Dati YouTube non validi: {err}"))
+}
+
+fn youtube_extract_quoted_config(html: &str, key: &str) -> Option<String> {
+    let marker = format!("\"{key}\":\"");
+    let start = html.find(&marker)? + marker.len();
+    let mut value = String::new();
+    let mut escaped = false;
+    for ch in html[start..].chars() {
+        if escaped {
+            value.push(ch);
+            escaped = false;
+        } else if ch == '\\' {
+            escaped = true;
+        } else if ch == '"' {
+            return Some(value);
+        } else {
+            value.push(ch);
+        }
+    }
+    None
+}
+
+fn youtube_text_value(value: &serde_json::Value) -> Option<String> {
+    value
+        .get("simpleText")
+        .and_then(|v| v.as_str())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .map(ToOwned::to_owned)
+        .or_else(|| {
+            let text = value
+                .get("runs")?
+                .as_array()?
+                .iter()
+                .filter_map(|run| run.get("text").and_then(|v| v.as_str()))
+                .collect::<String>();
+            let trimmed = text.trim();
+            (!trimmed.is_empty()).then(|| trimmed.to_string())
+        })
+}
+
+fn youtube_renderer_url(renderer: &serde_json::Value, fallback: Option<String>) -> Option<String> {
+    renderer
+        .get("navigationEndpoint")
+        .and_then(|endpoint| {
+            endpoint
+                .get("commandMetadata")
+                .and_then(|metadata| metadata.get("webCommandMetadata"))
+                .and_then(|metadata| metadata.get("url"))
+                .and_then(|url| url.as_str())
+        })
+        .map(youtube_absolute_url)
+        .or(fallback)
+}
+
+fn youtube_absolute_url(url: &str) -> String {
+    if url.starts_with("http://") || url.starts_with("https://") {
+        url.to_string()
+    } else {
+        format!("https://www.youtube.com{url}")
+    }
+}
+
+fn is_youtube_url(value: &str) -> bool {
+    Url::parse(value.trim())
+        .ok()
+        .and_then(|url| url.host_str().map(|host| host.to_ascii_lowercase()))
+        .is_some_and(|host| {
+            host == "youtu.be"
+                || host == "youtube.com"
+                || host.ends_with(".youtube.com")
+                || host == "music.youtube.com"
+        })
+}
+
+fn youtube_collect_direct_results(
+    value: &serde_json::Value,
+    include_collections: bool,
+    include_videos: bool,
+    results: &mut Vec<YoutubeSearchResult>,
+    seen: &mut HashSet<String>,
+) {
+    match value {
+        serde_json::Value::Object(map) => {
+            if include_videos
+                && let Some(renderer) = map.get("videoRenderer")
+                && let Some(video_id) = renderer.get("videoId").and_then(|v| v.as_str())
+                && let Some(title) = renderer.get("title").and_then(youtube_text_value)
+            {
+                let url = format!("https://www.youtube.com/watch?v={video_id}");
+                if seen.insert(url.clone()) {
+                    results.push(YoutubeSearchResult {
+                        title,
+                        url,
+                        is_collection: false,
+                    });
+                }
+            }
+            if include_collections
+                && let Some(renderer) = map.get("channelRenderer")
+                && let Some(title) = renderer.get("title").and_then(youtube_text_value)
+                && let Some(url) = youtube_renderer_url(renderer, None)
+                && seen.insert(url.clone())
+            {
+                results.push(YoutubeSearchResult {
+                    title,
+                    url,
+                    is_collection: true,
+                });
+            }
+            if include_collections
+                && let Some(renderer) = map.get("playlistRenderer")
+                && let Some(title) = renderer.get("title").and_then(youtube_text_value)
+            {
+                let fallback = renderer
+                    .get("playlistId")
+                    .and_then(|v| v.as_str())
+                    .map(|id| format!("https://www.youtube.com/playlist?list={id}"));
+                if let Some(url) = youtube_renderer_url(renderer, fallback)
+                    && seen.insert(url.clone())
+                {
+                    results.push(YoutubeSearchResult {
+                        title,
+                        url,
+                        is_collection: true,
+                    });
+                }
+            }
+            for child in map.values() {
+                youtube_collect_direct_results(
+                    child,
+                    include_collections,
+                    include_videos,
+                    results,
+                    seen,
+                );
+            }
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                youtube_collect_direct_results(
+                    item,
+                    include_collections,
+                    include_videos,
+                    results,
+                    seen,
+                );
+            }
+        }
+        _ => {}
+    }
+}
+
+fn youtube_find_continuation_token(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::Object(map) => {
+            if let Some(token) = map
+                .get("continuationCommand")
+                .and_then(|command| command.get("token"))
+                .and_then(|token| token.as_str())
+            {
+                return Some(token.to_string());
+            }
+            for child in map.values() {
+                if let Some(token) = youtube_find_continuation_token(child) {
+                    return Some(token);
+                }
+            }
+            None
+        }
+        serde_json::Value::Array(items) => {
+            for item in items {
+                if let Some(token) = youtube_find_continuation_token(item) {
+                    return Some(token);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn youtube_direct_context(
+    query: String,
+    page: usize,
+    endpoint: YoutubeContinuationEndpoint,
+    token: Option<String>,
+    api_key: String,
+    client_version: String,
+    seen_urls: HashSet<String>,
+) -> Option<YoutubeSearchContext> {
+    token.map(|token| YoutubeSearchContext {
+        query,
+        page,
+        continuation: Some(YoutubeContinuation {
+            endpoint,
+            token,
+            api_key,
+            client_version,
+        }),
+        seen_urls,
+    })
+}
+
+fn youtube_parse_direct_page(
+    query: String,
+    page: usize,
+    endpoint: YoutubeContinuationEndpoint,
+    value: &serde_json::Value,
+    api_key: String,
+    client_version: String,
+    include_collections: bool,
+    include_videos: bool,
+) -> YoutubeResultsPayload {
+    let mut results = Vec::new();
+    let mut seen = HashSet::new();
+    youtube_collect_direct_results(
+        value,
+        include_collections,
+        include_videos,
+        &mut results,
+        &mut seen,
+    );
+    results.truncate(if include_collections {
+        YOUTUBE_SEARCH_LIMIT
+    } else {
+        50
+    });
+    if include_collections {
+        results.sort_by_key(|result| !result.is_collection);
+    }
+    let context = youtube_direct_context(
+        query,
+        page,
+        endpoint,
+        youtube_find_continuation_token(value),
+        api_key,
+        client_version,
+        youtube_seen_urls(&results),
+    );
+    (results, context)
+}
+
+fn youtube_direct_search(query: &str) -> Result<YoutubeResultsPayload, String> {
+    let encoded_query = percent_encode(query);
+    let url = format!("https://www.youtube.com/results?search_query={encoded_query}&hl=it&gl=IT");
+    let html = youtube_direct_fetch_page(&url)?;
+    let value = youtube_extract_initial_data(&html)?;
+    let api_key = youtube_extract_quoted_config(&html, "INNERTUBE_API_KEY")
+        .ok_or_else(|| "Chiave API YouTube non trovata.".to_string())?;
+    let client_version = youtube_extract_quoted_config(&html, "INNERTUBE_CLIENT_VERSION")
+        .unwrap_or_else(|| YOUTUBE_DIRECT_CLIENT_VERSION.to_string());
+    Ok(youtube_parse_direct_page(
+        query.to_string(),
+        0,
+        YoutubeContinuationEndpoint::Search,
+        &value,
+        api_key,
+        client_version,
+        true,
+        true,
+    ))
+}
+
+fn youtube_direct_collection(url: &str) -> Result<YoutubeResultsPayload, String> {
+    let url = youtube_collection_videos_url(url);
+    let html = youtube_direct_fetch_page(&url)?;
+    let value = youtube_extract_initial_data(&html)?;
+    let api_key = youtube_extract_quoted_config(&html, "INNERTUBE_API_KEY")
+        .ok_or_else(|| "Chiave API YouTube non trovata.".to_string())?;
+    let client_version = youtube_extract_quoted_config(&html, "INNERTUBE_CLIENT_VERSION")
+        .unwrap_or_else(|| YOUTUBE_DIRECT_CLIENT_VERSION.to_string());
+    Ok(youtube_parse_direct_page(
+        url,
+        0,
+        YoutubeContinuationEndpoint::Browse,
+        &value,
+        api_key,
+        client_version,
+        false,
+        true,
+    ))
+}
+
+fn youtube_direct_next_page(context: &YoutubeSearchContext) -> Result<YoutubeResultsPayload, String> {
+    let continuation = context
+        .continuation
+        .as_ref()
+        .ok_or_else(|| "Altri risultati non disponibili.".to_string())?;
+    let endpoint = match continuation.endpoint {
+        YoutubeContinuationEndpoint::Search => "search",
+        YoutubeContinuationEndpoint::Browse => "browse",
+    };
+    let url = format!(
+        "https://www.youtube.com/youtubei/v1/{endpoint}?key={}",
+        percent_encode(&continuation.api_key)
+    );
+    append_podcast_log(&format!("youtube.direct.continuation endpoint={endpoint}"));
+    let response = youtube_direct_client()?
+        .post(url)
+        .json(&serde_json::json!({
+            "context": {
+                "client": {
+                    "clientName": "WEB",
+                    "clientVersion": continuation.client_version.as_str(),
+                    "hl": "it",
+                    "gl": "IT"
+                }
+            },
+            "continuation": continuation.token.as_str()
+        }))
+        .send()
+        .map_err(|err| format!("richiesta altri risultati YouTube fallita: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("risposta altri risultati YouTube non valida: {err}"))?
+        .json::<serde_json::Value>()
+        .map_err(|err| format!("lettura altri risultati YouTube fallita: {err}"))?;
+    let include_collections = matches!(continuation.endpoint, YoutubeContinuationEndpoint::Search);
+    let (results, next_context) = youtube_parse_direct_page(
+        context.query.clone(),
+        context.page.saturating_add(1),
+        continuation.endpoint,
+        &response,
+        continuation.api_key.clone(),
+        continuation.client_version.clone(),
+        include_collections,
+        true,
+    );
+    let payload = youtube_filter_seen_results(
+        results,
+        next_context,
+        &context.seen_urls,
+    );
+    if payload.0.is_empty() {
+        Err("Nessun altro risultato nuovo.".to_string())
+    } else {
+        Ok(payload)
+    }
+}
+
+fn youtube_next_page(context: &YoutubeSearchContext) -> Result<YoutubeResultsPayload, String> {
+    if context.continuation.is_some() {
+        return youtube_direct_next_page(context);
+    }
+    if !is_youtube_url(&context.query) {
+        return Err("Altri risultati non disponibili.".to_string());
+    }
+    let next_page = context.page.saturating_add(1);
+    youtube_search_page_ytdlp(&context.query, next_page).and_then(|results| {
+        let payload = youtube_filter_seen_results(
+            results,
+            Some(YoutubeSearchContext {
+                query: context.query.clone(),
+                page: next_page,
+                continuation: None,
+                seen_urls: HashSet::new(),
+            }),
+            &context.seen_urls,
+        );
+        if payload.0.is_empty() {
+            Err("Nessun altro risultato nuovo.".to_string())
+        } else {
+            Ok(payload)
+        }
+    })
+}
+
+fn youtube_search(query: &str) -> Result<YoutubeResultsPayload, String> {
+    match youtube_direct_search(query) {
+        Ok((results, context)) if !results.is_empty() => Ok((results, context)),
+        Ok(_) if is_youtube_url(query) => {
+            youtube_search_page_ytdlp(query, 0).map(|results| {
+                let seen_urls = youtube_seen_urls(&results);
+                (
+                    results,
+                    Some(YoutubeSearchContext {
+                        query: query.to_string(),
+                        page: 0,
+                        continuation: None,
+                        seen_urls,
+                    }),
+                )
+            })
+        }
+        Ok(_) => Err("Nessun risultato trovato.".to_string()),
+        Err(_) => youtube_search_page_ytdlp(query, 0).map(|results| {
+            let seen_urls = youtube_seen_urls(&results);
+            (
+                results,
+                Some(YoutubeSearchContext {
+                    query: query.to_string(),
+                    page: 0,
+                    continuation: None,
+                    seen_urls,
+                }),
+            )
+        }),
+    }
+}
+
+fn youtube_search_page_ytdlp(query: &str, page: usize) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
     let start = page.saturating_mul(YOUTUBE_SEARCH_LIMIT).saturating_add(1);
     let end = page.saturating_add(1).saturating_mul(YOUTUBE_SEARCH_LIMIT);
@@ -10354,7 +10831,14 @@ fn youtube_collection_videos_url(url: &str) -> String {
     parsed.to_string()
 }
 
-fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, String> {
+fn youtube_collection_entries(url: &str) -> Result<YoutubeResultsPayload, String> {
+    match youtube_direct_collection(url) {
+        Ok((results, context)) if !results.is_empty() => Ok((results, context)),
+        Ok(_) | Err(_) => youtube_collection_entries_ytdlp(url).map(|results| (results, None)),
+    }
+}
+
+fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
     let url = youtube_collection_videos_url(url);
     ytdlp_log_path_state("collection", &ytdlp);
@@ -10827,14 +11311,6 @@ fn youtube_open_progress_label() -> &'static str {
     }
 }
 
-fn youtube_startup_progress_label() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "Caricamento streaming"
-    } else {
-        "Loading streaming"
-    }
-}
-
 struct YoutubeSearchProgressDialog {
     dialog: Dialog,
     timer: Rc<Timer<Dialog>>,
@@ -10857,10 +11333,6 @@ fn open_youtube_save_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProg
 
 fn open_youtube_open_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProgressDialog {
     open_youtube_progress_dialog(parent, youtube_open_progress_label())
-}
-
-fn open_youtube_startup_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProgressDialog {
-    open_youtube_progress_dialog(parent, youtube_startup_progress_label())
 }
 
 fn open_youtube_progress_dialog(parent: &dyn WxWidget, label: &str) -> YoutubeSearchProgressDialog {
@@ -10953,11 +11425,10 @@ fn open_youtube_results_dialog(
         .build();
     favorite_buttons.add(&favorite_remove_button, 0, SizerFlag::All, 5);
     root.add_sizer(&favorite_buttons, 0, SizerFlag::Expand, 0);
-    let has_favorites = !favorites.borrow().is_empty();
-    favorite_label.show(has_favorites);
-    favorite_choice.show(has_favorites);
-    favorite_open_button.show(has_favorites);
-    favorite_remove_button.show(has_favorites);
+    favorite_label.show(false);
+    favorite_choice.show(false);
+    favorite_open_button.show(false);
+    favorite_remove_button.show(false);
     let results_row = BoxSizer::builder(Orientation::Horizontal).build();
     results_row.add(
         &StaticText::builder(&panel)
@@ -10977,6 +11448,17 @@ fn open_youtube_results_dialog(
     }
     choice.set_selection(0);
     results_row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let open_button = Button::builder(&panel).with_label(&ui.open).build();
+    results_row.add(&open_button, 0, SizerFlag::All, 5);
+    let more_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" {
+            "Altri risultati"
+        } else {
+            "More results"
+        })
+        .build();
+    more_button.show(search_context.is_some());
+    results_row.add(&more_button, 0, SizerFlag::All, 5);
     root.add_sizer(&results_row, 1, SizerFlag::Expand, 0);
     let add_favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
     add_favorite_row.add_spacer(1);
@@ -11019,25 +11501,13 @@ fn open_youtube_results_dialog(
     options.add(&quality_choice, 0, SizerFlag::All, 5);
     root.add_sizer(&options, 0, SizerFlag::Expand, 0);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let open_button = Button::builder(&panel).with_label(&ui.open).build();
     let save_button = Button::builder(&panel).with_label(&ui.youtube_save).build();
-    let more_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" {
-            "Altri risultati"
-        } else {
-            "More results"
-        })
-        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
     buttons.add_spacer(1);
-    buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
-    if search_context.is_some() {
-        buttons.add(&more_button, 0, SizerFlag::All, 10);
-    }
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -11143,7 +11613,7 @@ fn open_youtube_results_dialog(
             let url = favorite.url;
             let pending = Arc::clone(&youtube_pending_result_favorite_open);
             std::thread::spawn(move || {
-                let result = youtube_collection_entries(&url).map(|entries| (entries, None));
+                let result = youtube_collection_entries(&url);
                 *pending.lock().unwrap() = Some(result);
             });
         }
@@ -11184,10 +11654,10 @@ fn open_youtube_results_dialog(
             favorite_choice_remove
                 .set_selection(index.min(favorites_remove.borrow().len() - 1) as u32);
         }
-        favorite_label_remove.show(has_favorites);
-        favorite_choice_remove.show(has_favorites);
-        favorite_open_button_remove.show(has_favorites);
-        favorite_remove_button_remove.show(has_favorites);
+        favorite_label_remove.show(false);
+        favorite_choice_remove.show(false);
+        favorite_open_button_remove.show(false);
+        favorite_remove_button_remove.show(false);
         let add_visible = choice_remove_visibility
             .get_selection()
             .and_then(|selection| results_remove_visibility.get(selection as usize))
@@ -11250,7 +11720,7 @@ fn open_youtube_results_dialog(
                         Some(open_youtube_open_progress_dialog(&dialog_timer));
                 }
                 std::thread::spawn(move || {
-                    let result = youtube_collection_entries(&url).map(|entries| (entries, None));
+                    let result = youtube_collection_entries(&url);
                     *pending.lock().unwrap() = Some(result);
                 });
             } else {
@@ -11355,10 +11825,10 @@ fn open_youtube_results_dialog(
                 favorite_choice_update.append(&result.title);
                 favorite_choice_update
                     .set_selection(favorites_favorite.borrow().len().saturating_sub(1) as u32);
-                favorite_label_update.show(true);
-                favorite_choice_update.show(true);
-                favorite_open_button_update.show(true);
-                favorite_remove_button_update.show(true);
+                favorite_label_update.show(false);
+                favorite_choice_update.show(false);
+                favorite_open_button_update.show(false);
+                favorite_remove_button_update.show(false);
                 favorite_button_update.show(false);
                 panel_favorite_update.layout();
                 dialog_favorite.layout();
@@ -11387,19 +11857,10 @@ fn open_youtube_results_dialog(
                 *youtube_more_progress_click.borrow_mut() =
                     Some(open_youtube_search_progress_dialog(&dialog_more));
             }
-            let query = search_context.query.clone();
-            let next_page = search_context.page.saturating_add(1);
+            let search_context = search_context.clone();
             let pending = Arc::clone(&youtube_pending_result_more);
             std::thread::spawn(move || {
-                let result = youtube_search_page(&query, next_page).map(|entries| {
-                    (
-                        entries,
-                        Some(YoutubeSearchContext {
-                            query,
-                            page: next_page,
-                        }),
-                    )
-                });
+                let result = youtube_next_page(&search_context);
                 *pending.lock().unwrap() = Some(result);
             });
         });
@@ -11424,40 +11885,7 @@ fn open_youtube_results_dialog(
 }
 
 fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
-    let pending_startup_check = Arc::new(Mutex::new(None::<Result<(), String>>));
-    let pending_startup_check_thread = Arc::clone(&pending_startup_check);
-    std::thread::spawn(move || {
-        *pending_startup_check_thread.lock().unwrap() = Some(ytdlp_quick_startup_check());
-    });
-    let progress_dialog = open_youtube_startup_progress_dialog(parent);
-    let startup_timer = Rc::new(Timer::new(&progress_dialog.dialog));
-    let progress_dialog = Rc::new(RefCell::new(Some(progress_dialog)));
-    let startup_timer_tick = Rc::clone(&startup_timer);
-    let startup_timer_stop = Rc::clone(&startup_timer);
-    let progress_dialog_done = Rc::clone(&progress_dialog);
-    let parent_startup = *parent;
-    let settings_startup = Arc::clone(settings);
-    startup_timer_tick.on_tick(move |_| {
-        let startup_result = pending_startup_check.lock().unwrap().take();
-        if let Some(startup_result) = startup_result {
-            startup_timer_stop.stop();
-            if let Some(progress_dialog) = progress_dialog_done.borrow_mut().take() {
-                progress_dialog.destroy();
-            }
-            match startup_result {
-                Ok(()) => open_youtube_dialog_ready(&parent_startup, &settings_startup),
-                Err(_) => {
-                    let ui = current_ui_strings();
-                    show_message_dialog(
-                        &parent_startup,
-                        &ui.youtube_title,
-                        ytdlp_unavailable_message(),
-                    );
-                }
-            }
-        }
-    });
-    startup_timer.start(100, false);
+    open_youtube_dialog_ready(parent, settings);
 }
 
 fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
@@ -11579,11 +12007,7 @@ fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
         }
         let pending = Arc::clone(&youtube_pending_result_search);
         std::thread::spawn(move || {
-            let context = YoutubeSearchContext {
-                query: query.clone(),
-                page: 0,
-            };
-            let result = youtube_search(&query).map(|results| (results, Some(context)));
+            let result = youtube_search(&query);
             *pending.lock().unwrap() = Some(result);
         });
     });
@@ -11619,7 +12043,7 @@ fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
                 let url = favorite.url;
                 let pending = Arc::clone(&youtube_pending_result_favorite);
                 std::thread::spawn(move || {
-                    let result = youtube_collection_entries(&url).map(|entries| (entries, None));
+                    let result = youtube_collection_entries(&url);
                     *pending.lock().unwrap() = Some(result);
                 });
             }
@@ -11899,10 +12323,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     );
     let favorites = Rc::new(RefCell::new(Settings::load().tv_favorites));
     let fav_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let favorite_label = StaticText::builder(&panel)
+        .with_label(&ui.tv_favorites_label)
+        .build();
     fav_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.tv_favorites_label)
-            .build(),
+        &favorite_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -11923,9 +12348,12 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let refresh_tv_favorites = Rc::new({
         let favorites = Rc::clone(&favorites);
         let tv_display_names_by_url = Rc::clone(&tv_display_names_by_url);
-        move |choice: &Choice,
+        move |label: &StaticText,
+              choice: &Choice,
               open_button: &Button,
               remove_button: &Button,
+              panel: &Panel,
+              dialog: &Dialog,
               selected_index: Option<usize>| {
             choice.clear();
             let favorites = favorites.borrow();
@@ -11938,18 +12366,27 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 );
             }
             let has_favorites = !favorites.is_empty();
+            label.show(has_favorites);
+            choice.show(has_favorites);
+            open_button.show(has_favorites);
+            remove_button.show(has_favorites);
             open_button.enable(has_favorites);
             remove_button.enable(has_favorites);
             if !favorites.is_empty() {
                 let max_index = favorites.len().saturating_sub(1);
                 choice.set_selection(selected_index.unwrap_or(0).min(max_index) as u32);
             }
+            panel.layout();
+            dialog.layout();
         }
     });
     refresh_tv_favorites(
+        &favorite_label,
         &favorite_choice,
         &favorite_open_button,
         &favorite_remove_button,
+        &panel,
+        &dialog,
         Some(0),
     );
 
@@ -11993,9 +12430,12 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     Some(index.min(settings.tv_favorites.len().saturating_sub(1)))
                 };
                 refresh_tv_favorites_remove(
+                    &favorite_label,
                     &favorite_choice_remove,
                     &favorite_open_button_remove,
                     &favorite_remove_button_remove,
+                    &panel,
+                    &dialog_favorite_remove,
                     next_index,
                 );
                 show_message_subdialog(
@@ -12030,6 +12470,9 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let favorite_button = Button::builder(&panel)
         .with_label(&ui.tv_add_favorite)
         .build();
+    let add_channel_button = Button::builder(&panel)
+        .with_label(tv_add_channel_button_label())
+        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
@@ -12038,6 +12481,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&guide_button, 0, SizerFlag::All, 10);
     buttons.add(&favorite_button, 0, SizerFlag::All, 10);
+    buttons.add(&add_channel_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -12077,9 +12521,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let choice_favorite = choice;
     let channels_favorite = Rc::clone(&channels);
     let dialog_favorite = dialog;
+    let favorite_label_refresh = favorite_label;
     let favorite_choice_refresh = favorite_choice;
     let favorite_open_button_refresh = favorite_open_button;
     let favorite_remove_button_refresh = favorite_remove_button;
+    let panel_refresh = panel;
     let favorites_refresh = Rc::clone(&favorites);
     let refresh_tv_favorites_button = Rc::clone(&refresh_tv_favorites);
     favorite_button.on_click(move |_| {
@@ -12104,9 +12550,12 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     .iter()
                     .position(|favorite| favorite.url == channel.url);
                 refresh_tv_favorites_button(
+                    &favorite_label_refresh,
                     &favorite_choice_refresh,
                     &favorite_open_button_refresh,
                     &favorite_remove_button_refresh,
+                    &panel_refresh,
+                    &dialog_favorite,
                     selected_index,
                 );
                 show_message_subdialog(
@@ -12129,6 +12578,71 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     },
                 );
             }
+        }
+    });
+    let dialog_add_channel = dialog;
+    let favorite_label_add_channel = favorite_label;
+    let favorite_choice_add_channel = favorite_choice;
+    let favorite_open_button_add_channel = favorite_open_button;
+    let favorite_remove_button_add_channel = favorite_remove_button;
+    let panel_add_channel = panel;
+    let favorites_add_channel = Rc::clone(&favorites);
+    let refresh_tv_favorites_add_channel = Rc::clone(&refresh_tv_favorites);
+    add_channel_button.on_click(move |_| {
+        if let Some((name, url)) = open_add_tv_channel_dialog(&dialog_add_channel) {
+            if Url::parse(&url).is_err() {
+                show_message_subdialog(
+                    &dialog_add_channel,
+                    &current_ui_strings().tv_label,
+                    if Settings::load().ui_language == "it" {
+                        "URL canale non valido."
+                    } else {
+                        "Invalid channel URL."
+                    },
+                );
+                return;
+            }
+            let mut settings = Settings::load();
+            if settings
+                .tv_favorites
+                .iter()
+                .any(|favorite| favorite.url == url)
+            {
+                show_message_subdialog(
+                    &dialog_add_channel,
+                    &current_ui_strings().tv_label,
+                    if Settings::load().ui_language == "it" {
+                        "Il canale TV è già nei preferiti."
+                    } else {
+                        "The TV channel is already in favorites."
+                    },
+                );
+                return;
+            }
+
+            settings.tv_favorites.push(TvFavorite { name, url });
+            normalize_settings_data(&mut settings);
+            settings.save();
+            *favorites_add_channel.borrow_mut() = settings.tv_favorites.clone();
+            let selected_index = settings.tv_favorites.len().checked_sub(1);
+            refresh_tv_favorites_add_channel(
+                &favorite_label_add_channel,
+                &favorite_choice_add_channel,
+                &favorite_open_button_add_channel,
+                &favorite_remove_button_add_channel,
+                &panel_add_channel,
+                &dialog_add_channel,
+                selected_index,
+            );
+            show_message_subdialog(
+                &dialog_add_channel,
+                &current_ui_strings().tv_label,
+                if Settings::load().ui_language == "it" {
+                    "Canale TV aggiunto ai preferiti."
+                } else {
+                    "TV channel added to favorites."
+                },
+            );
         }
     });
     let dialog_close = dialog;
@@ -13595,40 +14109,37 @@ fn main() {
                 ItemKind::Normal,
             );
         }
+        if Settings::load().ui_language == "it" {
+            tools_menu.append_separator();
+            tools_menu.append(
+                ID_RAI_AUDIO_DESCRIPTIONS,
+                &ui.rai_audio_descriptions_label,
+                &ui.rai_audio_descriptions_label,
+                ItemKind::Normal,
+            );
+            tools_menu.append(
+                ID_RAIPLAY_BROWSE,
+                &ui.raiplay_label,
+                &ui.raiplay_label,
+                ItemKind::Normal,
+            );
+            tools_menu.append(
+                ID_RAIPLAY_SOUND,
+                &ui.raiplaysound_label,
+                &ui.raiplaysound_label,
+                ItemKind::Normal,
+            );
+            tools_menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
+        }
 
-        let additional_features_menu = Menu::builder().build();
-        additional_features_menu.append(
-            ID_RAI_AUDIO_DESCRIPTIONS,
-            &ui.rai_audio_descriptions_label,
-            &ui.rai_audio_descriptions_label,
-            ItemKind::Normal,
-        );
-        additional_features_menu.append(
-            ID_RAIPLAY_BROWSE,
-            &ui.raiplay_label,
-            &ui.raiplay_label,
-            ItemKind::Normal,
-        );
-        additional_features_menu.append(
-            ID_RAIPLAY_SOUND,
-            &ui.raiplaysound_label,
-            &ui.raiplaysound_label,
-            ItemKind::Normal,
-        );
-        additional_features_menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
-
-        let menubar_builder = MenuBar::builder()
+        let menubar = MenuBar::builder()
             .append(file_menu, &ui.menu_file)
             .append(articles_menu, &ui.menu_articles)
             .append(podcasts_menu, &ui.menu_podcasts)
             .append(radio_menu, &ui.menu_radio)
-            .append(tools_menu, &ui.menu_tools);
-        let menubar_builder = if Settings::load().ui_language == "it" {
-            menubar_builder.append(additional_features_menu, &ui.additional_features_label)
-        } else {
-            menubar_builder
-        };
-        let menubar = menubar_builder.append(help_menu, &ui.menu_help).build();
+            .append(tools_menu, &ui.menu_tools)
+            .append(help_menu, &ui.menu_help)
+            .build();
         frame.set_menu_bar(menubar);
 
         #[cfg(target_os = "macos")]
