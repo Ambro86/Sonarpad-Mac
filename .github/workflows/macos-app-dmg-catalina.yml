@@ -322,8 +322,11 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/sonarpad-ytdlp-src
-          python3 -m pip install -U pip
-          python3 -m pip install -U yt-dlp pyinstaller certifi
+          rm -rf dist/sonarpad-ytdlp-venv
+          python3 -m venv dist/sonarpad-ytdlp-venv
+          source dist/sonarpad-ytdlp-venv/bin/activate
+          python -m pip install -U pip
+          python -m pip install -U yt-dlp pyinstaller certifi
           cat > dist/sonarpad-ytdlp-src/ytdlp_runner.py <<'PY'
           import os
           import sys
@@ -341,7 +344,7 @@ jobs:
               sys.exit(main())
           PY
           rm -rf dist/sonarpad-ytdlp dist/sonarpad-ytdlp-build
-          python3 -m PyInstaller \
+          python -m PyInstaller \
             --clean \
             --onedir \
             --name sonarpad-ytdlp \
