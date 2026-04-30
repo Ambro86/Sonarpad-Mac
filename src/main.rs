@@ -10745,6 +10745,10 @@ fn intel_ytdlp_progress_percent(snapshot: &IntelYtdlpProgress, fallback_percent:
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ensure_ytdlp_ready_for_youtube(parent: &Frame) -> Result<(), String> {
+    if bundled_macos_ytdlp_backend_path().is_some() {
+        return Ok(());
+    }
+
     let ui = current_ui_strings();
     let message = if Settings::load().ui_language == "it" {
         "Preparazione yt-dlp..."
