@@ -7,19 +7,27 @@ use std::io::Read;
 
 const TV_PAYLOAD_STATIC_KEY_PARTS: &[&[u8]] = &[b"sonar", b"pad-", b"SonarSecure-"];
 const LA7_STREAM_URL: &str = "https://d1chghleocc9sm.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-evfku205gqrtf/Live.m3u8";
-const VIDEOLINA_STREAM_URL: &str =
-    "https://7e1cc2454f2242afabe05cc0a2f483cd.msvdn.net/videolina/videolina_live/videolina_live/playlist.m3u8";
 const OGGI_IN_TV_TIMELINE_URL_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMMuhZfR1S+OWXPRn4oJR5K4nkpYbgWGup/jgB+m6jPWForBe9oLtOwaBOreEeoqetOYbKLTxeLIC4fDkh4S9vy3U4I3E=","algorithm":"gzip-xor-base64-v1"}"#;
 const OGGI_IN_TV_GUIDE_URL_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMMiawFTr6bjtEskCkzkNJJ+Zweyc6I0xoq5wAQq2me+nsGOl55vyuggHwBZyk/4KnTrP2iV7rNEEN7i90j4pqQXbXPAgPICMLN0By","algorithm":"gzip-xor-base64-v1"}"#;
-const TV_CHANNELS_PAYLOAD_JSON: &str = r#"{"payload_b64":"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","algorithm":"gzip-xor-base64-v1"}"#;
+const TV_CHANNELS_PAYLOAD_JSON: &str = r#"{"payload_b64":"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","algorithm":"gzip-xor-base64-v1"}"#;
+const REGIONAL_TV_CHANNELS_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMMo4nOUegdie+WUmPr85UP2lOC6zV85CqYfPI9UYbz/SJtM5/JQLqurLlENeMVFhVVksN8JN5yUmAdYLumBrJ1Q2fB7ospk0UyD0ZMxWW1GAHYij/w/s9oTk23N536VinN9bLcLiM7jP6bX0npXLmJ6Uf1Df4tWqepV949CrgySuvGsnwuRKOMwr29+XktV9Kpw91dRv1woiB6UJTHb0NW3AnHvgGAv0YOaQ1L5c4fToWQMBubd+1x9urhTHXhu9D6V9ape3C76kEEv18Zc4B9fqsRz/V4ONlUjYbXx/pDc8aeQjUHJ7PSQ9QHxJ2vGARArCFTCdY723R63ouUUcve50hFgC8d2gdjLvKJkpYRXCFOU2CRdNtBX9fkW/mUkMNRUrFpIMcIRtQqXy3I/h1jp1eC3hGBI+aIVyv5QVp3o0/Bxi4NirVK0vG/h2uCAd3sqM0NCYePNipU0KE5FYPBKxKGqW86TF0/dld6VJ2WdSLGrtwihbA3Ph9c4322xZKhes5rB2IuJgpkOT23Y4gmT+chjhu5bu6qGD33GLQy9J0/I9b6WQR2oxef062oD+mSQtHuPSNRS4xgW5tcOLEa4KLuVmqvwbyu2aHgY3HkzdnBI2n12Cu/Og2VL9S0xMRZpdgMZOLGvNW6ya+N13/SJoDfI9nmJaXrpEpD5sXHL08btYpkZE/Iqt/9b24pRDfxKxedsdG5yfIL1Yz5A9giNsGC+jzdgOdDME/5mEbFuTC5k3H3Uj3Da19v7IRJVv8FjGhfTEzOraK++dKu8DszdnyDbqbyKKYbrPZOa2P/LhNco/YU3mUhrSido1gOIyYBqCe1nUPY2j2n0RZqeyjRCR4mbnZS+0e1pgNS06era5pQa+KJuFur1pT2rqN1w5MaYaG47Y5OOrSja2EPqox3tI1CpjdUJh4icYSKus8DatyJKSv23wv7MbuE56iaiLK9yN4owMoDZ5jWNNOxBXluHTzgRIvPYt6JrOkqASIGiG2syPzr5XdIXOobhVEvrYdxnDynFkAH31w8jmMKGCqkWuQG11bmzBGHDe9YTJxiArkhDUMFFTHC+jiUa2GbK1LjRJqx/VQzrV4WlmjswVWrdEQCmg8Jxo9yPC2JlaFniypbwrruufgj4CAMjFi5ExHfkxOvBY40/LAKZ1jBIqLqNzZopRtIDFU3xGRY7+3N8ud8YdSaXCFXn3LqvuwBxV+TakLFVs7YDSXtoawvg8oyMfA/SceCSqP9wbE/BNu3DX5LCAwBE5fFPum1BTfpheVlv/J/NDHwxdSnyps0be7mMzIRLYA1rNJG0vY/0FxnQrBVN1GCVRb1VBbktqQye9tqYvwk8LL/qqnuuVUJcqzmsMXv9lzwtS5zc/unYX+QRPIi21Rn0NiecqkvTpHKgBfip4+cYj1BEx17Ae5La6qO8N0GsJgBwERp2RsvombgGRcITjve9FoyojrKrM+xGHnIeNYtzOlNwKq13X90M7c2s615lNRUn6uhbpNTFhxHbZ0TXxc","algorithm":"gzip-xor-base64-v1"}"#;
 
 #[derive(Clone, Debug)]
 pub(crate) struct TvChannel {
     pub(crate) name: String,
     pub(crate) url: String,
+    pub(crate) category: TvChannelCategory,
     pub(crate) current_program: Option<String>,
     pub(crate) programs: Vec<TvProgram>,
     pub(crate) guide_channel: Option<String>,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(crate) enum TvChannelCategory {
+    Rai,
+    Mediaset,
+    Other,
+    Regional,
 }
 
 #[derive(Clone, Debug)]
@@ -88,6 +96,7 @@ pub(crate) fn load_channels() -> Result<Vec<TvChannel>, String> {
                 None
             } else {
                 Some(TvChannel {
+                    category: tv_channel_category(&name),
                     name,
                     url,
                     current_program: None,
@@ -97,24 +106,39 @@ pub(crate) fn load_channels() -> Result<Vec<TvChannel>, String> {
             }
         })
         .collect::<Vec<_>>();
-    if !channels
-        .iter()
-        .any(|channel| channel.name.eq_ignore_ascii_case("Videolina"))
-    {
-        channels.push(TvChannel {
-            name: "Videolina".to_string(),
-            url: VIDEOLINA_STREAM_URL.to_string(),
-            current_program: None,
-            programs: Vec::new(),
-            guide_channel: None,
-        });
-    }
+    channels.extend(load_regional_channels()?);
     append_current_programs(&mut channels);
     Ok(channels)
 }
 
 fn decode_tv_payload() -> Result<String, String> {
     decode_encrypted_payload(TV_CHANNELS_PAYLOAD_JSON, "TV")
+}
+
+fn load_regional_channels() -> Result<Vec<TvChannel>, String> {
+    let raw = decode_encrypted_payload(REGIONAL_TV_CHANNELS_PAYLOAD_JSON, "TV regionali")?;
+    let payload: TvPayload = serde_json::from_str(&raw)
+        .map_err(|err| format!("Catalogo TV regionali non valido: {err}"))?;
+    Ok(payload
+        .channels
+        .into_iter()
+        .filter_map(|channel| {
+            let name = channel.name.trim().to_string();
+            let url = channel.url.trim().to_string();
+            if name.is_empty() || url.is_empty() {
+                None
+            } else {
+                Some(TvChannel {
+                    name,
+                    url,
+                    category: TvChannelCategory::Regional,
+                    current_program: None,
+                    programs: Vec::new(),
+                    guide_channel: None,
+                })
+            }
+        })
+        .collect())
 }
 
 fn decode_oggi_in_tv_timeline_url() -> Result<String, String> {
@@ -293,6 +317,37 @@ fn normalize_oggi_in_tv_channel_name(name: &str) -> String {
             "rete4".to_string()
         }
         _ => normalized,
+    }
+}
+
+fn tv_channel_category(name: &str) -> TvChannelCategory {
+    let normalized = normalize_oggi_in_tv_channel_name(name);
+    if normalized.starts_with("rai") {
+        return TvChannelCategory::Rai;
+    }
+    if matches!(
+        normalized.as_str(),
+        "rete4"
+            | "canale5"
+            | "italia1"
+            | "mediaset20"
+            | "20"
+            | "iris"
+            | "27"
+            | "twentyseven"
+            | "la5"
+            | "mediasetextra"
+            | "cine34"
+            | "focus"
+            | "italia2"
+            | "boing"
+            | "topcrime"
+            | "cartoonito"
+            | "tgcom24"
+    ) {
+        TvChannelCategory::Mediaset
+    } else {
+        TvChannelCategory::Other
     }
 }
 

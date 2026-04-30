@@ -11425,10 +11425,11 @@ fn open_youtube_results_dialog(
         .build();
     favorite_buttons.add(&favorite_remove_button, 0, SizerFlag::All, 5);
     root.add_sizer(&favorite_buttons, 0, SizerFlag::Expand, 0);
-    favorite_label.show(false);
-    favorite_choice.show(false);
-    favorite_open_button.show(false);
-    favorite_remove_button.show(false);
+    let has_favorites = !favorites.borrow().is_empty();
+    favorite_label.show(has_favorites);
+    favorite_choice.show(has_favorites);
+    favorite_open_button.show(has_favorites);
+    favorite_remove_button.show(has_favorites);
     let results_row = BoxSizer::builder(Orientation::Horizontal).build();
     results_row.add(
         &StaticText::builder(&panel)
@@ -11654,10 +11655,10 @@ fn open_youtube_results_dialog(
             favorite_choice_remove
                 .set_selection(index.min(favorites_remove.borrow().len() - 1) as u32);
         }
-        favorite_label_remove.show(false);
-        favorite_choice_remove.show(false);
-        favorite_open_button_remove.show(false);
-        favorite_remove_button_remove.show(false);
+        favorite_label_remove.show(has_favorites);
+        favorite_choice_remove.show(has_favorites);
+        favorite_open_button_remove.show(has_favorites);
+        favorite_remove_button_remove.show(has_favorites);
         let add_visible = choice_remove_visibility
             .get_selection()
             .and_then(|selection| results_remove_visibility.get(selection as usize))
@@ -11825,10 +11826,10 @@ fn open_youtube_results_dialog(
                 favorite_choice_update.append(&result.title);
                 favorite_choice_update
                     .set_selection(favorites_favorite.borrow().len().saturating_sub(1) as u32);
-                favorite_label_update.show(false);
-                favorite_choice_update.show(false);
-                favorite_open_button_update.show(false);
-                favorite_remove_button_update.show(false);
+                favorite_label_update.show(true);
+                favorite_choice_update.show(true);
+                favorite_open_button_update.show(true);
+                favorite_remove_button_update.show(true);
                 favorite_button_update.show(false);
                 panel_favorite_update.layout();
                 dialog_favorite.layout();
@@ -12215,6 +12216,97 @@ fn refresh_tv_guide_programs(program_choice: &Choice, programs: &[tv::TvProgram]
     }
 }
 
+fn tv_channel_categories() -> &'static [tv::TvChannelCategory] {
+    &[
+        tv::TvChannelCategory::Rai,
+        tv::TvChannelCategory::Mediaset,
+        tv::TvChannelCategory::Other,
+        tv::TvChannelCategory::Regional,
+    ]
+}
+
+fn tv_channel_category_label(category: tv::TvChannelCategory) -> &'static str {
+    match category {
+        tv::TvChannelCategory::Rai => "Canali Rai",
+        tv::TvChannelCategory::Mediaset => "Canali Mediaset",
+        tv::TvChannelCategory::Other => "Altri canali",
+        tv::TvChannelCategory::Regional => "Regionali",
+    }
+}
+
+fn tv_category_label() -> &'static str {
+    if Settings::load().ui_language == "it" {
+        "Categoria"
+    } else {
+        "Category"
+    }
+}
+
+fn refresh_tv_channel_choice(
+    choice: &Choice,
+    open_button: &Button,
+    guide_button: &Button,
+    favorite_button: &Button,
+    channels: &[tv::TvChannel],
+    visible_indices: &RefCell<Vec<usize>>,
+    candidate_indices: Vec<usize>,
+) {
+    choice.clear();
+    let mut indices = visible_indices.borrow_mut();
+    indices.clear();
+    for index in candidate_indices {
+        if let Some(channel) = channels.get(index) {
+            choice.append(&channel.display_name());
+            indices.push(index);
+        }
+    }
+    if let Some(first_index) = indices.first().copied() {
+        choice.show(true);
+        open_button.enable(true);
+        favorite_button.enable(true);
+        choice.set_selection(0);
+        guide_button.enable(
+            channels
+                .get(first_index)
+                .is_some_and(|channel| !channel.programs.is_empty()),
+        );
+    } else {
+        choice.show(false);
+        open_button.enable(false);
+        favorite_button.enable(false);
+        guide_button.enable(false);
+    }
+}
+
+fn tv_channel_indices_for_category(
+    channels: &[tv::TvChannel],
+    category: tv::TvChannelCategory,
+) -> Vec<usize> {
+    channels
+        .iter()
+        .enumerate()
+        .filter_map(|(index, channel)| (channel.category == category).then_some(index))
+        .collect()
+}
+
+fn tv_channel_indices_for_search(channels: &[tv::TvChannel], query: &str) -> Vec<usize> {
+    let query = query.trim().to_ascii_lowercase();
+    if query.is_empty() {
+        return Vec::new();
+    }
+    channels
+        .iter()
+        .enumerate()
+        .filter_map(|(index, channel)| {
+            channel
+                .name
+                .to_ascii_lowercase()
+                .contains(&query)
+                .then_some(index)
+        })
+        .collect()
+}
+
 fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
     let Some(guide_channel) = channel.guide_channel.as_deref() else {
         show_message_subdialog(
@@ -12400,6 +12492,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             let channel = tv::TvChannel {
                 name: favorite.name.clone(),
                 url: favorite.url.clone(),
+                category: tv::TvChannelCategory::Other,
                 current_program: None,
                 programs: Vec::new(),
                 guide_channel: None,
@@ -12451,25 +12544,64 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         }
     });
 
-    let choice = Choice::builder(&panel).build();
-    for channel in &channels {
-        choice.append(&channel.display_name());
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel)
+            .with_label(if Settings::load().ui_language == "it" {
+                "Cerca canale TV"
+            } else {
+                "Search TV channel"
+            })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+
+    let category_row = BoxSizer::builder(Orientation::Horizontal).build();
+    category_row.add(
+        &StaticText::builder(&panel)
+            .with_label(tv_category_label())
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let category_choice = Choice::builder(&panel).build();
+    for category in tv_channel_categories() {
+        category_choice.append(tv_channel_category_label(*category));
     }
-    choice.set_selection(0);
+    category_choice.set_selection(0);
+    category_row.add(&category_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&category_row, 0, SizerFlag::Expand, 0);
+
+    let choice = Choice::builder(&panel).build();
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(&ui.open).build();
     let guide_button = Button::builder(&panel)
         .with_label(tv_guide_button_label())
         .build();
-    guide_button.enable(
-        channels
-            .first()
-            .is_some_and(|channel| !channel.programs.is_empty()),
-    );
+    let visible_channel_indices = Rc::new(RefCell::new(Vec::new()));
     let favorite_button = Button::builder(&panel)
         .with_label(&ui.tv_add_favorite)
         .build();
+    refresh_tv_channel_choice(
+        &choice,
+        &open_button,
+        &guide_button,
+        &favorite_button,
+        &channels,
+        &visible_channel_indices,
+        tv_channel_indices_for_category(&channels, tv_channel_categories()[0]),
+    );
     let add_channel_button = Button::builder(&panel)
         .with_label(tv_add_channel_button_label())
         .build();
@@ -12487,22 +12619,100 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let channels = Rc::new(channels);
+    let category_choice_change = category_choice;
+    let choice_category_change = choice;
+    let open_button_category_change = open_button;
+    let guide_button_category_change = guide_button;
+    let favorite_button_category_change = favorite_button;
+    let channels_category_change = Rc::clone(&channels);
+    let visible_indices_category_change = Rc::clone(&visible_channel_indices);
+    let search_ctrl_category_change = search_ctrl;
+    let panel_category_change = panel;
+    let dialog_category_change = dialog;
+    category_choice.on_selection_changed(move |_| {
+        search_ctrl_category_change.set_value("");
+        let category = category_choice_change
+            .get_selection()
+            .and_then(|sel| tv_channel_categories().get(sel as usize))
+            .copied()
+            .unwrap_or(tv::TvChannelCategory::Rai);
+        refresh_tv_channel_choice(
+            &choice_category_change,
+            &open_button_category_change,
+            &guide_button_category_change,
+            &favorite_button_category_change,
+            &channels_category_change,
+            &visible_indices_category_change,
+            tv_channel_indices_for_category(&channels_category_change, category),
+        );
+        panel_category_change.layout();
+        dialog_category_change.layout();
+    });
+    let perform_tv_search = Rc::new({
+        let search_ctrl = search_ctrl;
+        let category_choice = category_choice;
+        let choice = choice;
+        let open_button = open_button;
+        let guide_button = guide_button;
+        let favorite_button = favorite_button;
+        let channels = Rc::clone(&channels);
+        let visible_indices = Rc::clone(&visible_channel_indices);
+        let panel = panel;
+        let dialog = dialog;
+        move || {
+            let query = search_ctrl.get_value();
+            let candidate_indices = if query.trim().is_empty() {
+                let category = category_choice
+                    .get_selection()
+                    .and_then(|sel| tv_channel_categories().get(sel as usize))
+                    .copied()
+                    .unwrap_or(tv::TvChannelCategory::Rai);
+                tv_channel_indices_for_category(&channels, category)
+            } else {
+                tv_channel_indices_for_search(&channels, &query)
+            };
+            refresh_tv_channel_choice(
+                &choice,
+                &open_button,
+                &guide_button,
+                &favorite_button,
+                &channels,
+                &visible_indices,
+                candidate_indices,
+            );
+            panel.layout();
+            dialog.layout();
+        }
+    });
+    let perform_tv_search_click = Rc::clone(&perform_tv_search);
+    search_button.on_click(move |_| perform_tv_search_click());
+    let perform_tv_search_enter = Rc::clone(&perform_tv_search);
+    search_ctrl.on_text_enter(move |_| perform_tv_search_enter());
     let choice_guide_visibility = choice;
     let guide_button_visibility = guide_button;
     let channels_guide_visibility = Rc::clone(&channels);
+    let visible_indices_guide_visibility = Rc::clone(&visible_channel_indices);
     choice.on_selection_changed(move |_| {
         let has_guide = choice_guide_visibility
             .get_selection()
-            .and_then(|sel| channels_guide_visibility.get(sel as usize))
+            .and_then(|sel| {
+                visible_indices_guide_visibility
+                    .borrow()
+                    .get(sel as usize)
+                    .copied()
+            })
+            .and_then(|index| channels_guide_visibility.get(index))
             .is_some_and(|channel| !channel.programs.is_empty());
         guide_button_visibility.enable(has_guide);
     });
     let choice_open = choice;
     let channels_open = Rc::clone(&channels);
+    let visible_indices_open = Rc::clone(&visible_channel_indices);
     let parent_open = dialog;
     open_button.on_click(move |_| {
         if let Some(sel) = choice_open.get_selection()
-            && let Some(channel) = channels_open.get(sel as usize)
+            && let Some(index) = visible_indices_open.borrow().get(sel as usize).copied()
+            && let Some(channel) = channels_open.get(index)
             && let Err(err) = open_tv_stream_with_mpv(channel)
         {
             show_message_subdialog(&parent_open, &current_ui_strings().tv_label, &err);
@@ -12510,16 +12720,19 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     });
     let choice_guide = choice;
     let channels_guide = Rc::clone(&channels);
+    let visible_indices_guide = Rc::clone(&visible_channel_indices);
     let parent_guide = dialog;
     guide_button.on_click(move |_| {
         if let Some(sel) = choice_guide.get_selection()
-            && let Some(channel) = channels_guide.get(sel as usize)
+            && let Some(index) = visible_indices_guide.borrow().get(sel as usize).copied()
+            && let Some(channel) = channels_guide.get(index)
         {
             open_tv_guide_dialog(&parent_guide, channel);
         }
     });
     let choice_favorite = choice;
     let channels_favorite = Rc::clone(&channels);
+    let visible_indices_favorite = Rc::clone(&visible_channel_indices);
     let dialog_favorite = dialog;
     let favorite_label_refresh = favorite_label;
     let favorite_choice_refresh = favorite_choice;
@@ -12530,7 +12743,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let refresh_tv_favorites_button = Rc::clone(&refresh_tv_favorites);
     favorite_button.on_click(move |_| {
         if let Some(sel) = choice_favorite.get_selection()
-            && let Some(channel) = channels_favorite.get(sel as usize)
+            && let Some(index) = visible_indices_favorite
+                .borrow()
+                .get(sel as usize)
+                .copied()
+            && let Some(channel) = channels_favorite.get(index)
         {
             let mut settings = Settings::load();
             if !settings
