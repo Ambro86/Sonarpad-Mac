@@ -9749,7 +9749,7 @@ fn intel_external_ytdlp_path() -> PathBuf {
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_command_version(ytdlp: &Path) -> Result<String, String> {
-    let output = Command::new(ytdlp)
+    let output = ytdlp_command(ytdlp)
         .arg("--version")
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
@@ -9960,6 +9960,31 @@ fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
     append_podcast_log(&format!("ytdlp.{context}.spawn_error {err}"));
 }
 
+fn ytdlp_command(ytdlp: &Path) -> Command {
+    #[cfg(target_os = "macos")]
+    {
+        let work_dir = ytdlp
+            .parent()
+            .filter(|parent| !parent.as_os_str().is_empty())
+            .map(Path::to_path_buf)
+            .unwrap_or_else(|| PathBuf::from("."));
+        let mut command = Command::new("/bin/zsh");
+        command
+            .arg("-l")
+            .arg("-c")
+            .arg("cd \"$1\" && shift && exec \"$@\"")
+            .arg("sonarpad-ytdlp-shell")
+            .arg(work_dir)
+            .arg(ytdlp);
+        command
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    {
+        Command::new(ytdlp)
+    }
+}
+
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_log_command_state(context: &str, ytdlp: &Path, command: &Command) {
     let path_line = format!("YTDLP PATH = {ytdlp:?}");
@@ -9987,7 +10012,7 @@ fn ytdlp_log_command_output(context: &str, command: &mut Command) {
 
 fn ytdlp_log_version(context: &str, ytdlp: &Path) {
     append_podcast_log(&format!("ytdlp.{context}.version.begin"));
-    let mut command = Command::new(ytdlp);
+    let mut command = ytdlp_command(ytdlp);
     command.arg("--version");
     ytdlp_log_command_state(&format!("{context}.version"), ytdlp, &command);
     ytdlp_log_command_output(&format!("{context}.version"), &mut command);
@@ -10113,7 +10138,7 @@ fn ytdlp_quick_search_startup_check() -> Result<(), String> {
     let ytdlp = ytdlp_executable_path();
     ytdlp_log_path_state("startup_check", &ytdlp);
     append_podcast_log("ytdlp.startup_check.begin");
-    let mut command = Command::new(&ytdlp);
+    let mut command = ytdlp_command(&ytdlp);
     command
         .args([
             "--extractor-args",
@@ -10183,7 +10208,7 @@ fn ytdlp_log_intel_verbose_probe(context: &str, ytdlp: &Path, url: &str) {
     append_podcast_log(&format!(
         "ytdlp.{context}.intel_verbose_probe.begin url={url}"
     ));
-    let mut command = Command::new(ytdlp);
+    let mut command = ytdlp_command(ytdlp);
     command
         .arg("-v")
         .arg("--no-playlist")
@@ -10228,7 +10253,7 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
         start,
         end
     ));
-    let mut command = Command::new(&ytdlp);
+    let mut command = ytdlp_command(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
     configure_youtube_metadata_language(&mut command);
     command.args([
@@ -10336,7 +10361,7 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     ytdlp_log_basic_diagnostics("collection", &ytdlp);
     ytdlp_log_intel_verbose_probe("collection", &ytdlp, &url);
     append_podcast_log(&format!("ytdlp.collection.begin url={url}"));
-    let mut command = Command::new(&ytdlp);
+    let mut command = ytdlp_command(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
     configure_youtube_metadata_language(&mut command);
     command.args([
@@ -10421,7 +10446,7 @@ fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), Str
     ytdlp_log_basic_diagnostics("probe", ytdlp_path);
     ytdlp_log_intel_verbose_probe("probe", ytdlp_path, url);
     append_podcast_log(&format!("ytdlp.probe.begin url={url}"));
-    let mut command = Command::new(ytdlp_path);
+    let mut command = ytdlp_command(ytdlp_path);
     configure_ytdlp_for_current_macos(&mut command);
     command
         .arg("--no-playlist")
@@ -10585,7 +10610,7 @@ fn save_youtube_mp3_with_ffmpeg(
         append_podcast_log(&format!(
             "ytdlp.save_mp3_download.attempt profile={profile}"
         ));
-        let mut command = Command::new(ytdlp);
+        let mut command = ytdlp_command(ytdlp);
         configure_ytdlp_for_current_macos(&mut command);
         configure_youtube_save_client_profile(&mut command, profile);
         command
@@ -10717,7 +10742,7 @@ fn save_youtube_to_path(
     let mut last_details = String::new();
     for profile in 0..youtube_save_client_profile_count() {
         append_podcast_log(&format!("ytdlp.save.attempt profile={profile}"));
-        let mut command = Command::new(&ytdlp);
+        let mut command = ytdlp_command(&ytdlp);
         configure_ytdlp_for_current_macos(&mut command);
         configure_youtube_save_client_profile(&mut command, profile);
         command
