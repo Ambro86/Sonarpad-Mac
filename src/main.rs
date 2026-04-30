@@ -12242,6 +12242,20 @@ fn tv_category_label() -> &'static str {
     }
 }
 
+fn tv_search_found_message(count: usize) -> String {
+    if Settings::load().ui_language == "it" {
+        if count == 1 {
+            "Trovato 1 canale.".to_string()
+        } else {
+            format!("Trovati {count} canali.")
+        }
+    } else if count == 1 {
+        "Found 1 channel.".to_string()
+    } else {
+        format!("Found {count} channels.")
+    }
+}
+
 fn refresh_tv_channel_choice(
     choice: &Choice,
     open_button: &Button,
@@ -12648,6 +12662,8 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         panel_category_change.layout();
         dialog_category_change.layout();
     });
+    let tv_search_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
+    let tv_search_timer = Rc::new(RefCell::new(None::<Rc<Timer<Dialog>>>));
     let perform_tv_search = Rc::new({
         let search_ctrl = search_ctrl;
         let category_choice = category_choice;
@@ -12659,29 +12675,64 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         let visible_indices = Rc::clone(&visible_channel_indices);
         let panel = panel;
         let dialog = dialog;
+        let tv_search_progress = Rc::clone(&tv_search_progress);
+        let tv_search_timer = Rc::clone(&tv_search_timer);
         move || {
-            let query = search_ctrl.get_value();
-            let candidate_indices = if query.trim().is_empty() {
-                let category = category_choice
-                    .get_selection()
-                    .and_then(|sel| tv_channel_categories().get(sel as usize))
-                    .copied()
-                    .unwrap_or(tv::TvChannelCategory::Rai);
-                tv_channel_indices_for_category(&channels, category)
-            } else {
-                tv_channel_indices_for_search(&channels, &query)
-            };
-            refresh_tv_channel_choice(
-                &choice,
-                &open_button,
-                &guide_button,
-                &favorite_button,
-                &channels,
-                &visible_indices,
-                candidate_indices,
-            );
-            panel.layout();
-            dialog.layout();
+            if tv_search_progress.borrow().is_some() {
+                return;
+            }
+            *tv_search_progress.borrow_mut() = Some(open_youtube_search_progress_dialog(&dialog));
+            let timer = Rc::new(Timer::new(&dialog));
+            *tv_search_timer.borrow_mut() = Some(Rc::clone(&timer));
+            let search_ctrl_timer = search_ctrl;
+            let category_choice_timer = category_choice;
+            let choice_timer = choice;
+            let open_button_timer = open_button;
+            let guide_button_timer = guide_button;
+            let favorite_button_timer = favorite_button;
+            let channels_timer = Rc::clone(&channels);
+            let visible_indices_timer = Rc::clone(&visible_indices);
+            let panel_timer = panel;
+            let dialog_timer = dialog;
+            let tv_search_progress_timer = Rc::clone(&tv_search_progress);
+            let tv_search_timer_done = Rc::clone(&tv_search_timer);
+            timer.on_tick(move |_| {
+                if let Some(timer) = tv_search_timer_done.borrow_mut().take() {
+                    timer.stop();
+                }
+                if let Some(progress_dialog) = tv_search_progress_timer.borrow_mut().take() {
+                    progress_dialog.destroy();
+                }
+                let query = search_ctrl_timer.get_value();
+                let candidate_indices = if query.trim().is_empty() {
+                    let category = category_choice_timer
+                        .get_selection()
+                        .and_then(|sel| tv_channel_categories().get(sel as usize))
+                        .copied()
+                        .unwrap_or(tv::TvChannelCategory::Rai);
+                    tv_channel_indices_for_category(&channels_timer, category)
+                } else {
+                    tv_channel_indices_for_search(&channels_timer, &query)
+                };
+                let found_count = candidate_indices.len();
+                refresh_tv_channel_choice(
+                    &choice_timer,
+                    &open_button_timer,
+                    &guide_button_timer,
+                    &favorite_button_timer,
+                    &channels_timer,
+                    &visible_indices_timer,
+                    candidate_indices,
+                );
+                panel_timer.layout();
+                dialog_timer.layout();
+                show_message_subdialog(
+                    &dialog_timer,
+                    &current_ui_strings().tv_label,
+                    &tv_search_found_message(found_count),
+                );
+            });
+            timer.start(300, false);
         }
     });
     let perform_tv_search_click = Rc::clone(&perform_tv_search);

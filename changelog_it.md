@@ -11,6 +11,7 @@ Versione 0.2.9 - 30 aprile 2026
 - Aggiunto il canale TV Videolina.
 - Spostate le voci del menu per le funzionalità aggiuntive in Strumenti, per allineare Sonarpad alla versione per Windows.
 - Corretto il comportamento per cui a volte nelle TV non venivano mostrati i programmi ora in onda.
+- Aggiunti numerosi canali TV, organizzando la finestra in categorie, per maggior facilità di consultazione. E' stato anche aggiunto un campo di ricerca che mostra i risultati della tv desiderata.
 
 Versione 0.2.8 - 29 aprile 2026
 - Aggiunto il menu Strumenti con due nuove voci: Cerca e importa da Wikipedia e Riproduci audio da streaming.
