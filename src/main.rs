@@ -9444,6 +9444,13 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
 }
 
 fn ytdlp_executable_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(bundled) = bundled_macos_ytdlp_backend_path() {
+            return bundled;
+        }
+    }
+
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     {
         match intel_external_ytdlp_executable_path() {
@@ -9481,8 +9488,58 @@ fn ytdlp_executable_path() -> PathBuf {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn bundled_macos_ytdlp_backend_path() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let contents_dir = exe.parent()?.parent()?;
+    let candidate = contents_dir
+        .join("Resources")
+        .join("tools")
+        .join("sonarpad-ytdlp")
+        .join("sonarpad-ytdlp");
+    candidate.is_file().then_some(candidate)
+}
+
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 static INTEL_EXTERNAL_YTDLP_PATH: OnceLock<Result<PathBuf, String>> = OnceLock::new();
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+static INTEL_YTDLP_PROGRESS: OnceLock<Arc<Mutex<IntelYtdlpProgress>>> = OnceLock::new();
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+#[derive(Clone)]
+struct IntelYtdlpProgress {
+    phase: &'static str,
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+impl Default for IntelYtdlpProgress {
+    fn default() -> Self {
+        Self {
+            phase: "preparing",
+            downloaded_bytes: 0,
+            total_bytes: None,
+        }
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn intel_ytdlp_progress_state() -> Arc<Mutex<IntelYtdlpProgress>> {
+    Arc::clone(
+        INTEL_YTDLP_PROGRESS.get_or_init(|| Arc::new(Mutex::new(IntelYtdlpProgress::default()))),
+    )
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn set_intel_ytdlp_progress(phase: &'static str, downloaded_bytes: u64, total_bytes: Option<u64>) {
+    let state = intel_ytdlp_progress_state();
+    let mut locked = state.lock().unwrap();
+    locked.phase = phase;
+    locked.downloaded_bytes = downloaded_bytes;
+    locked.total_bytes = total_bytes;
+}
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn intel_external_ytdlp_executable_path() -> Result<PathBuf, String> {
@@ -9498,6 +9555,7 @@ fn intel_external_ytdlp_path() -> PathBuf {
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_command_version(ytdlp: &Path) -> Result<String, String> {
+    set_intel_ytdlp_progress("checking", 0, None);
     let output = Command::new(ytdlp)
         .arg("--version")
         .stdout(Stdio::piped())
@@ -9523,6 +9581,7 @@ fn ytdlp_command_version(ytdlp: &Path) -> Result<String, String> {
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn latest_ytdlp_version() -> Result<String, String> {
+    set_intel_ytdlp_progress("checking_updates", 0, None);
     #[derive(Deserialize)]
     struct GithubRelease {
         tag_name: String,
@@ -9585,7 +9644,8 @@ fn download_intel_external_ytdlp(path: &Path) -> Result<(), String> {
         "ytdlp.intel_external.download.begin path={}",
         path.display()
     ));
-    let bytes = reqwest::blocking::Client::builder()
+    set_intel_ytdlp_progress("downloading", 0, None);
+    let mut response = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(120))
         .build()
         .map_err(|err| format!("client download yt-dlp fallito: {err}"))?
@@ -9594,11 +9654,27 @@ fn download_intel_external_ytdlp(path: &Path) -> Result<(), String> {
         .send()
         .map_err(|err| format!("download yt-dlp fallito: {err}"))?
         .error_for_status()
-        .map_err(|err| format!("download yt-dlp HTTP fallito: {err}"))?
-        .bytes()
-        .map_err(|err| format!("lettura download yt-dlp fallita: {err}"))?;
-    std::fs::write(&temp_path, &bytes)
-        .map_err(|err| format!("scrittura yt-dlp temporaneo fallita: {err}"))?;
+        .map_err(|err| format!("download yt-dlp HTTP fallito: {err}"))?;
+    let total_bytes = response.content_length();
+    let mut file = std::fs::File::create(&temp_path)
+        .map_err(|err| format!("creazione yt-dlp temporaneo fallita: {err}"))?;
+    let mut downloaded_bytes = 0_u64;
+    let mut buffer = [0_u8; 64 * 1024];
+    loop {
+        let read = response
+            .read(&mut buffer)
+            .map_err(|err| format!("lettura download yt-dlp fallita: {err}"))?;
+        if read == 0 {
+            break;
+        }
+        file.write_all(&buffer[..read])
+            .map_err(|err| format!("scrittura yt-dlp temporaneo fallita: {err}"))?;
+        downloaded_bytes = downloaded_bytes.saturating_add(read as u64);
+        set_intel_ytdlp_progress("downloading", downloaded_bytes, total_bytes);
+    }
+    file.flush()
+        .map_err(|err| format!("finalizzazione yt-dlp temporaneo fallita: {err}"))?;
+    set_intel_ytdlp_progress("installing", downloaded_bytes, total_bytes);
     make_macos_executable(&temp_path);
     clear_macos_quarantine(&temp_path);
     std::fs::rename(&temp_path, path).map_err(|err| {
@@ -9613,7 +9689,7 @@ fn download_intel_external_ytdlp(path: &Path) -> Result<(), String> {
     append_podcast_log(&format!(
         "ytdlp.intel_external.download.done path={} bytes={}",
         path.display(),
-        bytes.len()
+        downloaded_bytes
     ));
     Ok(())
 }
@@ -9621,6 +9697,7 @@ fn download_intel_external_ytdlp(path: &Path) -> Result<(), String> {
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn prepare_intel_external_ytdlp() -> Result<PathBuf, String> {
     let path = intel_external_ytdlp_path();
+    set_intel_ytdlp_progress("preparing", 0, None);
     let local_version = if path.is_file() {
         make_macos_executable(&path);
         clear_macos_quarantine(&path);
@@ -9765,8 +9842,17 @@ fn ytdlp_log_macos_signature(context: &str, ytdlp: &Path) {
 fn ytdlp_log_macos_signature(_context: &str, _ytdlp: &Path) {}
 
 fn ytdlp_log_basic_diagnostics(context: &str, ytdlp: &Path) {
-    ytdlp_log_version(context, ytdlp);
-    ytdlp_log_macos_signature(context, ytdlp);
+    #[cfg(target_os = "macos")]
+    {
+        let _ = ytdlp;
+        append_podcast_log(&format!("ytdlp.{context}.version.skipped_macos"));
+        append_podcast_log(&format!("ytdlp.{context}.signature.skipped_macos"));
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        ytdlp_log_version(context, ytdlp);
+        ytdlp_log_macos_signature(context, ytdlp);
+    }
 }
 
 fn ytdlp_unavailable_message() -> &'static str {
@@ -9856,7 +9942,17 @@ fn ytdlp_quick_startup_check() -> Result<(), String> {
     append_podcast_log("ytdlp.startup_check.begin");
     let mut command = Command::new(&ytdlp);
     command
-        .arg("--version")
+        .args([
+            "--extractor-args",
+            "youtube:lang=it",
+            "--flat-playlist",
+            "--dump-single-json",
+            "--playlist-start",
+            "1",
+            "--playlist-end",
+            "1",
+            "ytsearch1:sonarpad",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     ytdlp_log_command_state("startup_check", &ytdlp, &command);
@@ -9935,6 +10031,12 @@ fn ytdlp_log_intel_verbose_probe(_context: &str, _ytdlp: &Path, _url: &str) {}
 
 fn configure_ytdlp_for_current_macos(_command: &mut Command) {}
 
+fn configure_youtube_metadata_language(command: &mut Command) {
+    if Settings::load().ui_language == "it" {
+        command.args(["--extractor-args", "youtube:lang=it"]);
+    }
+}
+
 const YOUTUBE_SEARCH_LIMIT: usize = 15;
 
 fn youtube_search(query: &str) -> Result<Vec<YoutubeSearchResult>, String> {
@@ -9959,6 +10061,7 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
     ));
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
+    configure_youtube_metadata_language(&mut command);
     command.args([
         "--flat-playlist",
         "--dump-single-json",
@@ -10028,6 +10131,7 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     append_podcast_log(&format!("ytdlp.collection.begin url={url}"));
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
+    configure_youtube_metadata_language(&mut command);
     command.args([
         "--flat-playlist",
         "--dump-single-json",
@@ -10553,6 +10657,120 @@ fn open_youtube_progress_dialog(parent: &Dialog, label: &str) -> YoutubeSearchPr
     YoutubeSearchProgressDialog { dialog, timer }
 }
 
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn intel_ytdlp_progress_message(snapshot: &IntelYtdlpProgress) -> String {
+    let language = Settings::load().ui_language;
+    match snapshot.phase {
+        "checking_updates" => {
+            if language == "it" {
+                "Controllo aggiornamento yt-dlp...".to_string()
+            } else {
+                "Checking yt-dlp update...".to_string()
+            }
+        }
+        "downloading" => {
+            let downloaded_mb = snapshot.downloaded_bytes as f64 / (1024.0 * 1024.0);
+            if let Some(total_bytes) = snapshot.total_bytes.filter(|size| *size > 0) {
+                let total_mb = total_bytes as f64 / (1024.0 * 1024.0);
+                if language == "it" {
+                    format!(
+                        "Scaricamento yt-dlp... {:.1}/{:.1} MB",
+                        downloaded_mb, total_mb
+                    )
+                } else {
+                    format!(
+                        "Downloading yt-dlp... {:.1}/{:.1} MB",
+                        downloaded_mb, total_mb
+                    )
+                }
+            } else if language == "it" {
+                format!("Scaricamento yt-dlp... {:.1} MB", downloaded_mb)
+            } else {
+                format!("Downloading yt-dlp... {:.1} MB", downloaded_mb)
+            }
+        }
+        "installing" => {
+            if language == "it" {
+                "Installazione yt-dlp...".to_string()
+            } else {
+                "Installing yt-dlp...".to_string()
+            }
+        }
+        "checking" => {
+            if language == "it" {
+                "Verifica yt-dlp...".to_string()
+            } else {
+                "Checking yt-dlp...".to_string()
+            }
+        }
+        _ => {
+            if language == "it" {
+                "Preparazione yt-dlp...".to_string()
+            } else {
+                "Preparing yt-dlp...".to_string()
+            }
+        }
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn intel_ytdlp_progress_percent(snapshot: &IntelYtdlpProgress, fallback_percent: &mut i32) -> i32 {
+    match snapshot.phase {
+        "checking_updates" => 15,
+        "downloading" => {
+            if let Some(total_bytes) = snapshot.total_bytes.filter(|size| *size > 0) {
+                let downloaded = snapshot.downloaded_bytes.saturating_mul(75) / total_bytes;
+                20 + downloaded.min(75) as i32
+            } else {
+                *fallback_percent = (*fallback_percent + 2).clamp(20, 92);
+                *fallback_percent
+            }
+        }
+        "installing" => 95,
+        "checking" => 98,
+        _ => 8,
+    }
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn ensure_ytdlp_ready_for_youtube(parent: &Frame) -> Result<(), String> {
+    let ui = current_ui_strings();
+    let message = if Settings::load().ui_language == "it" {
+        "Preparazione yt-dlp..."
+    } else {
+        "Preparing yt-dlp..."
+    };
+    let progress = ProgressDialog::builder(parent, &ui.youtube_title, message, 100)
+        .with_style(ProgressDialogStyle::Smooth)
+        .build();
+    let result = Arc::new(Mutex::new(None::<Result<(), String>>));
+    let result_thread = Arc::clone(&result);
+    set_intel_ytdlp_progress("preparing", 0, None);
+    std::thread::spawn(move || {
+        let check = ytdlp_quick_startup_check();
+        *result_thread.lock().unwrap() = Some(check);
+    });
+
+    let mut fallback_percent = 20_i32;
+    loop {
+        std::thread::sleep(Duration::from_millis(100));
+        if let Some(check) = result.lock().unwrap().take() {
+            let _ = progress.update(100, Some(message));
+            progress.destroy();
+            return check;
+        }
+        let snapshot = intel_ytdlp_progress_state().lock().unwrap().clone();
+        let percent = intel_ytdlp_progress_percent(&snapshot, &mut fallback_percent);
+        let message = intel_ytdlp_progress_message(&snapshot);
+        let _ = progress.update(percent, Some(&message));
+    }
+}
+
+#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
+fn ensure_ytdlp_ready_for_youtube(_parent: &Frame) -> Result<(), String> {
+    ytdlp_quick_startup_check()
+}
+
 fn open_youtube_results_dialog(
     parent: &Dialog,
     settings: &Arc<Mutex<Settings>>,
@@ -10853,7 +11071,7 @@ fn open_youtube_results_dialog(
 
 fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let ui = current_ui_strings();
-    if ytdlp_quick_startup_check().is_err() {
+    if ensure_ytdlp_ready_for_youtube(parent).is_err() {
         show_message_dialog(parent, &ui.youtube_title, ytdlp_unavailable_message());
         return;
     }

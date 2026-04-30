@@ -296,6 +296,49 @@ jobs:
           test -x "${MPV_APP_DIR}/Contents/MacOS/mpv"
           echo "MPV_APP_DIR=${MPV_APP_DIR}" >> "${GITHUB_ENV}"
 
+      - name: Build bundled yt-dlp backend
+        shell: bash
+        run: |
+          set -euxo pipefail
+          mkdir -p dist/sonarpad-ytdlp-src
+          python3 -m pip install -U pip
+          python3 -m pip install -U yt-dlp pyinstaller certifi
+          cat > dist/sonarpad-ytdlp-src/ytdlp_runner.py <<'PY'
+          import os
+          import sys
+
+          try:
+              import certifi
+              os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+              os.environ.setdefault("REQUESTS_CA_BUNDLE", certifi.where())
+          except Exception:
+              pass
+
+          from yt_dlp import main
+
+          if __name__ == "__main__":
+              sys.exit(main())
+          PY
+          rm -rf dist/sonarpad-ytdlp dist/sonarpad-ytdlp-build
+          python3 -m PyInstaller \
+            --clean \
+            --onedir \
+            --name sonarpad-ytdlp \
+            --distpath dist \
+            --workpath dist/sonarpad-ytdlp-build \
+            --specpath dist/sonarpad-ytdlp-src \
+            --hidden-import=certifi \
+            --collect-data=certifi \
+            dist/sonarpad-ytdlp-src/ytdlp_runner.py
+          xattr -cr dist/sonarpad-ytdlp || true
+          dist/sonarpad-ytdlp/sonarpad-ytdlp \
+            --extractor-args "youtube:lang=it" \
+            --flat-playlist \
+            --dump-single-json \
+            --playlist-start 1 \
+            --playlist-end 1 \
+            "ytsearch1:sonarpad"
+
       - name: Package .app and .dmg
         shell: bash
         run: |
@@ -310,12 +353,14 @@ jobs:
           FRAMEWORKS_DIR="${CONTENTS_DIR}/Frameworks"
           RESOURCES_DIR="${CONTENTS_DIR}/Resources"
           MPV_APP_DEST="${RESOURCES_DIR}/mpv.app"
+          TOOLS_DIR="${RESOURCES_DIR}/tools"
+          YTDLP_BACKEND_DEST="${TOOLS_DIR}/sonarpad-ytdlp"
           FFMPEG_DIR="${RESOURCES_DIR}/ffmpeg"
           FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
           FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
 
-          rm -rf "${APP_DIR}" "${FFMPEG_DIR}" "${MPV_APP_DEST}"
-          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
+          rm -rf "${APP_DIR}" "${FFMPEG_DIR}" "${MPV_APP_DEST}" "${YTDLP_BACKEND_DEST}"
+          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${TOOLS_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
@@ -337,13 +382,9 @@ jobs:
           fi
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
-          if [ "${{ matrix.build_flavor }}" = "intel" ]; then
-            curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
-            xattr -cr "${RESOURCES_DIR}/yt-dlp" || true
-          else
-            curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
-          fi
-          chmod +x "${RESOURCES_DIR}/yt-dlp"
+          cp -R "dist/sonarpad-ytdlp" "${YTDLP_BACKEND_DEST}"
+          chmod +x "${YTDLP_BACKEND_DEST}/sonarpad-ytdlp"
+          xattr -cr "${YTDLP_BACKEND_DEST}" || true
           cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'
           UP add volume 5
           DOWN add volume -5
@@ -453,9 +494,9 @@ jobs:
           FFMPEG_LIB_DIR="${APP_DIR}/Contents/Resources/ffmpeg/lib"
           MPV_APP_DIR="${APP_DIR}/Contents/Resources/mpv.app"
           MPV_BIN="${MPV_APP_DIR}/Contents/MacOS/mpv"
-          YTDLP_BIN="${APP_DIR}/Contents/Resources/yt-dlp"
+          YTDLP_DIR="${APP_DIR}/Contents/Resources/tools/sonarpad-ytdlp"
+          YTDLP_BIN="${YTDLP_DIR}/sonarpad-ytdlp"
           YTDLP_ENTITLEMENTS="dist/ytdlp-entitlements.plist"
-          YTDLP_IS_MACHO=false
 
           cat > "${YTDLP_ENTITLEMENTS}" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -499,18 +540,24 @@ jobs:
               "${MPV_APP_DIR}"
           fi
 
-          if [ -f "${YTDLP_BIN}" ]; then
+          if [ -d "${YTDLP_DIR}" ]; then
             chmod +x "${YTDLP_BIN}"
-            xattr -cr "${YTDLP_BIN}" || true
+            xattr -cr "${YTDLP_DIR}" || true
+            find "${YTDLP_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
+              if file "${bin}" | grep -q "Mach-O"; then
+                chmod +x "${bin}" || true
+                codesign --force --options runtime --timestamp \
+                  --entitlements "${YTDLP_ENTITLEMENTS}" \
+                  --sign "Developer ID Application" \
+                  "${bin}"
+              fi
+            done
             if file "${YTDLP_BIN}" | grep -q "Mach-O"; then
-              YTDLP_IS_MACHO=true
               codesign --force --options runtime --timestamp \
                 --entitlements "${YTDLP_ENTITLEMENTS}" \
                 --sign "Developer ID Application" \
                 "${YTDLP_BIN}"
               codesign --verify --strict --verbose=4 "${YTDLP_BIN}"
-            else
-              echo "Skipping standalone codesign for non-Mach-O yt-dlp: $(file "${YTDLP_BIN}")"
             fi
           fi
 
@@ -518,7 +565,7 @@ jobs:
             --sign "Developer ID Application" \
             "${APP_DIR}"
 
-          if [ -f "${YTDLP_BIN}" ] && [ "${YTDLP_IS_MACHO}" = "true" ]; then
+          if [ -f "${YTDLP_BIN}" ] && file "${YTDLP_BIN}" | grep -q "Mach-O"; then
             codesign --force --options runtime --timestamp \
               --entitlements "${YTDLP_ENTITLEMENTS}" \
               --sign "Developer ID Application" \
@@ -529,7 +576,7 @@ jobs:
             --sign "Developer ID Application" \
             "${APP_DIR}"
 
-          if [ -f "${YTDLP_BIN}" ] && [ "${YTDLP_IS_MACHO}" = "true" ]; then
+          if [ -f "${YTDLP_BIN}" ] && file "${YTDLP_BIN}" | grep -q "Mach-O"; then
             codesign -d --entitlements :- "${YTDLP_BIN}" 2>/dev/null \
               | grep -q "com.apple.security.cs.disable-library-validation"
           fi
@@ -651,7 +698,7 @@ jobs:
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks/libpdfium.dylib"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/mpv.app/Contents/MacOS/mpv"
-          test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/yt-dlp"
+          test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/tools/sonarpad-ytdlp/sonarpad-ytdlp"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name 'libcurl*.dylib' | grep .
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet
