@@ -9848,15 +9848,33 @@ fn youtube_mp3_download_format_for_profile(profile: usize) -> &'static str {
     }
 }
 
-#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_quick_startup_check() -> Result<(), String> {
-    const INTEL_YTDLP_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
+    #[cfg(target_os = "macos")]
+    return ytdlp_quick_search_startup_check();
+
+    #[cfg(not(target_os = "macos"))]
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn ytdlp_quick_search_startup_check() -> Result<(), String> {
+    const MACOS_YTDLP_STARTUP_TIMEOUT: Duration = Duration::from_secs(30);
     let ytdlp = ytdlp_executable_path();
     ytdlp_log_path_state("startup_check", &ytdlp);
     append_podcast_log("ytdlp.startup_check.begin");
     let mut command = Command::new(&ytdlp);
     command
-        .arg("--version")
+        .args([
+            "--extractor-args",
+            "youtube:lang=it",
+            "--flat-playlist",
+            "--dump-single-json",
+            "--playlist-start",
+            "1",
+            "--playlist-end",
+            "1",
+            "ytsearch1:sonarpad",
+        ])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     ytdlp_log_command_state("startup_check", &ytdlp, &command);
@@ -9879,7 +9897,7 @@ fn ytdlp_quick_startup_check() -> Result<(), String> {
                     Err(format!("yt-dlp exited with status {status}"))
                 };
             }
-            Ok(None) if started.elapsed() >= INTEL_YTDLP_STARTUP_TIMEOUT => {
+            Ok(None) if started.elapsed() >= MACOS_YTDLP_STARTUP_TIMEOUT => {
                 if let Err(err) = child.kill() {
                     append_podcast_log(&format!("ytdlp.startup_check.kill_failed {err}"));
                 }
@@ -9896,7 +9914,7 @@ fn ytdlp_quick_startup_check() -> Result<(), String> {
                 }
                 append_podcast_log(&format!(
                     "ytdlp.startup_check.timeout after_secs={}",
-                    INTEL_YTDLP_STARTUP_TIMEOUT.as_secs()
+                    MACOS_YTDLP_STARTUP_TIMEOUT.as_secs()
                 ));
                 return Err("yt-dlp startup timeout".to_string());
             }
@@ -9907,11 +9925,6 @@ fn ytdlp_quick_startup_check() -> Result<(), String> {
             }
         }
     }
-}
-
-#[cfg(not(all(target_os = "macos", target_arch = "x86_64")))]
-fn ytdlp_quick_startup_check() -> Result<(), String> {
-    Ok(())
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -9934,6 +9947,12 @@ fn ytdlp_log_intel_verbose_probe(context: &str, ytdlp: &Path, url: &str) {
 fn ytdlp_log_intel_verbose_probe(_context: &str, _ytdlp: &Path, _url: &str) {}
 
 fn configure_ytdlp_for_current_macos(_command: &mut Command) {}
+
+fn configure_youtube_metadata_language(command: &mut Command) {
+    if Settings::load().ui_language == "it" {
+        command.args(["--extractor-args", "youtube:lang=it"]);
+    }
+}
 
 const YOUTUBE_SEARCH_LIMIT: usize = 15;
 
@@ -9959,6 +9978,7 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
     ));
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
+    configure_youtube_metadata_language(&mut command);
     command.args([
         "--flat-playlist",
         "--dump-single-json",
@@ -10028,6 +10048,7 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
     append_podcast_log(&format!("ytdlp.collection.begin url={url}"));
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
+    configure_youtube_metadata_language(&mut command);
     command.args([
         "--flat-playlist",
         "--dump-single-json",
