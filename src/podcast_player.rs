@@ -416,7 +416,20 @@ mod imp {
     }
 
     pub fn bundled_mpv_executable_path() -> Option<PathBuf> {
-        None
+        #[cfg(target_os = "windows")]
+        {
+            let appdata = std::env::var_os("APPDATA")?;
+            let candidate = PathBuf::from(appdata)
+                .join("Sonarpad")
+                .join("mpv")
+                .join("mpv.exe");
+            candidate.is_file().then_some(candidate)
+        }
+
+        #[cfg(not(target_os = "windows"))]
+        {
+            None
+        }
     }
 }
 

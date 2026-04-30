@@ -12715,6 +12715,16 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     tv_channel_indices_for_search(&channels_timer, &query)
                 };
                 let found_count = candidate_indices.len();
+                if let Some(first_category) = candidate_indices
+                    .first()
+                    .and_then(|index| channels_timer.get(*index))
+                    .map(|channel| channel.category)
+                    && let Some(category_index) = tv_channel_categories()
+                        .iter()
+                        .position(|category| *category == first_category)
+                {
+                    category_choice_timer.set_selection(category_index as u32);
+                }
                 refresh_tv_channel_choice(
                     &choice_timer,
                     &open_button_timer,
@@ -12743,8 +12753,9 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let guide_button_visibility = guide_button;
     let channels_guide_visibility = Rc::clone(&channels);
     let visible_indices_guide_visibility = Rc::clone(&visible_channel_indices);
+    let category_choice_visibility = category_choice;
     choice.on_selection_changed(move |_| {
-        let has_guide = choice_guide_visibility
+        let selected_channel = choice_guide_visibility
             .get_selection()
             .and_then(|sel| {
                 visible_indices_guide_visibility
@@ -12752,8 +12763,15 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     .get(sel as usize)
                     .copied()
             })
-            .and_then(|index| channels_guide_visibility.get(index))
-            .is_some_and(|channel| !channel.programs.is_empty());
+            .and_then(|index| channels_guide_visibility.get(index));
+        if let Some(channel) = selected_channel
+            && let Some(category_index) = tv_channel_categories()
+                .iter()
+                .position(|category| *category == channel.category)
+        {
+            category_choice_visibility.set_selection(category_index as u32);
+        }
+        let has_guide = selected_channel.is_some_and(|channel| !channel.programs.is_empty());
         guide_button_visibility.enable(has_guide);
     });
     let choice_open = choice;

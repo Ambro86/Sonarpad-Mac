@@ -1,6 +1,6 @@
 Changelog
 
-Version 0.2.9 - April 30, 2026
+Version 0.2.9 - May 1, 2026
 - Extended YouTube features to Intel Macs and Catalina.
 - Greatly improved YouTube search speed.
 - Improved YouTube results handling, placing channels and playlists at the top.
