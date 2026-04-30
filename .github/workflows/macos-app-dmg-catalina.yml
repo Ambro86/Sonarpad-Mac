@@ -321,13 +321,13 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          mkdir -p dist/sonarpad-ytdlp-src
-          rm -rf dist/sonarpad-ytdlp-venv
-          python3 -m venv dist/sonarpad-ytdlp-venv
-          source dist/sonarpad-ytdlp-venv/bin/activate
+          rm -rf build/sonarpad-ytdlp-src build/sonarpad-ytdlp-build build/sonarpad-ytdlp-venv
+          mkdir -p build/sonarpad-ytdlp-src
+          python3 -m venv build/sonarpad-ytdlp-venv
+          source build/sonarpad-ytdlp-venv/bin/activate
           python -m pip install -U pip
           python -m pip install -U yt-dlp pyinstaller certifi
-          cat > dist/sonarpad-ytdlp-src/ytdlp_runner.py <<'PY'
+          cat > build/sonarpad-ytdlp-src/ytdlp_runner.py <<'PY'
           import os
           import sys
 
@@ -343,17 +343,17 @@ jobs:
           if __name__ == "__main__":
               sys.exit(main())
           PY
-          rm -rf dist/sonarpad-ytdlp dist/sonarpad-ytdlp-build
+          rm -rf dist/sonarpad-ytdlp
           python -m PyInstaller \
             --clean \
             --onedir \
             --name sonarpad-ytdlp \
             --distpath dist \
-            --workpath dist/sonarpad-ytdlp-build \
-            --specpath dist/sonarpad-ytdlp-src \
+            --workpath build/sonarpad-ytdlp-build \
+            --specpath build/sonarpad-ytdlp-src \
             --hidden-import=certifi \
             --collect-data=certifi \
-            dist/sonarpad-ytdlp-src/ytdlp_runner.py
+            build/sonarpad-ytdlp-src/ytdlp_runner.py
           xattr -cr dist/sonarpad-ytdlp || true
           dist/sonarpad-ytdlp/sonarpad-ytdlp \
             --extractor-args "youtube:lang=it" \
