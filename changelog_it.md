@@ -1,5 +1,13 @@
 Changelog
 
+Versione 0.2.9 - 30 aprile 2026
+- Estese le funzionalità YouTube anche per i Mac Intel e Catalina.
+- Migliore gestione dei risultati YouTube, con canali e playlist inseriti all'inizio.
+- Aggiunta la possibilità di aggiungere e rimuovere canali e playlist dai preferiti.
+- Aggiunto nelle opzioni il pulsante Anteprima voce.
+- Aggiunto in Rimuovi fonti il pulsante Seleziona tutto.
+- Corretto il comportamento per cui a volte nelle TV non venivano mostrati i programmi ora in onda.
+
 Versione 0.2.8 - 29 aprile 2026
 - Aggiunto il menu Strumenti con due nuove voci: Cerca e importa da Wikipedia e Riproduci audio da streaming.
 - Cerca e importa da Wikipedia permette di cercare e importare articoli, leggerli e salvarli come audiolibri.

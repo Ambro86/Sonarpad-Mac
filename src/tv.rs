@@ -146,6 +146,13 @@ fn append_current_programs(channels: &mut [TvChannel]) {
             if let Some(program) = programs
                 .iter()
                 .find(|program| program.start_time <= now && now < program.end_time)
+                .or_else(|| {
+                    programs
+                        .iter()
+                        .filter(|program| program.start_time <= now)
+                        .max_by_key(|program| program.start_time)
+                        .filter(|program| now.saturating_sub(program.start_time) <= 6 * 60 * 60)
+                })
             {
                 channel.current_program = Some(program.title.clone());
             }
@@ -252,13 +259,25 @@ fn normalize_oggi_in_tv_channel_name(name: &str) -> String {
         .replace("(dtt)", "")
         .replace(" dtt", "")
         .replace(" hd", "")
-        .replace("twenty seven", "27");
+        .replace("twenty seven", "27")
+        .replace("twentyseven", "27");
     normalized.retain(|ch| ch.is_ascii_alphanumeric());
+    if let Some(stripped) = normalized.strip_suffix("hd") {
+        normalized = stripped.to_string();
+    }
     match normalized.as_str() {
         "la7dtt" => "la7".to_string(),
         "mediaset20" | "20mediaset" => "20".to_string(),
+        "mediaset27" | "27mediaset" => "27".to_string(),
+        "retequattro" | "rete4mediaset" | "mediasetrete4" => "rete4".to_string(),
+        "canale5mediaset" | "mediasetcanale5" => "canale5".to_string(),
+        "italia1mediaset" | "mediasetitalia1" => "italia1".to_string(),
+        "italia2mediaset" | "mediasetitalia2" => "italia2".to_string(),
         "sportitalialive24" => "sportitalia".to_string(),
         "virginradio" => "virginradiotv".to_string(),
+        _ if normalized.contains("rete4") || normalized.contains("retequattro") => {
+            "rete4".to_string()
+        }
         _ => normalized,
     }
 }

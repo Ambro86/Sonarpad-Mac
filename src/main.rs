@@ -6873,16 +6873,24 @@ fn edit_article_source(
     refresh_single_article_source(normalized_url, rt, settings, article_menu_state);
 }
 
-fn delete_article_source(
-    source_index: usize,
+fn delete_article_sources(
+    mut source_indices: Vec<usize>,
     settings: &Arc<Mutex<Settings>>,
     article_menu_state: &Arc<Mutex<ArticleMenuState>>,
 ) {
     let mut locked = settings.lock().unwrap();
-    if source_index >= locked.article_sources.len() {
+    source_indices.sort_unstable();
+    source_indices.dedup();
+    let mut removed = false;
+    for source_index in source_indices.into_iter().rev() {
+        if source_index < locked.article_sources.len() {
+            locked.article_sources.remove(source_index);
+            removed = true;
+        }
+    }
+    if !removed {
         return;
     }
-    locked.article_sources.remove(source_index);
     locked.save();
     article_menu_state.lock().unwrap().dirty = true;
 }
@@ -7014,16 +7022,24 @@ fn sort_podcast_sources_alphabetically(
     podcast_menu_state.lock().unwrap().dirty = true;
 }
 
-fn delete_podcast_source(
-    source_index: usize,
+fn delete_podcast_sources(
+    mut source_indices: Vec<usize>,
     settings: &Arc<Mutex<Settings>>,
     podcast_menu_state: &Arc<Mutex<PodcastMenuState>>,
 ) {
     let mut locked = settings.lock().unwrap();
-    if source_index >= locked.podcast_sources.len() {
+    source_indices.sort_unstable();
+    source_indices.dedup();
+    let mut removed = false;
+    for source_index in source_indices.into_iter().rev() {
+        if source_index < locked.podcast_sources.len() {
+            locked.podcast_sources.remove(source_index);
+            removed = true;
+        }
+    }
+    if !removed {
         return;
     }
-    locked.podcast_sources.remove(source_index);
     locked.save();
     podcast_menu_state.lock().unwrap().dirty = true;
 }
@@ -7158,7 +7174,49 @@ fn open_podcast_results_dialog(
     result
 }
 
-fn open_delete_podcast_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Option<usize> {
+fn checked_source_indices(source_list: &CheckListBox) -> Vec<usize> {
+    (0..source_list.get_count())
+        .filter(|index| source_list.is_checked(*index))
+        .map(|index| index as usize)
+        .collect()
+}
+
+fn source_list_all_checked(source_list: &CheckListBox) -> bool {
+    let count = source_list.get_count();
+    count > 0 && (0..count).all(|index| source_list.is_checked(index))
+}
+
+fn delete_sources_toggle_labels() -> (&'static str, &'static str) {
+    if Settings::load().ui_language == "it" {
+        ("Seleziona tutto", "Deseleziona tutto")
+    } else {
+        ("Select all", "Deselect all")
+    }
+}
+
+fn confirm_delete_rss_sources_message(ui: &UiStrings, selected_count: usize) -> String {
+    if selected_count <= 1 {
+        return ui.confirm_delete_rss_message.clone();
+    }
+    if Settings::load().ui_language == "it" {
+        format!("Sei sicuro di eliminare i {selected_count} RSS selezionati?")
+    } else {
+        format!("Are you sure you want to delete the {selected_count} selected RSS sources?")
+    }
+}
+
+fn confirm_delete_podcast_sources_message(ui: &UiStrings, selected_count: usize) -> String {
+    if selected_count <= 1 {
+        return ui.confirm_delete_podcast_message.clone();
+    }
+    if Settings::load().ui_language == "it" {
+        format!("Sei sicuro di eliminare i {selected_count} podcast selezionati?")
+    } else {
+        format!("Are you sure you want to delete the {selected_count} selected podcasts?")
+    }
+}
+
+fn open_delete_podcast_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) -> Option<Vec<usize>> {
     let ui = current_ui_strings();
     let sources = settings.lock().unwrap().podcast_sources.clone();
     if sources.is_empty() {
@@ -7167,36 +7225,34 @@ fn open_delete_podcast_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
 
     let dialog = Dialog::builder(parent, &ui.delete_podcast)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(520, 160)
+        .with_size(560, 320)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
-    let row = BoxSizer::builder(Orientation::Horizontal).build();
-    row.add(
+    root.add(
         &StaticText::builder(&panel)
             .with_label(&ui.podcast_label)
             .build(),
         0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        SizerFlag::All,
         5,
     );
-    let choice_source = Choice::builder(&panel).build();
+    let source_list = CheckListBox::builder(&panel).build();
     for source in &sources {
-        choice_source.append(&source.title);
+        source_list.append(&source.title);
     }
-    choice_source.set_selection(0);
-    row.add(&choice_source, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+    source_list.check(0, true);
+    root.add(&source_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
-    let selected_index = Rc::new(RefCell::new(0usize));
-    let choice_source_evt = choice_source;
-    let selected_index_evt = Rc::clone(&selected_index);
-    choice_source.on_selection_changed(move |_| {
-        if let Some(selection) = choice_source_evt.get_selection() {
-            *selected_index_evt.borrow_mut() = selection as usize;
-        }
-    });
+    let select_all_row = BoxSizer::builder(Orientation::Horizontal).build();
+    select_all_row.add_spacer(1);
+    let (select_all_label, deselect_all_label) = delete_sources_toggle_labels();
+    let select_all_button = Button::builder(&panel)
+        .with_label(select_all_label)
+        .build();
+    select_all_row.add(&select_all_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&select_all_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
@@ -7208,6 +7264,30 @@ fn open_delete_podcast_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
 
+    let source_list_select_all = source_list;
+    let select_all_button_click = select_all_button;
+    select_all_button.on_click(move |_| {
+        let check_items = !source_list_all_checked(&source_list_select_all);
+        for index in 0..source_list_select_all.get_count() {
+            source_list_select_all.check(index, check_items);
+        }
+        select_all_button_click.set_label(if check_items {
+            deselect_all_label
+        } else {
+            select_all_label
+        });
+    });
+
+    let source_list_toggled = source_list;
+    let select_all_button_toggled = select_all_button;
+    source_list.on_toggled(move |_| {
+        select_all_button_toggled.set_label(if source_list_all_checked(&source_list_toggled) {
+            deselect_all_label
+        } else {
+            select_all_label
+        });
+    });
+
     dialog.set_affirmative_id(ID_OK);
     let dialog_ok = dialog;
     ok_button.on_click(move |_| {
@@ -7215,7 +7295,12 @@ fn open_delete_podcast_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     });
 
     let result = if dialog.show_modal() == ID_OK {
-        Some(*selected_index.borrow())
+        let selected = checked_source_indices(&source_list);
+        if selected.is_empty() {
+            None
+        } else {
+            Some(selected)
+        }
     } else {
         None
     };
@@ -7412,7 +7497,7 @@ fn open_edit_article_source_dialog(
 fn open_delete_article_source_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
-) -> Option<usize> {
+) -> Option<Vec<usize>> {
     let ui = current_ui_strings();
     let sources = settings.lock().unwrap().article_sources.clone();
     if sources.is_empty() {
@@ -7421,51 +7506,73 @@ fn open_delete_article_source_dialog(
 
     let dialog = Dialog::builder(parent, &ui.delete_source)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(520, 160)
+        .with_size(560, 320)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
-    let source_row = BoxSizer::builder(Orientation::Horizontal).build();
-    source_row.add(
+    root.add(
         &StaticText::builder(&panel)
             .with_label(&ui.source_label)
             .build(),
         0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        SizerFlag::All,
         5,
     );
-    let choice_source = Choice::builder(&panel).build();
+    let source_list = CheckListBox::builder(&panel).build();
     for source in &sources {
         let label = if source.title.trim().is_empty() {
             source.url.clone()
         } else {
             source.title.clone()
         };
-        choice_source.append(&label);
+        source_list.append(&label);
     }
-    choice_source.set_selection(0);
-    source_row.add(&choice_source, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&source_row, 0, SizerFlag::Expand, 0);
+    source_list.check(0, true);
+    root.add(&source_list, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
-    let selected_index = Rc::new(RefCell::new(0usize));
-    let choice_source_evt = choice_source;
-    let selected_index_evt = Rc::clone(&selected_index);
-    choice_source.on_selection_changed(move |_| {
-        if let Some(selection) = choice_source_evt.get_selection() {
-            *selected_index_evt.borrow_mut() = selection as usize;
-        }
-    });
+    let select_all_row = BoxSizer::builder(Orientation::Horizontal).build();
+    select_all_row.add_spacer(1);
+    let (select_all_label, deselect_all_label) = delete_sources_toggle_labels();
+    let select_all_button = Button::builder(&panel)
+        .with_label(select_all_label)
+        .build();
+    select_all_row.add(&select_all_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&select_all_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
         .with_id(ID_OK)
-        .with_label("OK")
+        .with_label(&ui.ok)
         .build();
     buttons.add_spacer(1);
     buttons.add(&ok_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
+
+    let source_list_select_all = source_list;
+    let select_all_button_click = select_all_button;
+    select_all_button.on_click(move |_| {
+        let check_items = !source_list_all_checked(&source_list_select_all);
+        for index in 0..source_list_select_all.get_count() {
+            source_list_select_all.check(index, check_items);
+        }
+        select_all_button_click.set_label(if check_items {
+            deselect_all_label
+        } else {
+            select_all_label
+        });
+    });
+
+    let source_list_toggled = source_list;
+    let select_all_button_toggled = select_all_button;
+    source_list.on_toggled(move |_| {
+        select_all_button_toggled.set_label(if source_list_all_checked(&source_list_toggled) {
+            deselect_all_label
+        } else {
+            select_all_label
+        });
+    });
 
     dialog.set_affirmative_id(ID_OK);
     let dialog_ok = dialog;
@@ -7474,7 +7581,12 @@ fn open_delete_article_source_dialog(
     });
 
     let result = if dialog.show_modal() == ID_OK {
-        Some(*selected_index.borrow())
+        let selected = checked_source_indices(&source_list);
+        if selected.is_empty() {
+            None
+        } else {
+            Some(selected)
+        }
     } else {
         None
     };
@@ -8358,6 +8470,46 @@ fn sync_settings_with_loaded_voices(
     }
 }
 
+fn play_voice_preview(text: String, voice: String, rate: i32, pitch: i32, volume: i32) {
+    std::thread::spawn(move || {
+        append_podcast_log(&format!(
+            "settings.voice_preview.begin voice={} rate={} pitch={} volume={}",
+            voice, rate, pitch, volume
+        ));
+        let Ok(rt) = Runtime::new() else {
+            append_podcast_log("settings.voice_preview.runtime_failed");
+            return;
+        };
+        let audio = match rt.block_on(edge_tts::synthesize_text_with_retry(
+            &text, &voice, rate, pitch, volume, 3,
+        )) {
+            Ok(audio) => audio,
+            Err(err) => {
+                append_podcast_log(&format!("settings.voice_preview.tts_failed err={err}"));
+                return;
+            }
+        };
+        let Ok((_stream, handle)) = OutputStream::try_default() else {
+            append_podcast_log("settings.voice_preview.audio_output_failed");
+            return;
+        };
+        let Ok(sink) = Sink::try_new(&handle) else {
+            append_podcast_log("settings.voice_preview.sink_failed");
+            return;
+        };
+        match Decoder::new(Cursor::new(audio)) {
+            Ok(source) => {
+                sink.append(source);
+                sink.sleep_until_end();
+                append_podcast_log("settings.voice_preview.done");
+            }
+            Err(err) => {
+                append_podcast_log(&format!("settings.voice_preview.decode_failed err={err}"));
+            }
+        }
+    });
+}
+
 fn open_settings_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
@@ -8377,7 +8529,7 @@ fn open_settings_dialog(
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, if cfg!(target_os = "macos") { 420 } else { 360 })
+        .with_size(560, if cfg!(target_os = "macos") { 460 } else { 400 })
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -8472,6 +8624,18 @@ fn open_settings_dialog(
         .set_selection(nearest_preset_index(&VOLUME_PRESETS, settings_before.volume) as u32);
     volume_row.add(&choice_volume, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&volume_row, 0, SizerFlag::Expand, 0);
+
+    let voice_preview_row = BoxSizer::builder(Orientation::Horizontal).build();
+    voice_preview_row.add_spacer(1);
+    let voice_preview_button = Button::builder(&panel)
+        .with_label(if settings_before.ui_language == "it" {
+            "Anteprima voce"
+        } else {
+            "Voice preview"
+        })
+        .build();
+    voice_preview_row.add(&voice_preview_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&voice_preview_row, 0, SizerFlag::Expand, 0);
 
     let auto_media_bookmark_checkbox = CheckBox::builder(&panel)
         .with_label(&ui.auto_media_bookmark_label)
@@ -8654,6 +8818,46 @@ fn open_settings_dialog(
         {
             *selected_voice_choice.borrow_mut() = voice.short_name.clone();
         }
+    });
+
+    let selected_voice_preview = Rc::clone(&selected_voice);
+    let settings_title_preview = ui.settings_title.clone();
+    let empty_voice_message = if settings_before.ui_language == "it" {
+        "Seleziona una voce prima di ascoltare l'anteprima."
+    } else {
+        "Select a voice before playing the preview."
+    }
+    .to_string();
+    let preview_text = if settings_before.ui_language == "it" {
+        "Questa è una prova della voce."
+    } else {
+        "This is a voice preview."
+    }
+    .to_string();
+    let dialog_voice_preview = dialog;
+    voice_preview_button.on_click(move |_| {
+        let voice = selected_voice_preview.borrow().clone();
+        if voice.trim().is_empty() {
+            show_message_subdialog(
+                &dialog_voice_preview,
+                &settings_title_preview,
+                &empty_voice_message,
+            );
+            return;
+        }
+        let rate = choice_rate
+            .get_selection()
+            .and_then(|sel| RATE_PRESETS.get(sel as usize).map(|(_, value)| *value))
+            .unwrap_or(0);
+        let pitch = choice_pitch
+            .get_selection()
+            .and_then(|sel| PITCH_PRESETS.get(sel as usize).map(|(_, value)| *value))
+            .unwrap_or(0);
+        let volume = choice_volume
+            .get_selection()
+            .and_then(|sel| VOLUME_PRESETS.get(sel as usize).map(|(_, value)| *value))
+            .unwrap_or(100);
+        play_voice_preview(preview_text.clone(), voice, rate, pitch, volume);
     });
 
     dialog.set_affirmative_id(ID_OK);
@@ -9358,31 +9562,69 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let results = Rc::new(RefCell::new(Vec::<WikipediaSearchResult>::new()));
+    let wikipedia_pending_result = Arc::new(Mutex::new(
+        None::<Result<Vec<WikipediaSearchResult>, String>>,
+    ));
+    let wikipedia_busy = Arc::new(AtomicBool::new(false));
+    let wikipedia_search_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
+    let wikipedia_result_timer = Rc::new(Timer::new(&dialog));
+    let wikipedia_result_timer_tick = Rc::clone(&wikipedia_result_timer);
+    let wikipedia_pending_result_timer = Arc::clone(&wikipedia_pending_result);
+    let wikipedia_busy_timer = Arc::clone(&wikipedia_busy);
+    let wikipedia_search_progress_timer = Rc::clone(&wikipedia_search_progress);
+    let results_timer = Rc::clone(&results);
+    let result_choice_timer = result_choice;
+    let dialog_timer = dialog;
+    wikipedia_result_timer_tick.on_tick(move |_| {
+        let result = wikipedia_pending_result_timer.lock().unwrap().take();
+        if let Some(result) = result {
+            if let Some(progress_dialog) = wikipedia_search_progress_timer.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
+            wikipedia_busy_timer.store(false, Ordering::SeqCst);
+            match result {
+                Ok(found) => {
+                    result_choice_timer.clear();
+                    for item in &found {
+                        result_choice_timer.append(&item.title);
+                    }
+                    if !found.is_empty() {
+                        result_choice_timer.set_selection(0);
+                    }
+                    *results_timer.borrow_mut() = found;
+                }
+                Err(err) => show_message_subdialog(
+                    &dialog_timer,
+                    &current_ui_strings().wikipedia_title,
+                    &err,
+                ),
+            }
+        }
+    });
+    wikipedia_result_timer.start(100, false);
     let perform_search = Rc::new({
-        let results = Rc::clone(&results);
-        let result_choice = result_choice;
+        let wikipedia_pending_result = Arc::clone(&wikipedia_pending_result);
+        let wikipedia_busy = Arc::clone(&wikipedia_busy);
+        let wikipedia_search_progress = Rc::clone(&wikipedia_search_progress);
         let query_ctrl = query_ctrl;
-        let dialog = dialog;
+        let dialog_search_progress = dialog;
         move || {
             let query = query_ctrl.get_value().trim().to_string();
             if query.is_empty() {
                 return;
             }
-            match wikipedia_search(&query) {
-                Ok(found) => {
-                    result_choice.clear();
-                    for item in &found {
-                        result_choice.append(&item.title);
-                    }
-                    if !found.is_empty() {
-                        result_choice.set_selection(0);
-                    }
-                    *results.borrow_mut() = found;
-                }
-                Err(err) => {
-                    show_message_subdialog(&dialog, &current_ui_strings().wikipedia_title, &err)
-                }
+            if wikipedia_busy.swap(true, Ordering::SeqCst) {
+                return;
             }
+            if wikipedia_search_progress.borrow().is_none() {
+                *wikipedia_search_progress.borrow_mut() =
+                    Some(open_youtube_search_progress_dialog(&dialog_search_progress));
+            }
+            let pending = Arc::clone(&wikipedia_pending_result);
+            std::thread::spawn(move || {
+                let result = wikipedia_search(&query);
+                *pending.lock().unwrap() = Some(result);
+            });
         }
     });
     let perform_search_button = Rc::clone(&perform_search);
@@ -9436,6 +9678,15 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
                 ),
             }
         }
+    });
+    let wikipedia_result_timer_destroy = Rc::clone(&wikipedia_result_timer);
+    let wikipedia_search_progress_destroy = Rc::clone(&wikipedia_search_progress);
+    dialog.on_destroy(move |event| {
+        if let Some(progress_dialog) = wikipedia_search_progress_destroy.borrow_mut().take() {
+            progress_dialog.destroy();
+        }
+        wikipedia_result_timer_destroy.stop();
+        event.skip(true);
     });
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
@@ -9964,9 +10215,10 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
     let ytdlp = ytdlp_executable_path();
     let start = page.saturating_mul(YOUTUBE_SEARCH_LIMIT).saturating_add(1);
     let end = page.saturating_add(1).saturating_mul(YOUTUBE_SEARCH_LIMIT);
-    let start_arg = start.to_string();
-    let end_arg = end.to_string();
-    let search_arg = format!("ytsearch{end}:{query}");
+    let limit = end.saturating_add(1);
+    let limit_arg = limit.to_string();
+    let encoded_query = percent_encode(query);
+    let search_url = format!("https://www.youtube.com/results?search_query={encoded_query}");
     ytdlp_log_path_state("search", &ytdlp);
     ytdlp_log_basic_diagnostics("search", &ytdlp);
     append_podcast_log(&format!(
@@ -9982,11 +10234,12 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
     command.args([
         "--flat-playlist",
         "--dump-single-json",
-        "--playlist-start",
-        &start_arg,
         "--playlist-end",
-        &end_arg,
-        &search_arg,
+        &limit_arg,
+        "--no-warnings",
+        "--skip-download",
+        "--",
+        &search_url,
     ]);
     ytdlp_log_command_state("search", &ytdlp, &command);
     let output = command.output().map_err(|err| {
@@ -10004,8 +10257,10 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
         .and_then(|v| v.as_array())
         .cloned()
         .unwrap_or_default();
-    Ok(entries
+    let mut results = entries
         .into_iter()
+        .skip(page.saturating_mul(YOUTUBE_SEARCH_LIMIT))
+        .take(YOUTUBE_SEARCH_LIMIT)
         .filter_map(|entry| {
             let title = entry
                 .get("title")
@@ -10026,10 +10281,19 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
                 .and_then(|v| v.as_str())
                 .unwrap_or_default()
                 .to_ascii_lowercase();
+            let ie_key = entry
+                .get("ie_key")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
             let is_collection = extractor.contains("playlist")
                 || extractor.contains("channel")
+                || ie_key.contains("youtubetab")
+                || ie_key.contains("youtubeplaylist")
                 || url.contains("/playlist")
                 || url.contains("/channel/")
+                || url.contains("/c/")
+                || url.contains("/user/")
                 || url.contains("/@");
             Some(YoutubeSearchResult {
                 title,
@@ -10037,14 +10301,40 @@ fn youtube_search_page(query: &str, page: usize) -> Result<Vec<YoutubeSearchResu
                 is_collection,
             })
         })
-        .collect())
+        .collect::<Vec<_>>();
+    results.sort_by_key(|result| !result.is_collection);
+    Ok(results)
+}
+
+fn youtube_collection_videos_url(url: &str) -> String {
+    let Ok(mut parsed) = Url::parse(url) else {
+        return url.to_string();
+    };
+    let path = parsed.path().trim_end_matches('/').to_string();
+    let channel_path = path
+        .strip_suffix("/shorts")
+        .unwrap_or(path.as_str())
+        .to_string();
+    let is_channel = path.starts_with("/@")
+        || path.starts_with("/channel/")
+        || path.starts_with("/c/")
+        || path.starts_with("/user/");
+    let already_video_tab = path.ends_with("/videos")
+        || path.ends_with("/streams")
+        || path.ends_with("/featured")
+        || path.ends_with("/playlists");
+    if is_channel && !already_video_tab {
+        parsed.set_path(&format!("{channel_path}/videos"));
+    }
+    parsed.to_string()
 }
 
 fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
+    let url = youtube_collection_videos_url(url);
     ytdlp_log_path_state("collection", &ytdlp);
     ytdlp_log_basic_diagnostics("collection", &ytdlp);
-    ytdlp_log_intel_verbose_probe("collection", &ytdlp, url);
+    ytdlp_log_intel_verbose_probe("collection", &ytdlp, &url);
     append_podcast_log(&format!("ytdlp.collection.begin url={url}"));
     let mut command = Command::new(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
@@ -10054,7 +10344,7 @@ fn youtube_collection_entries(url: &str) -> Result<Vec<YoutubeSearchResult>, Str
         "--dump-single-json",
         "--playlist-end",
         "50",
-        url,
+        &url,
     ]);
     ytdlp_log_command_state("collection", &ytdlp, &command);
     let output = command.output().map_err(|err| {
@@ -10587,16 +10877,82 @@ fn open_youtube_results_dialog(
     }
     let dialog = Dialog::builder(parent, &ui.youtube_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(740, 240)
+        .with_size(740, 300)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+    let favorites = Rc::new(RefCell::new(
+        settings.lock().unwrap().youtube_favorites.clone(),
+    ));
+    let favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let favorite_label = StaticText::builder(&panel)
+        .with_label(&ui.youtube_favorites_label)
+        .build();
+    favorite_row.add(
+        &favorite_label,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let favorite_choice = Choice::builder(&panel).build();
+    for favorite in favorites.borrow().iter() {
+        favorite_choice.append(&favorite.title);
+    }
+    if !favorites.borrow().is_empty() {
+        favorite_choice.set_selection(0);
+    }
+    favorite_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&favorite_row, 0, SizerFlag::Expand, 0);
+    let favorite_buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    favorite_buttons.add_spacer(1);
+    let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
+    favorite_buttons.add(&favorite_open_button, 0, SizerFlag::All, 5);
+    let favorite_remove_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" {
+            "Rimuovi dai preferiti"
+        } else {
+            "Remove from favorites"
+        })
+        .build();
+    favorite_buttons.add(&favorite_remove_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&favorite_buttons, 0, SizerFlag::Expand, 0);
+    let has_favorites = !favorites.borrow().is_empty();
+    favorite_label.show(has_favorites);
+    favorite_choice.show(has_favorites);
+    favorite_open_button.show(has_favorites);
+    favorite_remove_button.show(has_favorites);
+    let results_row = BoxSizer::builder(Orientation::Horizontal).build();
+    results_row.add(
+        &StaticText::builder(&panel)
+            .with_label(if Settings::load().ui_language == "it" {
+                "Risultati"
+            } else {
+                "Results"
+            })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let choice = Choice::builder(&panel).build();
     for result in &results {
         choice.append(&result.title);
     }
     choice.set_selection(0);
-    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    results_row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&results_row, 1, SizerFlag::Expand, 0);
+    let add_favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
+    add_favorite_row.add_spacer(1);
+    let favorite_button = Button::builder(&panel)
+        .with_label(&ui.youtube_add_favorite)
+        .build();
+    add_favorite_row.add(
+        &favorite_button,
+        0,
+        SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+        8,
+    );
+    root.add_sizer(&add_favorite_row, 0, SizerFlag::Expand, 0);
     let options = BoxSizer::builder(Orientation::Horizontal).build();
     options.add(
         &StaticText::builder(&panel)
@@ -10628,9 +10984,6 @@ fn open_youtube_results_dialog(
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(&ui.open).build();
     let save_button = Button::builder(&panel).with_label(&ui.youtube_save).build();
-    let favorite_button = Button::builder(&panel)
-        .with_label(&ui.youtube_add_favorite)
-        .build();
     let more_button = Button::builder(&panel)
         .with_label(if Settings::load().ui_language == "it" {
             "Altri risultati"
@@ -10645,7 +10998,6 @@ fn open_youtube_results_dialog(
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
-    buttons.add(&favorite_button, 0, SizerFlag::All, 10);
     if search_context.is_some() {
         buttons.add(&more_button, 0, SizerFlag::All, 10);
     }
@@ -10654,6 +11006,15 @@ fn open_youtube_results_dialog(
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     let results = Rc::new(results);
+    favorite_button.show(results.first().is_some_and(|result| {
+        result.is_collection
+            && !favorites
+                .borrow()
+                .iter()
+                .any(|favorite| favorite.url == result.url)
+    }));
+    panel.layout();
+    dialog.layout();
     let youtube_pending_result =
         Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_pending_playback = Arc::new(Mutex::new(None::<Result<(), String>>));
@@ -10661,6 +11022,7 @@ fn open_youtube_results_dialog(
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_open_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_save_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
+    let youtube_more_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
     let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
@@ -10672,10 +11034,17 @@ fn open_youtube_results_dialog(
     let choice_save_focus_timer = choice;
     let youtube_open_progress_timer = Rc::clone(&youtube_open_progress);
     let youtube_save_progress_timer = Rc::clone(&youtube_save_progress);
+    let youtube_more_progress_timer = Rc::clone(&youtube_more_progress);
     let dialog_timer = dialog;
     youtube_result_timer_tick.on_tick(move |_| {
         let result = youtube_pending_result_timer.lock().unwrap().take();
         if let Some(result) = result {
+            if let Some(progress_dialog) = youtube_more_progress_timer.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
+            if let Some(progress_dialog) = youtube_open_progress_timer.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
             youtube_busy_timer.store(false, Ordering::SeqCst);
             match result {
                 Ok((entries, context)) => {
@@ -10717,6 +11086,112 @@ fn open_youtube_results_dialog(
         }
     });
     youtube_result_timer.start(100, false);
+    let favorite_choice_open = favorite_choice;
+    let favorites_open = Rc::clone(&favorites);
+    let youtube_pending_result_favorite_open = Arc::clone(&youtube_pending_result);
+    let youtube_busy_favorite_open = Arc::clone(&youtube_busy);
+    let youtube_more_progress_favorite_open = Rc::clone(&youtube_more_progress);
+    let dialog_favorite_open_progress = dialog;
+    favorite_open_button.on_click(move |_| {
+        if let Some(sel) = favorite_choice_open.get_selection()
+            && let Some(favorite) = favorites_open.borrow().get(sel as usize).cloned()
+        {
+            if youtube_busy_favorite_open.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            if youtube_more_progress_favorite_open.borrow().is_none() {
+                *youtube_more_progress_favorite_open.borrow_mut() =
+                    Some(open_youtube_search_progress_dialog(&dialog_favorite_open_progress));
+            }
+            let url = favorite.url;
+            let pending = Arc::clone(&youtube_pending_result_favorite_open);
+            std::thread::spawn(move || {
+                let result = youtube_collection_entries(&url).map(|entries| (entries, None));
+                *pending.lock().unwrap() = Some(result);
+            });
+        }
+    });
+    let favorite_choice_remove = favorite_choice;
+    let favorites_remove = Rc::clone(&favorites);
+    let settings_remove = Arc::clone(settings);
+    let favorite_label_remove = favorite_label;
+    let favorite_open_button_remove = favorite_open_button;
+    let favorite_remove_button_remove = favorite_remove_button;
+    let panel_remove = panel;
+    let dialog_remove = dialog;
+    let choice_remove_visibility = choice;
+    let results_remove_visibility = Rc::clone(&results);
+    let favorite_button_remove_visibility = favorite_button;
+    favorite_remove_button.on_click(move |_| {
+        let Some(sel) = favorite_choice_remove.get_selection() else {
+            return;
+        };
+        let index = sel as usize;
+        if index >= favorites_remove.borrow().len() {
+            return;
+        }
+        let removed_favorite = favorites_remove.borrow_mut().remove(index);
+        {
+            let mut locked = settings_remove.lock().unwrap();
+            locked
+                .youtube_favorites
+                .retain(|favorite| favorite.url != removed_favorite.url);
+            locked.save();
+        }
+        favorite_choice_remove.clear();
+        for favorite in favorites_remove.borrow().iter() {
+            favorite_choice_remove.append(&favorite.title);
+        }
+        let has_favorites = !favorites_remove.borrow().is_empty();
+        if has_favorites {
+            favorite_choice_remove
+                .set_selection(index.min(favorites_remove.borrow().len() - 1) as u32);
+        }
+        favorite_label_remove.show(has_favorites);
+        favorite_choice_remove.show(has_favorites);
+        favorite_open_button_remove.show(has_favorites);
+        favorite_remove_button_remove.show(has_favorites);
+        let add_visible = choice_remove_visibility
+            .get_selection()
+            .and_then(|selection| results_remove_visibility.get(selection as usize))
+            .is_some_and(|result| {
+                result.is_collection
+                    && !favorites_remove
+                        .borrow()
+                        .iter()
+                        .any(|favorite| favorite.url == result.url)
+            });
+        favorite_button_remove_visibility.show(add_visible);
+        panel_remove.layout();
+        dialog_remove.layout();
+        let message = if Settings::load().ui_language == "it" {
+            format!("{} è stato rimosso dai preferiti.", removed_favorite.title)
+        } else {
+            format!("{} has been removed from favorites.", removed_favorite.title)
+        };
+        show_message_subdialog(&dialog_remove, &current_ui_strings().youtube_title, &message);
+    });
+    let choice_favorite_visibility = choice;
+    let results_favorite_visibility = Rc::clone(&results);
+    let favorites_visibility = Rc::clone(&favorites);
+    let panel_favorite_visibility = panel;
+    let dialog_favorite_visibility = dialog;
+    let favorite_button_visibility = favorite_button;
+    choice.on_selection_changed(move |_| {
+        let visible = choice_favorite_visibility
+            .get_selection()
+            .and_then(|selection| results_favorite_visibility.get(selection as usize))
+            .is_some_and(|result| {
+                result.is_collection
+                    && !favorites_visibility
+                        .borrow()
+                        .iter()
+                        .any(|favorite| favorite.url == result.url)
+            });
+        favorite_button_visibility.show(visible);
+        panel_favorite_visibility.layout();
+        dialog_favorite_visibility.layout();
+    });
     let choice_open = choice;
     let results_open = Rc::clone(&results);
     let youtube_pending_result_open = Arc::clone(&youtube_pending_result);
@@ -10733,6 +11208,10 @@ fn open_youtube_results_dialog(
             if result.is_collection {
                 let url = result.url.clone();
                 let pending = Arc::clone(&youtube_pending_result_open);
+                if youtube_open_progress_click.borrow().is_none() {
+                    *youtube_open_progress_click.borrow_mut() =
+                        Some(open_youtube_open_progress_dialog(&dialog_timer));
+                }
                 std::thread::spawn(move || {
                     let result = youtube_collection_entries(&url).map(|entries| (entries, None));
                     *pending.lock().unwrap() = Some(result);
@@ -10809,6 +11288,13 @@ fn open_youtube_results_dialog(
     let results_favorite = Rc::clone(&results);
     let settings_favorite = Arc::clone(settings);
     let dialog_favorite = dialog;
+    let favorites_favorite = Rc::clone(&favorites);
+    let favorite_choice_update = favorite_choice;
+    let favorite_label_update = favorite_label;
+    let favorite_open_button_update = favorite_open_button;
+    let favorite_remove_button_update = favorite_remove_button;
+    let panel_favorite_update = panel;
+    let favorite_button_update = favorite_button;
     favorite_button.on_click(move |_| {
         if let Some(sel) = choice_favorite.get_selection()
             && let Some(result) = results_favorite.get(sel as usize)
@@ -10825,6 +11311,20 @@ fn open_youtube_results_dialog(
                     url: result.url.clone(),
                 });
                 locked.save();
+                favorites_favorite.borrow_mut().push(YoutubeFavorite {
+                    title: result.title.clone(),
+                    url: result.url.clone(),
+                });
+                favorite_choice_update.append(&result.title);
+                favorite_choice_update
+                    .set_selection(favorites_favorite.borrow().len().saturating_sub(1) as u32);
+                favorite_label_update.show(true);
+                favorite_choice_update.show(true);
+                favorite_open_button_update.show(true);
+                favorite_remove_button_update.show(true);
+                favorite_button_update.show(false);
+                panel_favorite_update.layout();
+                dialog_favorite.layout();
                 show_message_subdialog(
                     &dialog_favorite,
                     &current_ui_strings().youtube_title,
@@ -10840,9 +11340,15 @@ fn open_youtube_results_dialog(
     if let Some(search_context) = search_context {
         let youtube_pending_result_more = Arc::clone(&youtube_pending_result);
         let youtube_busy_more = Arc::clone(&youtube_busy);
+        let youtube_more_progress_click = Rc::clone(&youtube_more_progress);
+        let dialog_more = dialog;
         more_button.on_click(move |_| {
             if youtube_busy_more.swap(true, Ordering::SeqCst) {
                 return;
+            }
+            if youtube_more_progress_click.borrow().is_none() {
+                *youtube_more_progress_click.borrow_mut() =
+                    Some(open_youtube_search_progress_dialog(&dialog_more));
             }
             let query = search_context.query.clone();
             let next_page = search_context.page.saturating_add(1);
@@ -10862,7 +11368,15 @@ fn open_youtube_results_dialog(
         });
     }
     let youtube_result_timer_destroy = Rc::clone(&youtube_result_timer);
+    let youtube_more_progress_destroy = Rc::clone(&youtube_more_progress);
+    let youtube_open_progress_destroy = Rc::clone(&youtube_open_progress);
     dialog.on_destroy(move |event| {
+        if let Some(progress_dialog) = youtube_more_progress_destroy.borrow_mut().take() {
+            progress_dialog.destroy();
+        }
+        if let Some(progress_dialog) = youtube_open_progress_destroy.borrow_mut().take() {
+            progress_dialog.destroy();
+        }
         youtube_result_timer_destroy.stop();
         event.skip(true);
     });
@@ -10893,29 +11407,49 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     search_button.set_default();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
-    let favorites = settings.lock().unwrap().youtube_favorites.clone();
-    let favorite_controls = if favorites.is_empty() {
+    let favorites = Rc::new(RefCell::new(
+        settings.lock().unwrap().youtube_favorites.clone(),
+    ));
+    let favorite_controls = if favorites.borrow().is_empty() {
         None
     } else {
         let favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
+        let favorite_label = StaticText::builder(&panel)
+            .with_label(&ui.youtube_favorites_label)
+            .build();
         favorite_row.add(
-            &StaticText::builder(&panel)
-                .with_label(&ui.youtube_favorites_label)
-                .build(),
+            &favorite_label,
             0,
             SizerFlag::AlignCenterVertical | SizerFlag::All,
             5,
         );
         let favorite_choice = Choice::builder(&panel).build();
-        for favorite in &favorites {
+        for favorite in favorites.borrow().iter() {
             favorite_choice.append(&favorite.title);
         }
         favorite_choice.set_selection(0);
         favorite_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-        let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
-        favorite_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
         root.add_sizer(&favorite_row, 0, SizerFlag::Expand, 0);
-        Some((favorite_choice, favorite_open_button))
+        let favorite_buttons = BoxSizer::builder(Orientation::Horizontal).build();
+        favorite_buttons.add_spacer(1);
+        let favorite_remove_button = Button::builder(&panel)
+            .with_label(if Settings::load().ui_language == "it" {
+                "Rimuovi dai preferiti"
+            } else {
+                "Remove from favorites"
+            })
+            .build();
+        favorite_buttons.add(&favorite_remove_button, 0, SizerFlag::All, 5);
+        let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
+        favorite_buttons.add(&favorite_open_button, 0, SizerFlag::All, 5);
+        root.add_sizer(&favorite_buttons, 0, SizerFlag::Expand, 0);
+        Some((
+            favorite_choice,
+            favorite_open_button,
+            favorite_remove_button,
+            favorite_label,
+            Rc::clone(&favorites),
+        ))
     };
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
@@ -10987,25 +11521,87 @@ fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     search_button.on_click(move |_| perform_search_button());
     let perform_search_enter = Rc::clone(&perform_search);
     query_ctrl.on_text_enter(move |_| perform_search_enter());
-    if let Some((favorite_choice, favorite_open_button)) = favorite_controls {
-        let favorites_open = Rc::new(favorites);
+    if let Some((
+        favorite_choice,
+        favorite_open_button,
+        favorite_remove_button,
+        favorite_label,
+        favorites,
+    )) = favorite_controls
+    {
+        let favorites_open = Rc::clone(&favorites);
         let favorite_choice_open = favorite_choice;
         let youtube_pending_result_favorite = Arc::clone(&youtube_pending_result);
         let youtube_busy_favorite = Arc::clone(&youtube_busy);
+        let youtube_search_progress_favorite = Rc::clone(&youtube_search_progress);
+        let dialog_favorite_progress = dialog;
         favorite_open_button.on_click(move |_| {
             if let Some(sel) = favorite_choice_open.get_selection()
-                && let Some(favorite) = favorites_open.get(sel as usize)
+                && let Some(favorite) = favorites_open.borrow().get(sel as usize).cloned()
             {
                 if youtube_busy_favorite.swap(true, Ordering::SeqCst) {
                     return;
                 }
-                let url = favorite.url.clone();
+                if youtube_search_progress_favorite.borrow().is_none() {
+                    *youtube_search_progress_favorite.borrow_mut() =
+                        Some(open_youtube_search_progress_dialog(&dialog_favorite_progress));
+                }
+                let url = favorite.url;
                 let pending = Arc::clone(&youtube_pending_result_favorite);
                 std::thread::spawn(move || {
                     let result = youtube_collection_entries(&url).map(|entries| (entries, None));
                     *pending.lock().unwrap() = Some(result);
                 });
             }
+        });
+        let favorites_remove = Rc::clone(&favorites);
+        let favorite_choice_remove = favorite_choice;
+        let favorite_label_remove = favorite_label;
+        let favorite_open_button_remove = favorite_open_button;
+        let favorite_remove_button_remove = favorite_remove_button;
+        let settings_remove = Arc::clone(settings);
+        let panel_remove = panel;
+        let dialog_remove = dialog;
+        favorite_remove_button.on_click(move |_| {
+            let Some(sel) = favorite_choice_remove.get_selection() else {
+                return;
+            };
+            let index = sel as usize;
+            let removed_favorite = {
+                let mut favorites = favorites_remove.borrow_mut();
+                if index >= favorites.len() {
+                    return;
+                }
+                favorites.remove(index)
+            };
+            {
+                let mut locked = settings_remove.lock().unwrap();
+                locked
+                    .youtube_favorites
+                    .retain(|favorite| favorite.url != removed_favorite.url);
+                locked.save();
+            }
+            favorite_choice_remove.clear();
+            for favorite in favorites_remove.borrow().iter() {
+                favorite_choice_remove.append(&favorite.title);
+            }
+            let has_favorites = !favorites_remove.borrow().is_empty();
+            if has_favorites {
+                favorite_choice_remove
+                    .set_selection(index.min(favorites_remove.borrow().len() - 1) as u32);
+            }
+            favorite_label_remove.show(has_favorites);
+            favorite_choice_remove.show(has_favorites);
+            favorite_open_button_remove.show(has_favorites);
+            favorite_remove_button_remove.show(has_favorites);
+            panel_remove.layout();
+            dialog_remove.layout();
+            let message = if Settings::load().ui_language == "it" {
+                format!("{} è stato rimosso dai preferiti.", removed_favorite.title)
+            } else {
+                format!("{} has been removed from favorites.", removed_favorite.title)
+            };
+            show_message_subdialog(&dialog_remove, &current_ui_strings().youtube_title, &message);
         });
     }
     let youtube_result_timer_destroy = Rc::clone(&youtube_result_timer);
@@ -13513,19 +14109,18 @@ fn main() {
                     );
                 }
             } else if event.get_id() == ID_ARTICLES_DELETE_SOURCE {
-                if let Some(source_index) =
+                if let Some(source_indices) =
                     open_delete_article_source_dialog(&f_menu, &settings_menu)
-                    && confirm_delete_dialog(
-                        &f_menu,
-                        &ui.confirm_delete_title,
-                        &ui.confirm_delete_rss_message,
-                    )
                 {
-                    delete_article_source(
-                        source_index,
-                        &settings_menu,
-                        &article_menu_state_menu,
-                    );
+                    let confirm_message =
+                        confirm_delete_rss_sources_message(ui, source_indices.len());
+                    if confirm_delete_dialog(&f_menu, &ui.confirm_delete_title, &confirm_message) {
+                        delete_article_sources(
+                            source_indices,
+                            &settings_menu,
+                            &article_menu_state_menu,
+                        );
+                    }
                 }
             } else if event.get_id() == ID_ARTICLES_REORDER_SOURCES {
                 if let Some((reordered_sources, article_folders)) =
@@ -13614,14 +14209,17 @@ fn main() {
                     );
                 }
             } else if event.get_id() == ID_PODCASTS_DELETE {
-                if let Some(source_index) = open_delete_podcast_dialog(&f_menu, &settings_menu)
-                    && confirm_delete_dialog(
-                        &f_menu,
-                        &ui.confirm_delete_title,
-                        &ui.confirm_delete_podcast_message,
-                    )
+                if let Some(source_indices) = open_delete_podcast_dialog(&f_menu, &settings_menu)
                 {
-                    delete_podcast_source(source_index, &settings_menu, &podcast_menu_state_menu);
+                    let confirm_message =
+                        confirm_delete_podcast_sources_message(ui, source_indices.len());
+                    if confirm_delete_dialog(&f_menu, &ui.confirm_delete_title, &confirm_message) {
+                        delete_podcast_sources(
+                            source_indices,
+                            &settings_menu,
+                            &podcast_menu_state_menu,
+                        );
+                    }
                 }
             } else if event.get_id() == ID_PODCASTS_REORDER_SOURCES {
                 if let Some(reordered_sources) =
