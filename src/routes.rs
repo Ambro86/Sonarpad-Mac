@@ -302,7 +302,7 @@ fn select_route(parent: &Dialog, title: &str, routes: Vec<RouteResult>) -> Optio
     res
 }
 
-pub fn open_routes_dialog(parent: &Frame) {
+pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
     let ui = ui_strings();
     let dialog = Dialog::builder(parent, &ui.routes_title).build();
     let panel = Panel::builder(&dialog).build();
@@ -343,15 +343,10 @@ pub fn open_routes_dialog(parent: &Frame) {
     let calc_btn = Button::builder(&panel).with_label(&ui.routes_calculate_button).build();
     sizer.add(&calc_btn, 0, SizerFlag::All | SizerFlag::AlignCentre, 10);
     
-    let results_ctrl = TextCtrl::builder(&panel)
-        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
-        .build();
-    sizer.add(&results_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    
     panel.set_sizer(sizer, true);
     
     let dialog_clone = dialog.clone();
-    let results_c = results_ctrl.clone();
+    let editor_c = editor.clone();
     let ui_loading = ui.routes_loading.clone();
     let ui_error = ui.routes_error.clone();
     let ui_dist = ui.routes_distance.clone();
@@ -395,7 +390,6 @@ pub fn open_routes_dialog(parent: &Frame) {
         });
         
         let mut progress_value = 0;
-        let results_inner = results_c.clone();
         let error_fmt = ui_error.clone();
         let dist_label = ui_dist.clone();
         let dur_label = ui_dur.clone();
@@ -409,33 +403,33 @@ pub fn open_routes_dialog(parent: &Frame) {
         
         let (from_cand, to_cand) = loop {
             std::thread::sleep(Duration::from_millis(150));
-            if let Some((from_res, to_res)) = geocode_state.lock().unwrap().take() {
+            if let Some(res) = geocode_state.lock().unwrap().take() {
                 progress.destroy();
-                
-                let from_cands = match from_res {
-                    Ok(c) => c,
-                    Err(e) => {
-                        results_inner.set_value(&error_fmt.replace("{err}", &e));
-                        return;
-                    }
-                };
-                let to_cands = match to_res {
-                    Ok(c) => c,
-                    Err(e) => {
-                        results_inner.set_value(&error_fmt.replace("{err}", &e));
+                let (from_cands, to_cands) = match res {
+                    (Ok(f), Ok(t)) => (f, t),
+                    (Err(e), _) | (_, Err(e)) => {
+                        let msg = error_fmt.replace("{err}", &e);
+                        let err_dlg = MessageDialog::builder(&dialog_clone, &msg, &ui_strings().routes_title)
+                            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build();
+                        err_dlg.show_modal(); err_dlg.destroy();
                         return;
                     }
                 };
                 
+                let d_c = dialog_clone.clone();
                 let f_c = select_candidate(&d_c, &ui_cf, from_cands);
                 if f_c.is_none() { 
-                    results_inner.set_value(&not_found);
+                    let err_dlg = MessageDialog::builder(&d_c, &not_found, &ui_strings().routes_title)
+                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build();
+                    err_dlg.show_modal(); err_dlg.destroy();
                     return; 
                 }
                 
                 let t_c = select_candidate(&d_c, &ui_ct, to_cands);
                 if t_c.is_none() { 
-                    results_inner.set_value(&not_found);
+                    let err_dlg = MessageDialog::builder(&d_c, &not_found, &ui_strings().routes_title)
+                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation).build();
+                    err_dlg.show_modal(); err_dlg.destroy();
                     return; 
                 }
                 
@@ -481,14 +475,18 @@ pub fn open_routes_dialog(parent: &Frame) {
                                     }
                                 }
                             }
-                            results_inner.set_value(&output);
+                            let text_to_import = format!("\n\n{}\n{}\n", ui_tit, output);
+                            editor_c.append_text(&text_to_import);
+                            d_c.end_modal(crate::ID_OK);
                         } else {
-                            results_inner.set_value(&not_found);
+                            // User canceled route selection, no action needed
                         }
                     }
                     Err(e) => {
                         let msg = error_fmt.replace("{err}", &e);
-                        results_inner.set_value(&msg);
+                        let err_dlg = MessageDialog::builder(&d_c, &msg, &ui_strings().routes_title)
+                            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError).build();
+                        err_dlg.show_modal(); err_dlg.destroy();
                     }
                 }
                 break;
