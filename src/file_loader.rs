@@ -7,6 +7,7 @@ use docx_rs::{
 };
 use encoding_rs::{Encoding, WINDOWS_1252};
 use epub::doc::EpubDoc;
+use epub::doc::NavPoint;
 use pdfium_render::prelude::*;
 #[cfg(target_os = "macos")]
 use std::ffi::OsStr;
@@ -19,13 +20,29 @@ use std::process::{Command, Stdio};
 #[cfg(target_os = "macos")]
 use uuid::Uuid;
 
+#[derive(Clone, Debug, Default)]
+pub struct LoadedFile {
+    pub text: String,
+    pub epub_toc: Vec<EpubTocItem>,
+}
+
+#[derive(Clone, Debug)]
+pub struct EpubTocItem {
+    pub label: String,
+    pub position: usize,
+}
+
 pub fn load_any_file(path: &Path) -> Result<String> {
+    Ok(load_any_file_with_metadata(path)?.text)
+}
+
+pub fn load_any_file_with_metadata(path: &Path) -> Result<LoadedFile> {
     let ext = path
         .extension()
         .and_then(|s| s.to_str())
         .unwrap_or("")
         .to_lowercase();
-    match ext.as_str() {
+    let text = match ext.as_str() {
         "doc" => load_doc(path),
         "docx" => load_docx(path),
         "pdf" => load_pdf(path),
@@ -33,7 +50,7 @@ pub fn load_any_file(path: &Path) -> Result<String> {
         "png" | "jpg" | "jpeg" | "gif" | "bmp" | "tif" | "tiff" | "webp" | "heic" => {
             load_image_with_macos_ocr(path)
         }
-        "epub" => load_epub(path),
+        "epub" => return load_epub_with_toc(path),
         "rtf" => load_rtf(path),
         "xlsx" | "xls" | "ods" => load_spreadsheet(path),
         "html" | "htm" => load_html(path),
@@ -41,7 +58,11 @@ pub fn load_any_file(path: &Path) -> Result<String> {
             let bytes = std::fs::read(path)?;
             Ok(decode_text_bytes(&bytes))
         }
-    }
+    }?;
+    Ok(LoadedFile {
+        text,
+        epub_toc: Vec::new(),
+    })
 }
 
 fn decode_text_bytes(bytes: &[u8]) -> String {
@@ -1580,9 +1601,11 @@ fn load_rtf(path: &Path) -> Result<String> {
     Ok(extract_rtf_text(&bytes))
 }
 
-fn load_epub(path: &Path) -> Result<String> {
+fn load_epub_with_toc(path: &Path) -> Result<LoadedFile> {
     let mut doc = EpubDoc::new(path).map_err(|e| anyhow!("Errore EPUB: {}", e))?;
     let mut full_text = String::new();
+    let mut chapter_positions = vec![None; doc.spine.len()];
+    let mut chapter_html = vec![None; doc.spine.len()];
 
     if let Some(title_item) = doc.mdata("title") {
         full_text.push_str(&title_item.value);
@@ -1590,24 +1613,16 @@ fn load_epub(path: &Path) -> Result<String> {
     }
 
     let spine = doc.spine.clone();
-    for item in spine {
+    for (chapter_index, item) in spine.iter().enumerate() {
         if let Some((content, mime)) = doc.get_resource(&item.idref)
             && (mime.contains("xhtml") || mime.contains("html") || mime.contains("xml"))
         {
+            chapter_positions[chapter_index] = Some(full_text.chars().count());
             let text = String::from_utf8(content.clone())
                 .unwrap_or_else(|_| String::from_utf8_lossy(&content).to_string());
+            chapter_html[chapter_index] = Some(text.clone());
             let cleaned = html_to_text(&text);
-            for line in cleaned.lines() {
-                let trimmed = line.trim();
-                if trimmed.is_empty()
-                    || is_epub_metadata_noise_line(trimmed)
-                    || (trimmed.starts_with("part") && trimmed.len() <= 12)
-                {
-                    continue;
-                }
-                full_text.push_str(trimmed);
-                full_text.push('\n');
-            }
+            append_epub_cleaned_text(&mut full_text, &cleaned);
             full_text.push('\n');
         }
     }
@@ -1616,7 +1631,145 @@ fn load_epub(path: &Path) -> Result<String> {
         return Err(anyhow!("Errore EPUB: nessun testo rilevato"));
     }
 
-    Ok(full_text)
+    let epub_toc = build_epub_toc_items(&doc, &chapter_positions, &chapter_html);
+    Ok(LoadedFile {
+        text: full_text,
+        epub_toc,
+    })
+}
+
+fn build_epub_toc_items(
+    doc: &EpubDoc<std::io::BufReader<std::fs::File>>,
+    chapter_positions: &[Option<usize>],
+    chapter_html: &[Option<String>],
+) -> Vec<EpubTocItem> {
+    let mut items = Vec::new();
+    for nav in &doc.toc {
+        append_epub_toc_items(doc, chapter_positions, chapter_html, nav, 0, &mut items);
+    }
+    items
+}
+
+fn append_epub_toc_items(
+    doc: &EpubDoc<std::io::BufReader<std::fs::File>>,
+    chapter_positions: &[Option<usize>],
+    chapter_html: &[Option<String>],
+    nav: &NavPoint,
+    depth: usize,
+    items: &mut Vec<EpubTocItem>,
+) {
+    if let Some(chapter_index) = epub_nav_chapter_index(doc, nav)
+        && let Some(Some(position)) = chapter_positions.get(chapter_index)
+    {
+        let label = epub_toc_display_label(&nav.label, depth);
+        if !label.is_empty() {
+            let position = epub_nav_fragment_offset(nav)
+                .and_then(|fragment| {
+                    chapter_html
+                        .get(chapter_index)
+                        .and_then(Option::as_deref)
+                        .and_then(|html| epub_anchor_text_offset(html, &fragment))
+                })
+                .map(|offset| *position + offset)
+                .unwrap_or(*position);
+            items.push(EpubTocItem {
+                label,
+                position,
+            });
+        }
+    }
+    for child in &nav.children {
+        append_epub_toc_items(
+            doc,
+            chapter_positions,
+            chapter_html,
+            child,
+            depth + 1,
+            items,
+        );
+    }
+}
+
+fn epub_nav_chapter_index(
+    doc: &EpubDoc<std::io::BufReader<std::fs::File>>,
+    nav: &NavPoint,
+) -> Option<usize> {
+    doc.resource_uri_to_chapter(&nav.content)
+        .or_else(|| {
+            epub_nav_content_without_fragment(nav).and_then(|path| doc.resource_uri_to_chapter(&path))
+        })
+}
+
+fn epub_nav_content_without_fragment(nav: &NavPoint) -> Option<PathBuf> {
+    let content = nav.content.to_string_lossy();
+    let (path, _) = content.split_once('#')?;
+    Some(PathBuf::from(path))
+}
+
+fn epub_nav_fragment_offset(nav: &NavPoint) -> Option<String> {
+    let content = nav.content.to_string_lossy();
+    let (_, fragment) = content.split_once('#')?;
+    let fragment = fragment.trim();
+    if fragment.is_empty() {
+        None
+    } else {
+        Some(fragment.to_string())
+    }
+}
+
+fn epub_anchor_text_offset(html: &str, fragment: &str) -> Option<usize> {
+    let anchor_pos = find_epub_anchor_position(html, fragment)?;
+    let cleaned = html_to_text(&html[..anchor_pos]);
+    Some(epub_cleaned_text_char_count(&cleaned))
+}
+
+fn find_epub_anchor_position(html: &str, fragment: &str) -> Option<usize> {
+    let id_double = format!("id=\"{fragment}\"");
+    let id_single = format!("id='{fragment}'");
+    let name_double = format!("name=\"{fragment}\"");
+    let name_single = format!("name='{fragment}'");
+    [id_double, id_single, name_double, name_single]
+        .iter()
+        .filter_map(|needle| html.find(needle))
+        .min()
+        .and_then(|attr_pos| html[..attr_pos].rfind('<').or(Some(attr_pos)))
+}
+
+fn epub_toc_display_label(label: &str, depth: usize) -> String {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    format!("{}{}", "  ".repeat(depth), trimmed)
+}
+
+fn append_epub_cleaned_text(full_text: &mut String, cleaned: &str) {
+    for line in cleaned.lines() {
+        let trimmed = line.trim();
+        if should_skip_epub_text_line(trimmed) {
+            continue;
+        }
+        full_text.push_str(trimmed);
+        full_text.push('\n');
+    }
+}
+
+fn epub_cleaned_text_char_count(cleaned: &str) -> usize {
+    let mut count = 0usize;
+    for line in cleaned.lines() {
+        let trimmed = line.trim();
+        if should_skip_epub_text_line(trimmed) {
+            continue;
+        }
+        count += trimmed.chars().count() + 1;
+    }
+    count
+}
+
+fn should_skip_epub_text_line(line: &str) -> bool {
+    line.is_empty()
+        || is_epub_metadata_noise_line(line)
+        || (line.starts_with("part") && line.len() <= 12)
 }
 
 fn load_spreadsheet(path: &Path) -> Result<String> {

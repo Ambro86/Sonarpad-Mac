@@ -1,8 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod articles;
-mod bdciechi;
-mod routes;
 mod curl_client;
 mod edge_tts;
 mod file_loader;
@@ -105,8 +103,6 @@ const ID_TOOLS_ITALIAN_DIRECTORIES: i32 = 2367;
 const ID_TOOLS_WEATHER: i32 = 2368;
 const ID_TOOLS_CINEMA: i32 = 2369;
 const ID_TOOLS_CONVERT_MEDIA: i32 = 2370;
-const ID_TOOLS_BDCIECHI: i32 = 2371;
-const ID_TOOLS_ROUTES: i32 = 2372;
 const ID_RADIO_FAVORITE_BASE: i32 = 6000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
@@ -322,10 +318,6 @@ struct Settings {
     last_text_save_format: String,
     #[serde(default)]
     last_text_save_dir: String,
-    #[serde(default)]
-    bdciechi_username: String,
-    #[serde(default)]
-    bdciechi_password: String,
 }
 
 impl Settings {
@@ -358,8 +350,6 @@ impl Settings {
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
             last_text_save_dir: String::new(),
-            bdciechi_username: String::new(),
-            bdciechi_password: String::new(),
         };
         normalize_settings_data(&mut settings);
         settings
@@ -622,26 +612,6 @@ struct UiStrings {
     convert_media_same_path: String,
     convert_media_invalid_bitrate: String,
     convert_media_failed: String,
-    bdciechi_title: String,
-    bdciechi_username_label: String,
-    bdciechi_password_label: String,
-    bdciechi_login_button: String,
-    bdciechi_register_button: String,
-    bdciechi_quota: String,
-    bdciechi_latest_button: String,
-    bdciechi_catalog_button: String,
-    bdciechi_search_label: String,
-    bdciechi_search_button: String,
-    bdciechi_book_label: String,
-    bdciechi_preview_button: String,
-    bdciechi_preview_title: String,
-    bdciechi_import_button: String,
-    bdciechi_logout_button: String,
-    bdciechi_no_results: String,
-    bdciechi_catalog_loading: String,
-    bdciechi_download_error: String,
-    bdciechi_imported: String,
-    bdciechi_missing_fields: String,
     italian_directories_title: String,
     italian_directories_directory_label: String,
     italian_directories_white_pages: String,
@@ -846,26 +816,6 @@ struct UiStrings {
     tv_label: String,
     tv_favorites_label: String,
     tv_add_favorite: String,
-    routes_title: String,
-    routes_from_label: String,
-    routes_to_label: String,
-    routes_calculate_button: String,
-    routes_profile_label: String,
-    routes_profile_walking: String,
-    routes_profile_cycling: String,
-    routes_profile_driving: String,
-    routes_profile_wheelchair: String,
-    routes_preference_label: String,
-    routes_preference_fastest: String,
-    routes_preference_shortest: String,
-    routes_distance: String,
-    routes_duration: String,
-    routes_instructions: String,
-    routes_loading: String,
-    routes_error: String,
-    routes_invalid_address: String,
-    routes_address_not_found: String,
-    routes_no_results: String,
     rai_luce_code_label: String,
     auto_media_bookmark_label: String,
     auto_check_updates_label: String,
@@ -16798,20 +16748,8 @@ fn main() {
             &ui.convert_media_title,
             ItemKind::Normal,
         );
-        tools_menu.append(
-            ID_TOOLS_ROUTES,
-            &ui.routes_title,
-            &ui.routes_title,
-            ItemKind::Normal,
-        );
         if Settings::load().ui_language == "it" {
             tools_menu.append_separator();
-            tools_menu.append(
-                ID_TOOLS_BDCIECHI,
-                &ui.bdciechi_title,
-                &ui.bdciechi_title,
-                ItemKind::Normal,
-            );
             tools_menu.append(
                 ID_RAI_AUDIO_DESCRIPTIONS,
                 &ui.rai_audio_descriptions_label,
@@ -17384,16 +17322,12 @@ fn main() {
                 open_wikipedia_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
             } else if event.get_id() == ID_TOOLS_YOUTUBE {
                 open_youtube_dialog(&f_menu, &settings_menu);
-            } else if event.get_id() == ID_TOOLS_BDCIECHI {
-                bdciechi::open_bdciechi_dialog(&f_menu, &settings_menu, tc_menu);
             } else if event.get_id() == ID_TOOLS_WEATHER {
                 open_weather_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CINEMA {
                 open_cinema_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CONVERT_MEDIA {
                 open_convert_media_dialog(&f_menu);
-            } else if event.get_id() == ID_TOOLS_ROUTES {
-                routes::open_routes_dialog(&f_menu);
             } else if event.get_id() == ID_RAI_AUDIO_DESCRIPTIONS {
                 open_rai_audio_descriptions_dialog(&f_menu);
             } else if event.get_id() == ID_RAIPLAY_BROWSE {

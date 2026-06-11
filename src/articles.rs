@@ -10,6 +10,8 @@ use url::Url;
 
 const DEFAULT_IT_FEEDS: &str = include_str!("../i18n/feed_it.txt");
 const DEFAULT_EN_FEEDS: &str = include_str!("../i18n/feed_en.txt");
+pub const CORRIERE_HOME_FEED_URL: &str =
+    "https://xml2.corriereobjects.it/feed-hp/homepage-restyle-2025.xml";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ArticleItem {
@@ -78,13 +80,40 @@ pub fn normalize_url(input: &str) -> String {
     if s.is_empty() {
         return String::new();
     }
-    if s.starts_with("//") {
-        return format!("https:{s}");
+    let normalized = if s.starts_with("//") {
+        format!("https:{s}")
+    } else if s.starts_with("http://") || s.starts_with("https://") {
+        s.to_string()
+    } else {
+        format!("https://{s}")
+    };
+    normalize_corriere_home_feed_url(&normalized)
+}
+
+pub fn is_corriere_home_feed_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return false;
+    };
+    let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let path = parsed.path().trim_end_matches('/').to_ascii_lowercase();
+
+    match host.as_str() {
+        "corriere.it" | "www.corriere.it" => {
+            path.is_empty() || path == "/rss" || path == "/rss/homepage.xml"
+        }
+        "xml2.corriereobjects.it" => {
+            path == "/feed-hp/homepage.xml" || path == "/feed-hp/homepage-restyle-2025.xml"
+        }
+        _ => false,
     }
-    if s.starts_with("http://") || s.starts_with("https://") {
-        return s.to_string();
+}
+
+fn normalize_corriere_home_feed_url(url: &str) -> String {
+    if is_corriere_home_feed_url(url) {
+        CORRIERE_HOME_FEED_URL.to_string()
+    } else {
+        url.to_string()
     }
-    format!("https://{s}")
 }
 
 #[cfg(target_os = "macos")]
@@ -969,5 +998,39 @@ mod tests {
             !fetched.title.to_ascii_lowercase().contains("comment"),
             "should not pick the comments feed"
         );
+    }
+
+    #[test]
+    fn normalize_url_updates_old_corriere_home_feeds() {
+        assert_eq!(
+            normalize_url("https://xml2.corriereobjects.it/feed-hp/homepage.xml"),
+            CORRIERE_HOME_FEED_URL
+        );
+        assert_eq!(
+            normalize_url("https://www.corriere.it/rss/homepage.xml"),
+            CORRIERE_HOME_FEED_URL
+        );
+        assert_eq!(
+            normalize_url(CORRIERE_HOME_FEED_URL),
+            CORRIERE_HOME_FEED_URL
+        );
+    }
+
+    #[test]
+    fn corriere_home_feed_detection_only_matches_home_variants() {
+        assert!(is_corriere_home_feed_url("https://www.corriere.it/"));
+        assert!(is_corriere_home_feed_url(
+            "https://www.corriere.it/rss/homepage.xml"
+        ));
+        assert!(is_corriere_home_feed_url(
+            "https://xml2.corriereobjects.it/feed-hp/homepage.xml"
+        ));
+        assert!(is_corriere_home_feed_url(CORRIERE_HOME_FEED_URL));
+        assert!(!is_corriere_home_feed_url(
+            "https://www.corriere.it/dynamic-feed/rss/section/Politica.xml"
+        ));
+        assert!(!is_corriere_home_feed_url(
+            "https://www.corriere.it/cronache/"
+        ));
     }
 }

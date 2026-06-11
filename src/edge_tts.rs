@@ -441,7 +441,9 @@ pub fn escape_xml(text: &str) -> String {
 }
 
 fn normalize_for_tts(text: &str) -> String {
-    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
+    let normalized = sanitize_symbols_for_tts(&decode_html_entities_for_tts(text))
+        .replace("\r\n", "\n")
+        .replace('\r', "\n");
     let mut out = String::with_capacity(normalized.len());
     let mut chars = normalized.chars().peekable();
     let mut pending_space = false;
@@ -493,6 +495,174 @@ fn normalize_for_tts(text: &str) -> String {
     }
 
     out.trim().to_string()
+}
+
+fn sanitize_symbols_for_tts(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut dot_run = 0usize;
+    let mut bang_run = 0usize;
+    let mut question_run = 0usize;
+
+    for ch in text.chars() {
+        match ch {
+            '.' => {
+                dot_run += 1;
+                continue;
+            }
+            '!' => {
+                bang_run += 1;
+                continue;
+            }
+            '?' => {
+                question_run += 1;
+                continue;
+            }
+            _ => {
+                flush_tts_punctuation_runs(&mut out, &mut dot_run, &mut bang_run, &mut question_run)
+            }
+        }
+
+        match ch {
+            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}' => {}
+            '\u{00A0}' | '\u{1680}' | '\u{2000}' | '\u{2001}' | '\u{2002}' | '\u{2003}'
+            | '\u{2004}' | '\u{2005}' | '\u{2006}' | '\u{2007}' | '\u{2008}' | '\u{2009}'
+            | '\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{2420}' | '\u{2423}'
+            | '\u{2409}' => out.push(' '),
+            '\u{240A}' | '\u{240D}' | '\u{2424}' => out.push('\n'),
+            '`' | '´' | 'ˋ' | 'ˊ' | '|' | '¦' | '‖' | '⁄' | '∕' => out.push(' '),
+            '«' | '»' | '“' | '”' | '„' | '‟' | '〝' | '〞' => out.push(' '),
+            '‘' | '’' | '‚' | '‛' | '‹' | '›' => out.push('\''),
+            '–' | '—' | '―' | '−' => out.push('-'),
+            '…' => out.push('.'),
+            _ if is_unwanted_control_char(ch) => out.push(' '),
+            _ => out.push(ch),
+        }
+    }
+    flush_tts_punctuation_runs(&mut out, &mut dot_run, &mut bang_run, &mut question_run);
+    normalize_tts_terminal_punctuation(&out)
+}
+
+fn flush_tts_punctuation_runs(
+    out: &mut String,
+    dot_run: &mut usize,
+    bang_run: &mut usize,
+    question_run: &mut usize,
+) {
+    if *dot_run >= 3 {
+        trim_trailing_tts_spaces(out);
+        out.push('.');
+    } else {
+        for _ in 0..*dot_run {
+            out.push('.');
+        }
+    }
+    if *bang_run >= 3 {
+        trim_trailing_tts_spaces(out);
+        out.push('!');
+    } else {
+        for _ in 0..*bang_run {
+            out.push('!');
+        }
+    }
+    if *question_run >= 3 {
+        trim_trailing_tts_spaces(out);
+        out.push('?');
+    } else {
+        for _ in 0..*question_run {
+            out.push('?');
+        }
+    }
+    *dot_run = 0;
+    *bang_run = 0;
+    *question_run = 0;
+}
+
+fn trim_trailing_tts_spaces(text: &mut String) {
+    while text.chars().last().is_some_and(char::is_whitespace) {
+        text.pop();
+    }
+}
+
+fn is_unwanted_control_char(ch: char) -> bool {
+    let code = ch as u32;
+    (0..=8).contains(&code) || (11..=12).contains(&code) || (14..=31).contains(&code)
+}
+
+fn normalize_tts_terminal_punctuation(text: &str) -> String {
+    text.replace(".\":", ". ")
+        .replace(".':", ". ")
+        .replace(".”:", ". ")
+        .replace(".’:", ". ")
+}
+
+fn decode_html_entities_for_tts(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '&' {
+            out.push(ch);
+            continue;
+        }
+
+        let mut entity = String::new();
+        let mut ended_with_semicolon = false;
+        while let Some(&next) = chars.peek() {
+            chars.next();
+            if next == ';' {
+                ended_with_semicolon = true;
+                break;
+            }
+            if entity.len() >= 16 {
+                entity.push(next);
+                break;
+            }
+            entity.push(next);
+        }
+
+        let decoded = if entity.starts_with("#x") || entity.starts_with("#X") {
+            u32::from_str_radix(&entity[2..], 16)
+                .ok()
+                .and_then(char::from_u32)
+        } else if let Some(num) = entity.strip_prefix('#') {
+            num.parse::<u32>().ok().and_then(char::from_u32)
+        } else {
+            match entity.as_str() {
+                "nbsp" => Some(' '),
+                "amp" => Some('&'),
+                "quot" | "quote" => Some('"'),
+                "apos" => Some('\''),
+                "lt" => Some('<'),
+                "gt" => Some('>'),
+                "laquo" => Some('«'),
+                "raquo" => Some('»'),
+                "hellip" => Some('…'),
+                "ndash" => Some('–'),
+                "mdash" => Some('—'),
+                "rsquo" => Some('’'),
+                "lsquo" => Some('‘'),
+                "rdquo" => Some('”'),
+                "ldquo" => Some('“'),
+                "agrave" => Some('à'),
+                "egrave" => Some('è'),
+                "eacute" => Some('é'),
+                "igrave" => Some('ì'),
+                "ograve" => Some('ò'),
+                "ugrave" => Some('ù'),
+                _ => None,
+            }
+        };
+
+        if let Some(decoded) = decoded {
+            out.push(decoded);
+        } else {
+            out.push('&');
+            out.push_str(&entity);
+            if ended_with_semicolon {
+                out.push(';');
+            }
+        }
+    }
+    out
 }
 
 fn parse_edge_binary_audio_payload(data: &[u8]) -> Result<Option<Vec<u8>>> {

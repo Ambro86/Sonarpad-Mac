@@ -25,6 +25,7 @@ jobs:
       FFMPEG_VERSION: "8.0.1"
       CURL_CFFI_VERSION: "0.7.0"
       SONARPAD_MACOS_BUILD_FLAVOR: intel-catalina
+      SONARPAD_ROUTE_CLIENT_TOKEN: ${{ secrets.SONARPAD_ROUTE_CLIENT_TOKEN }}
 
     steps:
       - name: Checkout
@@ -392,6 +393,8 @@ jobs:
           cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'
           UP add volume 5
           DOWN add volume -5
+          + add speed 0.1
+          - add speed -0.1
           EOF
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
@@ -413,6 +416,56 @@ jobs:
             <string>APPL</string>
             <key>CFBundleExecutable</key>
             <string>Sonarpad</string>
+            <key>CFBundleDocumentTypes</key>
+            <array>
+              <dict>
+                <key>CFBundleTypeName</key>
+                <string>Sonarpad supported files</string>
+                <key>CFBundleTypeRole</key>
+                <string>Viewer</string>
+                <key>LSHandlerRank</key>
+                <string>Alternate</string>
+                <key>CFBundleTypeExtensions</key>
+                <array>
+                  <string>txt</string>
+                  <string>doc</string>
+                  <string>docx</string>
+                  <string>pdf</string>
+                  <string>epub</string>
+                  <string>rtf</string>
+                  <string>html</string>
+                  <string>htm</string>
+                  <string>xls</string>
+                  <string>xlsx</string>
+                  <string>ods</string>
+                  <string>png</string>
+                  <string>jpg</string>
+                  <string>jpeg</string>
+                  <string>gif</string>
+                  <string>bmp</string>
+                  <string>tif</string>
+                  <string>tiff</string>
+                  <string>webp</string>
+                  <string>heic</string>
+                  <string>mp3</string>
+                  <string>m4a</string>
+                  <string>m4b</string>
+                  <string>aac</string>
+                  <string>ogg</string>
+                  <string>opus</string>
+                  <string>flac</string>
+                  <string>wav</string>
+                  <string>mp4</string>
+                  <string>m4v</string>
+                  <string>mov</string>
+                  <string>mkv</string>
+                  <string>avi</string>
+                  <string>webm</string>
+                  <string>mpeg</string>
+                  <string>mpg</string>
+                </array>
+              </dict>
+            </array>
             <key>LSMinimumSystemVersion</key>
             <string>10.15</string>
             <key>NSAppTransportSecurity</key>
