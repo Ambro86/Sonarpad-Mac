@@ -642,6 +642,9 @@ struct UiStrings {
     bdciechi_download_error: String,
     bdciechi_imported: String,
     bdciechi_missing_fields: String,
+    bdciechi_empty_search: String,
+    bdciechi_back_button: String,
+    bdciechi_go_button: String,
     italian_directories_title: String,
     italian_directories_directory_label: String,
     italian_directories_white_pages: String,
@@ -865,7 +868,10 @@ struct UiStrings {
     routes_error: String,
     routes_invalid_address: String,
     routes_address_not_found: String,
-    routes_no_results: String,
+    routes_choose_from: String,
+    routes_choose_to: String,
+    routes_cancel: String,
+    routes_route_name: String,
     rai_luce_code_label: String,
     auto_media_bookmark_label: String,
     auto_check_updates_label: String,
@@ -3265,6 +3271,13 @@ struct RadioBrowserStation {
     url_resolved: String,
 }
 
+#[derive(Deserialize)]
+struct CommunityRadio {
+    name: Option<String>,
+    url: Option<String>,
+    language: Option<String>,
+}
+
 fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>, String> {
     const RADIO_BROWSER_MIRRORS: [&str; 3] = [
         "https://de1.api.radio-browser.info",
@@ -3277,7 +3290,7 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
         .user_agent("Sonarpad Radio/1.0")
         .build()
         .map_err(|err| err.to_string())?;
-    let mut last_error = None;
+    let mut _last_error = None;
     let mut stations = None;
     let mut query = vec![
         ("hidebroken", "true"),
@@ -3305,16 +3318,55 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
                     stations = Some(value);
                     break;
                 }
-                Err(err) => last_error = Some(err.to_string()),
+                Err(err) => _last_error = Some(err.to_string()),
             },
-            Err(err) => last_error = Some(err.to_string()),
+            Err(err) => _last_error = Some(err.to_string()),
         }
     }
 
+    let mut comm_stations = Vec::new();
+    
+    // Fetch community radios
+    if let Ok(comm_resp) = client.get("https://sonarpad.com/api/get_community_radios.php")
+        .header("Accept", "application/json")
+        .send()
+        .and_then(|response| response.error_for_status()) 
+    {
+        if let Ok(comm_list) = comm_resp.json::<Vec<CommunityRadio>>() {
+            let wanted_lang = if language_code.starts_with("country:") {
+                None 
+            } else {
+                Some(radio_browser_language_name(language_code))
+            };
+            
+            for cr in comm_list {
+                if let Some(w) = &wanted_lang {
+                    if let Some(l) = &cr.language {
+                        if l.to_lowercase() != w.to_lowercase() {
+                            continue;
+                        }
+                    } else {
+                        continue;
+                    }
+                }
+                
+                if let (Some(name), Some(url)) = (cr.name, cr.url) {
+                    if !name.trim().is_empty() && !url.trim().is_empty() {
+                        comm_stations.push(RadioStation {
+                            name: name.replace('&', "").trim().to_string(),
+                            stream_url: url.trim().to_string(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+    
     let stations = stations
-        .ok_or_else(|| last_error.unwrap_or_else(|| "radio browser request failed".to_string()))?;
-
-    let stations = stations
+        .unwrap_or_else(Vec::new);
+        
+    // Add normal radio-browser stations
+    let browser_stations = stations
         .into_iter()
         .filter_map(|station| {
             let stream_url = if station.url_resolved.trim().is_empty() {
@@ -3334,8 +3386,26 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
             Some(RadioStation { name, stream_url })
         })
         .collect::<Vec<RadioStation>>();
-
-    Ok(normalize_radio_stations(stations))
+        
+    let mut comm = normalize_radio_stations(comm_stations);
+    let mut browser = normalize_radio_stations(browser_stations);
+    
+    let mut seen_names = comm.iter().map(|s| canonical_radio_name(&s.name)).collect::<std::collections::HashSet<_>>();
+    let mut seen_urls = comm.iter().map(|s| s.stream_url.clone()).collect::<std::collections::HashSet<_>>();
+    
+    browser.retain(|s| {
+        let cn = canonical_radio_name(&s.name);
+        if seen_names.contains(&cn) || seen_urls.contains(&s.stream_url) {
+            false
+        } else {
+            seen_names.insert(cn);
+            seen_urls.insert(s.stream_url.clone());
+            true
+        }
+    });
+    
+    comm.append(&mut browser);
+    Ok(comm)
 }
 
 fn radio_browser_language_name(language_code: &str) -> &str {

@@ -336,11 +336,26 @@ fn show_bdciechi_dashboard(parent: &Frame, settings: Arc<Mutex<Settings>>, tc_ma
     combo_sizer.add(&results_combo, 1, SizerFlag::Expand | SizerFlag::All, 5);
     sizer.add_sizer(&combo_sizer, 0, SizerFlag::Expand | SizerFlag::All, 5);
     
+    let pagination_sizer = BoxSizer::builder(Orientation::Horizontal).build();
+    let prev_page_btn = Button::builder(&panel).with_label("<").build();
+    let page_choice = Choice::builder(&panel).build();
+    let goto_page_btn = Button::builder(&panel).with_label(&ui.bdciechi_go_button).build();
+    let next_page_btn = Button::builder(&panel).with_label(">").build();
+    let page_label = StaticText::builder(&panel).with_label("Pagina 1").build();
+    pagination_sizer.add(&page_label, 0, SizerFlag::All | SizerFlag::AlignCenterVertical, 5);
+    pagination_sizer.add(&prev_page_btn, 0, SizerFlag::All, 5);
+    pagination_sizer.add(&page_choice, 0, SizerFlag::All, 5);
+    pagination_sizer.add(&goto_page_btn, 0, SizerFlag::All, 5);
+    pagination_sizer.add(&next_page_btn, 0, SizerFlag::All, 5);
+    sizer.add_sizer(&pagination_sizer, 0, SizerFlag::AlignCentre, 5);
+    
     let action_sizer = BoxSizer::builder(Orientation::Horizontal).build();
     let preview_btn = Button::builder(&panel).with_label(&ui.bdciechi_preview_button).build();
     let import_btn = Button::builder(&panel).with_label(&ui.bdciechi_import_button).build();
+    let back_btn = Button::builder(&panel).with_label(&ui.bdciechi_back_button).build();
     action_sizer.add(&preview_btn, 0, SizerFlag::All, 5);
     action_sizer.add(&import_btn, 0, SizerFlag::All, 5);
+    action_sizer.add(&back_btn, 0, SizerFlag::All, 5);
     sizer.add_sizer(&action_sizer, 0, SizerFlag::AlignCentre, 5);
     
     let logout_btn = Button::builder(&panel).with_label(&ui.bdciechi_logout_button).build();
@@ -348,8 +363,135 @@ fn show_bdciechi_dashboard(parent: &Frame, settings: Arc<Mutex<Settings>>, tc_ma
     
     panel.set_sizer(sizer, true);
     
-    let catalog = Arc::new(Mutex::new(Vec::new()));
-    let displayed_results = Arc::new(Mutex::new(Vec::new()));
+    let set_view = {
+        let pnl = panel.clone();
+        let dlg = dialog.clone();
+        let slbl = search_lbl.clone();
+        let sctrl = search_ctrl.clone();
+        let sbtn = search_btn.clone();
+        let lbtn = latest_btn.clone();
+        let cbtn = catalog_btn.clone();
+        let loutbtn = logout_btn.clone();
+        
+        let blbl = book_lbl.clone();
+        let rcombo = results_combo.clone();
+        let pbtn = preview_btn.clone();
+        let ibtn = import_btn.clone();
+        let bbtn = back_btn.clone();
+        
+        let plbl = page_label.clone();
+        let ppbtn = prev_page_btn.clone();
+        let pchoice = page_choice.clone();
+        let pgoto = goto_page_btn.clone();
+        let npbtn = next_page_btn.clone();
+        
+        move |home: bool| {
+            slbl.show(home);
+            sctrl.show(home);
+            sbtn.show(home);
+            lbtn.show(home);
+            cbtn.show(home);
+            loutbtn.show(home);
+            
+            blbl.show(!home);
+            rcombo.show(!home);
+            pbtn.show(!home);
+            ibtn.show(!home);
+            bbtn.show(!home);
+            plbl.show(!home);
+            ppbtn.show(!home);
+            pchoice.show(!home);
+            pgoto.show(!home);
+            npbtn.show(!home);
+            
+            pnl.layout();
+            dlg.layout();
+        }
+    };
+    
+    set_view(true);
+    
+    let sv_back = set_view.clone();
+    back_btn.on_click(move |_| {
+        sv_back(true);
+    });
+    let catalog: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let displayed_results: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let all_results: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
+    let current_page = Arc::new(Mutex::new(0usize));
+    
+    let update_page = {
+        let ar = Arc::clone(&all_results);
+        let dr = Arc::clone(&displayed_results);
+        let cp = Arc::clone(&current_page);
+        let pc = page_choice.clone();
+        let pl = page_label.clone();
+        let pr_b = prev_page_btn.clone();
+        let n_b = next_page_btn.clone();
+        let combo = results_combo.clone();
+        let ui_no_res = ui.bdciechi_no_results.clone();
+        
+        move || {
+            let res = ar.lock().unwrap();
+            let mut page = cp.lock().unwrap();
+            let total_pages = res.len().div_ceil(50).max(1);
+            if *page >= total_pages { *page = total_pages.saturating_sub(1); }
+            let start = *page * 50;
+            let end = (start + 50).min(res.len());
+            let page_res = res[start..end].to_vec();
+            
+            combo.clear();
+            if page_res.is_empty() {
+                combo.append(&ui_no_res);
+            } else {
+                for r in &page_res { combo.append(r); }
+            }
+            combo.set_selection(0);
+            *dr.lock().unwrap() = page_res;
+            
+            pl.set_label(&format!("Pagina {} di {}", *page + 1, total_pages));
+            pc.clear();
+            for i in 0..total_pages {
+                pc.append(&format!("{}", i + 1));
+            }
+            pc.set_selection(*page as u32);
+            
+            pr_b.enable(*page > 0);
+            n_b.enable(*page + 1 < total_pages);
+        }
+    };
+    
+    let up_prev = update_page.clone();
+    let cp_prev = Arc::clone(&current_page);
+    prev_page_btn.on_click(move |_| {
+        let mut page = cp_prev.lock().unwrap();
+        if *page > 0 { *page -= 1; }
+        drop(page);
+        up_prev();
+    });
+    
+    let up_next = update_page.clone();
+    let cp_next = Arc::clone(&current_page);
+    let ar_next = Arc::clone(&all_results);
+    next_page_btn.on_click(move |_| {
+        let res = ar_next.lock().unwrap();
+        let total_pages = res.len().div_ceil(50).max(1);
+        drop(res);
+        let mut page = cp_next.lock().unwrap();
+        if *page + 1 < total_pages { *page += 1; }
+        drop(page);
+        up_next();
+    });
+    
+    let up_choice = update_page.clone();
+    let cp_choice = Arc::clone(&current_page);
+    let pc_choice = page_choice.clone();
+    goto_page_btn.on_click(move |_| {
+        if let Some(sel) = pc_choice.get_selection() {
+            *cp_choice.lock().unwrap() = sel as usize;
+            up_choice();
+        }
+    });
     
     let catalog_clone = Arc::clone(&catalog);
     let nprov = identify.nprov.clone();
@@ -365,9 +507,10 @@ fn show_bdciechi_dashboard(parent: &Frame, settings: Arc<Mutex<Settings>>, tc_ma
     let ui_title = ui.bdciechi_title.clone();
     let ui_loading = ui.bdciechi_catalog_loading.clone();
     let nprov_latest = identify.nprov.clone();
-    let cb_latest = results_combo.clone();
-    let dr_latest = Arc::clone(&displayed_results);
-    let ui_no_latest = ui.bdciechi_no_results.clone();
+    let sv_latest = set_view.clone();
+    let ar_latest = Arc::clone(&all_results);
+    let cp_latest = Arc::clone(&current_page);
+    let up_latest = update_page.clone();
     latest_btn.on_click(move |_| {
         let progress = ProgressDialog::builder(&d_latest, &ui_title, &ui_loading, 100)
             .with_style(ProgressDialogStyle::Smooth)
@@ -387,14 +530,10 @@ fn show_bdciechi_dashboard(parent: &Frame, settings: Arc<Mutex<Settings>>, tc_ma
             std::thread::sleep(Duration::from_millis(150));
             if let Some(res) = result_state.lock().unwrap().take() {
                 progress.destroy();
-                cb_latest.clear();
-                if res.is_empty() {
-                    cb_latest.append(&ui_no_latest);
-                } else {
-                    for r in &res { cb_latest.append(r); }
-                }
-                cb_latest.set_selection(0);
-                if let Ok(mut d) = dr_latest.lock() { *d = res; }
+                *ar_latest.lock().unwrap() = res;
+                *cp_latest.lock().unwrap() = 0;
+                up_latest();
+                sv_latest(false);
                 break;
             }
             progress_value += 3;
@@ -404,28 +543,36 @@ fn show_bdciechi_dashboard(parent: &Frame, settings: Arc<Mutex<Settings>>, tc_ma
     });
     
     let cat_ref = Arc::clone(&catalog);
-    let cb_cat = results_combo.clone();
-    let dr_cat = Arc::clone(&displayed_results);
-    let ui_no_cat = ui.bdciechi_no_results.clone();
+    let sv_cat = set_view.clone();
+    let ar_cat = Arc::clone(&all_results);
+    let cp_cat = Arc::clone(&current_page);
+    let up_cat = update_page.clone();
     catalog_btn.on_click(move |_| {
         let cat = cat_ref.lock().unwrap().clone();
-        cb_cat.clear();
-        if cat.is_empty() {
-            cb_cat.append(&ui_no_cat);
-        } else {
-            for r in &cat { cb_cat.append(r); }
-        }
-        cb_cat.set_selection(0);
-        if let Ok(mut d) = dr_cat.lock() { *d = cat; }
+        *ar_cat.lock().unwrap() = cat;
+        *cp_cat.lock().unwrap() = 0;
+        up_cat();
+        sv_cat(false);
     });
     
     let search_ref = search_ctrl.clone();
     let cat_ref_s = Arc::clone(&catalog);
-    let cb_search = results_combo.clone();
-    let dr_search = Arc::clone(&displayed_results);
-    let ui_no_search = ui.bdciechi_no_results.clone();
+    let d_search = dialog.clone();
+    let ui_empty_search = ui.bdciechi_empty_search.clone();
+    let sv_search = set_view.clone();
+    let ar_search = Arc::clone(&all_results);
+    let cp_search = Arc::clone(&current_page);
+    let up_search = update_page.clone();
     search_btn.on_click(move |_| {
-        let query = search_ref.get_value().to_lowercase();
+        let query = search_ref.get_value().trim().to_lowercase();
+        if query.is_empty() {
+            let msg_dialog = MessageDialog::builder(&d_search, &ui_empty_search, "Warning")
+                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
+                .build();
+            msg_dialog.show_modal();
+            msg_dialog.destroy();
+            return;
+        }
         let cat = cat_ref_s.lock().unwrap();
         if cat.is_empty() { return; }
         let mut res = Vec::new();
@@ -435,17 +582,13 @@ fn show_bdciechi_dashboard(parent: &Frame, settings: Arc<Mutex<Settings>>, tc_ma
             }
         }
         drop(cat);
-        cb_search.clear();
-        if res.is_empty() {
-            cb_search.append(&ui_no_search);
-        } else {
-            for r in &res { cb_search.append(r); }
-        }
-        cb_search.set_selection(0);
-        if let Ok(mut d) = dr_search.lock() { *d = res; }
+        *ar_search.lock().unwrap() = res;
+        *cp_search.lock().unwrap() = 0;
+        up_search();
+        sv_search(false);
     });
     
-    let do_action = move |preview: bool, combo: &Choice, disp_act: Arc<Mutex<Vec<String>>>, cat_act: Arc<Mutex<Vec<String>>>, u: String, p: String, d: Dialog, ui_tit: String, ui_load: String, tc: TextCtrl, e_msg: String, i_msg: String, p_tit: String| {
+    let do_action = move |preview: bool, combo: &Choice, disp_act: Arc<Mutex<Vec<String>>>, cat_act: Arc<Mutex<Vec<String>>>, u: String, p: String, d: Dialog, ui_tit: String, ui_load: String, _tc: TextCtrl, e_msg: String, i_msg: String, p_tit: String| {
         let sel = combo.get_selection();
         if sel < Some(0) { return; }
         let disp = disp_act.lock().unwrap();
@@ -488,13 +631,33 @@ fn show_bdciechi_dashboard(parent: &Frame, settings: Arc<Mutex<Settings>>, tc_ma
                             msg_dialog.show_modal();
                             msg_dialog.destroy();
                         } else {
-                            tc.set_value(&text);
-                            let msg_dialog = MessageDialog::builder(&d, &i_msg, "Info")
-                                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+                            let ui = crate::current_ui_strings();
+                            let fd = FileDialog::builder(&d)
+                                .with_message(&ui.save_as)
+                                .with_wildcard("Text files (*.txt)|*.txt")
+                                .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
                                 .build();
-                            msg_dialog.show_modal();
-                            msg_dialog.destroy();
-                            d.end_modal(ID_OK);
+                            
+                            if fd.show_modal() == crate::ID_OK {
+                                if let Some(path) = fd.get_path() {
+                                    if let Err(e) = std::fs::write(&path, &text) {
+                                    let msg = e_msg.replace("{err}", &e.to_string());
+                                    let err_dialog = MessageDialog::builder(&d, &msg, "Error")
+                                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+                                        .build();
+                                    err_dialog.show_modal();
+                                    err_dialog.destroy();
+                                } else {
+                                    let msg_dialog = MessageDialog::builder(&d, &i_msg, "Info")
+                                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+                                        .build();
+                                    msg_dialog.show_modal();
+                                    msg_dialog.destroy();
+                                    d.end_modal(crate::ID_OK);
+                                }
+                                }
+                            }
+                            fd.destroy();
                         }
                     }
                     Err(e) => {

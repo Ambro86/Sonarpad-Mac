@@ -6,8 +6,39 @@ use serde::Deserialize;
 
 #[derive(Clone, Deserialize)]
 struct GeocodeCandidate {
+    #[allow(dead_code)]
+    label: Option<String>,
+    #[allow(dead_code)]
+    name: Option<String>,
+    #[allow(dead_code)]
+    country: Option<String>,
+    #[allow(dead_code)]
+    region: Option<String>,
+    #[allow(dead_code)]
+    locality: Option<String>,
+    #[allow(dead_code)]
+    postalcode: Option<String>,
     latitude: Option<f64>,
     longitude: Option<f64>,
+}
+
+impl GeocodeCandidate {
+    fn display_label(&self) -> String {
+        if let Some(lbl) = &self.label {
+            if !lbl.trim().is_empty() {
+                return lbl.clone();
+            }
+        }
+        let mut parts = Vec::new();
+        if let Some(n) = &self.name { if !n.trim().is_empty() { parts.push(n.clone()); } }
+        if let Some(l) = &self.locality { if !l.trim().is_empty() { parts.push(l.clone()); } }
+        if let Some(c) = &self.country { if !c.trim().is_empty() { parts.push(c.clone()); } }
+        if parts.is_empty() {
+            "Unknown".to_string()
+        } else {
+            parts.join(", ")
+        }
+    }
 }
 
 #[derive(Clone, Deserialize)]
@@ -40,6 +71,7 @@ struct RouteResponse {
     routes: Option<Vec<RoutePath>>,
 }
 
+#[derive(Clone)]
 struct RouteResult {
     distance_meters: f64,
     duration_seconds: f64,
@@ -97,7 +129,7 @@ fn geocode(query: &str) -> Result<Vec<GeocodeCandidate>, String> {
     Ok(data.results.unwrap_or_default())
 }
 
-fn calculate_route(from: &GeocodeCandidate, to: &GeocodeCandidate, profile: &str, preference: &str) -> Result<RouteResult, String> {
+fn calculate_route(from: &GeocodeCandidate, to: &GeocodeCandidate, profile: &str, preference: &str) -> Result<Vec<RouteResult>, String> {
     let from_lat = from.latitude.unwrap_or(0.0).to_string();
     let from_lon = from.longitude.unwrap_or(0.0).to_string();
     let to_lat = to.latitude.unwrap_or(0.0).to_string();
@@ -134,32 +166,74 @@ fn calculate_route(from: &GeocodeCandidate, to: &GeocodeCandidate, profile: &str
     }
     
     if let Some(routes) = data.routes {
-        if let Some(path) = routes.into_iter().next() {
-            return Ok(RouteResult {
-                distance_meters: path.distance_meters.unwrap_or(0.0),
-                duration_seconds: path.duration_seconds.unwrap_or(0.0),
-                steps: path.steps.unwrap_or_default(),
-            });
+        if !routes.is_empty() {
+            let mut results = Vec::new();
+            for path in routes {
+                results.push(RouteResult {
+                    distance_meters: path.distance_meters.unwrap_or(0.0),
+                    duration_seconds: path.duration_seconds.unwrap_or(0.0),
+                    steps: path.steps.unwrap_or_default(),
+                });
+            }
+            return Ok(results);
         }
     }
     
-    Ok(RouteResult {
+    Ok(vec![RouteResult {
         distance_meters: data.distance_meters.unwrap_or(0.0),
         duration_seconds: data.duration_seconds.unwrap_or(0.0),
         steps: data.steps.unwrap_or_default(),
-    })
+    }])
 }
 
-fn do_route_search(from_str: String, to_str: String, profile: String, preference: String) -> Result<RouteResult, String> {
+fn select_candidate(parent: &Dialog, title: &str, candidates: Vec<GeocodeCandidate>) -> Option<GeocodeCandidate> {
+    if candidates.is_empty() {
+        return None;
+    }
+    if candidates.len() == 1 {
+        return candidates.into_iter().next();
+    }
+    
     let ui = ui_strings();
-    let _ = &ui.routes_no_results; // suppress unused warning
-    let from_cands = geocode(&from_str)?;
-    let from_cand = from_cands.into_iter().next().ok_or_else(|| ui.routes_address_not_found.clone())?;
+    let d = Dialog::builder(parent, title).build();
+    let p = Panel::builder(&d).build();
+    let s = BoxSizer::builder(Orientation::Vertical).build();
     
-    let to_cands = geocode(&to_str)?;
-    let to_cand = to_cands.into_iter().next().ok_or_else(|| ui.routes_address_not_found.clone())?;
+    let choice = Choice::builder(&p).build();
+    for c in &candidates {
+        choice.append(&c.display_label());
+    }
+    choice.set_selection(0);
+    s.add(&choice, 0, SizerFlag::Expand | SizerFlag::All, 10);
     
-    calculate_route(&from_cand, &to_cand, &profile, &preference)
+    let bs = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok = Button::builder(&p).with_label(&ui.ok).build();
+    let cancel = Button::builder(&p).with_label(&ui.routes_cancel).build();
+    bs.add(&ok, 0, SizerFlag::All, 5);
+    bs.add(&cancel, 0, SizerFlag::All, 5);
+    s.add_sizer(&bs, 0, SizerFlag::AlignCentre, 0);
+    
+    p.set_sizer(s, true);
+    
+    let d_c = d.clone();
+    ok.on_click(move |_| {
+        d_c.end_modal(crate::ID_OK);
+    });
+    
+    let d_c2 = d.clone();
+    cancel.on_click(move |_| {
+        d_c2.end_modal(crate::ID_CANCEL);
+    });
+    
+    let res = if d.show_modal() == crate::ID_OK {
+        let idx = choice.get_selection().unwrap_or(0);
+        Some(candidates[idx as usize].clone())
+    } else {
+        None
+    };
+    
+    d.destroy();
+    res
 }
 
 fn format_distance(meters: f64) -> String {
@@ -179,6 +253,53 @@ fn format_duration(seconds: f64) -> String {
         let mins = minutes % 60;
         format!("{} h {} min", hours, mins)
     }
+}
+
+fn select_route(parent: &Dialog, title: &str, routes: Vec<RouteResult>) -> Option<RouteResult> {
+    if routes.is_empty() { return None; }
+    if routes.len() == 1 { return routes.into_iter().next(); }
+    
+    let ui = ui_strings();
+    let d = Dialog::builder(parent, title).build();
+    let p = Panel::builder(&d).build();
+    let s = BoxSizer::builder(Orientation::Vertical).build();
+    
+    let choice = Choice::builder(&p).build();
+    for (i, r) in routes.iter().enumerate() {
+        let label = format!("{} {} ({} - {})", ui.routes_route_name, i + 1, format_distance(r.distance_meters), format_duration(r.duration_seconds));
+        choice.append(&label);
+    }
+    choice.set_selection(0);
+    s.add(&choice, 0, SizerFlag::Expand | SizerFlag::All, 10);
+    
+    let bs = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok = Button::builder(&p).with_label(&ui.ok).build();
+    let cancel = Button::builder(&p).with_label(&ui.routes_cancel).build();
+    bs.add(&ok, 0, SizerFlag::All, 5);
+    bs.add(&cancel, 0, SizerFlag::All, 5);
+    s.add_sizer(&bs, 0, SizerFlag::AlignCentre, 0);
+    
+    p.set_sizer(s, true);
+    
+    let d_c = d.clone();
+    ok.on_click(move |_| {
+        d_c.end_modal(crate::ID_OK);
+    });
+    
+    let d_c2 = d.clone();
+    cancel.on_click(move |_| {
+        d_c2.end_modal(crate::ID_CANCEL);
+    });
+    
+    let res = if d.show_modal() == crate::ID_OK {
+        let idx = choice.get_selection().unwrap_or(0);
+        Some(routes[idx as usize].clone())
+    } else {
+        None
+    };
+    
+    d.destroy();
+    res
 }
 
 pub fn open_routes_dialog(parent: &Frame) {
@@ -262,12 +383,15 @@ pub fn open_routes_dialog(parent: &Frame) {
             .with_style(ProgressDialogStyle::Smooth)
             .build();
             
-        let result_state = Arc::new(Mutex::new(None));
-        let result_thread = Arc::clone(&result_state);
+        let geocode_state = Arc::new(Mutex::new(None));
+        let gs_thread = Arc::clone(&geocode_state);
         
+        let f_str = from_str.clone();
+        let t_str = to_str.clone();
         std::thread::spawn(move || {
-            let res = do_route_search(from_str, to_str, profile, pref);
-            *result_thread.lock().unwrap() = Some(res);
+            let from_res = geocode(&f_str);
+            let to_res = geocode(&t_str);
+            *gs_thread.lock().unwrap() = Some((from_res, to_res));
         });
         
         let mut progress_value = 0;
@@ -276,29 +400,91 @@ pub fn open_routes_dialog(parent: &Frame) {
         let dist_label = ui_dist.clone();
         let dur_label = ui_dur.clone();
         let instr_label = ui_instr.clone();
+        let ui_loading_c = ui_loading.clone();
+        let ui_tit_c = ui_strings().routes_title.clone();
+        let ui_cf = ui_strings().routes_choose_from.clone();
+        let ui_ct = ui_strings().routes_choose_to.clone();
+        let not_found = ui_strings().routes_address_not_found.clone();
+        let d_c = dialog_clone.clone();
         
+        let (from_cand, to_cand) = loop {
+            std::thread::sleep(Duration::from_millis(150));
+            if let Some((from_res, to_res)) = geocode_state.lock().unwrap().take() {
+                progress.destroy();
+                
+                let from_cands = match from_res {
+                    Ok(c) => c,
+                    Err(e) => {
+                        results_inner.set_value(&error_fmt.replace("{err}", &e));
+                        return;
+                    }
+                };
+                let to_cands = match to_res {
+                    Ok(c) => c,
+                    Err(e) => {
+                        results_inner.set_value(&error_fmt.replace("{err}", &e));
+                        return;
+                    }
+                };
+                
+                let f_c = select_candidate(&d_c, &ui_cf, from_cands);
+                if f_c.is_none() { 
+                    results_inner.set_value(&not_found);
+                    return; 
+                }
+                
+                let t_c = select_candidate(&d_c, &ui_ct, to_cands);
+                if t_c.is_none() { 
+                    results_inner.set_value(&not_found);
+                    return; 
+                }
+                
+                break (f_c.unwrap(), t_c.unwrap());
+            }
+            progress_value += 3;
+            if progress_value >= 95 { progress_value = 10; }
+            progress.update(progress_value, Some(&ui_loading_c));
+        };
+        
+        let route_state = Arc::new(Mutex::new(None));
+        let rs_thread = Arc::clone(&route_state);
+        let progress2 = ProgressDialog::builder(&d_c, &ui_tit_c, &ui_loading_c, 100)
+            .with_style(ProgressDialogStyle::Smooth)
+            .build();
+            
+        std::thread::spawn(move || {
+            let res = calculate_route(&from_cand, &to_cand, &profile, &pref);
+            *rs_thread.lock().unwrap() = Some(res);
+        });
+        
+        progress_value = 0;
         loop {
             std::thread::sleep(Duration::from_millis(150));
-            if let Some(res) = result_state.lock().unwrap().take() {
-                progress.destroy();
+            if let Some(res) = route_state.lock().unwrap().take() {
+                progress2.destroy();
                 match res {
-                    Ok(route) => {
-                        let mut output = String::new();
-                        output.push_str(&format!("{} {}\n", dist_label, format_distance(route.distance_meters)));
-                        output.push_str(&format!("{} {}\n\n", dur_label, format_duration(route.duration_seconds)));
-                        output.push_str(&format!("{}\n", instr_label));
-                        
-                        for (i, step) in route.steps.iter().enumerate() {
-                            if let Some(instr) = &step.instruction {
-                                let d = step.distance_meters.unwrap_or(0.0);
-                                if d > 0.0 {
-                                    output.push_str(&format!("{}. {} ({})\n", i + 1, instr, format_distance(d)));
-                                } else {
-                                    output.push_str(&format!("{}. {}\n", i + 1, instr));
+                    Ok(routes_list) => {
+                        let ui_tit = ui_strings().routes_title.clone();
+                        if let Some(route) = select_route(&d_c, &ui_tit, routes_list) {
+                            let mut output = String::new();
+                            output.push_str(&format!("{} {}\n", dist_label, format_distance(route.distance_meters)));
+                            output.push_str(&format!("{} {}\n\n", dur_label, format_duration(route.duration_seconds)));
+                            output.push_str(&format!("{}\n", instr_label));
+                            
+                            for (i, step) in route.steps.iter().enumerate() {
+                                if let Some(instr) = &step.instruction {
+                                    let d = step.distance_meters.unwrap_or(0.0);
+                                    if d > 0.0 {
+                                        output.push_str(&format!("{}. {} ({})\n", i + 1, instr, format_distance(d)));
+                                    } else {
+                                        output.push_str(&format!("{}. {}\n", i + 1, instr));
+                                    }
                                 }
                             }
+                            results_inner.set_value(&output);
+                        } else {
+                            results_inner.set_value(&not_found);
                         }
-                        results_inner.set_value(&output);
                     }
                     Err(e) => {
                         let msg = error_fmt.replace("{err}", &e);
@@ -309,7 +495,7 @@ pub fn open_routes_dialog(parent: &Frame) {
             }
             progress_value += 3;
             if progress_value >= 95 { progress_value = 10; }
-            progress.update(progress_value, Some(&ui_loading));
+            progress2.update(progress_value, Some(&ui_loading_c));
         }
     });
     
