@@ -923,6 +923,21 @@ fn current_ui_strings() -> &'static UiStrings {
     ui_strings(&ui_language)
 }
 
+fn set_italian_accessible_name(widget: &impl WxWidget, ui_language: &str, name: &str) {
+    if ui_language == "it" {
+        widget.set_name(name);
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_italian_wx_translations_if_needed(ui_language: &str) {
+    if ui_language == "it" {
+        let translations = Translations::new();
+        translations.set_language_str("it");
+        Translations::set_global(translations);
+    }
+}
+
 fn log_background_refresh_error(message: &str) {
     if std::env::var_os("SONARPAD_BACKGROUND_LOG").is_some() {
         println!("BACKGROUND: {message}");
@@ -2179,6 +2194,11 @@ fn prompt_text_save_path(
     );
 
     let format_choice = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &format_choice,
+        &settings_snapshot.ui_language,
+        &ui.save_format_label,
+    );
     format_choice.append("TXT");
     format_choice.append("DOCX");
     format_choice.append("PDF");
@@ -2679,6 +2699,11 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     );
 
     let format_choice = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &format_choice,
+        &settings_snapshot.ui_language,
+        &ui.save_format_label,
+    );
     format_choice.append("MP3");
     format_choice.append("M4B");
     format_choice.append("M4A");
@@ -5437,11 +5462,11 @@ fn build_google_news_rss_url(keyword: &str) -> String {
     format!("https://news.google.com/rss/search?q={query}&hl=it&gl=IT&ceid=IT:it")
 }
 
-fn sanitize_filename(name: &str) -> String {
+pub(crate) fn sanitize_filename(name: &str) -> String {
     sanitize_filename_candidate(name).unwrap_or_else(|| "podcast".to_string())
 }
 
-fn sanitize_filename_candidate(name: &str) -> Option<String> {
+pub(crate) fn sanitize_filename_candidate(name: &str) -> Option<String> {
     let invalid_chars = ['<', '>', ':', '"', '/', '\\', '|', '?', '*'];
     let cleaned = name
         .chars()
@@ -9344,6 +9369,11 @@ fn open_settings_dialog(
         5,
     );
     let choice_ui_lang = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &choice_ui_lang,
+        &settings_before.ui_language,
+        &ui.interface_language_label,
+    );
     ui_lang_row.add(&choice_ui_lang, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&ui_lang_row, 0, SizerFlag::Expand, 0);
 
@@ -9357,6 +9387,11 @@ fn open_settings_dialog(
         5,
     );
     let choice_lang = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &choice_lang,
+        &settings_before.ui_language,
+        &ui.voice_language_label,
+    );
     lang_row.add(&choice_lang, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&lang_row, 0, SizerFlag::Expand, 0);
 
@@ -9370,6 +9405,11 @@ fn open_settings_dialog(
         5,
     );
     let choice_voices = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &choice_voices,
+        &settings_before.ui_language,
+        &ui.voice_label,
+    );
     voice_row.add(&choice_voices, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&voice_row, 0, SizerFlag::Expand, 0);
 
@@ -9383,6 +9423,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_rate = Choice::builder(&panel).build();
+    set_italian_accessible_name(&choice_rate, &settings_before.ui_language, &ui.rate_label);
     for (label, _) in RATE_PRESETS {
         choice_rate.append(label);
     }
@@ -9400,6 +9441,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_pitch = Choice::builder(&panel).build();
+    set_italian_accessible_name(&choice_pitch, &settings_before.ui_language, &ui.pitch_label);
     for (label, _) in PITCH_PRESETS {
         choice_pitch.append(label);
     }
@@ -9417,6 +9459,11 @@ fn open_settings_dialog(
         5,
     );
     let choice_volume = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &choice_volume,
+        &settings_before.ui_language,
+        &ui.volume_label,
+    );
     for (label, _) in VOLUME_PRESETS {
         choice_volume.append(label);
     }
@@ -15173,6 +15220,10 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 programs: Vec::new(),
                 guide_channel: None,
                 guide_name: None,
+                stream_resolver: None,
+                resolver_endpoint: None,
+                resolver_realm: None,
+                resolver_channel_id: None,
             };
             if let Err(err) = open_tv_stream_with_mpv(&channel) {
                 show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
@@ -16462,7 +16513,15 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
     } else {
         None
     };
-    open_stream_with_mpv(&channel.url, &channel.name, preferred_audio_track, false)
+
+    let resolved_url = match crate::tv::resolve_tv_channel_url(channel) {
+        Ok(url) => url,
+        Err(e) => {
+            return Err(format!("Errore risoluzione canale: {}", e));
+        }
+    };
+
+    open_stream_with_mpv(&resolved_url, &channel.name, preferred_audio_track, false)
 }
 
 fn is_tv_rai_audio_description_channel(channel: &tv::TvChannel) -> bool {
@@ -16936,6 +16995,10 @@ fn main() {
     let current_document = Arc::new(Mutex::new(CurrentDocumentState::default()));
 
     let _ = wxdragon::main(move |_app| {
+        let initial_ui_language = settings.lock().unwrap().ui_language.clone();
+        #[cfg(target_os = "macos")]
+        install_italian_wx_translations_if_needed(&initial_ui_language);
+
         #[cfg(target_os = "macos")]
         {
             let pending_open_files_app = Arc::clone(&pending_open_files);
@@ -17215,6 +17278,11 @@ fn main() {
 
         main_sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand, 0);
         let podcast_seek_choice = Choice::builder(&panel).build();
+        set_italian_accessible_name(
+            &podcast_seek_choice,
+            &initial_ui_language,
+            "Spostamento podcast",
+        );
         podcast_seek_choice.append(&podcast_seek_choice_placeholder());
         podcast_seek_choice.set_selection(0);
         podcast_seek_choice.show(false);

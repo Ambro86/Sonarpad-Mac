@@ -24,6 +24,10 @@ pub(crate) struct TvChannel {
     pub(crate) programs: Vec<TvProgram>,
     pub(crate) guide_channel: Option<String>,
     pub(crate) guide_name: Option<String>,
+    pub(crate) stream_resolver: Option<String>,
+    pub(crate) resolver_endpoint: Option<String>,
+    pub(crate) resolver_realm: Option<String>,
+    pub(crate) resolver_channel_id: Option<String>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -77,6 +81,10 @@ struct RemoteTvChannelPayload {
     tvg_name: Option<String>,
     group_title: Option<String>,
     has_guide: Option<bool>,
+    stream_resolver: Option<String>,
+    resolver_endpoint: Option<String>,
+    resolver_realm: Option<String>,
+    resolver_channel_id: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -131,6 +139,10 @@ fn load_local_channels() -> Result<Vec<TvChannel>, String> {
                     programs: Vec::new(),
                     guide_channel: None,
                     guide_name: None,
+                    stream_resolver: None,
+                    resolver_endpoint: None,
+                    resolver_realm: None,
+                    resolver_channel_id: None,
                 })
             }
         })
@@ -141,7 +153,10 @@ fn load_local_channels() -> Result<Vec<TvChannel>, String> {
 }
 
 fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
-    let remote_url = decode_encrypted_payload(TV_CHANNELS_REMOTE_URL_PAYLOAD_JSON, "TV Channels Remote URL")?;
+    let remote_url = decode_encrypted_payload(
+        TV_CHANNELS_REMOTE_URL_PAYLOAD_JSON,
+        "TV Channels Remote URL",
+    )?;
     let payload = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .user_agent("Sonarpad TV/1.0")
@@ -181,6 +196,10 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
                     .tvg_name
                     .map(|name| name.trim().to_string())
                     .filter(|name| !name.is_empty()),
+                stream_resolver: channel.stream_resolver,
+                resolver_endpoint: channel.resolver_endpoint,
+                resolver_realm: channel.resolver_realm,
+                resolver_channel_id: channel.resolver_channel_id,
             })
         })
         .collect::<Vec<_>>();
@@ -217,6 +236,10 @@ fn load_regional_channels() -> Result<Vec<TvChannel>, String> {
                     programs: Vec::new(),
                     guide_channel: None,
                     guide_name: None,
+                    stream_resolver: None,
+                    resolver_endpoint: None,
+                    resolver_realm: None,
+                    resolver_channel_id: None,
                 })
             }
         })
@@ -473,4 +496,144 @@ fn resolve_tv_secret_key() -> Result<String, String> {
         }
     }
     Err("Chiave Luce mancante: inserisci il codice nelle impostazioni RSS/Podcast.".to_string())
+}
+
+use serde::Serialize;
+use serde_json::json;
+
+#[derive(Serialize)]
+struct AuroraDeviceInfo {
+    #[serde(rename = "adBlocker")]
+    ad_blocker: bool,
+    #[serde(rename = "drmSupported")]
+    drm_supported: bool,
+    #[serde(rename = "hdrCapabilities")]
+    hdr_capabilities: Vec<&'static str>,
+    #[serde(rename = "hwDecodingCapabilities")]
+    hw_decoding_capabilities: Vec<&'static str>,
+    #[serde(rename = "soundCapabilities")]
+    sound_capabilities: Vec<&'static str>,
+}
+
+#[derive(Serialize)]
+struct AuroraDevice {
+    browser: serde_json::Value,
+    #[serde(rename = "type")]
+    device_type: &'static str,
+}
+
+#[derive(Serialize)]
+struct AuroraWisteria {
+    device: AuroraDevice,
+    platform: &'static str,
+}
+
+#[derive(Serialize)]
+struct AuroraPayload<'a> {
+    #[serde(rename = "channelId")]
+    channel_id: &'a str,
+    #[serde(rename = "deviceInfo")]
+    device_info: AuroraDeviceInfo,
+    #[serde(rename = "wisteriaProperties")]
+    wisteria_properties: AuroraWisteria,
+}
+
+pub(crate) fn resolve_tv_channel_url(channel: &TvChannel) -> Result<String, String> {
+    if let Some(resolver) = &channel.stream_resolver {
+        if resolver == "aurora_channel" {
+            let endpoint = channel
+                .resolver_endpoint
+                .as_deref()
+                .unwrap_or("https://public.aurora.enhanced.live");
+            let realm = channel.resolver_realm.as_deref().unwrap_or("it");
+            let channel_id = channel
+                .resolver_channel_id
+                .as_deref()
+                .ok_or("Missing channel_id")?;
+
+            let client = reqwest::blocking::Client::builder()
+                .timeout(std::time::Duration::from_secs(10))
+                .build()
+                .map_err(|e| e.to_string())?;
+
+            let token_url = format!("{}/token?realm={}", endpoint, realm);
+            let token_resp: serde_json::Value = client.get(&token_url)
+                .header("Accept", "application/json,text/plain,*/*")
+                .header("Origin", "https://nove.tv")
+                .header("Referer", &channel.url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+                .header("X-disco-client", "WEB:UNKNOWN:wbdatv:2.1.9")
+                .header("X-disco-params", format!("realm={}", realm))
+                .header("X-Device-Info", "STONEJS/1 (Unknown/Unknown; Windows/10; Unknown)")
+                .send()
+                .map_err(|e| format!("Network error: {}", e))?
+                .json()
+                .map_err(|e| format!("JSON error: {}", e))?;
+
+            let token = token_resp["data"]["attributes"]["token"]
+                .as_str()
+                .ok_or("Aurora token not found in response")?;
+
+            let payload = AuroraPayload {
+                channel_id,
+                device_info: AuroraDeviceInfo {
+                    ad_blocker: false,
+                    drm_supported: true,
+                    hdr_capabilities: vec!["SDR"],
+                    hw_decoding_capabilities: vec![],
+                    sound_capabilities: vec!["STEREO"],
+                },
+                wisteria_properties: AuroraWisteria {
+                    device: AuroraDevice {
+                        browser: json!({ "name": "chrome", "version": "136" }),
+                        device_type: "desktop",
+                    },
+                    platform: "desktop",
+                },
+            };
+
+            let playback_url = format!("{}/playback/v3/channelPlaybackInfo", endpoint);
+            let pb_resp: serde_json::Value = client.post(&playback_url)
+                .header("Accept", "application/json,text/plain,*/*")
+                .header("Content-Type", "application/json")
+                .header("Origin", "https://nove.tv")
+                .header("Referer", &channel.url)
+                .header("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36")
+                .header("X-disco-client", "WEB:UNKNOWN:wbdatv:2.1.9")
+                .header("X-disco-params", format!("realm={}", realm))
+                .header("X-Device-Info", "STONEJS/1 (Unknown/Unknown; Windows/10; Unknown)")
+                .header("Authorization", format!("Bearer {}", token))
+                .json(&payload)
+                .send()
+                .map_err(|e| format!("Network error pb: {}", e))?
+                .json()
+                .map_err(|e| format!("JSON pb error: {}", e))?;
+
+            // recursive search for .m3u8 url
+            fn find_m3u8(val: &serde_json::Value) -> Option<String> {
+                if let Some(s) = val.as_str() {
+                    if s.contains(".m3u8") && s.starts_with("http") {
+                        return Some(s.to_string());
+                    }
+                } else if let Some(arr) = val.as_array() {
+                    for v in arr {
+                        if let Some(url) = find_m3u8(v) {
+                            return Some(url);
+                        }
+                    }
+                } else if let Some(obj) = val.as_object() {
+                    for v in obj.values() {
+                        if let Some(url) = find_m3u8(v) {
+                            return Some(url);
+                        }
+                    }
+                }
+                None
+            }
+
+            return find_m3u8(&pb_resp).ok_or("Aurora stream url not found".to_string());
+        }
+    }
+
+    Ok(channel.url.clone())
 }

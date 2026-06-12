@@ -793,8 +793,11 @@ fn show_bdciechi_dashboard(
                             msg_dialog.destroy();
                         } else {
                             let ui = crate::current_ui_strings();
+                            let safe_name = crate::sanitize_filename(&record);
+                            let default_filename = format!("{safe_name}.txt");
                             let fd = FileDialog::builder(&d)
                                 .with_message(&ui.save_as)
+                                .with_default_file(&default_filename)
                                 .with_wildcard("Text files (*.txt)|*.txt")
                                 .with_style(
                                     FileDialogStyle::Save | FileDialogStyle::OverwritePrompt,

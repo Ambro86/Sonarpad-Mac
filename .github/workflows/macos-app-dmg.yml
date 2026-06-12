@@ -314,9 +314,11 @@ jobs:
           FFMPEG_DIR="${RESOURCES_DIR}/ffmpeg"
           FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
           FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
+          EN_LPROJ_DIR="${RESOURCES_DIR}/en.lproj"
+          IT_LPROJ_DIR="${RESOURCES_DIR}/it.lproj"
 
           rm -rf "${APP_DIR}" "${FFMPEG_DIR}" "${MPV_APP_DEST}"
-          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}"
+          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
@@ -352,18 +354,29 @@ jobs:
           - add speed -0.1
           EOF
 
+          cat > "${EN_LPROJ_DIR}/InfoPlist.strings" <<'EOF'
+          CFBundleDisplayName = "Sonarpad";
+          CFBundleName = "Sonarpad";
+          EOF
+          cat > "${IT_LPROJ_DIR}/InfoPlist.strings" <<'EOF'
+          CFBundleDisplayName = "Sonarpad";
+          CFBundleName = "Sonarpad";
+          EOF
+
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
           <plist version="1.0">
           <dict>
             <key>CFBundleDevelopmentRegion</key>
-            <string>it</string>
+            <string>en</string>
             <key>CFBundleLocalizations</key>
             <array>
-              <string>it</string>
               <string>en</string>
+              <string>it</string>
             </array>
+            <key>CFBundleAllowMixedLocalizations</key>
+            <true/>
             <key>CFBundleName</key>
             <string>Sonarpad</string>
             <key>CFBundleDisplayName</key>
