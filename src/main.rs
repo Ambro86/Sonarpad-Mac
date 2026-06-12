@@ -2,9 +2,8 @@
 
 mod articles;
 mod bdciechi;
-mod directories;
-mod routes;
 mod curl_client;
+mod directories;
 mod edge_tts;
 mod file_loader;
 mod podcast_player;
@@ -13,6 +12,7 @@ mod rai_audiodescrizioni;
 mod raiplay;
 mod raiplaysound;
 mod reader;
+mod routes;
 mod tv;
 
 use chrono::Datelike;
@@ -2440,10 +2440,7 @@ fn restore_text_bookmark(
     false
 }
 
-fn open_book_toc_dialog(
-    parent: &Frame,
-    toc_items: &[file_loader::EpubTocItem],
-) -> Option<usize> {
+fn open_book_toc_dialog(parent: &Frame, toc_items: &[file_loader::EpubTocItem]) -> Option<usize> {
     let ui = current_ui_strings();
     if toc_items.is_empty() {
         show_message_dialog(parent, &ui.book_toc_title, &ui.book_toc_unavailable);
@@ -3328,20 +3325,21 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
     }
 
     let mut comm_stations = Vec::new();
-    
+
     // Fetch community radios
-    if let Ok(comm_resp) = client.get("https://sonarpad.com/api/get_community_radios.php")
+    if let Ok(comm_resp) = client
+        .get("https://sonarpad.com/api/get_community_radios.php")
         .header("Accept", "application/json")
         .send()
-        .and_then(|response| response.error_for_status()) 
+        .and_then(|response| response.error_for_status())
     {
         if let Ok(comm_list) = comm_resp.json::<Vec<CommunityRadio>>() {
             let wanted_lang = if language_code.starts_with("country:") {
-                None 
+                None
             } else {
                 Some(radio_browser_language_name(language_code))
             };
-            
+
             for cr in comm_list {
                 if let Some(w) = &wanted_lang {
                     if let Some(l) = &cr.language {
@@ -3352,7 +3350,7 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
                         continue;
                     }
                 }
-                
+
                 if let (Some(name), Some(url)) = (cr.name, cr.url) {
                     if !name.trim().is_empty() && !url.trim().is_empty() {
                         comm_stations.push(RadioStation {
@@ -3364,10 +3362,9 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
             }
         }
     }
-    
-    let stations = stations
-        .unwrap_or_else(Vec::new);
-        
+
+    let stations = stations.unwrap_or_else(Vec::new);
+
     // Add normal radio-browser stations
     let browser_stations = stations
         .into_iter()
@@ -3389,13 +3386,19 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
             Some(RadioStation { name, stream_url })
         })
         .collect::<Vec<RadioStation>>();
-        
+
     let mut comm = normalize_radio_stations(comm_stations);
     let mut browser = normalize_radio_stations(browser_stations);
-    
-    let mut seen_names = comm.iter().map(|s| canonical_radio_name(&s.name)).collect::<std::collections::HashSet<_>>();
-    let mut seen_urls = comm.iter().map(|s| s.stream_url.clone()).collect::<std::collections::HashSet<_>>();
-    
+
+    let mut seen_names = comm
+        .iter()
+        .map(|s| canonical_radio_name(&s.name))
+        .collect::<std::collections::HashSet<_>>();
+    let mut seen_urls = comm
+        .iter()
+        .map(|s| s.stream_url.clone())
+        .collect::<std::collections::HashSet<_>>();
+
     browser.retain(|s| {
         let cn = canonical_radio_name(&s.name);
         if seen_names.contains(&cn) || seen_urls.contains(&s.stream_url) {
@@ -3406,7 +3409,7 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
             true
         }
     });
-    
+
     comm.append(&mut browser);
     Ok(comm)
 }
@@ -3542,7 +3545,10 @@ fn add_community_radio(
         .map_err(|err| err.to_string())?
         .json::<serde_json::Value>()
         .map_err(|err| err.to_string())?;
-    let ok = response.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+    let ok = response
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
     let message = response
         .get("message")
         .and_then(|v| v.as_str())
@@ -3614,9 +3620,22 @@ fn open_add_community_radio_dialog(parent: &Dialog) {
         5,
     );
     let community_languages = [
-        "italian", "english", "spanish", "french", "german", "portuguese",
-        "swedish", "vietnamese", "czech", "polish", "serbian", "ukrainian",
-        "lithuanian", "russian", "chinese", "hindi",
+        "italian",
+        "english",
+        "spanish",
+        "french",
+        "german",
+        "portuguese",
+        "swedish",
+        "vietnamese",
+        "czech",
+        "polish",
+        "serbian",
+        "ukrainian",
+        "lithuanian",
+        "russian",
+        "chinese",
+        "hindi",
     ];
     let lang_choice = Choice::builder(&panel).build();
     for lang in &community_languages {
@@ -3637,9 +3656,29 @@ fn open_add_community_radio_dialog(parent: &Dialog) {
         5,
     );
     let community_genres = [
-        "news", "music", "sport", "talk", "pop", "rock", "classical", "jazz",
-        "dance", "blues", "country", "hiphop", "electronic", "latin", "reggae",
-        "metal", "folk", "religion", "local", "culture", "oldies", "kids", "ambient",
+        "news",
+        "music",
+        "sport",
+        "talk",
+        "pop",
+        "rock",
+        "classical",
+        "jazz",
+        "dance",
+        "blues",
+        "country",
+        "hiphop",
+        "electronic",
+        "latin",
+        "reggae",
+        "metal",
+        "folk",
+        "religion",
+        "local",
+        "culture",
+        "oldies",
+        "kids",
+        "ambient",
     ];
     let genre_choice = Choice::builder(&panel).build();
     for genre in &community_genres {
@@ -4588,8 +4627,7 @@ fn open_radio_search_dialog(
     dialog.set_escape_id(ID_CANCEL);
 
     // Pre-carica i community items in background all'apertura del dialog
-    let community_cache: Arc<Mutex<Vec<CommunityRadioItem>>> =
-        Arc::new(Mutex::new(Vec::new()));
+    let community_cache: Arc<Mutex<Vec<CommunityRadioItem>>> = Arc::new(Mutex::new(Vec::new()));
     {
         let cache = Arc::clone(&community_cache);
         std::thread::spawn(move || {
@@ -4618,8 +4656,7 @@ fn open_radio_search_dialog(
                     let kw = keyword.trim().to_lowercase();
                     for station in stations {
                         let matches = show_all
-                            || (!kw.is_empty()
-                                && radio_name_matches_keyword(&station.name, &kw));
+                            || (!kw.is_empty() && radio_name_matches_keyword(&station.name, &kw));
                         if matches {
                             results.push(favorite_from_station(language_code, station));
                         }
@@ -4633,8 +4670,7 @@ fn open_radio_search_dialog(
                 let kw = keyword.trim().to_lowercase();
                 for station in community_stations {
                     let matches = show_all
-                        || (!kw.is_empty()
-                            && radio_name_matches_keyword(&station.name, &kw));
+                        || (!kw.is_empty() && radio_name_matches_keyword(&station.name, &kw));
                     if matches {
                         results.push(favorite_from_station(language_code, &station));
                     }
@@ -9964,9 +10000,8 @@ fn weather_search_with_forecast(query: &str) -> Result<WeatherDialogResult, Stri
     let ui = current_ui_strings();
     let cities = weather_search_city(query).map_err(|_| ui.weather_search_error.clone())?;
     let first_city = cities.first().ok_or(ui.weather_city_not_found.clone())?;
-    let forecast =
-        weather_fetch_forecast(first_city)
-            .map_err(|_| current_ui_strings().weather_search_error.clone())?;
+    let forecast = weather_fetch_forecast(first_city)
+        .map_err(|_| current_ui_strings().weather_search_error.clone())?;
     Ok(WeatherDialogResult::Search { cities, forecast })
 }
 
@@ -10166,7 +10201,9 @@ fn open_weather_dialog(parent: &Frame) {
 
     let city_row = BoxSizer::builder(Orientation::Horizontal).build();
     city_row.add(
-        &StaticText::builder(&panel).with_label(&ui.weather_city).build(),
+        &StaticText::builder(&panel)
+            .with_label(&ui.weather_city)
+            .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -10482,7 +10519,10 @@ fn cinema_fetch_trailer(movie_id: i32) -> Result<Option<String>, String> {
             .trailer_type
             .as_deref()
             .is_some_and(|value| value == "Trailer")
-            && trailer.site.as_deref().is_some_and(|value| value == "YouTube")
+            && trailer
+                .site
+                .as_deref()
+                .is_some_and(|value| value == "YouTube")
             && let Some(key) = trailer.key.filter(|value| !value.is_empty())
         {
             return Ok(Some(format!("https://www.youtube.com/watch?v={key}")));
@@ -10496,12 +10536,32 @@ fn cinema_format_date(date: &str) -> String {
         return date.to_string();
     };
     let months_it = [
-        "gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno",
-        "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre",
+        "gennaio",
+        "febbraio",
+        "marzo",
+        "aprile",
+        "maggio",
+        "giugno",
+        "luglio",
+        "agosto",
+        "settembre",
+        "ottobre",
+        "novembre",
+        "dicembre",
     ];
     let months_en = [
-        "January", "February", "March", "April", "May", "June",
-        "July", "August", "September", "October", "November", "December",
+        "January",
+        "February",
+        "March",
+        "April",
+        "May",
+        "June",
+        "July",
+        "August",
+        "September",
+        "October",
+        "November",
+        "December",
     ];
     let month_idx = (d.month0()) as usize;
     if Settings::load().ui_language == "it" {
@@ -10572,7 +10632,9 @@ fn open_cinema_dialog(parent: &Frame) {
 
     let movie_row = BoxSizer::builder(Orientation::Horizontal).build();
     movie_row.add(
-        &StaticText::builder(&panel).with_label(&ui.cinema_title).build(),
+        &StaticText::builder(&panel)
+            .with_label(&ui.cinema_title)
+            .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -10660,11 +10722,9 @@ fn open_cinema_dialog(parent: &Frame) {
                     &current_ui_strings().cinema_title,
                     &current_ui_strings().cinema_no_trailer,
                 ),
-                Err(err) => show_message_subdialog(
-                    &dialog_timer,
-                    &current_ui_strings().cinema_title,
-                    &err,
-                ),
+                Err(err) => {
+                    show_message_subdialog(&dialog_timer, &current_ui_strings().cinema_title, &err)
+                }
             }
         }
     });
@@ -10915,7 +10975,11 @@ fn convert_media_requires_image(format: ConvertMediaFormat, input: &Path) -> boo
     convert_media_is_video_format(format) && !convert_media_is_video_input(input)
 }
 
-fn convert_media_default_output(input: &Path, output_dir: &Path, format: ConvertMediaFormat) -> PathBuf {
+fn convert_media_default_output(
+    input: &Path,
+    output_dir: &Path,
+    format: ConvertMediaFormat,
+) -> PathBuf {
     let stem = input
         .file_stem()
         .and_then(|value| value.to_str())
@@ -10956,13 +11020,13 @@ fn convert_media_codec_args(
             if convert_media_is_video_input(input) {
                 args.extend(["mpeg4", "-q:v", "4"].into_iter().map(str::to_string));
             } else {
-                args.extend(["libx264", "-tune", "stillimage"].into_iter().map(str::to_string));
+                args.extend(
+                    ["libx264", "-tune", "stillimage"]
+                        .into_iter()
+                        .map(str::to_string),
+                );
             }
-            args.extend(
-                ["-c:a", "aac", "-b:a"]
-                    .into_iter()
-                    .map(str::to_string),
-            );
+            args.extend(["-c:a", "aac", "-b:a"].into_iter().map(str::to_string));
             args.push(format!("{bitrate}k"));
             args
         }
@@ -11021,9 +11085,7 @@ fn convert_media_build_args(
     };
     let mut args = vec!["-y".to_string()];
     if let Some(cover_path) = cover_path {
-        args.extend(
-            ["-loop".to_string(), "1".to_string(), "-i".to_string()],
-        );
+        args.extend(["-loop".to_string(), "1".to_string(), "-i".to_string()]);
         args.push(cover_path.to_string_lossy().to_string());
     }
     args.push("-i".to_string());
@@ -11072,12 +11134,16 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
     {
         command.current_dir(parent_dir);
     }
-    
-    append_podcast_log(&format!("convert_media.ffmpeg.begin ffmpeg={} args={:?}", ffmpeg.display(), args));
-    
+
+    append_podcast_log(&format!(
+        "convert_media.ffmpeg.begin ffmpeg={} args={:?}",
+        ffmpeg.display(),
+        args
+    ));
+
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
-    
+
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(e) => {
@@ -11087,25 +11153,27 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
             return;
         }
     };
-    
+
     let stderr = child.stderr.take().unwrap();
     let mut reader = std::io::BufReader::new(stderr);
     let mut total_secs = 0.0;
     let mut full_stderr = String::new();
     let mut buffer = Vec::new();
     use std::io::BufRead;
-    
+
     while let Ok(n) = reader.read_until(b'\r', &mut buffer) {
-        if n == 0 { break; }
+        if n == 0 {
+            break;
+        }
         // also read \n if any
-        if buffer.ends_with(b"\n") { }
+        if buffer.ends_with(b"\n") {}
         let line = String::from_utf8_lossy(&buffer).to_string();
-        
+
         full_stderr.push_str(&line);
         if full_stderr.len() > 8000 {
-            full_stderr.replace_range(..full_stderr.len()-4000, "");
+            full_stderr.replace_range(..full_stderr.len() - 4000, "");
         }
-        
+
         if total_secs == 0.0 && line.contains("Duration: ") {
             if let Some(idx) = line.find("Duration: ") {
                 let sub = &line[idx + 10..];
@@ -11138,7 +11206,7 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
         }
         buffer.clear();
     }
-    
+
     let status_res = child.wait();
     let mut s = state_thread.lock().unwrap();
     s.finished = true;
@@ -11157,11 +11225,19 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
     }
 }
 
-fn convert_media_progress(parent: &Dialog, args: Vec<String>, _output_path: PathBuf) -> Result<(), String> {
+fn convert_media_progress(
+    parent: &Dialog,
+    args: Vec<String>,
+    _output_path: PathBuf,
+) -> Result<(), String> {
     let ui = current_ui_strings();
-    let state = Arc::new(Mutex::new(ConvertProgress { percent: 0, finished: false, result: None }));
+    let state = Arc::new(Mutex::new(ConvertProgress {
+        percent: 0,
+        finished: false,
+        result: None,
+    }));
     let state_thread = Arc::clone(&state);
-    
+
     std::thread::spawn(move || {
         run_convert_media_ffmpeg(&args, state_thread);
     });
@@ -11181,13 +11257,14 @@ fn convert_media_progress(parent: &Dialog, args: Vec<String>, _output_path: Path
             let s = state.lock().unwrap();
             (s.percent, s.finished, s.result.clone())
         };
-        
+
         if snapshot.1 {
-            progress.update(100, Some(&ui.convert_media_done));
             progress.destroy();
-            return snapshot.2.unwrap_or_else(|| Err("Errore sconosciuto".to_string()));
+            return snapshot
+                .2
+                .unwrap_or_else(|| Err("Errore sconosciuto".to_string()));
         }
-        
+
         let msg = format!("{}... {}%", ui.convert_media_running, snapshot.0);
         if !progress.update(snapshot.0, Some(&msg)) {
             progress.destroy();
@@ -11212,7 +11289,11 @@ fn choose_convert_media_file(parent: &Dialog, title: &str, wildcard: &str) -> Op
     resolve_file_dialog_path(&dialog, true)
 }
 
-fn choose_convert_media_folder(parent: &Dialog, title: &str, default_path: &Path) -> Option<PathBuf> {
+fn choose_convert_media_folder(
+    parent: &Dialog,
+    title: &str,
+    default_path: &Path,
+) -> Option<PathBuf> {
     let default_path = default_path.to_string_lossy().into_owned();
     let dialog = DirDialog::builder(parent, title, &default_path).build();
     #[cfg(target_os = "macos")]
@@ -11438,7 +11519,8 @@ fn open_convert_media_dialog(parent: &Frame) {
     image_button.on_click(move |_| {
         let ui = current_ui_strings();
         let wildcard = "Immagini|*.jpg;*.jpeg;*.png;*.webp;*.bmp|Tutti|*.*";
-        if let Some(path) = choose_convert_media_file(&dialog_image, &ui.convert_media_image, wildcard)
+        if let Some(path) =
+            choose_convert_media_file(&dialog_image, &ui.convert_media_image, wildcard)
         {
             image_ctrl_image.set_value(&path.to_string_lossy());
             *image_path_image.borrow_mut() = Some(path);
@@ -11453,22 +11535,38 @@ fn open_convert_media_dialog(parent: &Frame) {
     convert_button.on_click(move |_| {
         let ui = current_ui_strings();
         let Some(input) = input_path_convert.borrow().clone() else {
-            show_message_subdialog(&dialog_convert, &ui.convert_media_title, &ui.convert_media_no_input);
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_media_title,
+                &ui.convert_media_no_input,
+            );
             return;
         };
         let Some(output_dir) = output_dir_convert.borrow().clone() else {
-            show_message_subdialog(&dialog_convert, &ui.convert_media_title, &ui.convert_media_no_output);
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_media_title,
+                &ui.convert_media_no_output,
+            );
             return;
         };
         let format = convert_media_format_from_choice(&format_choice);
         let output = convert_media_default_output(&input, &output_dir, format);
         if input == output {
-            show_message_subdialog(&dialog_convert, &ui.convert_media_title, &ui.convert_media_same_path);
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_media_title,
+                &ui.convert_media_same_path,
+            );
             return;
         }
         let image = image_path_convert.borrow().clone();
         if convert_media_requires_image(format, &input) && image.is_none() {
-            show_message_subdialog(&dialog_convert, &ui.convert_media_title, &ui.convert_media_no_image);
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_media_title,
+                &ui.convert_media_no_image,
+            );
             return;
         }
         let bitrate = bitrate_ctrl.get_value().trim().parse::<i32>().unwrap_or(0);
@@ -11496,8 +11594,11 @@ fn open_convert_media_dialog(parent: &Frame) {
         status_text_convert.set_label(&ui.convert_media_running);
         match convert_media_progress(&dialog_convert, args, output.clone()) {
             Ok(()) => {
-                status_text_convert.set_label(&ui.convert_media_done);
-                show_message_subdialog(&dialog_convert, &ui.convert_media_title, &ui.convert_media_done);
+                show_message_subdialog(
+                    &dialog_convert,
+                    &ui.convert_media_title,
+                    &ui.convert_media_done,
+                );
             }
             Err(err) => {
                 status_text_convert.set_label(&ui.convert_media_ready);
@@ -11526,7 +11627,6 @@ fn italian_directories_code_available(parent: &Frame) -> bool {
     );
     false
 }
-
 
 fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     if !italian_directories_code_available(parent) {
@@ -11572,7 +11672,9 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
 
     let location_row = BoxSizer::builder(Orientation::Horizontal).build();
     location_row.add(
-        &StaticText::builder(&panel).with_label("Località (opzionale):").build(),
+        &StaticText::builder(&panel)
+            .with_label("Località (opzionale):")
+            .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -11620,23 +11722,32 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
         }
 
         let directory_index = directory_choice_open.get_selection().unwrap_or(0) as usize;
-        let kind = if directory_index == 1 { directories::DirectoryKind::PagineGialle } else { directories::DirectoryKind::PagineBianche };
-        
-        let progress = ProgressDialog::builder(&dialog_open, &current_ui_strings().italian_directories_title, "Ricerca in corso...", 100)
-            .with_style(ProgressDialogStyle::Smooth)
-            .build();
-            
+        let kind = if directory_index == 1 {
+            directories::DirectoryKind::PagineGialle
+        } else {
+            directories::DirectoryKind::PagineBianche
+        };
+
+        let progress = ProgressDialog::builder(
+            &dialog_open,
+            &current_ui_strings().italian_directories_title,
+            "Ricerca in corso...",
+            100,
+        )
+        .with_style(ProgressDialogStyle::Smooth)
+        .build();
+
         let result_state = std::sync::Arc::new(std::sync::Mutex::new(None));
         let result_thread = std::sync::Arc::clone(&result_state);
-        
+
         let query_clone = query.clone();
         let location_clone = location.clone();
-        
+
         std::thread::spawn(move || {
             let res = directories::search_directory(kind, &query_clone, &location_clone, 1);
             *result_thread.lock().unwrap() = Some(res);
         });
-        
+
         let mut progress_value = 0;
         loop {
             std::thread::sleep(std::time::Duration::from_millis(150));
@@ -11644,7 +11755,14 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
                 progress.destroy();
                 match res {
                     Ok(response) => {
-                        directories::show_directory_results(&parent_clone, tc_main_open.clone(), directory_index, &query, &location, response);
+                        directories::show_directory_results(
+                            &parent_clone,
+                            tc_main_open.clone(),
+                            directory_index,
+                            &query,
+                            &location,
+                            response,
+                        );
                         dialog_open.end_modal(ID_OK);
                     }
                     Err(e) => {
@@ -11654,7 +11772,9 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
                 break;
             }
             progress_value += 5;
-            if progress_value >= 95 { progress_value = 10; }
+            if progress_value >= 95 {
+                progress_value = 10;
+            }
             progress.update(progress_value, Some("Ricerca in corso..."));
         }
     });
@@ -15048,9 +15168,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 name: favorite.name.clone(),
                 url: favorite.url.clone(),
                 category: tv::TvChannelCategory::Other,
+                has_guide: false,
                 current_program: None,
                 programs: Vec::new(),
                 guide_channel: None,
+                guide_name: None,
             };
             if let Err(err) = open_tv_stream_with_mpv(&channel) {
                 show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
@@ -16374,6 +16496,8 @@ fn open_stream_with_mpv(
         .arg("--osc=yes")
         .arg("--input-default-bindings=yes")
         .arg("--volume-max=300");
+    #[cfg(target_os = "macos")]
+    command.arg("--vo=gpu").arg("--gpu-context=cocoa");
     if allow_bookmarks {
         command
             .arg(format!(

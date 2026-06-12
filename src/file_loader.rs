@@ -1672,10 +1672,7 @@ fn append_epub_toc_items(
                 })
                 .map(|offset| *position + offset)
                 .unwrap_or(*position);
-            items.push(EpubTocItem {
-                label,
-                position,
-            });
+            items.push(EpubTocItem { label, position });
         }
     }
     for child in &nav.children {
@@ -1694,10 +1691,9 @@ fn epub_nav_chapter_index(
     doc: &EpubDoc<std::io::BufReader<std::fs::File>>,
     nav: &NavPoint,
 ) -> Option<usize> {
-    doc.resource_uri_to_chapter(&nav.content)
-        .or_else(|| {
-            epub_nav_content_without_fragment(nav).and_then(|path| doc.resource_uri_to_chapter(&path))
-        })
+    doc.resource_uri_to_chapter(&nav.content).or_else(|| {
+        epub_nav_content_without_fragment(nav).and_then(|path| doc.resource_uri_to_chapter(&path))
+    })
 }
 
 fn epub_nav_content_without_fragment(nav: &NavPoint) -> Option<PathBuf> {

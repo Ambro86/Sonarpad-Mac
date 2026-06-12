@@ -1,9 +1,9 @@
-use reqwest::blocking::Client;
-use std::time::Duration;
-use std::sync::{Arc, Mutex};
-use std::rc::Rc;
-use wxdragon::*;
 use crate::*;
+use reqwest::blocking::Client;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
+use wxdragon::*;
 
 #[allow(dead_code)]
 #[derive(Clone, Debug)]
@@ -24,6 +24,7 @@ pub struct SearchResponse {
     pub current_page: i32,
     pub is_last_page: bool,
     pub results: Vec<SearchResult>,
+    pub actual_directory_index: Option<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -39,8 +40,10 @@ pub enum DirectoryKind {
 const KEY: &[u8] = b"mK9!vP2xL8#qT4zN7@rW1sY6dF0hJ3uBzUrL1BirM@|\\";
 
 fn decode(encoded: &str) -> String {
-    use base64::{engine::general_purpose, Engine as _};
-    let bytes = general_purpose::STANDARD.decode(encoded).unwrap_or_default();
+    use base64::{Engine as _, engine::general_purpose};
+    let bytes = general_purpose::STANDARD
+        .decode(encoded)
+        .unwrap_or_default();
     let mut decoded = Vec::with_capacity(bytes.len());
     for (i, byte) in bytes.iter().enumerate() {
         decoded.push(byte ^ KEY[i % KEY.len()]);
@@ -63,11 +66,19 @@ pub fn search_directory(
         DirectoryKind::PagineGialle => decode("Hi5YUxU4Qh8="),  // searchpg
     };
 
+    let mut mapped_what = what.to_string();
+    if let DirectoryKind::PagineGialle = kind {
+        if mapped_what.trim().eq_ignore_ascii_case("bar") {
+            mapped_what = "bar caffetteria".to_string();
+        }
+    }
+
     let mut url = format!("{base_url}{endpoint}?client={client_id}&version={version}");
-    let what_enc = url::form_urlencoded::byte_serialize(what.as_bytes()).collect::<String>();
+    let what_enc = url::form_urlencoded::byte_serialize(mapped_what.as_bytes()).collect::<String>();
     url.push_str(&format!("&what={what_enc}"));
     if !where_loc.trim().is_empty() {
-        let where_enc = url::form_urlencoded::byte_serialize(where_loc.as_bytes()).collect::<String>();
+        let where_enc =
+            url::form_urlencoded::byte_serialize(where_loc.as_bytes()).collect::<String>();
         url.push_str(&format!("&where={where_enc}"));
     }
     if page > 1 {
@@ -86,11 +97,38 @@ pub fn search_directory(
         .map_err(|e| e.to_string())?;
 
     if !resp.status().is_success() {
+        if resp.status().as_u16() == 500 {
+            if let DirectoryKind::PagineGialle = kind {
+                if let Ok(mut fb_resp) =
+                    search_directory(DirectoryKind::PagineBianche, what, where_loc, page)
+                {
+                    fb_resp.actual_directory_index = Some(0);
+                    return Ok(fb_resp);
+                }
+            }
+            return Ok(SearchResponse {
+                display_where: None,
+                results: vec![],
+                current_page: 1,
+                is_last_page: true,
+                actual_directory_index: Some(if let DirectoryKind::PagineGialle = kind {
+                    1
+                } else {
+                    0
+                }),
+            });
+        }
         return Err(format!("Errore di rete: {}", resp.status()));
     }
 
     let text = resp.text().map_err(|e| e.to_string())?;
-    parse_search_response(&text)
+    let mut parsed = parse_search_response(&text)?;
+    parsed.actual_directory_index = Some(if let DirectoryKind::PagineGialle = kind {
+        1
+    } else {
+        0
+    });
+    Ok(parsed)
 }
 
 pub fn detail_directory(
@@ -112,7 +150,8 @@ pub fn detail_directory(
     let what_enc = url::form_urlencoded::byte_serialize(what.as_bytes()).collect::<String>();
     url.push_str(&format!("&what={what_enc}"));
     if !where_loc.trim().is_empty() {
-        let where_enc = url::form_urlencoded::byte_serialize(where_loc.as_bytes()).collect::<String>();
+        let where_enc =
+            url::form_urlencoded::byte_serialize(where_loc.as_bytes()).collect::<String>();
         url.push_str(&format!("&where={where_enc}"));
     }
 
@@ -136,8 +175,8 @@ pub fn detail_directory(
 }
 
 fn parse_search_response(xml_str: &str) -> Result<SearchResponse, String> {
-    use quick_xml::events::Event;
     use quick_xml::Reader;
+    use quick_xml::events::Event;
 
     let mut reader = Reader::from_str(xml_str);
     reader.config_mut().trim_text(true);
@@ -145,6 +184,7 @@ fn parse_search_response(xml_str: &str) -> Result<SearchResponse, String> {
     let mut current_page = 1;
     let mut is_last_page = false;
     let mut results = Vec::new();
+    let mut display_where = None;
 
     let mut in_result = false;
     let mut current_tag = String::new();
@@ -192,6 +232,8 @@ fn parse_search_response(xml_str: &str) -> Result<SearchResponse, String> {
                         }
                     } else if current_tag == "isLastPage" {
                         is_last_page = text == "1";
+                    } else if current_tag == "displayWhere" {
+                        display_where = Some(text);
                     }
                 } else {
                     if current_tag == "id" {
@@ -219,10 +261,26 @@ fn parse_search_response(xml_str: &str) -> Result<SearchResponse, String> {
                         results.push(SearchResult {
                             id: current_id.clone(),
                             name: current_name.clone(),
-                            address: if current_address.is_empty() { None } else { Some(current_address.clone()) },
-                            city: if current_city.is_empty() { None } else { Some(current_city.clone()) },
-                            province: if current_province.is_empty() { None } else { Some(current_province.clone()) },
-                            category: if current_category.is_empty() { None } else { Some(current_category.clone()) },
+                            address: if current_address.is_empty() {
+                                None
+                            } else {
+                                Some(current_address.clone())
+                            },
+                            city: if current_city.is_empty() {
+                                None
+                            } else {
+                                Some(current_city.clone())
+                            },
+                            province: if current_province.is_empty() {
+                                None
+                            } else {
+                                Some(current_province.clone())
+                            },
+                            category: if current_category.is_empty() {
+                                None
+                            } else {
+                                Some(current_category.clone())
+                            },
                             phones: current_phones.clone(),
                         });
                     }
@@ -242,16 +300,17 @@ fn parse_search_response(xml_str: &str) -> Result<SearchResponse, String> {
     }
 
     Ok(SearchResponse {
-        display_where: None,
+        display_where,
+        results,
         current_page,
         is_last_page,
-        results,
+        actual_directory_index: None,
     })
 }
 
 fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
-    use quick_xml::events::Event;
     use quick_xml::Reader;
+    use quick_xml::events::Event;
 
     let mut reader = Reader::from_str(xml_str);
     reader.config_mut().trim_text(true);
@@ -269,7 +328,7 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
     let mut city = String::new();
     let mut province = String::new();
     let mut public_url = String::new();
-    
+
     let mut phones = Vec::new();
     let mut current_phone = String::new();
     let mut emails = Vec::new();
@@ -363,7 +422,7 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
         .replace("</strong>", "")
         .trim()
         .to_string();
-        
+
     if !clean_desc.is_empty() {
         body.push_str(&clean_desc);
         body.push_str("\r\n\r\n");
@@ -433,11 +492,26 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
     })
 }
 
-pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index: usize, query: &str, location: &str, response: SearchResponse) {
+pub fn show_directory_results(
+    parent: &Frame,
+    tc_main: TextCtrl,
+    mut directory_index: usize,
+    query: &str,
+    location: &str,
+    response: SearchResponse,
+) {
+    if let Some(idx) = response.actual_directory_index {
+        directory_index = idx;
+    }
+
     if response.results.is_empty() {
-        let msg = MessageDialog::builder(parent, "Nessun risultato trovato.", "Ricerca Pagine Bianche/Gialle")
-            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
-            .build();
+        let msg = MessageDialog::builder(
+            parent,
+            "Nessun risultato trovato.",
+            "Ricerca Pagine Bianche/Gialle",
+        )
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+        .build();
         msg.show_modal();
         msg.destroy();
         return;
@@ -464,16 +538,23 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
     if !response.results.is_empty() {
         choice.set_selection(0);
     }
-    
+
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 10);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    
-    let btn_prev = Button::builder(&panel).with_label("Pagina Precedente").build();
-    let btn_next = Button::builder(&panel).with_label("Pagina Successiva").build();
+
+    let btn_prev = Button::builder(&panel)
+        .with_label("Pagina Precedente")
+        .build();
+    let btn_next = Button::builder(&panel)
+        .with_label("Pagina Successiva")
+        .build();
     let btn_open = Button::builder(&panel).with_label("Apri").build();
-    let btn_close = Button::builder(&panel).with_label("Chiudi").with_id(ID_CANCEL).build();
-    
+    let btn_close = Button::builder(&panel)
+        .with_label("Chiudi")
+        .with_id(ID_CANCEL)
+        .build();
+
     btn_prev.show(response.current_page > 1);
     btn_next.show(!response.is_last_page);
     btn_open.set_default();
@@ -483,12 +564,11 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
     buttons.add_spacer(1);
     buttons.add(&btn_open, 0, SizerFlag::All, 5);
     buttons.add(&btn_close, 0, SizerFlag::All, 5);
-    
+
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
 
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
-
 
     let query_c = query.to_string();
     let location_c = location.to_string();
@@ -501,7 +581,7 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
     let tc_main_c = tc_main.clone();
 
     // Event handlers...
-    
+
     let load_page = Rc::new({
         let p_clone = parent_c.clone();
         let q_clone = query_c.clone();
@@ -510,22 +590,27 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
         let tc_c = tc_main_c.clone();
         move |page: i32| {
             d_clone.end_modal(ID_OK);
-            let kind = if directory_index == 1 { DirectoryKind::PagineGialle } else { DirectoryKind::PagineBianche };
-            
-            let progress = ProgressDialog::builder(&p_clone, "Caricamento...", "Ricerca in corso...", 100)
-                .with_style(ProgressDialogStyle::Smooth)
-                .build();
-                
+            let kind = if directory_index == 1 {
+                DirectoryKind::PagineGialle
+            } else {
+                DirectoryKind::PagineBianche
+            };
+
+            let progress =
+                ProgressDialog::builder(&p_clone, "Caricamento...", "Ricerca in corso...", 100)
+                    .with_style(ProgressDialogStyle::Smooth)
+                    .build();
+
             let result_state = Arc::new(Mutex::new(None));
             let result_thread = Arc::clone(&result_state);
             let qc = q_clone.clone();
             let lc = l_clone.clone();
-            
+
             std::thread::spawn(move || {
                 let res = search_directory(kind, &qc, &lc, page);
                 *result_thread.lock().unwrap() = Some(res);
             });
-            
+
             let mut pv = 0;
             loop {
                 std::thread::sleep(Duration::from_millis(150));
@@ -533,7 +618,14 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
                     progress.destroy();
                     match res {
                         Ok(resp) => {
-                            show_directory_results(&p_clone, tc_c.clone(), directory_index, &q_clone, &l_clone, resp);
+                            show_directory_results(
+                                &p_clone,
+                                tc_c.clone(),
+                                directory_index,
+                                &q_clone,
+                                &l_clone,
+                                resp,
+                            );
                         }
                         Err(e) => {
                             show_message_dialog(&p_clone, "Errore", &e);
@@ -542,7 +634,9 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
                     break;
                 }
                 pv += 5;
-                if pv >= 95 { pv = 10; }
+                if pv >= 95 {
+                    pv = 10;
+                }
                 progress.update(pv, Some("Ricerca in corso..."));
             }
         }
@@ -556,27 +650,34 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
     let results_for_open = Arc::clone(&results_arc);
     btn_open.on_click(move |_| {
         let sel = choice_c.get_selection();
-        if sel.is_none() { return; }
+        if sel.is_none() {
+            return;
+        }
         if let Some(res) = results_for_open.get(sel.unwrap() as usize) {
             let id = res.id.clone();
             let d_clone = dialog_c.clone();
-            let kind = if directory_index == 1 { DirectoryKind::PagineGialle } else { DirectoryKind::PagineBianche };
+            let kind = if directory_index == 1 {
+                DirectoryKind::PagineGialle
+            } else {
+                DirectoryKind::PagineBianche
+            };
             let qc = query_c.clone();
             let lc = location_c.clone();
             let tc_clone = tc_main_c.clone();
-            
-            let progress = ProgressDialog::builder(&d_clone, "Caricamento...", "Recupero dettagli...", 100)
-                .with_style(ProgressDialogStyle::Smooth)
-                .build();
-                
+
+            let progress =
+                ProgressDialog::builder(&d_clone, "Caricamento...", "Recupero dettagli...", 100)
+                    .with_style(ProgressDialogStyle::Smooth)
+                    .build();
+
             let result_state = Arc::new(Mutex::new(None));
             let result_thread = Arc::clone(&result_state);
-            
+
             std::thread::spawn(move || {
                 let r = detail_directory(kind, &qc, &lc, &id);
                 *result_thread.lock().unwrap() = Some(r);
             });
-            
+
             let mut pv = 0;
             loop {
                 std::thread::sleep(Duration::from_millis(150));
@@ -595,7 +696,9 @@ pub fn show_directory_results(parent: &Frame, tc_main: TextCtrl, directory_index
                     break;
                 }
                 pv += 5;
-                if pv >= 95 { pv = 10; }
+                if pv >= 95 {
+                    pv = 10;
+                }
                 progress.update(pv, Some("Recupero dettagli..."));
             }
         }
