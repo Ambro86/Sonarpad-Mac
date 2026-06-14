@@ -67,11 +67,10 @@ pub fn search_directory(
     };
 
     let mut mapped_what = what.to_string();
-    if let DirectoryKind::PagineGialle = kind {
-        if mapped_what.trim().eq_ignore_ascii_case("bar") {
+    if let DirectoryKind::PagineGialle = kind
+        && mapped_what.trim().eq_ignore_ascii_case("bar") {
             mapped_what = "bar caffetteria".to_string();
         }
-    }
 
     let mut url = format!("{base_url}{endpoint}?client={client_id}&version={version}");
     let what_enc = url::form_urlencoded::byte_serialize(mapped_what.as_bytes()).collect::<String>();
@@ -98,14 +97,13 @@ pub fn search_directory(
 
     if !resp.status().is_success() {
         if resp.status().as_u16() == 500 {
-            if let DirectoryKind::PagineGialle = kind {
-                if let Ok(mut fb_resp) =
+            if let DirectoryKind::PagineGialle = kind
+                && let Ok(mut fb_resp) =
                     search_directory(DirectoryKind::PagineBianche, what, where_loc, page)
                 {
                     fb_resp.actual_directory_index = Some(0);
                     return Ok(fb_resp);
                 }
-            }
             return Ok(SearchResponse {
                 display_where: None,
                 results: vec![],
@@ -223,7 +221,7 @@ fn parse_search_response(xml_str: &str) -> Result<SearchResponse, String> {
             Ok(Event::Text(e)) => {
                 let raw_text = std::str::from_utf8(e.as_ref()).unwrap_or_default();
                 let text = quick_xml::escape::unescape(raw_text)
-                    .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw_text))
+                    .unwrap_or(std::borrow::Cow::Borrowed(raw_text))
                     .into_owned();
                 if !in_result {
                     if current_tag == "current_page" {
@@ -358,7 +356,7 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
             Ok(Event::Text(e)) => {
                 let raw_text = std::str::from_utf8(e.as_ref()).unwrap_or_default();
                 let text = quick_xml::escape::unescape(raw_text)
-                    .unwrap_or_else(|_| std::borrow::Cow::Borrowed(raw_text))
+                    .unwrap_or(std::borrow::Cow::Borrowed(raw_text))
                     .into_owned();
                 if in_detail {
                     match current_tag.as_str() {
@@ -575,19 +573,19 @@ pub fn show_directory_results(
     let current_page = response.current_page;
     let results_arc = Arc::new(response.results);
 
-    let parent_c = parent.clone();
-    let dialog_c = dialog.clone();
-    let choice_c = choice.clone();
-    let tc_main_c = tc_main.clone();
+    let parent_c = *parent;
+    let dialog_c = dialog;
+    let choice_c = choice;
+    let tc_main_c = tc_main;
 
     // Event handlers...
 
     let load_page = Rc::new({
-        let p_clone = parent_c.clone();
+        let p_clone = parent_c;
         let q_clone = query_c.clone();
         let l_clone = location_c.clone();
-        let d_clone = dialog_c.clone();
-        let tc_c = tc_main_c.clone();
+        let d_clone = dialog_c;
+        let tc_c = tc_main_c;
         move |page: i32| {
             d_clone.end_modal(ID_OK);
             let kind = if directory_index == 1 {
@@ -620,7 +618,7 @@ pub fn show_directory_results(
                         Ok(resp) => {
                             show_directory_results(
                                 &p_clone,
-                                tc_c.clone(),
+                                tc_c,
                                 directory_index,
                                 &q_clone,
                                 &l_clone,
@@ -655,7 +653,7 @@ pub fn show_directory_results(
         }
         if let Some(res) = results_for_open.get(sel.unwrap() as usize) {
             let id = res.id.clone();
-            let d_clone = dialog_c.clone();
+            let d_clone = dialog_c;
             let kind = if directory_index == 1 {
                 DirectoryKind::PagineGialle
             } else {
@@ -663,7 +661,7 @@ pub fn show_directory_results(
             };
             let qc = query_c.clone();
             let lc = location_c.clone();
-            let tc_clone = tc_main_c.clone();
+            let tc_clone = tc_main_c;
 
             let progress =
                 ProgressDialog::builder(&d_clone, "Caricamento...", "Recupero dettagli...", 100)
@@ -704,7 +702,7 @@ pub fn show_directory_results(
         }
     });
 
-    let d_close = dialog.clone();
+    let d_close = dialog;
     btn_close.on_click(move |_| d_close.end_modal(ID_CANCEL));
 
     dialog.show_modal();

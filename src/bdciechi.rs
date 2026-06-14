@@ -4,6 +4,64 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use wxdragon::*;
 
+fn bdciechi_is_italian_ui() -> bool {
+    Settings::load().ui_language == "it"
+}
+
+fn bdciechi_error_title() -> &'static str {
+    if bdciechi_is_italian_ui() {
+        "Errore"
+    } else {
+        "Error"
+    }
+}
+
+fn bdciechi_warning_title() -> &'static str {
+    if bdciechi_is_italian_ui() {
+        "Avviso"
+    } else {
+        "Warning"
+    }
+}
+
+fn bdciechi_info_title() -> &'static str {
+    if bdciechi_is_italian_ui() {
+        "Informazione"
+    } else {
+        "Info"
+    }
+}
+
+fn bdciechi_network_error(err: impl std::fmt::Display) -> String {
+    if bdciechi_is_italian_ui() {
+        format!("Errore di rete: {}", err)
+    } else {
+        format!("Network error: {}", err)
+    }
+}
+
+fn bdciechi_read_error(err: impl std::fmt::Display) -> String {
+    if bdciechi_is_italian_ui() {
+        format!("Errore di lettura: {}", err)
+    } else {
+        format!("Read error: {}", err)
+    }
+}
+
+fn show_bdciechi_message(
+    parent: &impl WxWidget,
+    message: &str,
+    title: &str,
+    style: MessageDialogStyle,
+) {
+    let dialog = MessageDialog::builder(parent, message, title)
+        .with_style(style)
+        .build();
+    crate::localize_standard_dialog_buttons(&dialog);
+    dialog.show_modal();
+    dialog.destroy();
+}
+
 pub struct BdCiechiIdentifyResponse {
     pub nprov: String,
     pub quota: Option<BdCiechiQuota>,
@@ -73,9 +131,9 @@ pub fn bdciechi_identify(
     let url = format!("https://www.bdciechi.it/route.php?{}", enc);
 
     let resp = reqwest::blocking::get(&url)
-        .map_err(|e| format!("Network error: {}", e))?
+        .map_err(bdciechi_network_error)?
         .bytes()
-        .map_err(|e| format!("Read error: {}", e))?;
+        .map_err(bdciechi_read_error)?;
 
     let body = bdciechi_decode_server_text(&resp);
     if body.trim_start().starts_with('!') {
@@ -112,9 +170,9 @@ pub fn bdciechi_fetch_list(nprov: &str, latest: bool) -> Result<Vec<String>, Str
         bdciechi_rnd()
     );
     let resp = reqwest::blocking::get(&url)
-        .map_err(|e| format!("Network error: {}", e))?
+        .map_err(bdciechi_network_error)?
         .bytes()
-        .map_err(|e| format!("Read error: {}", e))?;
+        .map_err(bdciechi_read_error)?;
 
     let body = bdciechi_decode_server_text(&resp);
     if body.trim_start().starts_with('!') {
@@ -148,9 +206,9 @@ pub fn bdciechi_download_work(
     let url = format!("https://www.bdciechi.it/route.php?{}", enc);
 
     let resp = reqwest::blocking::get(&url)
-        .map_err(|e| format!("Network error: {}", e))?
+        .map_err(bdciechi_network_error)?
         .bytes()
-        .map_err(|e| format!("Read error: {}", e))?;
+        .map_err(bdciechi_read_error)?;
 
     if resp.is_empty() {
         return Ok(BdCiechiWorkResponse {
@@ -223,18 +281,19 @@ pub fn open_bdciechi_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>, tc_
                         show_bdciechi_dashboard(
                             parent,
                             Arc::clone(settings),
-                            tc_main.clone(),
+                            tc_main,
                             user,
                             pass,
                             identify,
                         );
                     }
                     Err(e) => {
-                        let msg_dialog = MessageDialog::builder(parent, &e, "Error")
-                            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                            .build();
-                        msg_dialog.show_modal();
-                        msg_dialog.destroy();
+                        show_bdciechi_message(
+                            parent,
+                            &e,
+                            bdciechi_error_title(),
+                            MessageDialogStyle::OK | MessageDialogStyle::IconError,
+                        );
                         show_bdciechi_login_dialog(parent, settings, tc_main);
                     }
                 }
@@ -291,21 +350,21 @@ fn show_bdciechi_login_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>, t
     let user_ctrl = username_ctrl;
     let pass_ctrl = password_ctrl;
     let settings_clone = Arc::clone(settings);
-    let dialog_close = dialog.clone();
-    let parent_clone = parent.clone();
-    let tc_clone = tc_main.clone();
+    let dialog_close = dialog;
+    let parent_clone = *parent;
+    let tc_clone = tc_main;
 
     login_btn.on_click(move |_| {
         let u = user_ctrl.get_value().trim().to_string();
         let p = pass_ctrl.get_value().trim().to_string();
         if u.is_empty() || p.is_empty() {
             let uis = ui_strings();
-            let msg_dialog =
-                MessageDialog::builder(&dialog_close, &uis.bdciechi_missing_fields, "Error")
-                    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-                    .build();
-            msg_dialog.show_modal();
-            msg_dialog.destroy();
+            show_bdciechi_message(
+                &dialog_close,
+                &uis.bdciechi_missing_fields,
+                bdciechi_warning_title(),
+                MessageDialogStyle::OK | MessageDialogStyle::IconWarning,
+            );
             return;
         }
 
@@ -348,22 +407,23 @@ fn show_bdciechi_login_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>, t
                         show_bdciechi_dashboard(
                             &parent_clone,
                             Arc::clone(&settings_clone),
-                            tc_clone.clone(),
+                            tc_clone,
                             u.clone(),
                             p.clone(),
                             identify,
                         );
                     }
                     Err(e) => {
-                        let msg_dialog = MessageDialog::builder(&parent_clone, &e, "Error")
-                            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                            .build();
-                        msg_dialog.show_modal();
-                        msg_dialog.destroy();
+                        show_bdciechi_message(
+                            &parent_clone,
+                            &e,
+                            bdciechi_error_title(),
+                            MessageDialogStyle::OK | MessageDialogStyle::IconError,
+                        );
                         show_bdciechi_login_dialog(
                             &parent_clone,
                             &settings_clone,
-                            tc_clone.clone(),
+                            tc_clone,
                         );
                     }
                 }
@@ -495,26 +555,26 @@ fn show_bdciechi_dashboard(
     panel.set_sizer(sizer, true);
 
     let set_view = {
-        let pnl = panel.clone();
-        let dlg = dialog.clone();
-        let slbl = search_lbl.clone();
-        let sctrl = search_ctrl.clone();
-        let sbtn = search_btn.clone();
-        let lbtn = latest_btn.clone();
-        let cbtn = catalog_btn.clone();
-        let loutbtn = logout_btn.clone();
+        let pnl = panel;
+        let dlg = dialog;
+        let slbl = search_lbl;
+        let sctrl = search_ctrl;
+        let sbtn = search_btn;
+        let lbtn = latest_btn;
+        let cbtn = catalog_btn;
+        let loutbtn = logout_btn;
 
-        let blbl = book_lbl.clone();
-        let rcombo = results_combo.clone();
-        let pbtn = preview_btn.clone();
-        let ibtn = import_btn.clone();
-        let bbtn = back_btn.clone();
+        let blbl = book_lbl;
+        let rcombo = results_combo;
+        let pbtn = preview_btn;
+        let ibtn = import_btn;
+        let bbtn = back_btn;
 
-        let plbl = page_label.clone();
-        let ppbtn = prev_page_btn.clone();
-        let pchoice = page_choice.clone();
-        let pgoto = goto_page_btn.clone();
-        let npbtn = next_page_btn.clone();
+        let plbl = page_label;
+        let ppbtn = prev_page_btn;
+        let pchoice = page_choice;
+        let pgoto = goto_page_btn;
+        let npbtn = next_page_btn;
 
         move |home: bool| {
             slbl.show(home);
@@ -542,7 +602,7 @@ fn show_bdciechi_dashboard(
 
     set_view(true);
 
-    let sv_back = set_view.clone();
+    let sv_back = set_view;
     back_btn.on_click(move |_| {
         sv_back(true);
     });
@@ -555,11 +615,11 @@ fn show_bdciechi_dashboard(
         let ar = Arc::clone(&all_results);
         let dr = Arc::clone(&displayed_results);
         let cp = Arc::clone(&current_page);
-        let pc = page_choice.clone();
-        let pl = page_label.clone();
-        let pr_b = prev_page_btn.clone();
-        let n_b = next_page_btn.clone();
-        let combo = results_combo.clone();
+        let pc = page_choice;
+        let pl = page_label;
+        let pr_b = prev_page_btn;
+        let n_b = next_page_btn;
+        let combo = results_combo;
         let ui_no_res = ui.bdciechi_no_results.clone();
 
         move || {
@@ -624,7 +684,7 @@ fn show_bdciechi_dashboard(
 
     let up_choice = update_page.clone();
     let cp_choice = Arc::clone(&current_page);
-    let pc_choice = page_choice.clone();
+    let pc_choice = page_choice;
     goto_page_btn.on_click(move |_| {
         if let Some(sel) = pc_choice.get_selection() {
             *cp_choice.lock().unwrap() = sel as usize;
@@ -635,18 +695,17 @@ fn show_bdciechi_dashboard(
     let catalog_clone = Arc::clone(&catalog);
     let nprov = identify.nprov.clone();
     std::thread::spawn(move || {
-        if let Ok(cat) = bdciechi_fetch_list(&nprov, false) {
-            if let Ok(mut c) = catalog_clone.lock() {
+        if let Ok(cat) = bdciechi_fetch_list(&nprov, false)
+            && let Ok(mut c) = catalog_clone.lock() {
                 *c = cat;
             }
-        }
     });
 
-    let d_latest = dialog.clone();
+    let d_latest = dialog;
     let ui_title = ui.bdciechi_title.clone();
     let ui_loading = ui.bdciechi_catalog_loading.clone();
     let nprov_latest = identify.nprov.clone();
-    let sv_latest = set_view.clone();
+    let sv_latest = set_view;
     let ar_latest = Arc::clone(&all_results);
     let cp_latest = Arc::clone(&current_page);
     let up_latest = update_page.clone();
@@ -684,7 +743,7 @@ fn show_bdciechi_dashboard(
     });
 
     let cat_ref = Arc::clone(&catalog);
-    let sv_cat = set_view.clone();
+    let sv_cat = set_view;
     let ar_cat = Arc::clone(&all_results);
     let cp_cat = Arc::clone(&current_page);
     let up_cat = update_page.clone();
@@ -696,22 +755,23 @@ fn show_bdciechi_dashboard(
         sv_cat(false);
     });
 
-    let search_ref = search_ctrl.clone();
+    let search_ref = search_ctrl;
     let cat_ref_s = Arc::clone(&catalog);
-    let d_search = dialog.clone();
+    let d_search = dialog;
     let ui_empty_search = ui.bdciechi_empty_search.clone();
-    let sv_search = set_view.clone();
+    let sv_search = set_view;
     let ar_search = Arc::clone(&all_results);
     let cp_search = Arc::clone(&current_page);
     let up_search = update_page.clone();
     search_btn.on_click(move |_| {
         let query = search_ref.get_value().trim().to_lowercase();
         if query.is_empty() {
-            let msg_dialog = MessageDialog::builder(&d_search, &ui_empty_search, "Warning")
-                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconWarning)
-                .build();
-            msg_dialog.show_modal();
-            msg_dialog.destroy();
+            show_bdciechi_message(
+                &d_search,
+                &ui_empty_search,
+                bdciechi_warning_title(),
+                MessageDialogStyle::OK | MessageDialogStyle::IconWarning,
+            );
             return;
         }
         let cat = cat_ref_s.lock().unwrap();
@@ -784,61 +844,62 @@ fn show_bdciechi_dashboard(
                     Ok(work) => {
                         let text = bdciechi_decode_server_text(&work.text_bytes);
                         if preview {
-                            let msg_dialog = MessageDialog::builder(&d, &text, &p_tit)
-                                .with_style(
-                                    MessageDialogStyle::OK | MessageDialogStyle::IconInformation,
-                                )
-                                .build();
-                            msg_dialog.show_modal();
-                            msg_dialog.destroy();
+                            show_bdciechi_message(
+                                &d,
+                                &text,
+                                &p_tit,
+                                MessageDialogStyle::OK | MessageDialogStyle::IconInformation,
+                            );
                         } else {
                             let ui = crate::current_ui_strings();
                             let safe_name = crate::sanitize_filename(&record);
                             let default_filename = format!("{safe_name}.txt");
+                            let text_wildcard = if bdciechi_is_italian_ui() {
+                                "File di testo (*.txt)|*.txt"
+                            } else {
+                                "Text files (*.txt)|*.txt"
+                            };
                             let fd = FileDialog::builder(&d)
                                 .with_message(&ui.save_as)
                                 .with_default_file(&default_filename)
-                                .with_wildcard("Text files (*.txt)|*.txt")
+                                .with_wildcard(text_wildcard)
                                 .with_style(
                                     FileDialogStyle::Save | FileDialogStyle::OverwritePrompt,
                                 )
                                 .build();
 
-                            if fd.show_modal() == crate::ID_OK {
-                                if let Some(path) = fd.get_path() {
+                            if fd.show_modal() == crate::ID_OK
+                                && let Some(path) = fd.get_path() {
                                     if let Err(e) = std::fs::write(&path, &text) {
                                         let msg = e_msg.replace("{err}", &e.to_string());
-                                        let err_dialog = MessageDialog::builder(&d, &msg, "Error")
-                                            .with_style(
-                                                MessageDialogStyle::OK
-                                                    | MessageDialogStyle::IconError,
-                                            )
-                                            .build();
-                                        err_dialog.show_modal();
-                                        err_dialog.destroy();
+                                        show_bdciechi_message(
+                                            &d,
+                                            &msg,
+                                            bdciechi_error_title(),
+                                            MessageDialogStyle::OK | MessageDialogStyle::IconError,
+                                        );
                                     } else {
-                                        let msg_dialog = MessageDialog::builder(&d, &i_msg, "Info")
-                                            .with_style(
-                                                MessageDialogStyle::OK
-                                                    | MessageDialogStyle::IconInformation,
-                                            )
-                                            .build();
-                                        msg_dialog.show_modal();
-                                        msg_dialog.destroy();
+                                        show_bdciechi_message(
+                                            &d,
+                                            &i_msg,
+                                            bdciechi_info_title(),
+                                            MessageDialogStyle::OK
+                                                | MessageDialogStyle::IconInformation,
+                                        );
                                         d.end_modal(crate::ID_OK);
                                     }
                                 }
-                            }
                             fd.destroy();
                         }
                     }
                     Err(e) => {
                         let msg = e_msg.replace("{err}", &e);
-                        let err_dialog = MessageDialog::builder(&d, &msg, "Error")
-                            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                            .build();
-                        err_dialog.show_modal();
-                        err_dialog.destroy();
+                        show_bdciechi_message(
+                            &d,
+                            &msg,
+                            bdciechi_error_title(),
+                            MessageDialogStyle::OK | MessageDialogStyle::IconError,
+                        );
                     }
                 }
                 break;
@@ -851,15 +912,15 @@ fn show_bdciechi_dashboard(
         }
     };
 
-    let combo_p = results_combo.clone();
+    let combo_p = results_combo;
     let disp_act_p = Arc::clone(&displayed_results);
     let cat_act_p = Arc::clone(&catalog);
     let u_p = username.clone();
     let p_p = password.clone();
-    let d_p = dialog.clone();
+    let d_p = dialog;
     let ui_tit_p = ui.bdciechi_title.clone();
     let ui_load_p = ui.bdciechi_catalog_loading.clone();
-    let tc_p = tc_main.clone();
+    let tc_p = tc_main;
     let err_p = ui.bdciechi_download_error.clone();
     let imp_p = ui.bdciechi_imported.clone();
     let prev_p = ui.bdciechi_preview_title.clone();
@@ -871,25 +932,25 @@ fn show_bdciechi_dashboard(
             Arc::clone(&cat_act_p),
             u_p.clone(),
             p_p.clone(),
-            d_p.clone(),
+            d_p,
             ui_tit_p.clone(),
             ui_load_p.clone(),
-            tc_p.clone(),
+            tc_p,
             err_p.clone(),
             imp_p.clone(),
             prev_p.clone(),
         );
     });
 
-    let combo_i = results_combo.clone();
+    let combo_i = results_combo;
     let disp_act_i = Arc::clone(&displayed_results);
     let cat_act_i = Arc::clone(&catalog);
     let u_i = username.clone();
     let p_i = password.clone();
-    let d_i = dialog.clone();
+    let d_i = dialog;
     let ui_tit_i = ui.bdciechi_title.clone();
     let ui_load_i = ui.bdciechi_catalog_loading.clone();
-    let tc_i = tc_main.clone();
+    let tc_i = tc_main;
     let err_i = ui.bdciechi_download_error.clone();
     let imp_i = ui.bdciechi_imported.clone();
     let prev_i = ui.bdciechi_preview_title.clone();
@@ -901,17 +962,17 @@ fn show_bdciechi_dashboard(
             Arc::clone(&cat_act_i),
             u_i.clone(),
             p_i.clone(),
-            d_i.clone(),
+            d_i,
             ui_tit_i.clone(),
             ui_load_i.clone(),
-            tc_i.clone(),
+            tc_i,
             err_i.clone(),
             imp_i.clone(),
             prev_i.clone(),
         );
     });
 
-    let d_logout = dialog.clone();
+    let d_logout = dialog;
     let set_out = Arc::clone(&settings);
     logout_btn.on_click(move |_| {
         let mut s = set_out.lock().unwrap();

@@ -18,7 +18,7 @@ const REGIONAL_TV_CHANNELS_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMM
 pub(crate) struct TvChannel {
     pub(crate) name: String,
     pub(crate) url: String,
-    pub(crate) category: TvChannelCategory,
+    pub(crate) category: String,
     pub(crate) has_guide: bool,
     pub(crate) current_program: Option<String>,
     pub(crate) programs: Vec<TvProgram>,
@@ -28,14 +28,6 @@ pub(crate) struct TvChannel {
     pub(crate) resolver_endpoint: Option<String>,
     pub(crate) resolver_realm: Option<String>,
     pub(crate) resolver_channel_id: Option<String>,
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub(crate) enum TvChannelCategory {
-    Rai,
-    Mediaset,
-    Other,
-    Regional,
 }
 
 #[derive(Clone, Debug)]
@@ -130,11 +122,12 @@ fn load_local_channels() -> Result<Vec<TvChannel>, String> {
             if name.is_empty() || url.is_empty() {
                 None
             } else {
+                let has_guide = !is_dash_stream_url(&url);
                 Some(TvChannel {
                     category: tv_channel_category(&name),
                     name,
                     url,
-                    has_guide: true,
+                    has_guide,
                     current_program: None,
                     programs: Vec::new(),
                     guide_channel: None,
@@ -181,6 +174,7 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
             if name.is_empty() || url.is_empty() {
                 return None;
             }
+            let has_guide = channel.has_guide.unwrap_or(true) && !is_dash_stream_url(&url);
             Some(TvChannel {
                 category: tv_channel_category_from_group(
                     channel.group_title.as_deref().unwrap_or_default(),
@@ -188,7 +182,7 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
                 ),
                 name,
                 url,
-                has_guide: channel.has_guide.unwrap_or(true),
+                has_guide,
                 current_program: None,
                 programs: Vec::new(),
                 guide_channel: None,
@@ -230,8 +224,8 @@ fn load_regional_channels() -> Result<Vec<TvChannel>, String> {
                 Some(TvChannel {
                     name,
                     url,
-                    category: TvChannelCategory::Regional,
-                    has_guide: true,
+                    category: "Regionali".to_string(),
+                    has_guide: false,
                     current_program: None,
                     programs: Vec::new(),
                     guide_channel: None,
@@ -244,6 +238,14 @@ fn load_regional_channels() -> Result<Vec<TvChannel>, String> {
             }
         })
         .collect())
+}
+
+fn is_dash_stream_url(url: &str) -> bool {
+    url.split('?')
+        .next()
+        .unwrap_or(url)
+        .to_ascii_lowercase()
+        .ends_with(".mpd")
 }
 
 fn decode_oggi_in_tv_timeline_url() -> Result<String, String> {
@@ -429,10 +431,10 @@ fn normalize_oggi_in_tv_channel_name(name: &str) -> String {
     }
 }
 
-fn tv_channel_category(name: &str) -> TvChannelCategory {
+fn tv_channel_category(name: &str) -> String {
     let normalized = normalize_oggi_in_tv_channel_name(name);
     if normalized.starts_with("rai") {
-        return TvChannelCategory::Rai;
+        return "Rai".to_string();
     }
     if matches!(
         normalized.as_str(),
@@ -454,17 +456,20 @@ fn tv_channel_category(name: &str) -> TvChannelCategory {
             | "cartoonito"
             | "tgcom24"
     ) {
-        TvChannelCategory::Mediaset
+        "Mediaset".to_string()
     } else {
-        TvChannelCategory::Other
+        "Altri".to_string()
     }
 }
 
-fn tv_channel_category_from_group(group: &str, name: &str) -> TvChannelCategory {
-    match group.trim().to_ascii_lowercase().as_str() {
-        "rai" => TvChannelCategory::Rai,
-        "mediaset" => TvChannelCategory::Mediaset,
-        "regionali" => TvChannelCategory::Regional,
+fn tv_channel_category_from_group(group: &str, name: &str) -> String {
+    let trimmed = group.trim();
+    match trimmed.to_ascii_lowercase().as_str() {
+        "rai" => "Rai".to_string(),
+        "mediaset" => "Mediaset".to_string(),
+        "regionali" => "Regionali".to_string(),
+        _ if trimmed.starts_with("Regionali - ") => trimmed.to_string(),
+        _ if !trimmed.is_empty() => trimmed.to_string(),
         _ => tv_channel_category(name),
     }
 }
@@ -539,17 +544,31 @@ struct AuroraPayload<'a> {
 }
 
 pub(crate) fn resolve_tv_channel_url(channel: &TvChannel) -> Result<String, String> {
-    if let Some(resolver) = &channel.stream_resolver {
-        if resolver == "aurora_channel" {
+    
+    let mut eff_resolver = channel.stream_resolver.as_deref();
+    let mut eff_channel_id = channel.resolver_channel_id.as_deref();
+    
+    let norm_name = channel.name.to_lowercase().replace(" ", "");
+    match norm_name.as_str() {
+        "realtime" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("2"); },
+        "nove" | "la9" | "9" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("3"); },
+        "dmax" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("4"); },
+        "foodnetwork" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("6"); },
+        "motortrend" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("11"); },
+        "discoverychannel" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("12"); },
+        "hgtv" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("13"); },
+        _ => {}
+    }
+
+    if let Some(resolver) = eff_resolver
+        && resolver == "aurora_channel" {
+
             let endpoint = channel
                 .resolver_endpoint
                 .as_deref()
                 .unwrap_or("https://public.aurora.enhanced.live");
             let realm = channel.resolver_realm.as_deref().unwrap_or("it");
-            let channel_id = channel
-                .resolver_channel_id
-                .as_deref()
-                .ok_or("Missing channel_id")?;
+            let channel_id = eff_channel_id.ok_or("Missing channel_id")?;
 
             let client = reqwest::blocking::Client::builder()
                 .timeout(std::time::Duration::from_secs(10))
@@ -633,7 +652,7 @@ pub(crate) fn resolve_tv_channel_url(channel: &TvChannel) -> Result<String, Stri
 
             return find_m3u8(&pb_resp).ok_or("Aurora stream url not found".to_string());
         }
-    }
 
     Ok(channel.url.clone())
 }
+

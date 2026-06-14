@@ -24,27 +24,23 @@ struct GeocodeCandidate {
 
 impl GeocodeCandidate {
     fn display_label(&self) -> String {
-        if let Some(lbl) = &self.label {
-            if !lbl.trim().is_empty() {
+        if let Some(lbl) = &self.label
+            && !lbl.trim().is_empty() {
                 return lbl.clone();
             }
-        }
         let mut parts = Vec::new();
-        if let Some(n) = &self.name {
-            if !n.trim().is_empty() {
+        if let Some(n) = &self.name
+            && !n.trim().is_empty() {
                 parts.push(n.clone());
             }
-        }
-        if let Some(l) = &self.locality {
-            if !l.trim().is_empty() {
+        if let Some(l) = &self.locality
+            && !l.trim().is_empty() {
                 parts.push(l.clone());
             }
-        }
-        if let Some(c) = &self.country {
-            if !c.trim().is_empty() {
+        if let Some(c) = &self.country
+            && !c.trim().is_empty() {
                 parts.push(c.clone());
             }
-        }
         if parts.is_empty() {
             "Unknown".to_string()
         } else {
@@ -192,8 +188,8 @@ fn calculate_route(
         return Err(data.error.unwrap_or_else(|| "Server error".to_string()));
     }
 
-    if let Some(routes) = data.routes {
-        if !routes.is_empty() {
+    if let Some(routes) = data.routes
+        && !routes.is_empty() {
             let mut results = Vec::new();
             for path in routes {
                 results.push(RouteResult {
@@ -204,7 +200,6 @@ fn calculate_route(
             }
             return Ok(results);
         }
-    }
 
     Ok(vec![RouteResult {
         distance_meters: data.distance_meters.unwrap_or(0.0),
@@ -246,12 +241,12 @@ fn select_candidate(
 
     p.set_sizer(s, true);
 
-    let d_c = d.clone();
+    let d_c = d;
     ok.on_click(move |_| {
         d_c.end_modal(crate::ID_OK);
     });
 
-    let d_c2 = d.clone();
+    let d_c2 = d;
     cancel.on_click(move |_| {
         d_c2.end_modal(crate::ID_CANCEL);
     });
@@ -322,12 +317,12 @@ fn select_route(parent: &Dialog, title: &str, routes: Vec<RouteResult>) -> Optio
 
     p.set_sizer(s, true);
 
-    let d_c = d.clone();
+    let d_c = d;
     ok.on_click(move |_| {
         d_c.end_modal(crate::ID_OK);
     });
 
-    let d_c2 = d.clone();
+    let d_c2 = d;
     cancel.on_click(move |_| {
         d_c2.end_modal(crate::ID_CANCEL);
     });
@@ -406,8 +401,8 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
 
     panel.set_sizer(sizer, true);
 
-    let dialog_clone = dialog.clone();
-    let editor_c = editor.clone();
+    let dialog_clone = dialog;
+    let editor_c = editor;
     let ui_loading = ui.routes_loading.clone();
     let ui_error = ui.routes_error.clone();
     let ui_dist = ui.routes_distance.clone();
@@ -463,7 +458,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         let ui_cf = ui_strings().routes_choose_from.clone();
         let ui_ct = ui_strings().routes_choose_to.clone();
         let not_found = ui_strings().routes_address_not_found.clone();
-        let d_c = dialog_clone.clone();
+        let d_c = dialog_clone;
 
         let (from_cand, to_cand) = loop {
             std::thread::sleep(Duration::from_millis(150));
@@ -483,7 +478,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
                     }
                 };
 
-                let d_c = dialog_clone.clone();
+                let d_c = dialog_clone;
                 let f_c = select_candidate(&d_c, &ui_cf, from_cands);
                 if f_c.is_none() {
                     let err_dlg =

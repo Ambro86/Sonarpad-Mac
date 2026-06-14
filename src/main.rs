@@ -3357,8 +3357,7 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
         .header("Accept", "application/json")
         .send()
         .and_then(|response| response.error_for_status())
-    {
-        if let Ok(comm_list) = comm_resp.json::<Vec<CommunityRadio>>() {
+        && let Ok(comm_list) = comm_resp.json::<Vec<CommunityRadio>>() {
             let wanted_lang = if language_code.starts_with("country:") {
                 None
             } else {
@@ -3376,17 +3375,15 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
                     }
                 }
 
-                if let (Some(name), Some(url)) = (cr.name, cr.url) {
-                    if !name.trim().is_empty() && !url.trim().is_empty() {
+                if let (Some(name), Some(url)) = (cr.name, cr.url)
+                    && !name.trim().is_empty() && !url.trim().is_empty() {
                         comm_stations.push(RadioStation {
                             name: name.replace('&', "").trim().to_string(),
                             stream_url: url.trim().to_string(),
                         });
                     }
-                }
             }
         }
-    }
 
     let stations = stations.unwrap_or_else(Vec::new);
 
@@ -10159,7 +10156,7 @@ fn weather_forecast_text(
     if let Some(city) = city {
         lines.push(weather_city_label(city));
     }
-    lines.push(weather_day_label(&ui, forecast, day));
+    lines.push(weather_day_label(ui, forecast, day));
     if day == 0 {
         lines.push(format!(
             "{}: {}",
@@ -10212,7 +10209,7 @@ fn populate_weather_day_choice(day_choice: &Choice, forecast: &WeatherForecast) 
     day_choice.clear();
     let day_count = forecast.daily.time.len().max(1);
     for day in 0..day_count {
-        day_choice.append(&weather_day_label(&ui, forecast, day));
+        day_choice.append(&weather_day_label(ui, forecast, day));
     }
     day_choice.set_selection(0);
     day_choice.enable(true);
@@ -10359,7 +10356,7 @@ fn open_weather_dialog(parent: &Frame) {
         let pending_result = Arc::clone(&pending_result);
         let busy = Arc::clone(&busy);
         let progress = Rc::clone(&progress);
-        let city_ctrl = city_ctrl;
+
         let dialog_progress = dialog;
         move || {
             let query = city_ctrl.get_value().trim().to_string();
@@ -10638,7 +10635,7 @@ fn cinema_release_label(ui: &UiStrings, movie: &CinemaMovie) -> String {
 
 fn cinema_movie_label(movie: &CinemaMovie) -> String {
     let ui = current_ui_strings();
-    let release = cinema_release_label(&ui, movie);
+    let release = cinema_release_label(ui, movie);
     if release.is_empty() {
         movie.title.clone()
     } else {
@@ -10649,7 +10646,7 @@ fn cinema_movie_label(movie: &CinemaMovie) -> String {
 fn cinema_movie_details(movie: &CinemaMovie) -> String {
     let ui = current_ui_strings();
     let mut lines = vec![movie.title.clone()];
-    let release = cinema_release_label(&ui, movie);
+    let release = cinema_release_label(ui, movie);
     if !release.is_empty() {
         lines.push(release);
     }
@@ -11115,16 +11112,26 @@ fn convert_media_codec_args(
     }
 }
 
-fn convert_media_build_args(
-    input: &Path,
-    output: &Path,
-    image: Option<&Path>,
+struct ConvertMediaBuildArgs<'a> {
+    input: &'a Path,
+    output: &'a Path,
+    image: Option<&'a Path>,
     format: ConvertMediaFormat,
     bitrate: i32,
     ogg_quality: i32,
     flac_compression: i32,
     wav_depth: ConvertWavBitDepth,
-) -> Vec<String> {
+}
+
+fn convert_media_build_args(args: ConvertMediaBuildArgs) -> Vec<String> {
+    let input = args.input;
+    let output = args.output;
+    let image = args.image;
+    let format = args.format;
+    let bitrate = args.bitrate;
+    let ogg_quality = args.ogg_quality;
+    let flac_compression = args.flac_compression;
+    let wav_depth = args.wav_depth;
     let cover_path = if convert_media_requires_image(format, input) {
         image
     } else {
@@ -11213,7 +11220,7 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
             break;
         }
         // also read \n if any
-        if buffer.ends_with(b"\n") {}
+
         let line = String::from_utf8_lossy(&buffer).to_string();
 
         full_stderr.push_str(&line);
@@ -11235,8 +11242,8 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
                     }
                 }
             }
-        } else if line.contains("time=") {
-            if let Some(idx) = line.find("time=") {
+        } else if line.contains("time=")
+            && let Some(idx) = line.find("time=") {
                 let sub = &line[idx + 5..];
                 let time_end = sub.find(' ').unwrap_or(sub.len());
                 let time_str = &sub[..time_end];
@@ -11250,7 +11257,6 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
                     state_thread.lock().unwrap().percent = pct.clamp(0, 99);
                 }
             }
-        }
         buffer.clear();
     }
 
@@ -11628,16 +11634,16 @@ fn open_convert_media_dialog(parent: &Frame) {
         let ogg_quality = ogg_choice.get_selection().unwrap_or(5) as i32;
         let flac_compression = flac_choice.get_selection().unwrap_or(5) as i32;
         let wav_depth = convert_wav_bit_depth_from_choice(&wav_choice);
-        let args = convert_media_build_args(
-            &input,
-            &output,
-            image.as_deref(),
+        let args = convert_media_build_args(ConvertMediaBuildArgs {
+            input: &input,
+            output: &output,
+            image: image.as_deref(),
             format,
-            bitrate.max(64),
+            bitrate: bitrate.max(64),
             ogg_quality,
             flac_compression,
             wav_depth,
-        );
+        });
         status_text_convert.set_label(&ui.convert_media_running);
         match convert_media_progress(&dialog_convert, args, output.clone()) {
             Ok(()) => {
@@ -11753,9 +11759,9 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let search_ctrl_open = search_ctrl;
     let location_ctrl_open = location_ctrl;
     let directory_choice_open = directory_choice;
-    let dialog_open = dialog.clone();
-    let parent_clone = parent.clone();
-    let tc_main_open = tc_main.clone();
+    let dialog_open = dialog;
+    let parent_clone = *parent;
+    let tc_main_open = tc_main;
     let perform_search = Rc::new(move || {
         let query = search_ctrl_open.get_value().trim().to_string();
         let location = location_ctrl_open.get_value().trim().to_string();
@@ -11804,7 +11810,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
                     Ok(response) => {
                         directories::show_directory_results(
                             &parent_clone,
-                            tc_main_open.clone(),
+                            tc_main_open,
                             directory_index,
                             &query,
                             &location,
@@ -12427,7 +12433,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
         let wikipedia_pending_result = Arc::clone(&wikipedia_pending_result);
         let wikipedia_busy = Arc::clone(&wikipedia_busy);
         let wikipedia_search_progress = Rc::clone(&wikipedia_search_progress);
-        let query_ctrl = query_ctrl;
+
         let dialog_search_progress = dialog;
         move || {
             let query = query_ctrl.get_value().trim().to_string();
@@ -13196,16 +13202,26 @@ fn youtube_direct_context(
     })
 }
 
-fn youtube_parse_direct_page(
+struct YoutubeParseArgs<'a> {
     query: String,
     page: usize,
     endpoint: YoutubeContinuationEndpoint,
-    value: &serde_json::Value,
+    value: &'a serde_json::Value,
     api_key: String,
     client_version: String,
     include_collections: bool,
     include_videos: bool,
-) -> YoutubeResultsPayload {
+}
+
+fn youtube_parse_direct_page(args: YoutubeParseArgs) -> YoutubeResultsPayload {
+    let query = args.query;
+    let page = args.page;
+    let endpoint = args.endpoint;
+    let value = args.value;
+    let api_key = args.api_key;
+    let client_version = args.client_version;
+    let include_collections = args.include_collections;
+    let include_videos = args.include_videos;
     let mut results = Vec::new();
     let mut seen = HashSet::new();
     youtube_collect_direct_results(
@@ -13244,16 +13260,16 @@ fn youtube_direct_search(query: &str) -> Result<YoutubeResultsPayload, String> {
         .ok_or_else(|| "Chiave API YouTube non trovata.".to_string())?;
     let client_version = youtube_extract_quoted_config(&html, "INNERTUBE_CLIENT_VERSION")
         .unwrap_or_else(|| YOUTUBE_DIRECT_CLIENT_VERSION.to_string());
-    Ok(youtube_parse_direct_page(
-        query.to_string(),
-        0,
-        YoutubeContinuationEndpoint::Search,
-        &value,
+    Ok(youtube_parse_direct_page(YoutubeParseArgs {
+        query: query.to_string(),
+        page: 0,
+        endpoint: YoutubeContinuationEndpoint::Search,
+        value: &value,
         api_key,
         client_version,
-        true,
-        true,
-    ))
+        include_collections: true,
+        include_videos: true,
+    }))
 }
 
 fn youtube_direct_collection(url: &str) -> Result<YoutubeResultsPayload, String> {
@@ -13264,16 +13280,16 @@ fn youtube_direct_collection(url: &str) -> Result<YoutubeResultsPayload, String>
         .ok_or_else(|| "Chiave API YouTube non trovata.".to_string())?;
     let client_version = youtube_extract_quoted_config(&html, "INNERTUBE_CLIENT_VERSION")
         .unwrap_or_else(|| YOUTUBE_DIRECT_CLIENT_VERSION.to_string());
-    Ok(youtube_parse_direct_page(
-        url,
-        0,
-        YoutubeContinuationEndpoint::Browse,
-        &value,
+    Ok(youtube_parse_direct_page(YoutubeParseArgs {
+        query: url.to_string(),
+        page: 0,
+        endpoint: YoutubeContinuationEndpoint::Browse,
+        value: &value,
         api_key,
         client_version,
-        false,
-        true,
-    ))
+        include_collections: false,
+        include_videos: true,
+    }))
 }
 
 fn youtube_direct_next_page(
@@ -13312,16 +13328,16 @@ fn youtube_direct_next_page(
         .json::<serde_json::Value>()
         .map_err(|err| format!("lettura altri risultati YouTube fallita: {err}"))?;
     let include_collections = matches!(continuation.endpoint, YoutubeContinuationEndpoint::Search);
-    let (results, next_context) = youtube_parse_direct_page(
-        context.query.clone(),
-        context.page.saturating_add(1),
-        continuation.endpoint,
-        &response,
-        continuation.api_key.clone(),
-        continuation.client_version.clone(),
+    let (results, next_context) = youtube_parse_direct_page(YoutubeParseArgs {
+        query: context.query.clone(),
+        page: context.page.saturating_add(1),
+        endpoint: continuation.endpoint,
+        value: &response,
+        api_key: continuation.api_key.clone(),
+        client_version: continuation.client_version.clone(),
         include_collections,
-        true,
-    );
+        include_videos: true,
+    });
     let payload = youtube_filter_seen_results(results, next_context, &context.seen_urls);
     if payload.0.is_empty() {
         Err("Nessun altro risultato nuovo.".to_string())
@@ -14924,24 +14940,25 @@ fn refresh_tv_guide_programs(program_choice: &Choice, programs: &[tv::TvProgram]
     }
 }
 
-fn tv_channel_categories() -> &'static [tv::TvChannelCategory] {
-    &[
-        tv::TvChannelCategory::Rai,
-        tv::TvChannelCategory::Mediaset,
-        tv::TvChannelCategory::Other,
-        tv::TvChannelCategory::Regional,
-    ]
+fn tv_channel_categories(channels: &[tv::TvChannel]) -> Vec<String> {
+    let mut categories = Vec::new();
+    for channel in channels {
+        if !categories.iter().any(|category| category == &channel.category) {
+            categories.push(channel.category.clone());
+        }
+    }
+    categories
 }
 
-fn tv_channel_category_label(category: tv::TvChannelCategory) -> &'static str {
+fn tv_channel_category_label(category: &str) -> String {
     match category {
-        tv::TvChannelCategory::Rai => "Canali Rai",
-        tv::TvChannelCategory::Mediaset => "Canali Mediaset",
-        tv::TvChannelCategory::Other => "Altri canali",
-        tv::TvChannelCategory::Regional => "Regionali",
+        "Rai" => "Canali Rai".to_string(),
+        "Mediaset" => "Canali Mediaset".to_string(),
+        "Altri" => "Altri canali".to_string(),
+        "Regionali" => "Regionali".to_string(),
+        _ => category.to_string(),
     }
 }
-
 fn tv_category_label() -> &'static str {
     if Settings::load().ui_language == "it" {
         "Categoria"
@@ -14990,7 +15007,7 @@ fn refresh_tv_channel_choice(
         guide_button.enable(
             channels
                 .get(first_index)
-                .is_some_and(|channel| !channel.programs.is_empty()),
+                .is_some_and(|channel| channel.has_guide && !channel.programs.is_empty()),
         );
     } else {
         choice.show(false);
@@ -15002,12 +15019,12 @@ fn refresh_tv_channel_choice(
 
 fn tv_channel_indices_for_category(
     channels: &[tv::TvChannel],
-    category: tv::TvChannelCategory,
+    category: &str,
 ) -> Vec<usize> {
     channels
         .iter()
         .enumerate()
-        .filter_map(|(index, channel)| (channel.category == category).then_some(index))
+        .filter_map(|(index, channel)| (channel.category.as_str() == category).then_some(index))
         .collect()
 }
 
@@ -15214,7 +15231,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             let channel = tv::TvChannel {
                 name: favorite.name.clone(),
                 url: favorite.url.clone(),
-                category: tv::TvChannelCategory::Other,
+                category: "Altri".to_string(),
                 has_guide: false,
                 current_program: None,
                 programs: Vec::new(),
@@ -15293,6 +15310,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     search_row.add(&search_button, 0, SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
+    let tv_categories = Rc::new(tv_channel_categories(&channels));
     let category_row = BoxSizer::builder(Orientation::Horizontal).build();
     category_row.add(
         &StaticText::builder(&panel)
@@ -15303,8 +15321,8 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         5,
     );
     let category_choice = Choice::builder(&panel).build();
-    for category in tv_channel_categories() {
-        category_choice.append(tv_channel_category_label(*category));
+    for category in tv_categories.iter() {
+        category_choice.append(&tv_channel_category_label(category));
     }
     category_choice.set_selection(0);
     category_row.add(&category_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -15328,7 +15346,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         &favorite_button,
         &channels,
         &visible_channel_indices,
-        tv_channel_indices_for_category(&channels, tv_channel_categories()[0]),
+        tv_channel_indices_for_category(&channels, tv_categories.first().map(String::as_str).unwrap_or("")),
     );
     let add_channel_button = Button::builder(&panel)
         .with_label(tv_add_channel_button_label())
@@ -15358,6 +15376,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let panel_category_change = panel;
     let dialog_category_change = dialog;
     let programmatic_category_change = Rc::new(Cell::new(false));
+    let tv_categories_category_change = Rc::clone(&tv_categories);
     let programmatic_category_change_on_select = Rc::clone(&programmatic_category_change);
     category_choice.on_selection_changed(move |_| {
         if programmatic_category_change_on_select.get() {
@@ -15366,9 +15385,9 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         search_ctrl_category_change.set_value("");
         let category = category_choice_change
             .get_selection()
-            .and_then(|sel| tv_channel_categories().get(sel as usize))
-            .copied()
-            .unwrap_or(tv::TvChannelCategory::Rai);
+            .and_then(|sel| tv_categories_category_change.get(sel as usize))
+            .map(String::as_str)
+            .unwrap_or("");
         refresh_tv_channel_choice(
             &choice_category_change,
             &open_button_category_change,
@@ -15384,18 +15403,19 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let tv_search_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let tv_search_timer = Rc::new(RefCell::new(None::<Rc<Timer<Dialog>>>));
     let perform_tv_search = Rc::new({
-        let search_ctrl = search_ctrl;
-        let category_choice = category_choice;
-        let choice = choice;
-        let open_button = open_button;
-        let guide_button = guide_button;
-        let favorite_button = favorite_button;
+
+
+
+
+
+
         let channels = Rc::clone(&channels);
         let visible_indices = Rc::clone(&visible_channel_indices);
-        let panel = panel;
-        let dialog = dialog;
+
+
         let tv_search_progress = Rc::clone(&tv_search_progress);
         let tv_search_timer = Rc::clone(&tv_search_timer);
+        let tv_categories = Rc::clone(&tv_categories);
         let programmatic_category_change = Rc::clone(&programmatic_category_change);
         move || {
             if tv_search_progress.borrow().is_some() {
@@ -15417,6 +15437,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             let tv_search_progress_timer = Rc::clone(&tv_search_progress);
             let tv_search_timer_done = Rc::clone(&tv_search_timer);
             let programmatic_category_change_timer = Rc::clone(&programmatic_category_change);
+            let tv_categories_timer = Rc::clone(&tv_categories);
             timer.on_tick(move |_| {
                 if let Some(timer) = tv_search_timer_done.borrow_mut().take() {
                     timer.stop();
@@ -15428,9 +15449,9 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 let candidate_indices = if query.trim().is_empty() {
                     let category = category_choice_timer
                         .get_selection()
-                        .and_then(|sel| tv_channel_categories().get(sel as usize))
-                        .copied()
-                        .unwrap_or(tv::TvChannelCategory::Rai);
+                        .and_then(|sel| tv_categories_timer.get(sel as usize))
+                        .map(String::as_str)
+                        .unwrap_or("");
                     tv_channel_indices_for_category(&channels_timer, category)
                 } else {
                     tv_channel_indices_for_search(&channels_timer, &query)
@@ -15439,17 +15460,15 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 if let Some(first_category) = candidate_indices
                     .first()
                     .and_then(|index| channels_timer.get(*index))
-                    .map(|channel| channel.category)
-                    && let Some(category_index) = tv_channel_categories()
+                    .map(|channel| channel.category.as_str())
+                    && let Some(category_index) = tv_categories_timer
                         .iter()
-                        .position(|category| *category == first_category)
-                {
-                    if category_choice_timer.get_selection() != Some(category_index as u32) {
+                        .position(|category| category == first_category)
+                    && category_choice_timer.get_selection() != Some(category_index as u32) {
                         programmatic_category_change_timer.set(true);
                         category_choice_timer.set_selection(category_index as u32);
                         programmatic_category_change_timer.set(false);
                     }
-                }
                 refresh_tv_channel_choice(
                     &choice_timer,
                     &open_button_timer,
@@ -15479,6 +15498,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let channels_guide_visibility = Rc::clone(&channels);
     let visible_indices_guide_visibility = Rc::clone(&visible_channel_indices);
     let category_choice_visibility = category_choice;
+    let tv_categories_visibility = Rc::clone(&tv_categories);
     choice.on_selection_changed(move |_| {
         let selected_channel = choice_guide_visibility
             .get_selection()
@@ -15490,17 +15510,15 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             })
             .and_then(|index| channels_guide_visibility.get(index));
         if let Some(channel) = selected_channel
-            && let Some(category_index) = tv_channel_categories()
+            && let Some(category_index) = tv_categories_visibility
                 .iter()
-                .position(|category| *category == channel.category)
-        {
-            if category_choice_visibility.get_selection() != Some(category_index as u32) {
+                .position(|category| category == &channel.category)
+            && category_choice_visibility.get_selection() != Some(category_index as u32) {
                 programmatic_category_change.set(true);
                 category_choice_visibility.set_selection(category_index as u32);
                 programmatic_category_change.set(false);
             }
-        }
-        let has_guide = selected_channel.is_some_and(|channel| !channel.programs.is_empty());
+        let has_guide = selected_channel.is_some_and(|channel| channel.has_guide && !channel.programs.is_empty());
         guide_button_visibility.enable(has_guide);
     });
     let choice_open = choice;
@@ -17770,7 +17788,7 @@ fn main() {
             } else if event.get_id() == ID_TOOLS_CONVERT_MEDIA {
                 open_convert_media_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_ROUTES {
-                routes::open_routes_dialog(&f_menu, tc_menu.clone());
+                routes::open_routes_dialog(&f_menu, tc_menu);
             } else if event.get_id() == ID_RAI_AUDIO_DESCRIPTIONS {
                 open_rai_audio_descriptions_dialog(&f_menu);
             } else if event.get_id() == ID_RAIPLAY_BROWSE {
@@ -17784,7 +17802,7 @@ fn main() {
             } else if event.get_id() == ID_TV {
                 open_tv_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_ITALIAN_DIRECTORIES {
-                open_italian_directories_dialog(&f_menu, tc_menu.clone());
+                open_italian_directories_dialog(&f_menu, tc_menu);
             } else if event.get_id() == ID_ARTICLES_ADD_SOURCE {
                 if let Some((title, url)) = open_add_article_source_dialog(&f_menu) {
                     add_article_source(
@@ -19641,3 +19659,4 @@ Non posso scaricare la pagina web al posto dell'audio.",
         frame.centre();
     });
 }
+

@@ -89,7 +89,7 @@ fn decode_text_bytes_with_bom(bytes: &[u8]) -> Option<String> {
 }
 
 fn decode_utf16_without_bom(bytes: &[u8]) -> Option<String> {
-    if bytes.len() < 4 || bytes.len() % 2 != 0 {
+    if bytes.len() < 4 || !bytes.len().is_multiple_of(2) {
         return None;
     }
     let even_nuls = bytes.iter().step_by(2).filter(|&&byte| byte == 0).count();
