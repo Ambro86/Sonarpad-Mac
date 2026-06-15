@@ -217,6 +217,18 @@ struct PodcastPlaybackState {
     status: PlaybackStatus,
 }
 
+#[derive(Clone, Debug)]
+struct CurrentArticleState {
+    source_index: usize,
+    item_index: usize,
+    title: String,
+    link: String,
+}
+
+thread_local! {
+    static LAST_ARTICLE_STATE: RefCell<Option<CurrentArticleState>> = RefCell::new(None);
+}
+
 struct LoadedDocument {
     text: String,
     epub_toc: Vec<file_loader::EpubTocItem>,
@@ -5605,6 +5617,88 @@ fn show_article_item(
     }
 }
 
+fn current_article_state_from_item(
+    source_index: usize,
+    item_index: usize,
+    item: &articles::ArticleItem,
+) -> CurrentArticleState {
+    CurrentArticleState {
+        source_index,
+        item_index,
+        title: item.title.clone(),
+        link: item.link.clone(),
+    }
+}
+
+fn remember_current_article_state(
+    current_article_state: &Rc<RefCell<Option<CurrentArticleState>>>,
+    source_index: usize,
+    item_index: usize,
+    item: &articles::ArticleItem,
+) {
+    append_podcast_log(&format!(
+        "article_state.update source_index={} item_index={} title={} link={}",
+        source_index, item_index, item.title, item.link
+    ));
+    let new_state = current_article_state_from_item(source_index, item_index, item);
+    *current_article_state.borrow_mut() = Some(new_state.clone());
+    LAST_ARTICLE_STATE.with(|last| {
+        *last.borrow_mut() = Some(new_state);
+    });
+}
+
+fn last_article_state() -> Option<CurrentArticleState> {
+    LAST_ARTICLE_STATE.with(|last| last.borrow().clone())
+}
+
+fn request_current_article_open(
+    pending_article_open: &Rc<RefCell<Option<CurrentArticleState>>>,
+    source_index: usize,
+    item_index: usize,
+    item: &articles::ArticleItem,
+) {
+    append_podcast_log(&format!(
+        "article_open.request source_index={} item_index={} title={} link={}",
+        source_index, item_index, item.title, item.link
+    ));
+    *pending_article_open.borrow_mut() =
+        Some(current_article_state_from_item(source_index, item_index, item));
+}
+
+fn article_initial_selection_from_state(
+    source: &articles::ArticleSource,
+    state: &CurrentArticleState,
+) -> usize {
+    let visible_count = source.items.len().min(MAX_MENU_ARTICLES_PER_SOURCE);
+    if visible_count == 0 {
+        return 0;
+    }
+
+    if !state.link.trim().is_empty() {
+        if let Some(index) = source
+            .items
+            .iter()
+            .take(visible_count)
+            .position(|item| item.link == state.link)
+        {
+            return index;
+        }
+    }
+
+    if !state.title.trim().is_empty() {
+        if let Some(index) = source
+            .items
+            .iter()
+            .take(visible_count)
+            .position(|item| item.title == state.title)
+        {
+            return index;
+        }
+    }
+
+    state.item_index.min(visible_count.saturating_sub(1))
+}
+
 fn podcasts_source_menu_id(source_index: usize) -> i32 {
     ID_PODCASTS_SOURCE_BASE + source_index as i32
 }
@@ -6582,6 +6676,8 @@ fn open_article_source_items_dialog(
     source_index: usize,
     loading_urls: &HashSet<String>,
     initial_selection: usize,
+    current_article_state: Option<&Rc<RefCell<Option<CurrentArticleState>>>>,
+    pending_article_open: Option<&Rc<RefCell<Option<CurrentArticleState>>>>,
 ) -> Option<(articles::ArticleItem, usize, usize)> {
     let ui = current_ui_strings();
     if source.items.is_empty() {
@@ -6596,7 +6692,7 @@ fn open_article_source_items_dialog(
 
     let dialog = Dialog::builder(parent, &article_source_label(source))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(620, 420)
+        .with_size(620, 180)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -6610,15 +6706,46 @@ fn open_article_source_items_dialog(
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    let listbox = ListBox::builder(&panel).build();
-    for item in source.items.iter().take(MAX_MENU_ARTICLES_PER_SOURCE) {
+    let choice = Choice::builder(&panel).build();
+    let visible_count = source.items.len().min(MAX_MENU_ARTICLES_PER_SOURCE);
+    let initial_selection = initial_selection.min(visible_count.saturating_sub(1));
+    let dialog_items: Rc<Vec<articles::ArticleItem>> =
+        Rc::new(source.items.iter().take(MAX_MENU_ARTICLES_PER_SOURCE).cloned().collect());
+    for item in dialog_items.iter() {
         let label = sanitize_dynamic_menu_label(&item.title, &item.link);
-        listbox.append(&label);
+        choice.append(&label);
     }
-    listbox.set_selection(initial_selection as u32, true);
-    listbox.ensure_visible(initial_selection as i32);
-    row.add(&listbox, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&row, 1, SizerFlag::Expand, 0);
+    choice.set_selection(initial_selection as u32);
+    if let Some(item) = dialog_items.get(initial_selection) {
+        append_podcast_log(&format!(
+            "article_dialog.open source_index={} initial_selection={} title={} link={}",
+            source_index, initial_selection, item.title, item.link
+        ));
+    }
+    choice.set_focus();
+
+    // wxChoice, especially with VoiceOver, can visually move to a different item
+    // before the modal result is read. Keep an explicit selected index updated by
+    // the control event, then use this value when the user presses Apri/OK.
+    let selected_index = Rc::new(Cell::new(initial_selection));
+    let choice_selection = choice;
+    let selected_index_selection = Rc::clone(&selected_index);
+    let dialog_items_selection = Rc::clone(&dialog_items);
+    choice.on_selection_changed(move |_| {
+        if let Some(selection) = choice_selection.get_selection() {
+            let selection = (selection as usize).min(dialog_items_selection.len().saturating_sub(1));
+            selected_index_selection.set(selection);
+            if let Some(item) = dialog_items_selection.get(selection) {
+                append_podcast_log(&format!(
+                    "article_dialog.selection_changed source_index={} item_index={} title={} link={}",
+                    source_index, selection, item.title, item.link
+                ));
+            }
+        }
+    });
+
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
@@ -6630,24 +6757,66 @@ fn open_article_source_items_dialog(
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
 
+    let focus_timer = Rc::new(Timer::new(&dialog));
+    let choice_focus = choice;
+    focus_timer.on_tick(move |_| {
+        // Non reimpostare la selezione qui: se VoiceOver o l'utente cambiano
+        // voce mentre il dialog si apre, non dobbiamo tornare all'articolo iniziale.
+        choice_focus.set_focus();
+    });
+    focus_timer.start(80, true);
+
     dialog.set_affirmative_id(ID_OK);
     dialog.set_escape_id(ID_CANCEL);
     let dialog_ok = dialog;
+    let choice_ok = choice;
+    let selected_index_ok = Rc::clone(&selected_index);
+    let dialog_items_ok = Rc::clone(&dialog_items);
+    let current_article_state_ok = current_article_state.cloned();
+    let pending_article_open_ok = pending_article_open.cloned();
     ok_button.on_click(move |_| {
+        if let Some(selection) = choice_ok.get_selection() {
+            selected_index_ok.set((selection as usize).min(dialog_items_ok.len().saturating_sub(1)));
+        }
+        let selection = selected_index_ok.get();
+        if let Some(item) = dialog_items_ok.get(selection) {
+            append_podcast_log(&format!(
+                "article_dialog.ok source_index={} item_index={} title={} link={}",
+                source_index, selection, item.title, item.link
+            ));
+            if let Some(state) = current_article_state_ok.as_ref() {
+                remember_current_article_state(state, source_index, selection, item);
+            }
+            if let Some(pending) = pending_article_open_ok.as_ref() {
+                request_current_article_open(pending, source_index, selection, item);
+            }
+        }
         dialog_ok.end_modal(ID_OK);
     });
 
     let result = if dialog.show_modal() == ID_OK {
-        listbox
-            .get_selection()
-            .and_then(|selection| {
-                let selection = selection as usize;
-                source.items.get(selection).cloned().map(|item| (item, source_index, selection))
-            })
+        if let Some(selection) = choice.get_selection() {
+            selected_index.set((selection as usize).min(dialog_items.len().saturating_sub(1)));
+        }
+        let selection = selected_index.get();
+        dialog_items.get(selection).cloned().map(|item| {
+            append_podcast_log(&format!(
+                "article_dialog.result source_index={} item_index={} title={} link={}",
+                source_index, selection, item.title, item.link
+            ));
+            if let Some(state) = current_article_state {
+                remember_current_article_state(state, source_index, selection, &item);
+            }
+            if let Some(pending) = pending_article_open {
+                request_current_article_open(pending, source_index, selection, &item);
+            }
+            (item, source_index, selection)
+        })
     } else {
         None
     };
 
+    focus_timer.stop();
     dialog.destroy();
     result
 }
@@ -6657,6 +6826,7 @@ fn open_article_folder_contents_dialog(
     settings: &Arc<Mutex<Settings>>,
     loading_urls: &HashSet<String>,
     folder_path: &str,
+    current_article_state: Option<&Rc<RefCell<Option<CurrentArticleState>>>>,
 ) -> Option<(articles::ArticleItem, usize, usize)> {
     let ui = current_ui_strings();
     let (sources, folders) = {
@@ -6724,7 +6894,13 @@ fn open_article_folder_contents_dialog(
             .and_then(|selection| entries.get(selection as usize))
             .and_then(|(_, entry)| match entry {
                 ArticleFolderDialogEntry::Folder(folder) => {
-                    open_article_folder_contents_dialog(parent, settings, loading_urls, folder)
+                    open_article_folder_contents_dialog(
+                        parent,
+                        settings,
+                        loading_urls,
+                        folder,
+                        current_article_state,
+                    )
                 }
                 ArticleFolderDialogEntry::Source(source_index) => {
                     sources.get(*source_index).and_then(|source| {
@@ -6734,6 +6910,8 @@ fn open_article_folder_contents_dialog(
                             *source_index,
                             loading_urls,
                             0,
+                            current_article_state,
+                            None,
                         )
                     })
                 }
@@ -16985,7 +17163,8 @@ fn main() {
         current_audio_url: String::new(),
         status: PlaybackStatus::Stopped,
     }));
-    let current_article_state: Rc<RefCell<Option<(usize, usize)>>> = Rc::new(RefCell::new(None));
+    let current_article_state: Rc<RefCell<Option<CurrentArticleState>>> = Rc::new(RefCell::new(None));
+    let pending_recent_article_open: Rc<RefCell<Option<CurrentArticleState>>> = Rc::new(RefCell::new(None));
 
     let playback = Arc::new(Mutex::new(GlobalPlayback {
         sink: None,
@@ -17375,6 +17554,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         let pending_mac_update_timer = Arc::clone(&pending_mac_update);
         let current_article_state_timer = Rc::clone(&current_article_state);
+        let pending_recent_article_open_timer = Rc::clone(&pending_recent_article_open);
         let btn_recent_articles_timer = btn_recent_articles.clone();
 
         timer_tick.on_tick(move |_| {
@@ -17468,6 +17648,7 @@ fn main() {
                             &settings_timer,
                             &loading_urls,
                             &folder_path,
+                            Some(&current_article_state_timer),
                         )
                     }
                     PendingArticleMenuDialog::Source(source_index) => settings_timer
@@ -17488,6 +17669,8 @@ fn main() {
                                 source_index,
                                 &loading_urls,
                                 0,
+                                Some(&current_article_state_timer),
+                                None,
                             )
                         }),
                 };
@@ -17496,6 +17679,7 @@ fn main() {
                         "article_menu.pending_dialog.selected title={} link={}",
                         item.title, item.link
                     ));
+                    remember_current_article_state(&current_article_state_timer, source_index, item_index, &item);
                     show_article_item(
                         &item,
                         &rt_articles_timer,
@@ -17503,11 +17687,49 @@ fn main() {
                         &podcast_playback_timer,
                         &cursor_moved_timer,
                     );
-                    *current_article_state_timer.borrow_mut() = Some((source_index, item_index));
                     btn_recent_articles_timer.show(true);
                     panel_timer.layout();
                 } else {
                     append_podcast_log("article_menu.pending_dialog.no_selection");
+                }
+            }
+
+            let pending_recent_open = pending_recent_article_open_timer.borrow_mut().take();
+            if let Some(pending) = pending_recent_open {
+                append_podcast_log(&format!(
+                    "article_open.process source_index={} item_index={} title={} link={}",
+                    pending.source_index, pending.item_index, pending.title, pending.link
+                ));
+                let selected_item = settings_timer
+                    .lock()
+                    .unwrap()
+                    .article_sources
+                    .get(pending.source_index)
+                    .cloned()
+                    .and_then(|source| {
+                        let item_index = article_initial_selection_from_state(&source, &pending);
+                        source
+                            .items
+                            .get(item_index)
+                            .cloned()
+                            .map(|item| (item, pending.source_index, item_index))
+                    });
+                if let Some((item, source_index, item_index)) = selected_item {
+                    remember_current_article_state(&current_article_state_timer, source_index, item_index, &item);
+                    show_article_item(
+                        &item,
+                        &rt_articles_timer,
+                        &tc_articles_timer,
+                        &podcast_playback_timer,
+                        &cursor_moved_timer,
+                    );
+                    btn_recent_articles_timer.show(true);
+                    panel_timer.layout();
+                } else {
+                    append_podcast_log(&format!(
+                        "article_open.missing source_index={} item_index={} title={} link={}",
+                        pending.source_index, pending.item_index, pending.title, pending.link
+                    ));
                 }
             }
 
@@ -17729,6 +17951,7 @@ fn main() {
         let podcast_selection_menu = Rc::clone(&podcast_playback);
         let cursor_moved_menu = Rc::clone(&cursor_moved_by_user);
         let current_article_state_menu = Rc::clone(&current_article_state);
+        let pending_recent_article_open_menu = Rc::clone(&pending_recent_article_open);
         let btn_recent_articles_menu = btn_recent_articles.clone();
         let panel_menu = panel.clone();
         frame.on_menu(move |event| {
@@ -17846,17 +18069,34 @@ fn main() {
             } else if event.get_id() == ID_TOOLS_ITALIAN_DIRECTORIES {
                 open_italian_directories_dialog(&f_menu, tc_menu);
             } else if event.get_id() == ID_RECENT_ARTICLES {
-                if let Some((source_index, current_item_index)) = current_article_state_menu.borrow().clone() {
+                append_podcast_log("recent_articles.menu.open");
+                let remembered_article_state = last_article_state()
+                    .or_else(|| current_article_state_menu.borrow().clone());
+                if let Some(article_state) = remembered_article_state {
+                    let source_index = article_state.source_index;
                     let source_opt = settings_menu.lock().unwrap().article_sources.get(source_index).cloned();
                     if let Some(source) = source_opt {
                         let loading_urls = article_menu_state_menu.lock().unwrap().loading_urls.clone();
+                        let initial_selection = article_initial_selection_from_state(&source, &article_state);
+                        append_podcast_log(&format!(
+                            "recent_articles.menu.current_state source_index={} state_item_index={} computed_initial={} title={} link={}",
+                            source_index, article_state.item_index, initial_selection, article_state.title, article_state.link
+                        ));
                         if let Some((item, _, item_index)) = open_article_source_items_dialog(
                             &f_menu,
                             &source,
                             source_index,
                             &loading_urls,
-                            current_item_index,
+                            initial_selection,
+                            Some(&current_article_state_menu),
+                            Some(&pending_recent_article_open_menu),
                         ) {
+                            append_podcast_log(&format!(
+                                "recent_articles.menu.open_now source_index={} item_index={} title={}",
+                                source_index, item_index, item.title
+                            ));
+                            let _ = pending_recent_article_open_menu.borrow_mut().take();
+                            remember_current_article_state(&current_article_state_menu, source_index, item_index, &item);
                             show_article_item(
                                 &item,
                                 &rt_articles_menu,
@@ -17864,7 +18104,6 @@ fn main() {
                                 &podcast_selection_menu,
                                 &cursor_moved_menu,
                             );
-                            *current_article_state_menu.borrow_mut() = Some((source_index, item_index));
                             btn_recent_articles_menu.show(true);
                             panel_menu.layout();
                         }
@@ -18251,6 +18490,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                     .get(source_index)
                     .and_then(|source| source.items.get(item_index).map(|item| (item.clone(), source_index, item_index)));
                 if let Some((item, source_index, item_index)) = item {
+                    remember_current_article_state(&current_article_state_menu, source_index, item_index, &item);
                     show_article_item(
                         &item,
                         &rt_articles_menu,
@@ -18258,7 +18498,6 @@ Non posso scaricare la pagina web al posto dell'audio.",
                         &podcast_selection_menu,
                         &cursor_moved_menu,
                     );
-                    *current_article_state_menu.borrow_mut() = Some((source_index, item_index));
                     btn_recent_articles_menu.show(true);
                     panel_menu.layout();
                 }
@@ -18414,6 +18653,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let podcast_playback_start = Rc::clone(&podcast_playback);
         let cursor_moved_start = Rc::clone(&cursor_moved_by_user);
         let current_article_state_ra = Rc::clone(&current_article_state);
+        let pending_recent_article_open_ra = Rc::clone(&pending_recent_article_open);
         let settings_ra = Arc::clone(&settings);
         let article_menu_state_ra = Arc::clone(&article_menu_state);
         let f_ra = frame;
@@ -18424,17 +18664,34 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let btn_recent_articles_ra = btn_recent_articles.clone();
         let panel_ra = panel.clone();
         let recent_articles_action: Rc<dyn Fn()> = Rc::new(move || {
-            if let Some((source_index, current_item_index)) = current_article_state_ra.borrow().clone() {
+            append_podcast_log("recent_articles.shortcut.open");
+            let remembered_article_state = last_article_state()
+                .or_else(|| current_article_state_ra.borrow().clone());
+            if let Some(article_state) = remembered_article_state {
+                let source_index = article_state.source_index;
                 let source_opt = settings_ra.lock().unwrap().article_sources.get(source_index).cloned();
                 if let Some(source) = source_opt {
                     let loading_urls = article_menu_state_ra.lock().unwrap().loading_urls.clone();
+                    let initial_selection = article_initial_selection_from_state(&source, &article_state);
+                    append_podcast_log(&format!(
+                        "recent_articles.shortcut.current_state source_index={} state_item_index={} computed_initial={} title={} link={}",
+                        source_index, article_state.item_index, initial_selection, article_state.title, article_state.link
+                    ));
                     if let Some((item, _, item_index)) = open_article_source_items_dialog(
                         &f_ra,
                         &source,
                         source_index,
                         &loading_urls,
-                        current_item_index,
+                        initial_selection,
+                        Some(&current_article_state_ra),
+                        Some(&pending_recent_article_open_ra),
                     ) {
+                        append_podcast_log(&format!(
+                            "recent_articles.shortcut.open_now source_index={} item_index={} title={}",
+                            source_index, item_index, item.title
+                        ));
+                        let _ = pending_recent_article_open_ra.borrow_mut().take();
+                        remember_current_article_state(&current_article_state_ra, source_index, item_index, &item);
                         show_article_item(
                             &item,
                             &rt_ra,
@@ -18442,7 +18699,6 @@ Non posso scaricare la pagina web al posto dell'audio.",
                             &podcast_selection_ra,
                             &cursor_moved_ra,
                         );
-                        *current_article_state_ra.borrow_mut() = Some((source_index, item_index));
                         btn_recent_articles_ra.show(true);
                         panel_ra.layout();
                     }
