@@ -69,6 +69,7 @@ const ID_SAVE_TEXT: i32 = 2007;
 const ID_SAVE_TEXT_AS: i32 = 2008;
 const ID_READ_ONLY_MODE: i32 = 2009;
 const ID_BOOK_TOC: i32 = 2010;
+const ID_RECENT_ARTICLES: i32 = 2011;
 const ID_PODCAST_BACKWARD: i32 = 2005;
 const ID_PODCAST_FORWARD: i32 = 2006;
 const ID_ARTICLES_ADD_SOURCE: i32 = 2100;
@@ -257,6 +258,7 @@ struct ShortcutActions {
     stop: Rc<dyn Fn()>,
     save: Rc<dyn Fn()>,
     settings: Rc<dyn Fn()>,
+    recent_articles: Rc<dyn Fn()>,
 }
 
 #[derive(Deserialize)]
@@ -558,6 +560,8 @@ struct UiStrings {
     button_resume_podcast: String,
     button_stop_reading: String,
     button_stop_podcast: String,
+    button_recent_articles: String,
+    menu_recent_articles: String,
     button_save_audiobook: String,
     button_settings: String,
     button_back_30: String,
@@ -1297,6 +1301,13 @@ fn handle_shortcut_event(
                 append_podcast_log("mac_shortcut.trigger save");
                 (actions.save)();
                 return;
+            } else if !command_shortcut_down(key_event)
+                && key_event.alt_down()
+                && !key_event.shift_down()
+                && matches_ascii_key(key_code, unicode_key, '-')
+            {
+                (actions.recent_articles)();
+                return;
             }
             event.skip(true);
             return;
@@ -1328,6 +1339,10 @@ fn handle_shortcut_event(
             match key_code {
                 65 | 97 => (actions.save)(),
                 _ => {}
+            }
+        } else if !command_shortcut_down(key_event) && key_event.alt_down() && !key_event.shift_down() {
+            if key_code == 45 || unicode_key == 45 {
+                (actions.recent_articles)();
             }
         }
     }
@@ -6566,7 +6581,8 @@ fn open_article_source_items_dialog(
     source: &articles::ArticleSource,
     source_index: usize,
     loading_urls: &HashSet<String>,
-) -> Option<articles::ArticleItem> {
+    initial_selection: usize,
+) -> Option<(articles::ArticleItem, usize, usize)> {
     let ui = current_ui_strings();
     if source.items.is_empty() {
         let message = if loading_urls.contains(&source.url) {
@@ -6599,7 +6615,7 @@ fn open_article_source_items_dialog(
         let label = sanitize_dynamic_menu_label(&item.title, &item.link);
         choice.append(&label);
     }
-    choice.set_selection(0);
+    choice.set_selection(initial_selection as u32);
     row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
 
@@ -6623,13 +6639,15 @@ fn open_article_source_items_dialog(
     let result = if dialog.show_modal() == ID_OK {
         choice
             .get_selection()
-            .and_then(|selection| source.items.get(selection as usize).cloned())
+            .and_then(|selection| {
+                let selection = selection as usize;
+                source.items.get(selection).cloned().map(|item| (item, source_index, selection))
+            })
     } else {
         None
     };
 
     dialog.destroy();
-    let _ = source_index;
     result
 }
 
@@ -6638,7 +6656,7 @@ fn open_article_folder_contents_dialog(
     settings: &Arc<Mutex<Settings>>,
     loading_urls: &HashSet<String>,
     folder_path: &str,
-) -> Option<articles::ArticleItem> {
+) -> Option<(articles::ArticleItem, usize, usize)> {
     let ui = current_ui_strings();
     let (sources, folders) = {
         let locked = settings.lock().unwrap();
@@ -6668,7 +6686,7 @@ fn open_article_folder_contents_dialog(
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     row.add(
         &StaticText::builder(&panel)
-            .with_label(&ui.folder_label)
+            .with_label(&ui.menu_articles)
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -6676,7 +6694,7 @@ fn open_article_folder_contents_dialog(
     );
     let choice = Choice::builder(&panel).build();
     for (label, _) in &entries {
-        choice.append(label);
+        choice.append(&sanitize_dynamic_menu_label(label, label));
     }
     choice.set_selection(0);
     row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -6714,6 +6732,7 @@ fn open_article_folder_contents_dialog(
                             source,
                             *source_index,
                             loading_urls,
+                            0,
                         )
                     })
                 }
@@ -16965,6 +16984,7 @@ fn main() {
         current_audio_url: String::new(),
         status: PlaybackStatus::Stopped,
     }));
+    let current_article_state: Rc<RefCell<Option<(usize, usize)>>> = Rc::new(RefCell::new(None));
 
     let playback = Arc::new(Mutex::new(GlobalPlayback {
         sink: None,
@@ -17157,6 +17177,12 @@ fn main() {
 
         let tools_menu = Menu::builder().build();
         tools_menu.append(
+            ID_RECENT_ARTICLES,
+            &ui.menu_recent_articles,
+            &ui.menu_recent_articles,
+            ItemKind::Normal,
+        );
+        tools_menu.append(
             ID_TOOLS_WIKIPEDIA,
             &ui.tools_wikipedia_label,
             &ui.tools_wikipedia_label,
@@ -17271,6 +17297,12 @@ fn main() {
             .with_label(&stop_button_label(false))
             .build();
         btn_sizer.add(&btn_stop, 1, SizerFlag::All, 10);
+        let btn_recent_articles = Button::builder(&panel)
+            .with_id(ID_RECENT_ARTICLES)
+            .with_label(&format!("{} (Alt+-)", ui.button_recent_articles))
+            .build();
+        btn_recent_articles.show(false);
+        btn_sizer.add(&btn_recent_articles, 1, SizerFlag::All, 10);
         let btn_podcast_back = Button::builder(&panel)
             .with_id(ID_PODCAST_BACKWARD)
             .with_label(&format!("{} ({}+Left)", ui.button_back_30, MOD_CMD))
@@ -17341,6 +17373,8 @@ fn main() {
         let frame_timer = frame;
         #[cfg(target_os = "macos")]
         let pending_mac_update_timer = Arc::clone(&pending_mac_update);
+        let current_article_state_timer = Rc::clone(&current_article_state);
+        let btn_recent_articles_timer = btn_recent_articles.clone();
 
         timer_tick.on_tick(move |_| {
             let tts_status = pb_timer.lock().unwrap().status;
@@ -17452,10 +17486,11 @@ fn main() {
                                 &source,
                                 source_index,
                                 &loading_urls,
+                                0,
                             )
                         }),
                 };
-                if let Some(item) = selected_item {
+                if let Some((item, source_index, item_index)) = selected_item {
                     append_podcast_log(&format!(
                         "article_menu.pending_dialog.selected title={} link={}",
                         item.title, item.link
@@ -17467,6 +17502,9 @@ fn main() {
                         &podcast_playback_timer,
                         &cursor_moved_timer,
                     );
+                    *current_article_state_timer.borrow_mut() = Some((source_index, item_index));
+                    btn_recent_articles_timer.show(true);
+                    panel_timer.layout();
                 } else {
                     append_podcast_log("article_menu.pending_dialog.no_selection");
                 }
@@ -17689,6 +17727,9 @@ fn main() {
         let rt_articles_menu = Arc::clone(&rt);
         let podcast_selection_menu = Rc::clone(&podcast_playback);
         let cursor_moved_menu = Rc::clone(&cursor_moved_by_user);
+        let current_article_state_menu = Rc::clone(&current_article_state);
+        let btn_recent_articles_menu = btn_recent_articles.clone();
+        let panel_menu = panel.clone();
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
             if event.get_id() == ID_OPEN {
@@ -17803,6 +17844,31 @@ fn main() {
                 open_tv_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_ITALIAN_DIRECTORIES {
                 open_italian_directories_dialog(&f_menu, tc_menu);
+            } else if event.get_id() == ID_RECENT_ARTICLES {
+                if let Some((source_index, current_item_index)) = current_article_state_menu.borrow().clone() {
+                    let source_opt = settings_menu.lock().unwrap().article_sources.get(source_index).cloned();
+                    if let Some(source) = source_opt {
+                        let loading_urls = article_menu_state_menu.lock().unwrap().loading_urls.clone();
+                        if let Some((item, _, item_index)) = open_article_source_items_dialog(
+                            &f_menu,
+                            &source,
+                            source_index,
+                            &loading_urls,
+                            current_item_index,
+                        ) {
+                            show_article_item(
+                                &item,
+                                &rt_articles_menu,
+                                &tc_menu,
+                                &podcast_selection_menu,
+                                &cursor_moved_menu,
+                            );
+                            *current_article_state_menu.borrow_mut() = Some((source_index, item_index));
+                            btn_recent_articles_menu.show(true);
+                            panel_menu.layout();
+                        }
+                    }
+                }
             } else if event.get_id() == ID_ARTICLES_ADD_SOURCE {
                 if let Some((title, url)) = open_add_article_source_dialog(&f_menu) {
                     add_article_source(
@@ -18182,9 +18248,8 @@ Non posso scaricare la pagina web al posto dell'audio.",
                     .unwrap()
                     .article_sources
                     .get(source_index)
-                    .and_then(|source| source.items.get(item_index))
-                    .cloned();
-                if let Some(item) = item {
+                    .and_then(|source| source.items.get(item_index).map(|item| (item.clone(), source_index, item_index)));
+                if let Some((item, source_index, item_index)) = item {
                     show_article_item(
                         &item,
                         &rt_articles_menu,
@@ -18192,6 +18257,9 @@ Non posso scaricare la pagina web al posto dell'audio.",
                         &podcast_selection_menu,
                         &cursor_moved_menu,
                     );
+                    *current_article_state_menu.borrow_mut() = Some((source_index, item_index));
+                    btn_recent_articles_menu.show(true);
+                    panel_menu.layout();
                 }
             }
         });
@@ -18344,6 +18412,43 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let s_play_start = Arc::clone(&settings);
         let podcast_playback_start = Rc::clone(&podcast_playback);
         let cursor_moved_start = Rc::clone(&cursor_moved_by_user);
+        let current_article_state_ra = Rc::clone(&current_article_state);
+        let settings_ra = Arc::clone(&settings);
+        let article_menu_state_ra = Arc::clone(&article_menu_state);
+        let f_ra = frame;
+        let rt_ra = Arc::clone(&rt);
+        let tc_ra = text_ctrl;
+        let podcast_selection_ra = Rc::clone(&podcast_playback);
+        let cursor_moved_ra = Rc::clone(&cursor_moved_by_user);
+        let btn_recent_articles_ra = btn_recent_articles.clone();
+        let panel_ra = panel.clone();
+        let recent_articles_action: Rc<dyn Fn()> = Rc::new(move || {
+            if let Some((source_index, current_item_index)) = current_article_state_ra.borrow().clone() {
+                let source_opt = settings_ra.lock().unwrap().article_sources.get(source_index).cloned();
+                if let Some(source) = source_opt {
+                    let loading_urls = article_menu_state_ra.lock().unwrap().loading_urls.clone();
+                    if let Some((item, _, item_index)) = open_article_source_items_dialog(
+                        &f_ra,
+                        &source,
+                        source_index,
+                        &loading_urls,
+                        current_item_index,
+                    ) {
+                        show_article_item(
+                            &item,
+                            &rt_ra,
+                            &tc_ra,
+                            &podcast_selection_ra,
+                            &cursor_moved_ra,
+                        );
+                        *current_article_state_ra.borrow_mut() = Some((source_index, item_index));
+                        btn_recent_articles_ra.show(true);
+                        panel_ra.layout();
+                    }
+                }
+            }
+        });
+
         let start_action: Rc<dyn Fn()> = Rc::new(move || {
             let selected_episode = podcast_playback_start.borrow().selected_episode.clone();
             if let Some(episode) = selected_episode
@@ -19393,6 +19498,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19414,6 +19520,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19435,6 +19542,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19456,6 +19564,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19477,6 +19586,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19498,6 +19608,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19519,6 +19630,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19540,6 +19652,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19561,6 +19674,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19582,6 +19696,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
@@ -19607,6 +19722,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop: Rc::clone(&stop_action),
                 save: Rc::clone(&save_action),
                 settings: Rc::clone(&settings_action),
+                recent_articles: Rc::clone(&recent_articles_action),
             };
             let podcast_seek_back_shortcut = Rc::clone(&podcast_playback);
             let podcast_seek_forward_shortcut = Rc::clone(&podcast_playback);
