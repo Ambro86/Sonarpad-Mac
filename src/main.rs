@@ -6596,7 +6596,7 @@ fn open_article_source_items_dialog(
 
     let dialog = Dialog::builder(parent, &article_source_label(source))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(620, 180)
+        .with_size(620, 420)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -6610,14 +6610,15 @@ fn open_article_source_items_dialog(
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    let choice = Choice::builder(&panel).build();
+    let listbox = ListBox::builder(&panel).build();
     for item in source.items.iter().take(MAX_MENU_ARTICLES_PER_SOURCE) {
         let label = sanitize_dynamic_menu_label(&item.title, &item.link);
-        choice.append(&label);
+        listbox.append(&label);
     }
-    choice.set_selection(initial_selection as u32);
-    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+    listbox.set_selection(initial_selection as u32, true);
+    listbox.ensure_visible(initial_selection as i32);
+    row.add(&listbox, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 1, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
@@ -6637,7 +6638,7 @@ fn open_article_source_items_dialog(
     });
 
     let result = if dialog.show_modal() == ID_OK {
-        choice
+        listbox
             .get_selection()
             .and_then(|selection| {
                 let selection = selection as usize;
