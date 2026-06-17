@@ -185,6 +185,24 @@ pub fn bdciechi_fetch_list(nprov: &str, latest: bool) -> Result<Vec<String>, Str
         .collect())
 }
 
+
+fn bdciechi_filter_catalog(catalog: &[String], query: &str) -> Vec<String> {
+    let query = query.trim().to_lowercase();
+    catalog
+        .iter()
+        .filter(|item| item.to_lowercase().contains(&query))
+        .cloned()
+        .collect()
+}
+
+fn bdciechi_search_loading_message() -> &'static str {
+    if bdciechi_is_italian_ui() {
+        "Ricerca in corso..."
+    } else {
+        "Searching..."
+    }
+}
+
 pub fn bdciechi_download_work(
     username: &str,
     password: &str,
@@ -758,13 +776,16 @@ fn show_bdciechi_dashboard(
     let search_ref = search_ctrl;
     let cat_ref_s = Arc::clone(&catalog);
     let d_search = dialog;
+    let ui_title_search = ui.bdciechi_title.clone();
     let ui_empty_search = ui.bdciechi_empty_search.clone();
     let sv_search = set_view;
     let ar_search = Arc::clone(&all_results);
     let cp_search = Arc::clone(&current_page);
     let up_search = update_page.clone();
+    let nprov_search = identify.nprov.clone();
+    let results_combo_search_focus = results_combo;
     search_btn.on_click(move |_| {
-        let query = search_ref.get_value().trim().to_lowercase();
+        let query = search_ref.get_value().trim().to_string();
         if query.is_empty() {
             show_bdciechi_message(
                 &d_search,
@@ -774,21 +795,66 @@ fn show_bdciechi_dashboard(
             );
             return;
         }
-        let cat = cat_ref_s.lock().unwrap();
-        if cat.is_empty() {
-            return;
-        }
-        let mut res = Vec::new();
-        for item in cat.iter() {
-            if item.to_lowercase().contains(&query) {
-                res.push(item.clone());
+
+        let loading_message = bdciechi_search_loading_message();
+        let progress = ProgressDialog::builder(&d_search, &ui_title_search, loading_message, 100)
+            .with_style(ProgressDialogStyle::Smooth)
+            .build();
+
+        let result_state: Arc<Mutex<Option<Result<Vec<String>, String>>>> =
+            Arc::new(Mutex::new(None));
+        let result_thread = Arc::clone(&result_state);
+        let cat_thread = Arc::clone(&cat_ref_s);
+        let nprov_thread = nprov_search.clone();
+        let query_thread = query.clone();
+
+        std::thread::spawn(move || {
+            let res = (|| {
+                let cached_catalog = cat_thread.lock().map(|cat| cat.clone()).unwrap_or_default();
+                let catalog_to_search = if cached_catalog.is_empty() {
+                    let fetched_catalog = bdciechi_fetch_list(&nprov_thread, false)?;
+                    if let Ok(mut cat) = cat_thread.lock() {
+                        *cat = fetched_catalog.clone();
+                    }
+                    fetched_catalog
+                } else {
+                    cached_catalog
+                };
+                Ok(bdciechi_filter_catalog(&catalog_to_search, &query_thread))
+            })();
+            *result_thread.lock().unwrap() = Some(res);
+        });
+
+        let mut progress_value = 0;
+        loop {
+            std::thread::sleep(Duration::from_millis(150));
+            if let Some(res) = result_state.lock().unwrap().take() {
+                progress.destroy();
+                match res {
+                    Ok(found) => {
+                        *ar_search.lock().unwrap() = found;
+                        *cp_search.lock().unwrap() = 0;
+                        up_search();
+                        sv_search(false);
+                        results_combo_search_focus.set_focus();
+                    }
+                    Err(e) => {
+                        show_bdciechi_message(
+                            &d_search,
+                            &e,
+                            bdciechi_error_title(),
+                            MessageDialogStyle::OK | MessageDialogStyle::IconError,
+                        );
+                    }
+                }
+                break;
             }
+            progress_value += 3;
+            if progress_value >= 95 {
+                progress_value = 10;
+            }
+            progress.update(progress_value, Some(loading_message));
         }
-        drop(cat);
-        *ar_search.lock().unwrap() = res;
-        *cp_search.lock().unwrap() = 0;
-        up_search();
-        sv_search(false);
     });
 
     let do_action = move |preview: bool,

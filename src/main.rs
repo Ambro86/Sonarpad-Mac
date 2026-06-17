@@ -96,6 +96,7 @@ const ID_RADIO_DELETE_FAVORITE: i32 = 2351;
 const ID_RADIO_ADD: i32 = 2352;
 const ID_RADIO_EDIT_FAVORITE: i32 = 2353;
 const ID_RADIO_REORDER_FAVORITES: i32 = 2354;
+const ID_RADIO_RECORDINGS: i32 = 2355;
 const ID_RAI_AUDIO_DESCRIPTIONS: i32 = 2360;
 const ID_RAIPLAY_BROWSE: i32 = 2361;
 const ID_RAIPLAY_SEARCH: i32 = 2362;
@@ -3310,7 +3311,13 @@ fn open_radio_station(
     station_name: &str,
     stream_url: &str,
 ) -> Result<(), String> {
-    open_stream_with_mpv(stream_url, station_name, None, false)
+    open_stream_with_mpv_recordable(
+        stream_url,
+        station_name,
+        None,
+        false,
+        Some(MpvRecordingConfig::radio(stream_url, station_name)),
+    )
 }
 
 #[derive(Deserialize)]
@@ -4962,6 +4969,9 @@ fn open_radio_results_dialog(
             "Add to favorites"
         })
         .build();
+    let recordings_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" { "Registrazioni" } else { "Recordings" })
+        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(if ui_language == "it" {
@@ -4973,6 +4983,7 @@ fn open_radio_results_dialog(
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&favorite_button, 0, SizerFlag::All, 10);
+    buttons.add(&recordings_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -5105,6 +5116,11 @@ fn open_radio_results_dialog(
                 },
             );
         }
+    });
+
+    let dialog_recordings = dialog;
+    recordings_button.on_click(move |_| {
+        open_recordings_dialog(&dialog_recordings);
     });
 
     let dialog_close = dialog;
@@ -7161,6 +7177,12 @@ fn rebuild_radio_menu(
     }
 
     let _ = radio_menu.append(ID_RADIO_SEARCH, "Cerca...", "Cerca radio", ItemKind::Normal);
+    let _ = radio_menu.append(
+        ID_RADIO_RECORDINGS,
+        if ui_language == "it" { "Registrazioni..." } else { "Recordings..." },
+        if ui_language == "it" { "Registrazioni radio e TV" } else { "Radio and TV recordings" },
+        ItemKind::Normal,
+    );
     let _ = radio_menu.append(
         ID_RADIO_ADD,
         &format!("{}...", ui.add_radio),
@@ -15549,6 +15571,9 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let add_channel_button = Button::builder(&panel)
         .with_label(tv_add_channel_button_label())
         .build();
+    let recordings_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" { "Registrazioni" } else { "Recordings" })
+        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
@@ -15558,6 +15583,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     buttons.add(&guide_button, 0, SizerFlag::All, 10);
     buttons.add(&favorite_button, 0, SizerFlag::All, 10);
     buttons.add(&add_channel_button, 0, SizerFlag::All, 10);
+    buttons.add(&recordings_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -15873,6 +15899,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             );
         }
     });
+    let dialog_recordings = dialog;
+    recordings_button.on_click(move |_| {
+        open_recordings_dialog(&dialog_recordings);
+    });
+
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
@@ -16724,7 +16755,8 @@ fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
 }
 
 fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
-    let preferred_audio_track = if is_tv_rai_audio_description_channel(channel) {
+    let use_rai_audio_description = is_tv_rai_audio_description_channel(channel);
+    let preferred_audio_track = if use_rai_audio_description {
         Some("3")
     } else {
         None
@@ -16737,7 +16769,19 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
         }
     };
 
-    open_stream_with_mpv(&resolved_url, &channel.name, preferred_audio_track, false)
+    let recording_config = if use_rai_audio_description {
+        MpvRecordingConfig::rai_tv_audio_description(&resolved_url, &channel.name)
+    } else {
+        MpvRecordingConfig::tv(&resolved_url, &channel.name)
+    };
+
+    open_stream_with_mpv_recordable(
+        &resolved_url,
+        &channel.name,
+        preferred_audio_track,
+        false,
+        Some(recording_config),
+    )
 }
 
 fn is_tv_rai_audio_description_channel(channel: &tv::TvChannel) -> bool {
@@ -16750,6 +16794,991 @@ fn open_stream_with_mpv(
     title: &str,
     preferred_audio_track: Option<&str>,
     enable_bookmarks: bool,
+) -> Result<(), String> {
+    open_stream_with_mpv_recordable(url, title, preferred_audio_track, enable_bookmarks, None)
+}
+
+#[derive(Clone)]
+struct MpvRecordingConfig {
+    title: String,
+    kind: &'static str,
+    extension: &'static str,
+    ffmpeg_args: Vec<String>,
+}
+
+impl MpvRecordingConfig {
+    fn radio(url: &str, title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            kind: "radio",
+            extension: ".mka",
+            ffmpeg_args: vec![
+                "-nostdin".to_string(),
+                "-hide_banner".to_string(),
+                "-loglevel".to_string(),
+                "warning".to_string(),
+                "-y".to_string(),
+                "-i".to_string(),
+                url.to_string(),
+                "-c".to_string(),
+                "copy".to_string(),
+            ],
+        }
+    }
+
+    fn tv(url: &str, title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            kind: "tv",
+            extension: ".mkv",
+            ffmpeg_args: vec![
+                "-nostdin".to_string(),
+                "-hide_banner".to_string(),
+                "-loglevel".to_string(),
+                "warning".to_string(),
+                "-y".to_string(),
+                "-i".to_string(),
+                url.to_string(),
+                "-map".to_string(),
+                "0".to_string(),
+                "-c".to_string(),
+                "copy".to_string(),
+            ],
+        }
+    }
+
+    fn rai_tv_audio_description(url: &str, title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            kind: "tv",
+            extension: ".mkv",
+            ffmpeg_args: vec![
+                "-nostdin".to_string(),
+                "-hide_banner".to_string(),
+                "-loglevel".to_string(),
+                "warning".to_string(),
+                "-y".to_string(),
+                "-i".to_string(),
+                url.to_string(),
+                "-map".to_string(),
+                "0:v:0".to_string(),
+                "-map".to_string(),
+                "0:a:2?".to_string(),
+                "-map".to_string(),
+                "0:a:0?".to_string(),
+                "-c".to_string(),
+                "copy".to_string(),
+                "-disposition:a:0".to_string(),
+                "default".to_string(),
+            ],
+        }
+    }
+
+    fn rai_separate_audio_description(video_url: &str, audio_url: &str, title: &str) -> Self {
+        Self {
+            title: title.to_string(),
+            kind: "tv",
+            extension: ".mkv",
+            ffmpeg_args: vec![
+                "-nostdin".to_string(),
+                "-hide_banner".to_string(),
+                "-loglevel".to_string(),
+                "warning".to_string(),
+                "-y".to_string(),
+                "-i".to_string(),
+                video_url.to_string(),
+                "-i".to_string(),
+                audio_url.to_string(),
+                "-map".to_string(),
+                "0:v:0".to_string(),
+                "-map".to_string(),
+                "1:a:0".to_string(),
+                "-c".to_string(),
+                "copy".to_string(),
+            ],
+        }
+    }
+}
+
+struct MpvVoiceMessages {
+    recording_started: &'static str,
+    recording_saved: &'static str,
+    recording_failed: &'static str,
+    recording_already_running: &'static str,
+    recording_not_available: &'static str,
+    media_paused: &'static str,
+    media_playing: &'static str,
+    media_stopped: &'static str,
+    live_stream: &'static str,
+    position: &'static str,
+    volume: &'static str,
+    speed: &'static str,
+    percent: &'static str,
+    muted: &'static str,
+    unmuted: &'static str,
+    hours: &'static str,
+    minutes: &'static str,
+    seconds: &'static str,
+}
+
+fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
+    match language {
+        "it" => MpvVoiceMessages {
+            recording_started: "Registrazione avviata",
+            recording_saved: "Registrazione salvata",
+            recording_failed: "Registrazione non avviata",
+            recording_already_running: "Registrazione già in corso",
+            recording_not_available: "Registrazione non disponibile per questo contenuto",
+            media_paused: "Media in pausa",
+            media_playing: "Riproduzione ripresa",
+            media_stopped: "Media interrotto",
+            live_stream: "Diretta",
+            position: "Posizione",
+            volume: "Volume",
+            speed: "Velocità",
+            percent: "per cento",
+            muted: "Audio disattivato",
+            unmuted: "Audio attivato",
+            hours: "ore",
+            minutes: "minuti",
+            seconds: "secondi",
+        },
+        "fr" => MpvVoiceMessages {
+            recording_started: "Enregistrement démarré",
+            recording_saved: "Enregistrement sauvegardé",
+            recording_failed: "Enregistrement non démarré",
+            recording_already_running: "Enregistrement déjà en cours",
+            recording_not_available: "Enregistrement indisponible pour ce contenu",
+            media_paused: "Média en pause",
+            media_playing: "Lecture reprise",
+            media_stopped: "Média arrêté",
+            live_stream: "Direct",
+            position: "Position",
+            volume: "Volume",
+            speed: "Vitesse",
+            percent: "pour cent",
+            muted: "Son désactivé",
+            unmuted: "Son activé",
+            hours: "heures",
+            minutes: "minutes",
+            seconds: "secondes",
+        },
+        "es" => MpvVoiceMessages {
+            recording_started: "Grabación iniciada",
+            recording_saved: "Grabación guardada",
+            recording_failed: "Grabación no iniciada",
+            recording_already_running: "Grabación ya en curso",
+            recording_not_available: "Grabación no disponible para este contenido",
+            media_paused: "Medio en pausa",
+            media_playing: "Reproducción reanudada",
+            media_stopped: "Medio detenido",
+            live_stream: "Directo",
+            position: "Posición",
+            volume: "Volumen",
+            speed: "Velocidad",
+            percent: "por ciento",
+            muted: "Audio desactivado",
+            unmuted: "Audio activado",
+            hours: "horas",
+            minutes: "minutos",
+            seconds: "segundos",
+        },
+        _ => MpvVoiceMessages {
+            recording_started: "Recording started",
+            recording_saved: "Recording saved",
+            recording_failed: "Recording did not start",
+            recording_already_running: "Recording already in progress",
+            recording_not_available: "Recording is not available for this content",
+            media_paused: "Media paused",
+            media_playing: "Playback resumed",
+            media_stopped: "Media stopped",
+            live_stream: "Live stream",
+            position: "Position",
+            volume: "Volume",
+            speed: "Speed",
+            percent: "percent",
+            muted: "Muted",
+            unmuted: "Unmuted",
+            hours: "hours",
+            minutes: "minutes",
+            seconds: "seconds",
+        },
+    }
+}
+
+fn default_recordings_dir() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    {
+        if let Some(home) = std::env::var_os("HOME") {
+            return PathBuf::from(home)
+                .join("Documents")
+                .join("Sonarpad")
+                .join("Registrazioni");
+        }
+    }
+
+    app_storage_path("Registrazioni")
+}
+
+fn recordings_manifest_path() -> PathBuf {
+    default_recordings_dir().join("recordings.tsv")
+}
+
+#[derive(Clone, Debug)]
+struct RecordingEntry {
+    path: PathBuf,
+    title: String,
+    kind: String,
+    saved_at: String,
+}
+
+fn is_recording_media_file(path: &Path) -> bool {
+    let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
+        return false;
+    };
+    matches!(
+        extension.to_lowercase().as_str(),
+        "mkv" | "mka" | "mp3" | "mp4" | "aac" | "ts" | "wav" | "flac" | "ogg"
+    )
+}
+
+fn recording_kind_label(kind: &str) -> &'static str {
+    if Settings::load().ui_language == "it" {
+        match kind {
+            "radio" => "Radio",
+            "tv" => "TV",
+            _ => "Registrazione",
+        }
+    } else {
+        match kind {
+            "radio" => "Radio",
+            "tv" => "TV",
+            _ => "Recording",
+        }
+    }
+}
+
+fn recording_entry_label(entry: &RecordingEntry) -> String {
+    format!(
+        "{} - {} - {}",
+        recording_kind_label(&entry.kind),
+        entry.title,
+        entry.saved_at
+    )
+}
+
+fn recording_title_from_path(path: &Path) -> String {
+    path.file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("Registrazione")
+        .trim()
+        .to_string()
+}
+
+fn recording_time_from_metadata(path: &Path) -> String {
+    std::fs::metadata(path)
+        .and_then(|metadata| metadata.modified())
+        .map(|modified| {
+            let local: chrono::DateTime<chrono::Local> = chrono::DateTime::from(modified);
+            local.format("%Y-%m-%d %H:%M:%S").to_string()
+        })
+        .unwrap_or_else(|_| "".to_string())
+}
+
+fn read_recordings_index() -> Vec<RecordingEntry> {
+    let manifest_path = recordings_manifest_path();
+    let mut entries = Vec::<RecordingEntry>::new();
+    let mut known_paths = HashSet::<PathBuf>::new();
+
+    if let Ok(data) = std::fs::read_to_string(&manifest_path) {
+        for line in data.lines() {
+            let mut parts = line.splitn(4, '\t');
+            let Some(path_text) = parts.next() else { continue };
+            let Some(title) = parts.next() else { continue };
+            let Some(kind) = parts.next() else { continue };
+            let Some(saved_at) = parts.next() else { continue };
+            let path = PathBuf::from(path_text);
+            if path.is_file() {
+                known_paths.insert(path.clone());
+                entries.push(RecordingEntry {
+                    path,
+                    title: title.trim().to_string(),
+                    kind: kind.trim().to_string(),
+                    saved_at: saved_at.trim().to_string(),
+                });
+            }
+        }
+    }
+
+    if let Ok(read_dir) = std::fs::read_dir(default_recordings_dir()) {
+        for item in read_dir.flatten() {
+            let path = item.path();
+            if path.is_file() && is_recording_media_file(&path) && !known_paths.contains(&path) {
+                let title = recording_title_from_path(&path);
+                let kind = if path.extension().and_then(|value| value.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("mka")) {
+                    "radio".to_string()
+                } else {
+                    "recording".to_string()
+                };
+                entries.push(RecordingEntry {
+                    path,
+                    title,
+                    kind,
+                    saved_at: recording_time_from_metadata(&item.path()),
+                });
+            }
+        }
+    }
+
+    entries.sort_by(|left, right| right.saved_at.cmp(&left.saved_at).then_with(|| right.title.cmp(&left.title)));
+    entries.dedup_by(|left, right| left.path == right.path);
+    entries
+}
+
+fn rewrite_recordings_manifest(entries: &[RecordingEntry]) -> Result<(), String> {
+    let dir = default_recordings_dir();
+    std::fs::create_dir_all(&dir).map_err(|err| format!("creazione cartella registrazioni fallita: {err}"))?;
+    let mut data = String::new();
+    for entry in entries.iter().filter(|entry| entry.path.is_file()) {
+        let path = entry.path.to_string_lossy().replace('\t', " ");
+        let title = entry.title.replace('\t', " ");
+        let kind = entry.kind.replace('\t', " ");
+        let saved_at = entry.saved_at.replace('\t', " ");
+        data.push_str(&format!("{path}\t{title}\t{kind}\t{saved_at}\n"));
+    }
+    std::fs::write(recordings_manifest_path(), data)
+        .map_err(|err| format!("aggiornamento elenco registrazioni fallito: {err}"))
+}
+
+fn open_path_with_system(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let status = Command::new("/usr/bin/open")
+        .arg(path)
+        .status()
+        .map_err(|err| format!("apertura file fallita: {err}"))?;
+
+    #[cfg(windows)]
+    let status = Command::new("cmd")
+        .args(["/C", "start", "", &path.to_string_lossy()])
+        .status()
+        .map_err(|err| format!("apertura file fallita: {err}"))?;
+
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
+    let status = Command::new("xdg-open")
+        .arg(path)
+        .status()
+        .map_err(|err| format!("apertura file fallita: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("il sistema non è riuscito ad aprire il file".to_string())
+    }
+}
+
+fn share_recording_with_system(path: &Path) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    let status = Command::new("/usr/bin/open")
+        .arg("-R")
+        .arg(path)
+        .status()
+        .map_err(|err| format!("apertura Finder fallita: {err}"))?;
+
+    #[cfg(windows)]
+    let status = Command::new("explorer")
+        .arg("/select,")
+        .arg(path)
+        .status()
+        .map_err(|err| format!("apertura Esplora file fallita: {err}"))?;
+
+    #[cfg(all(not(target_os = "macos"), not(windows)))]
+    let status = Command::new("xdg-open")
+        .arg(path.parent().unwrap_or_else(|| Path::new(".")))
+        .status()
+        .map_err(|err| format!("apertura cartella fallita: {err}"))?;
+
+    if status.success() {
+        Ok(())
+    } else {
+        Err("il sistema non è riuscito a preparare la condivisione".to_string())
+    }
+}
+
+fn refresh_recordings_choice(choice: &Choice, entries: &[RecordingEntry], selected_index: Option<usize>) {
+    choice.clear();
+    for entry in entries {
+        choice.append(&recording_entry_label(entry));
+    }
+    if !entries.is_empty() {
+        choice.set_selection(selected_index.unwrap_or(0).min(entries.len().saturating_sub(1)) as u32);
+    }
+}
+
+fn open_recordings_dialog(parent: &impl WxWidget) {
+    let ui_language = Settings::load().ui_language;
+    let title = if ui_language == "it" { "Registrazioni" } else { "Recordings" };
+    let mut initial_entries = read_recordings_index();
+    if initial_entries.is_empty() {
+        let dialog = MessageDialog::builder(
+            parent,
+            if ui_language == "it" {
+                "Nessuna registrazione salvata. Avvia una radio o una TV e premi Ctrl+R nel player per registrare."
+            } else {
+                "No saved recordings. Start a radio or TV stream and press Ctrl+R in the player to record."
+            },
+            title,
+        )
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+        .build();
+        localize_standard_dialog_buttons(&dialog);
+        dialog.show_modal();
+        return;
+    }
+
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(700, 180)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel).with_label(title).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice = Choice::builder(&panel).build();
+    refresh_recordings_choice(&choice, &initial_entries, Some(0));
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" { "Apri" } else { "Open" })
+        .build();
+    let delete_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" { "Elimina" } else { "Delete" })
+        .build();
+    let share_button = Button::builder(&panel)
+        .with_label(if ui_language == "it" { "Condividi" } else { "Share" })
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(if ui_language == "it" { "Chiudi" } else { "Close" })
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&delete_button, 0, SizerFlag::All, 10);
+    buttons.add(&share_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let entries = Rc::new(RefCell::new(std::mem::take(&mut initial_entries)));
+
+    let entries_open = Rc::clone(&entries);
+    let choice_open = choice;
+    let dialog_open = dialog;
+    open_button.on_click(move |_| {
+        let Some(selection) = choice_open.get_selection() else { return };
+        let entries = entries_open.borrow();
+        let Some(entry) = entries.get(selection as usize) else { return };
+        if let Err(err) = open_path_with_system(&entry.path) {
+            show_message_subdialog(&dialog_open, title, &err);
+        }
+    });
+
+    let entries_share = Rc::clone(&entries);
+    let choice_share = choice;
+    let dialog_share = dialog;
+    let ui_language_share = ui_language.clone();
+    share_button.on_click(move |_| {
+        let Some(selection) = choice_share.get_selection() else { return };
+        let entries = entries_share.borrow();
+        let Some(entry) = entries.get(selection as usize) else { return };
+        match share_recording_with_system(&entry.path) {
+            Ok(()) => {
+                show_message_subdialog(
+                    &dialog_share,
+                    title,
+                    if ui_language_share == "it" {
+                        "Il file è stato selezionato nel Finder. Usa Condividi dal Finder per inviarlo."
+                    } else {
+                        "The file has been selected in Finder. Use Share from Finder to send it."
+                    },
+                );
+            }
+            Err(err) => show_message_subdialog(&dialog_share, title, &err),
+        }
+    });
+
+    let entries_delete = Rc::clone(&entries);
+    let choice_delete = choice;
+    let dialog_delete = dialog;
+    let panel_delete = panel;
+    let ui_language_delete = ui_language.clone();
+    delete_button.on_click(move |_| {
+        let Some(selection) = choice_delete.get_selection() else { return };
+        let index = selection as usize;
+        let entry = {
+            let entries = entries_delete.borrow();
+            entries.get(index).cloned()
+        };
+        let Some(entry) = entry else { return };
+        let ask = MessageDialog::builder(
+            &dialog_delete,
+            if ui_language_delete == "it" {
+                "Vuoi eliminare questa registrazione?"
+            } else {
+                "Do you want to delete this recording?"
+            },
+            title,
+        )
+        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+        .build();
+        localize_standard_dialog_buttons(&ask);
+        if ask.show_modal() != ID_YES {
+            return;
+        }
+        if let Err(err) = std::fs::remove_file(&entry.path) {
+            show_message_subdialog(&dialog_delete, title, &format!("{}: {err}", if ui_language_delete == "it" { "Eliminazione fallita" } else { "Delete failed" }));
+            return;
+        }
+        {
+            let mut entries = entries_delete.borrow_mut();
+            entries.retain(|item| item.path != entry.path);
+            let _ = rewrite_recordings_manifest(&entries);
+            refresh_recordings_choice(&choice_delete, &entries, Some(index.saturating_sub(1)));
+            let has_entries = !entries.is_empty();
+            choice_delete.enable(has_entries);
+            open_button.enable(has_entries);
+            delete_button.enable(has_entries);
+            share_button.enable(has_entries);
+        }
+        panel_delete.layout();
+        dialog_delete.layout();
+        show_message_subdialog(
+            &dialog_delete,
+            title,
+            if ui_language_delete == "it" {
+                "Registrazione eliminata."
+            } else {
+                "Recording deleted."
+            },
+        );
+    });
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn lua_string_literal(value: &str) -> String {
+    let mut out = String::from("\"");
+    for ch in value.chars() {
+        match ch {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            ch if ch.is_control() => out.push(' '),
+            ch => out.push(ch),
+        }
+    }
+    out.push('"');
+    out
+}
+
+fn write_mpv_accessibility_script(
+    mpv_config_dir: &Path,
+    title: &str,
+    recording: Option<&MpvRecordingConfig>,
+) -> Result<PathBuf, String> {
+    let script_id = uuid::Uuid::new_v4().to_string();
+    let script_path = mpv_config_dir.join(format!("sonarpad-mpv-accessibility-{script_id}.lua"));
+    let pid_path = mpv_config_dir.join(format!("sonarpad-recording-{script_id}.pid"));
+    let language = Settings::load().ui_language;
+    let messages = mpv_voice_messages(&language);
+    let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
+    let recordings_dir = default_recordings_dir();
+    std::fs::create_dir_all(&recordings_dir).map_err(|err| {
+        format!(
+            "creazione cartella registrazioni {} fallita: {}",
+            recordings_dir.display(),
+            err
+        )
+    })?;
+
+    let recording_enabled = recording.is_some();
+    let recording_title = recording
+        .map(|config| sanitize_filename(&config.title))
+        .unwrap_or_else(|| sanitize_filename(title));
+    let recording_extension = recording.map(|config| config.extension).unwrap_or(".mkv");
+    let recording_kind = recording.map(|config| config.kind).unwrap_or("recording");
+    let manifest_path = recordings_manifest_path();
+
+    let mut script = String::new();
+    script.push_str("local mp = require 'mp'\n\n");
+    script.push_str(&format!(
+        "local recording_enabled = {}\n",
+        if recording_enabled { "true" } else { "false" }
+    ));
+    script.push_str(&format!(
+        "local ffmpeg_path = {}\n",
+        lua_string_literal(&ffmpeg_path.to_string_lossy())
+    ));
+    script.push_str(&format!(
+        "local recordings_dir = {}\n",
+        lua_string_literal(&recordings_dir.to_string_lossy())
+    ));
+    script.push_str(&format!(
+        "local recording_title = {}\n",
+        lua_string_literal(&recording_title)
+    ));
+    script.push_str(&format!(
+        "local recording_extension = {}\n",
+        lua_string_literal(recording_extension)
+    ));
+    script.push_str(&format!(
+        "local recording_kind = {}\n",
+        lua_string_literal(recording_kind)
+    ));
+    script.push_str(&format!(
+        "local manifest_file = {}\n",
+        lua_string_literal(&manifest_path.to_string_lossy())
+    ));
+    script.push_str(&format!(
+        "local pid_file = {}\n",
+        lua_string_literal(&pid_path.to_string_lossy())
+    ));
+    script.push_str(&format!(
+        "local msg_recording_started = {}\n",
+        lua_string_literal(messages.recording_started)
+    ));
+    script.push_str(&format!(
+        "local msg_recording_saved = {}\n",
+        lua_string_literal(messages.recording_saved)
+    ));
+    script.push_str(&format!(
+        "local msg_recording_failed = {}\n",
+        lua_string_literal(messages.recording_failed)
+    ));
+    script.push_str(&format!(
+        "local msg_recording_already_running = {}\n",
+        lua_string_literal(messages.recording_already_running)
+    ));
+    script.push_str(&format!(
+        "local msg_recording_not_available = {}\n",
+        lua_string_literal(messages.recording_not_available)
+    ));
+    script.push_str(&format!(
+        "local msg_media_paused = {}\n",
+        lua_string_literal(messages.media_paused)
+    ));
+    script.push_str(&format!(
+        "local msg_media_playing = {}\n",
+        lua_string_literal(messages.media_playing)
+    ));
+    script.push_str(&format!(
+        "local msg_media_stopped = {}\n",
+        lua_string_literal(messages.media_stopped)
+    ));
+    script.push_str(&format!(
+        "local msg_live_stream = {}\n",
+        lua_string_literal(messages.live_stream)
+    ));
+    script.push_str(&format!(
+        "local msg_position = {}\n",
+        lua_string_literal(messages.position)
+    ));
+    script.push_str(&format!(
+        "local msg_volume = {}\n",
+        lua_string_literal(messages.volume)
+    ));
+    script.push_str(&format!(
+        "local msg_speed = {}\n",
+        lua_string_literal(messages.speed)
+    ));
+    script.push_str(&format!(
+        "local msg_percent = {}\n",
+        lua_string_literal(messages.percent)
+    ));
+    script.push_str(&format!(
+        "local msg_muted = {}\n",
+        lua_string_literal(messages.muted)
+    ));
+    script.push_str(&format!(
+        "local msg_unmuted = {}\n",
+        lua_string_literal(messages.unmuted)
+    ));
+    script.push_str(&format!(
+        "local msg_hours = {}\n",
+        lua_string_literal(messages.hours)
+    ));
+    script.push_str(&format!(
+        "local msg_minutes = {}\n",
+        lua_string_literal(messages.minutes)
+    ));
+    script.push_str(&format!(
+        "local msg_seconds = {}\n",
+        lua_string_literal(messages.seconds)
+    ));
+    script.push_str("local ffmpeg_args = {\n");
+    if let Some(config) = recording {
+        for arg in &config.ffmpeg_args {
+            script.push_str("    ");
+            script.push_str(&lua_string_literal(arg));
+            script.push_str(",\n");
+        }
+    }
+    script.push_str("}\n\n");
+    script.push_str(r#"local recording = false
+local current_recording_path = nil
+local quitting_from_key = false
+
+local function speak(text)
+    if text == nil or text == "" then
+        return
+    end
+    mp.command_native_async({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = false,
+        capture_stderr = false,
+        args = {"/usr/bin/say", text}
+    }, function() end)
+end
+
+local function shell_quote(value)
+    value = tostring(value or "")
+    return "'" .. value:gsub("'", "'\\''") .. "'"
+end
+
+local function run_shell_async(command, callback)
+    mp.command_native_async({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = false,
+        capture_stderr = false,
+        args = {"/bin/sh", "-c", command}
+    }, callback or function() end)
+end
+
+local function run_shell_sync(command)
+    return mp.command_native({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = false,
+        capture_stderr = false,
+        args = {"/bin/sh", "-c", command}
+    })
+end
+
+local function build_output_path()
+    return recordings_dir .. "/" .. recording_title .. " - " .. os.date("%Y-%m-%d %H-%M-%S") .. recording_extension
+end
+
+local function ffmpeg_available_command()
+    if ffmpeg_path:find("/", 1, true) then
+        return "[ -x " .. shell_quote(ffmpeg_path) .. " ]"
+    end
+    return "command -v " .. shell_quote(ffmpeg_path) .. " >/dev/null 2>&1"
+end
+
+local function append_recording_manifest_command(path)
+    local saved_at = os.date("%Y-%m-%d %H:%M:%S")
+    return "if [ -s " .. shell_quote(path) .. " ]; then /usr/bin/printf '%s\t%s\t%s\t%s\n' "
+        .. shell_quote(path) .. " "
+        .. shell_quote(recording_title) .. " "
+        .. shell_quote(recording_kind) .. " "
+        .. shell_quote(saved_at) .. " >> " .. shell_quote(manifest_file) .. "; fi"
+end
+
+local function stop_ffmpeg_command(saved_path)
+    return "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. "); fi; "
+        .. "if [ -n \"$pid\" ]; then kill -INT \"$pid\" 2>/dev/null; "
+        .. "for i in 1 2 3 4 5 6 7 8 9 10; do kill -0 \"$pid\" 2>/dev/null || break; sleep 0.2; done; fi; "
+        .. "rm -f " .. shell_quote(pid_file) .. "; "
+        .. append_recording_manifest_command(saved_path)
+end
+
+local function start_recording()
+    if not recording_enabled then
+        speak(msg_recording_not_available)
+        return
+    end
+    if recording then
+        speak(msg_recording_already_running)
+        return
+    end
+    current_recording_path = build_output_path()
+    local args = {}
+    for _, arg in ipairs(ffmpeg_args) do
+        table.insert(args, arg)
+    end
+    table.insert(args, current_recording_path)
+
+    local parts = {shell_quote(ffmpeg_path)}
+    for _, arg in ipairs(args) do
+        table.insert(parts, shell_quote(arg))
+    end
+    local command = ffmpeg_available_command() .. " && /bin/mkdir -p " .. shell_quote(recordings_dir) .. " && ( " .. table.concat(parts, " ") .. " </dev/null >/dev/null 2>&1 & echo $! > " .. shell_quote(pid_file) .. " )"
+    local result = run_shell_sync(command)
+    if result and result.status == 0 then
+        recording = true
+        speak(msg_recording_started)
+    else
+        speak(msg_recording_failed)
+    end
+end
+
+local function stop_recording(announce)
+    if not recording then
+        return
+    end
+    recording = false
+    local saved_path = current_recording_path
+    current_recording_path = nil
+    if saved_path == nil or saved_path == "" then
+        return
+    end
+    local command = stop_ffmpeg_command(saved_path)
+    if announce then
+        run_shell_async(command, function()
+            speak(msg_recording_saved)
+        end)
+    else
+        run_shell_sync(command)
+    end
+end
+
+local function toggle_recording()
+    if recording then
+        stop_recording(true)
+    else
+        start_recording()
+    end
+end
+
+local function readable_position()
+    local seekable = mp.get_property_bool("seekable", false)
+    local pos = mp.get_property_number("time-pos")
+    if not seekable or pos == nil or pos < 0 then
+        return msg_live_stream
+    end
+    local total = math.floor(pos + 0.5)
+    local hours = math.floor(total / 3600)
+    local minutes = math.floor((total % 3600) / 60)
+    local seconds = total % 60
+    if hours > 0 then
+        return msg_position .. " " .. hours .. " " .. msg_hours .. " " .. minutes .. " " .. msg_minutes .. " " .. seconds .. " " .. msg_seconds
+    elseif minutes > 0 then
+        return msg_position .. " " .. minutes .. " " .. msg_minutes .. " " .. seconds .. " " .. msg_seconds
+    else
+        return msg_position .. " " .. seconds .. " " .. msg_seconds
+    end
+end
+
+local function speak_position_later()
+    mp.add_timeout(0.25, function()
+        speak(readable_position())
+    end)
+end
+
+local function toggle_pause_with_speech()
+    mp.commandv("cycle", "pause")
+    if mp.get_property_bool("pause", false) then
+        speak(msg_media_paused)
+    else
+        speak(msg_media_playing)
+    end
+end
+
+local function seek_with_speech(seconds)
+    mp.commandv("seek", tostring(seconds), "relative+keyframes")
+    speak_position_later()
+end
+
+local function volume_with_speech(delta)
+    mp.commandv("add", "volume", tostring(delta))
+    local volume = mp.get_property_number("volume", 0)
+    speak(msg_volume .. " " .. math.floor(volume + 0.5) .. " " .. msg_percent)
+end
+
+local function format_speed(speed)
+    speed = speed or 1
+    local text = string.format("%.2f", speed)
+    text = text:gsub("0+$", ""):gsub("%.$", "")
+    return text .. "x"
+end
+
+local function speed_with_speech(delta)
+    mp.commandv("add", "speed", tostring(delta))
+    local speed = mp.get_property_number("speed", 1)
+    speak(msg_speed .. " " .. format_speed(speed))
+end
+
+local function toggle_mute_with_speech()
+    mp.commandv("cycle", "mute")
+    if mp.get_property_bool("mute", false) then
+        speak(msg_muted)
+    else
+        speak(msg_unmuted)
+    end
+end
+
+local function stop_with_speech()
+    quitting_from_key = true
+    stop_recording(false)
+    speak(msg_media_stopped)
+    mp.commandv("quit")
+end
+
+mp.add_forced_key_binding("SPACE", "sonarpad-pause-speech", toggle_pause_with_speech)
+mp.add_forced_key_binding("RIGHT", "sonarpad-seek-forward-speech", function() seek_with_speech(5) end, {repeatable = true})
+mp.add_forced_key_binding("LEFT", "sonarpad-seek-backward-speech", function() seek_with_speech(-5) end, {repeatable = true})
+mp.add_forced_key_binding("UP", "sonarpad-volume-up-speech", function() volume_with_speech(5) end, {repeatable = true})
+mp.add_forced_key_binding("DOWN", "sonarpad-volume-down-speech", function() volume_with_speech(-5) end, {repeatable = true})
+mp.add_forced_key_binding("+", "sonarpad-speed-up-speech", function() speed_with_speech(0.1) end, {repeatable = true})
+mp.add_forced_key_binding("-", "sonarpad-speed-down-speech", function() speed_with_speech(-0.1) end, {repeatable = true})
+mp.add_forced_key_binding("KP_ADD", "sonarpad-speed-up-speech-keypad", function() speed_with_speech(0.1) end, {repeatable = true})
+mp.add_forced_key_binding("KP_SUBTRACT", "sonarpad-speed-down-speech-keypad", function() speed_with_speech(-0.1) end, {repeatable = true})
+mp.add_forced_key_binding("m", "sonarpad-mute-speech", toggle_mute_with_speech)
+mp.add_forced_key_binding("q", "sonarpad-stop-speech", stop_with_speech)
+mp.add_forced_key_binding("Q", "sonarpad-stop-speech-uppercase", stop_with_speech)
+mp.add_forced_key_binding("ESC", "sonarpad-stop-speech-escape", stop_with_speech)
+mp.add_forced_key_binding("Ctrl+r", "sonarpad-toggle-recording", toggle_recording)
+mp.add_forced_key_binding("Ctrl+R", "sonarpad-toggle-recording-uppercase", toggle_recording)
+
+mp.register_event("shutdown", function()
+    stop_recording(false)
+    if not quitting_from_key then
+        speak(msg_media_stopped)
+    end
+end)
+"#);
+
+    std::fs::write(&script_path, script).map_err(|err| {
+        format!(
+            "scrittura script accessibilità mpv {} fallita: {}",
+            script_path.display(),
+            err
+        )
+    })?;
+    Ok(script_path)
+}
+
+fn open_stream_with_mpv_recordable(
+    url: &str,
+    title: &str,
+    preferred_audio_track: Option<&str>,
+    enable_bookmarks: bool,
+    recording: Option<MpvRecordingConfig>,
 ) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
@@ -16785,6 +17814,10 @@ fn open_stream_with_mpv(
     } else {
         command.arg("--resume-playback=no");
     }
+
+    let accessibility_script = write_mpv_accessibility_script(&mpv_config_dir, title, recording.as_ref())?;
+    command.arg(format!("--script={}", accessibility_script.display()));
+
     if let Some(audio_track) = preferred_audio_track {
         if audio_track == "3" {
             let script_path = write_mpv_preferred_audio_fallback_script(&mpv_config_dir, 3)?;
@@ -16843,7 +17876,18 @@ fn open_raiplay_target_with_mpv(
     target: &raiplay::PlaybackTarget,
     title: &str,
 ) -> Result<(), String> {
-    open_rai_stream_with_mpv(target.playback_url(), title)
+    let recording_config = if let Some(audio_url) = target.audio_description_url() {
+        MpvRecordingConfig::rai_separate_audio_description(target.media_url(), audio_url, title)
+    } else {
+        MpvRecordingConfig::tv(target.media_url(), title)
+    };
+    open_stream_with_mpv_recordable(
+        target.playback_url(),
+        title,
+        None,
+        true,
+        Some(recording_config),
+    )
 }
 
 fn save_rai_direct_media(
@@ -18306,6 +19350,8 @@ fn main() {
                         radio_menu_state_menu.lock().unwrap().dirty = true;
                     }
                 }
+            } else if event.get_id() == ID_RADIO_RECORDINGS {
+                open_recordings_dialog(&f_menu);
             } else if event.get_id() == ID_RADIO_REORDER_FAVORITES {
                 if let Some(reordered_favorites) =
                     open_reorder_radio_favorites_dialog(&f_menu, &settings_menu)
