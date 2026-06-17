@@ -15385,7 +15385,13 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     );
     let favorite_choice = Choice::builder(&panel).build();
     fav_row.add(&favorite_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
+    let favorite_open_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" {
+            "Apri preferito"
+        } else {
+            "Open favorite"
+        })
+        .build();
     fav_row.add(&favorite_open_button, 0, SizerFlag::All, 5);
     let favorite_remove_button = Button::builder(&panel)
         .with_label(if Settings::load().ui_language == "it" {
@@ -15548,10 +15554,30 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     category_row.add(&category_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&category_row, 0, SizerFlag::Expand, 0);
 
+    let channel_row = BoxSizer::builder(Orientation::Horizontal).build();
+    channel_row.add(
+        &StaticText::builder(&panel)
+            .with_label(if Settings::load().ui_language == "it" {
+                "Canale TV"
+            } else {
+                "TV channel"
+            })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let choice = Choice::builder(&panel).build();
-    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    channel_row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&channel_row, 1, SizerFlag::Expand, 0);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let open_button = Button::builder(&panel).with_label(&ui.open).build();
+    let open_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" {
+            "Apri canale"
+        } else {
+            "Open channel"
+        })
+        .build();
     let guide_button = Button::builder(&panel)
         .with_label(tv_guide_button_label())
         .build();
