@@ -10,6 +10,11 @@ use url::Url;
 
 const DEFAULT_IT_FEEDS: &str = include_str!("../i18n/feed_it.txt");
 const DEFAULT_EN_FEEDS: &str = include_str!("../i18n/feed_en.txt");
+const DEFAULT_FR_FEEDS: &str = include_str!("../i18n/feed_fr.txt");
+const DEFAULT_ES_FEEDS: &str = include_str!("../i18n/feed_es.txt");
+const DEFAULT_PT_FEEDS: &str = include_str!("../i18n/feed_pt.txt");
+const DEFAULT_CS_FEEDS: &str = include_str!("../i18n/feed_cs.txt");
+const DEFAULT_PL_FEEDS: &str = include_str!("../i18n/feed_pl.txt");
 pub const CORRIERE_HOME_FEED_URL: &str =
     "https://xml2.corriereobjects.it/feed-hp/homepage-restyle-2025.xml";
 
@@ -67,12 +72,74 @@ pub fn default_english_sources() -> Vec<ArticleSource> {
     parse_default_sources(DEFAULT_EN_FEEDS)
 }
 
-pub fn default_sources_for_ui_language(ui_language: &str) -> Vec<ArticleSource> {
-    if ui_language.eq_ignore_ascii_case("en") {
-        default_english_sources()
-    } else {
-        default_italian_sources()
+pub fn default_french_sources() -> Vec<ArticleSource> {
+    parse_default_sources(DEFAULT_FR_FEEDS)
+}
+
+pub fn default_spanish_sources() -> Vec<ArticleSource> {
+    parse_default_sources(DEFAULT_ES_FEEDS)
+}
+
+pub fn default_portuguese_sources() -> Vec<ArticleSource> {
+    parse_default_sources(DEFAULT_PT_FEEDS)
+}
+
+pub fn default_czech_sources() -> Vec<ArticleSource> {
+    parse_default_sources(DEFAULT_CS_FEEDS)
+}
+
+pub fn default_polish_sources() -> Vec<ArticleSource> {
+    parse_default_sources(DEFAULT_PL_FEEDS)
+}
+
+pub fn normalize_news_language(value: &str) -> String {
+    match value.trim().to_ascii_lowercase().as_str() {
+        "fr" | "french" | "francese" | "français" => "fr".to_string(),
+        "es" | "spanish" | "spagnolo" | "español" => "es".to_string(),
+        "pt" | "portuguese" | "portoghese" | "português" => "pt".to_string(),
+        "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" => "cs".to_string(),
+        "pl" | "polish" | "polacco" | "polski" => "pl".to_string(),
+        _ => "it".to_string(),
     }
+}
+
+pub fn default_sources_for_news_language(news_language: &str) -> Vec<ArticleSource> {
+    match normalize_news_language(news_language).as_str() {
+        "fr" => default_french_sources(),
+        "es" => default_spanish_sources(),
+        "pt" => default_portuguese_sources(),
+        "cs" => default_czech_sources(),
+        "pl" => default_polish_sources(),
+        _ => default_italian_sources(),
+    }
+}
+
+pub fn default_sources_for_ui_language(ui_language: &str) -> Vec<ArticleSource> {
+    match ui_language.trim().to_ascii_lowercase().as_str() {
+        "en" | "english" | "inglese" => default_english_sources(),
+        "fr" | "french" | "francese" | "français" => default_french_sources(),
+        "es" | "spanish" | "spagnolo" | "español" | "espanol" => default_spanish_sources(),
+        "pt" | "portuguese" | "portoghese" | "português" | "portugues" => default_portuguese_sources(),
+        "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" => default_czech_sources(),
+        "pl" | "polish" | "polacco" | "polski" => default_polish_sources(),
+        _ => default_italian_sources(),
+    }
+}
+
+pub fn is_default_source_url_any_news_language(url: &str) -> bool {
+    let normalized = normalize_url(url);
+    [
+        DEFAULT_IT_FEEDS,
+        DEFAULT_EN_FEEDS,
+        DEFAULT_FR_FEEDS,
+        DEFAULT_ES_FEEDS,
+        DEFAULT_PT_FEEDS,
+        DEFAULT_CS_FEEDS,
+        DEFAULT_PL_FEEDS,
+    ]
+    .iter()
+    .flat_map(|feeds| parse_default_sources(feeds))
+    .any(|source| source.url == normalized)
 }
 
 pub fn normalize_url(input: &str) -> String {

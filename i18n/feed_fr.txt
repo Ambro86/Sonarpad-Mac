@@ -1,0 +1,28 @@
+Google News France | https://news.google.com/rss?hl=fr&gl=FR&ceid=FR:fr
+Google News France - France | https://news.google.com/news/rss/headlines/section/topic/NATION?hl=fr&gl=FR&ceid=FR:fr
+Google News France - Monde | https://news.google.com/news/rss/headlines/section/topic/WORLD?hl=fr&gl=FR&ceid=FR:fr
+Google News France - Économie | https://news.google.com/news/rss/headlines/section/topic/BUSINESS?hl=fr&gl=FR&ceid=FR:fr
+Google News France - Science & Tech | https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY?hl=fr&gl=FR&ceid=FR:fr
+Google News France - Divertissement | https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT?hl=fr&gl=FR&ceid=FR:fr
+Google News France - Sports | https://news.google.com/news/rss/headlines/section/topic/SPORTS?hl=fr&gl=FR&ceid=FR:fr
+Google News France - Santé | https://news.google.com/news/rss/headlines/section/topic/HEALTH?hl=fr&gl=FR&ceid=FR:fr
+Le Monde | https://www.lemonde.fr/rss/une.xml
+Le Figaro | https://www.lefigaro.fr/rss/figaro_actualites.xml
+France Info | https://www.francetvinfo.fr/titres.rss
+Libération | http://rss.liberation.fr/rss/latest/
+Les Échos | https://services.lesechos.fr/rss/les-echos-economie.xml
+L'Express | https://www.lexpress.fr/rss/alaune.xml
+20 Minutes | https://www.20minutes.fr/feeds/rss-une.xml
+BFM TV | https://www.bfmtv.com/rss/news-24-7/
+La Croix | https://www.la-croix.com/RSS/UNIVERS
+L'Humanité | https://www.humanite.fr/rss
+Science et Avenir | https://www.sciencesetavenir.fr/rss.xml
+Presse-Citron | https://www.presse-citron.net/feed/
+Frandroid | https://www.frandroid.com/feed
+Numerama | https://www.numerama.com/feed/
+ZDNet France | https://www.zdnet.fr/feeds/rss/actualites/
+Clubic | https://www.clubic.com/feed/news.rss
+Gamekult | https://www.gamekult.com/feed.xml
+Allociné | https://www.allocine.fr/rss/news.xml
+L'Équipe | https://news.google.com/rss/search?q=site%3Alequipe.fr&hl=fr&gl=FR&ceid=FR:fr
+Eurosport | https://news.google.com/rss/search?q=site%3Aeurosport.fr&hl=fr&gl=FR&ceid=FR:fr

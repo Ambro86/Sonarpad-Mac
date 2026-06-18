@@ -94,19 +94,27 @@ fn routes_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|err| err.to_string())
 }
 
-fn language_code() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "it"
-    } else {
-        "en"
+fn route_language_code() -> &'static str {
+    match Settings::load().ui_language.as_str() {
+        "it" => "it",
+        "fr" => "fr",
+        "es" => "es",
+        "pt" => "pt",
+        "cs" => "cs",
+        "pl" => "pl",
+        _ => "en",
     }
 }
 
-fn country_alpha3() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "ITA"
-    } else {
-        "USA"
+fn route_country_alpha3() -> &'static str {
+    match Settings::load().ui_language.as_str() {
+        "it" => "ITA",
+        "fr" => "FRA",
+        "es" => "ESP",
+        "pt" => "PRT",
+        "cs" => "CZE",
+        "pl" => "POL",
+        _ => "USA",
     }
 }
 
@@ -123,8 +131,8 @@ fn geocode(query: &str) -> Result<Vec<GeocodeCandidate>, String> {
         .append_pair("size", "20")
         .append_pair("layers", "address,street,venue")
         .append_pair("sources", "osm,oa")
-        .append_pair("boundary.country", country_alpha3())
-        .append_pair("language", language_code());
+        .append_pair("boundary.country", route_country_alpha3())
+        .append_pair("language", route_language_code());
 
     let resp = routes_client()?
         .get(url)
@@ -168,8 +176,8 @@ fn calculate_route(
         .append_pair("preference", preference)
         .append_pair("avoid", "")
         .append_pair("include_municipalities", "0")
-        .append_pair("language", language_code())
-        .append_pair("boundary.country", country_alpha3());
+        .append_pair("language", route_language_code())
+        .append_pair("boundary.country", route_country_alpha3());
 
     let resp = routes_client()?
         .get(url)

@@ -1,3 +1,4 @@
+use crate::Settings;
 use feed_rs::parser;
 use serde::{Deserialize, Serialize};
 use std::collections::HashSet;
@@ -177,7 +178,51 @@ pub fn apple_categories_it() -> Vec<PodcastCategory> {
 }
 
 pub fn apple_categories(ui_language: &str) -> Vec<PodcastCategory> {
-    if ui_language.eq_ignore_ascii_case("en") {
+    if ui_language.eq_ignore_ascii_case("cs") {
+        vec![
+            PodcastCategory { id: 1301, name: "Umění".to_string() },
+            PodcastCategory { id: 1321, name: "Byznys".to_string() },
+            PodcastCategory { id: 1303, name: "Komedie".to_string() },
+            PodcastCategory { id: 1304, name: "Vzdělávání".to_string() },
+            PodcastCategory { id: 1483, name: "Fikce".to_string() },
+            PodcastCategory { id: 1511, name: "Vláda".to_string() },
+            PodcastCategory { id: 1512, name: "Zdraví a fitness".to_string() },
+            PodcastCategory { id: 1487, name: "Historie".to_string() },
+            PodcastCategory { id: 1305, name: "Děti a rodina".to_string() },
+            PodcastCategory { id: 1502, name: "Volný čas".to_string() },
+            PodcastCategory { id: 1310, name: "Hudba".to_string() },
+            PodcastCategory { id: 1489, name: "Zprávy".to_string() },
+            PodcastCategory { id: 1314, name: "Náboženství a spiritualita".to_string() },
+            PodcastCategory { id: 1533, name: "Věda".to_string() },
+            PodcastCategory { id: 1324, name: "Společnost a kultura".to_string() },
+            PodcastCategory { id: 1545, name: "Sport".to_string() },
+            PodcastCategory { id: 1318, name: "Technologie".to_string() },
+            PodcastCategory { id: 1488, name: "True crime".to_string() },
+            PodcastCategory { id: 1309, name: "TV a film".to_string() },
+        ]
+    } else if ui_language.eq_ignore_ascii_case("fr") {
+        vec![
+            PodcastCategory { id: 1301, name: "Arts".to_string() },
+            PodcastCategory { id: 1321, name: "Affaires".to_string() },
+            PodcastCategory { id: 1303, name: "Comédie".to_string() },
+            PodcastCategory { id: 1304, name: "Éducation".to_string() },
+            PodcastCategory { id: 1483, name: "Fiction".to_string() },
+            PodcastCategory { id: 1511, name: "Gouvernement".to_string() },
+            PodcastCategory { id: 1512, name: "Santé et forme".to_string() },
+            PodcastCategory { id: 1487, name: "Histoire".to_string() },
+            PodcastCategory { id: 1305, name: "Enfants et famille".to_string() },
+            PodcastCategory { id: 1502, name: "Loisirs".to_string() },
+            PodcastCategory { id: 1310, name: "Musique".to_string() },
+            PodcastCategory { id: 1489, name: "Actualités".to_string() },
+            PodcastCategory { id: 1314, name: "Religion et spiritualité".to_string() },
+            PodcastCategory { id: 1533, name: "Sciences".to_string() },
+            PodcastCategory { id: 1324, name: "Société et culture".to_string() },
+            PodcastCategory { id: 1545, name: "Sports".to_string() },
+            PodcastCategory { id: 1318, name: "Technologie".to_string() },
+            PodcastCategory { id: 1488, name: "True crime".to_string() },
+            PodcastCategory { id: 1309, name: "TV et cinéma".to_string() },
+        ]
+    } else if ui_language.eq_ignore_ascii_case("en") {
         vec![
             PodcastCategory {
                 id: 1301,
@@ -261,14 +306,28 @@ pub fn apple_categories(ui_language: &str) -> Vec<PodcastCategory> {
     }
 }
 
+
+fn podcast_country_code() -> &'static str {
+    match Settings::load().ui_language.as_str() {
+        "it" => "it",
+        "fr" => "fr",
+        "es" => "es",
+        "pt" => "pt",
+        "cs" => "cz",
+        "pl" => "pl",
+        _ => "us",
+    }
+}
+
 pub async fn search_itunes_podcasts(keyword: &str) -> Result<Vec<PodcastSearchResult>, String> {
     let trimmed = keyword.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
     let query: String = url::form_urlencoded::byte_serialize(trimmed.as_bytes()).collect();
+    let country = podcast_country_code();
     let url = format!(
-        "https://itunes.apple.com/search?media=podcast&entity=podcast&term={query}&country=it&limit=20"
+        "https://itunes.apple.com/search?media=podcast&entity=podcast&term={query}&country={country}&limit=20"
     );
     fetch_itunes_results(&url).await
 }
@@ -337,8 +396,9 @@ async fn search_spreaker_podcasts(keyword: &str) -> Result<Vec<PodcastSearchResu
 }
 
 pub async fn search_itunes_category(category_id: u32) -> Result<Vec<PodcastSearchResult>, String> {
+    let country = podcast_country_code();
     let top_url =
-        format!("https://itunes.apple.com/it/rss/toppodcasts/limit=20/genre={category_id}/json");
+        format!("https://itunes.apple.com/{country}/rss/toppodcasts/limit=20/genre={category_id}/json");
     let top_ids = fetch_apple_top_ids(&top_url).await?;
     if !top_ids.is_empty()
         && let Some(lookup_url) = build_lookup_url(&top_ids)
@@ -350,7 +410,7 @@ pub async fn search_itunes_category(category_id: u32) -> Result<Vec<PodcastSearc
     }
 
     let url = format!(
-        "https://itunes.apple.com/search?media=podcast&entity=podcast&genreId={category_id}&country=it&limit=20"
+        "https://itunes.apple.com/search?media=podcast&entity=podcast&genreId={category_id}&country={country}&limit=20"
     );
     let results = fetch_itunes_results_filtered(&url, Some(category_id)).await?;
     if results.is_empty() {
@@ -659,8 +719,9 @@ fn build_lookup_url(ids: &[u64]) -> Option<String> {
         .map(|id| id.to_string())
         .collect::<Vec<String>>()
         .join(",");
+    let country = podcast_country_code();
     Some(format!(
-        "https://itunes.apple.com/lookup?id={joined}&country=it"
+        "https://itunes.apple.com/lookup?id={joined}&country={country}"
     ))
 }
 

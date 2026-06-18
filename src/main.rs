@@ -306,6 +306,8 @@ struct TvFavorite {
 struct Settings {
     #[serde(default = "default_ui_language")]
     ui_language: String,
+    #[serde(default = "default_news_language")]
+    news_language: String,
     language: String,
     voice: String,
     rate: i32,
@@ -351,11 +353,13 @@ impl Settings {
             && let Ok(mut settings) = serde_json::from_str::<Settings>(&data)
         {
             settings.ui_language = normalize_ui_language(&settings.ui_language);
+            settings.news_language = normalize_news_language(&settings.news_language);
             normalize_settings_data(&mut settings);
             return settings;
         }
         let mut settings = Settings {
             ui_language: default_ui_language(),
+            news_language: default_news_language(),
             language: "Italiano".to_string(),
             voice: "".to_string(),
             rate: 0,
@@ -398,6 +402,18 @@ fn default_ui_language() -> String {
             if lower.starts_with("it") {
                 return "it".to_string();
             }
+            if lower.starts_with("es") {
+                return "es".to_string();
+            }
+            if lower.starts_with("pt") {
+                return "pt".to_string();
+            }
+            if lower.starts_with("cs") || lower.starts_with("cz") {
+                return "cs".to_string();
+            }
+            if lower.starts_with("pl") {
+                return "pl".to_string();
+            }
             if !lower.trim().is_empty() {
                 return "en".to_string();
             }
@@ -410,12 +426,32 @@ fn default_ui_language() -> String {
         if lower.starts_with("it") {
             return "it".to_string();
         }
+        if lower.starts_with("es") {
+            return "es".to_string();
+        }
+        if lower.starts_with("pt") {
+            return "pt".to_string();
+        }
+        if lower.starts_with("cs") || lower.starts_with("cz") {
+            return "cs".to_string();
+        }
+        if lower.starts_with("pl") {
+            return "pl".to_string();
+        }
         if !lower.trim().is_empty() {
             return "en".to_string();
         }
     }
 
     "en".to_string()
+}
+
+fn default_news_language() -> String {
+    "it".to_string()
+}
+
+fn normalize_news_language(value: &str) -> String {
+    articles::normalize_news_language(value)
 }
 
 fn default_audiobook_format() -> String {
@@ -448,11 +484,40 @@ fn macos_system_locale() -> Option<String> {
 }
 
 fn normalize_ui_language(value: &str) -> String {
-    if value.eq_ignore_ascii_case("en") || value.eq_ignore_ascii_case("english") {
-        "en".to_string()
-    } else {
-        "it".to_string()
+    match value.trim().to_ascii_lowercase().as_str() {
+        "en" | "english" | "inglese" => "en".to_string(),
+        "fr" | "french" | "francese" | "français" | "francais" => "fr".to_string(),
+        "es" | "spanish" | "spagnolo" | "español" | "espanol" => "es".to_string(),
+        "pt" | "portuguese" | "portoghese" | "português" | "portugues" => "pt".to_string(),
+        "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" | "cestina" | "česky" | "cesky" => "cs".to_string(),
+        "pl" | "polish" | "polacco" | "polski" | "polonais" => "pl".to_string(),
+        _ => "it".to_string(),
     }
+}
+
+
+fn is_ui_language_it() -> bool {
+    Settings::load().ui_language == "it"
+}
+
+fn is_ui_language_es() -> bool {
+    Settings::load().ui_language == "es"
+}
+
+fn is_ui_language_fr() -> bool {
+    Settings::load().ui_language == "fr"
+}
+
+fn is_ui_language_pt() -> bool {
+    Settings::load().ui_language == "pt"
+}
+
+fn is_ui_language_cs() -> bool {
+    Settings::load().ui_language == "cs"
+}
+
+fn is_ui_language_pl() -> bool {
+    Settings::load().ui_language == "pl"
 }
 
 fn system_language_code() -> String {
@@ -515,7 +580,12 @@ fn radio_menu_languages() -> Vec<(String, String)> {
         ("zh".to_string(), get_language_name("zh")),
     ];
 
-    let preferred = system_language_code();
+    let ui_preferred = normalize_ui_language(&Settings::load().ui_language);
+    let preferred = if matches!(ui_preferred.as_str(), "it" | "en" | "es" | "pt" | "cs" | "pl") {
+        ui_preferred
+    } else {
+        system_language_code()
+    };
     if let Some(index) = items.iter().position(|(code, _)| *code == preferred) {
         let item = items.remove(index);
         items.insert(0, item);
@@ -527,21 +597,24 @@ fn radio_menu_languages() -> Vec<(String, String)> {
 }
 
 fn radio_menu_entry_label(code: &str) -> String {
+    let ui_language = Settings::load().ui_language;
     match code {
-        "country:de" => {
-            if Settings::load().ui_language == "it" {
-                "Germania".to_string()
-            } else {
-                "Germany".to_string()
-            }
-        }
-        "country:ch" => {
-            if Settings::load().ui_language == "it" {
-                "Svizzera".to_string()
-            } else {
-                "Switzerland".to_string()
-            }
-        }
+        "country:de" => match ui_language.as_str() {
+            "it" => "Germania".to_string(),
+            "es" => "Alemania".to_string(),
+            "pt" => "Alemanha".to_string(),
+            "cs" => "Německo".to_string(),
+            "pl" => "Niemcy".to_string(),
+            _ => "Germany".to_string(),
+        },
+        "country:ch" => match ui_language.as_str() {
+            "it" => "Svizzera".to_string(),
+            "es" => "Suiza".to_string(),
+            "pt" => "Suíça".to_string(),
+            "cs" => "Švýcarsko".to_string(),
+            "pl" => "Szwajcaria".to_string(),
+            _ => "Switzerland".to_string(),
+        },
         _ => get_language_name(code),
     }
 }
@@ -552,6 +625,7 @@ struct UiStrings {
     about_title: String,
     donations_title: String,
     interface_language_label: String,
+    news_language_label: String,
     voice_language_label: String,
     voice_label: String,
     rate_label: String,
@@ -930,11 +1004,20 @@ fn parse_ui_strings(data: &str) -> UiStrings {
 fn ui_strings(ui_language: &str) -> &'static UiStrings {
     static UI_IT: OnceLock<UiStrings> = OnceLock::new();
     static UI_EN: OnceLock<UiStrings> = OnceLock::new();
+    static UI_FR: OnceLock<UiStrings> = OnceLock::new();
+    static UI_ES: OnceLock<UiStrings> = OnceLock::new();
+    static UI_PT: OnceLock<UiStrings> = OnceLock::new();
+    static UI_CS: OnceLock<UiStrings> = OnceLock::new();
+    static UI_PL: OnceLock<UiStrings> = OnceLock::new();
 
-    if normalize_ui_language(ui_language) == "en" {
-        UI_EN.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_en.json")))
-    } else {
-        UI_IT.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_it.json")))
+    match normalize_ui_language(ui_language).as_str() {
+        "en" => UI_EN.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_en.json"))),
+        "fr" => UI_FR.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_fr.json"))),
+        "es" => UI_ES.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_es.json"))),
+        "pt" => UI_PT.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_pt.json"))),
+        "cs" => UI_CS.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_cs.json"))),
+        "pl" => UI_PL.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_pl.json"))),
+        _ => UI_IT.get_or_init(|| parse_ui_strings(include_str!("../i18n/ui_it.json"))),
     }
 }
 
@@ -972,11 +1055,15 @@ fn automatic_background_refresh_enabled() -> bool {
 }
 
 fn get_language_name(locale: &str) -> String {
-    if Settings::load().ui_language == "en" {
-        return get_language_name_en(locale);
+    match Settings::load().ui_language.as_str() {
+        "en" => get_language_name_en(locale),
+        "fr" => get_language_name_fr(locale),
+        "es" => get_language_name_es(locale),
+        "pt" => get_language_name_pt(locale),
+        "cs" => get_language_name_cs(locale),
+        "pl" => get_language_name_pl(locale),
+        _ => get_language_name_it(locale),
     }
-
-    get_language_name_it(locale)
 }
 
 fn get_language_name_en(locale: &str) -> String {
@@ -1012,6 +1099,7 @@ fn get_language_name_en(locale: &str) -> String {
         "id" => "Indonesian".to_string(),
         "is" => "Icelandic".to_string(),
         "pt" => "Portuguese".to_string(),
+        "cs" => "Czech".to_string(),
         "kk" => "Kazakh".to_string(),
         "km" => "Khmer".to_string(),
         "kn" => "Kannada".to_string(),
@@ -1050,6 +1138,233 @@ fn get_language_name_en(locale: &str) -> String {
         "zh" => "Chinese".to_string(),
         "ja" => "Japanese".to_string(),
         "zu" => "Zulu".to_string(),
+        _ => locale.to_string(),
+    }
+}
+
+fn get_language_name_fr(locale: &str) -> String {
+    let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
+    match base.as_str() {
+        "af" => "Afrikaans".to_string(),
+        "am" => "Amharique".to_string(),
+        "ar" => "Arabe".to_string(),
+        "az" => "Azéri".to_string(),
+        "bg" => "Bulgare".to_string(),
+        "bn" => "Bengali".to_string(),
+        "bs" => "Bosniaque".to_string(),
+        "ca" => "Catalan".to_string(),
+        "cs" => "Tchèque".to_string(),
+        "cy" => "Gallois".to_string(),
+        "da" => "Danois".to_string(),
+        "it" => "Italien".to_string(),
+        "en" => "Anglais".to_string(),
+        "fr" => "Français".to_string(),
+        "es" => "Espagnol".to_string(),
+        "pt" => "Portugais".to_string(),
+        "de" => "Allemand".to_string(),
+        "el" => "Grec".to_string(),
+        "et" => "Estonien".to_string(),
+        "fa" => "Persan".to_string(),
+        "fi" => "Finnois".to_string(),
+        "hi" => "Hindi".to_string(),
+        "hr" => "Croate".to_string(),
+        "hu" => "Hongrois".to_string(),
+        "lt" => "Lituanien".to_string(),
+        "nl" => "Néerlandais".to_string(),
+        "pl" => "Polonais".to_string(),
+        "ro" => "Roumain".to_string(),
+        "ru" => "Russe".to_string(),
+        "sk" => "Slovaque".to_string(),
+        "sl" => "Slovène".to_string(),
+        "sr" => "Serbe".to_string(),
+        "sv" => "Suédois".to_string(),
+        "tr" => "Turc".to_string(),
+        "uk" => "Ukrainien".to_string(),
+        "vi" => "Vietnamien".to_string(),
+        "zh" => "Chinois".to_string(),
+        "ja" => "Japonais".to_string(),
+        _ => locale.to_string(),
+    }
+}
+
+
+fn get_language_name_es(locale: &str) -> String {
+    let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
+    match base.as_str() {
+        "af" => "Afrikáans".to_string(),
+        "am" => "Amárico".to_string(),
+        "ar" => "Árabe".to_string(),
+        "az" => "Azerí".to_string(),
+        "bg" => "Búlgaro".to_string(),
+        "bn" => "Bengalí".to_string(),
+        "bs" => "Bosnio".to_string(),
+        "ca" => "Catalán".to_string(),
+        "cs" => "Checo".to_string(),
+        "cy" => "Galés".to_string(),
+        "da" => "Danés".to_string(),
+        "it" => "Italiano".to_string(),
+        "en" => "Inglés".to_string(),
+        "fr" => "Francés".to_string(),
+        "es" => "Español".to_string(),
+        "de" => "Alemán".to_string(),
+        "el" => "Griego".to_string(),
+        "et" => "Estonio".to_string(),
+        "fa" => "Persa".to_string(),
+        "fi" => "Finés".to_string(),
+        "hi" => "Hindi".to_string(),
+        "hr" => "Croata".to_string(),
+        "hu" => "Húngaro".to_string(),
+        "pt" => "Portugués".to_string(),
+        "lt" => "Lituano".to_string(),
+        "nl" => "Neerlandés".to_string(),
+        "pl" => "Polaco".to_string(),
+        "ro" => "Rumano".to_string(),
+        "ru" => "Ruso".to_string(),
+        "sk" => "Eslovaco".to_string(),
+        "sl" => "Esloveno".to_string(),
+        "sr" => "Serbio".to_string(),
+        "sv" => "Sueco".to_string(),
+        "tr" => "Turco".to_string(),
+        "uk" => "Ucraniano".to_string(),
+        "vi" => "Vietnamita".to_string(),
+        "zh" => "Chino".to_string(),
+        "ja" => "Japonés".to_string(),
+        _ => locale.to_string(),
+    }
+}
+
+fn get_language_name_pt(locale: &str) -> String {
+    let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
+    match base.as_str() {
+        "af" => "Africâner".to_string(),
+        "am" => "Amárico".to_string(),
+        "ar" => "Árabe".to_string(),
+        "az" => "Azeri".to_string(),
+        "bg" => "Búlgaro".to_string(),
+        "bn" => "Bengali".to_string(),
+        "bs" => "Bósnio".to_string(),
+        "ca" => "Catalão".to_string(),
+        "cs" => "Checo".to_string(),
+        "cy" => "Galês".to_string(),
+        "da" => "Dinamarquês".to_string(),
+        "it" => "Italiano".to_string(),
+        "en" => "Inglês".to_string(),
+        "fr" => "Francês".to_string(),
+        "es" => "Espanhol".to_string(),
+        "pt" => "Português".to_string(),
+        "de" => "Alemão".to_string(),
+        "el" => "Grego".to_string(),
+        "et" => "Estónio".to_string(),
+        "fa" => "Persa".to_string(),
+        "fi" => "Finlandês".to_string(),
+        "hi" => "Hindi".to_string(),
+        "hr" => "Croata".to_string(),
+        "hu" => "Húngaro".to_string(),
+        "lt" => "Lituano".to_string(),
+        "nl" => "Neerlandês".to_string(),
+        "pl" => "Polaco".to_string(),
+        "ro" => "Romeno".to_string(),
+        "ru" => "Russo".to_string(),
+        "sk" => "Eslovaco".to_string(),
+        "sl" => "Esloveno".to_string(),
+        "sr" => "Sérvio".to_string(),
+        "sv" => "Sueco".to_string(),
+        "tr" => "Turco".to_string(),
+        "uk" => "Ucraniano".to_string(),
+        "vi" => "Vietnamita".to_string(),
+        "zh" => "Chinês".to_string(),
+        "ja" => "Japonês".to_string(),
+        _ => locale.to_string(),
+    }
+}
+
+
+fn get_language_name_cs(locale: &str) -> String {
+    let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
+    match base.as_str() {
+        "af" => "Afrikánština".to_string(),
+        "am" => "Amharština".to_string(),
+        "ar" => "Arabština".to_string(),
+        "az" => "Ázerbájdžánština".to_string(),
+        "bg" => "Bulharština".to_string(),
+        "bn" => "Bengálština".to_string(),
+        "bs" => "Bosenština".to_string(),
+        "ca" => "Katalánština".to_string(),
+        "cs" => "Čeština".to_string(),
+        "cy" => "Velština".to_string(),
+        "da" => "Dánština".to_string(),
+        "it" => "Italština".to_string(),
+        "en" => "Angličtina".to_string(),
+        "fr" => "Francouzština".to_string(),
+        "es" => "Španělština".to_string(),
+        "pt" => "Portugalština".to_string(),
+        "de" => "Němčina".to_string(),
+        "el" => "Řečtina".to_string(),
+        "et" => "Estonština".to_string(),
+        "fa" => "Perština".to_string(),
+        "fi" => "Finština".to_string(),
+        "hi" => "Hindština".to_string(),
+        "hr" => "Chorvatština".to_string(),
+        "hu" => "Maďarština".to_string(),
+        "lt" => "Litevština".to_string(),
+        "nl" => "Nizozemština".to_string(),
+        "pl" => "Polština".to_string(),
+        "ro" => "Rumunština".to_string(),
+        "ru" => "Ruština".to_string(),
+        "sk" => "Slovenština".to_string(),
+        "sl" => "Slovinština".to_string(),
+        "sr" => "Srbština".to_string(),
+        "sv" => "Švédština".to_string(),
+        "tr" => "Turečtina".to_string(),
+        "uk" => "Ukrajinština".to_string(),
+        "vi" => "Vietnamština".to_string(),
+        "zh" => "Čínština".to_string(),
+        "ja" => "Japonština".to_string(),
+        _ => locale.to_string(),
+    }
+}
+
+fn get_language_name_pl(locale: &str) -> String {
+    let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
+    match base.as_str() {
+        "af" => "Afrykanerski".to_string(),
+        "am" => "Amharski".to_string(),
+        "ar" => "Arabski".to_string(),
+        "az" => "Azerski".to_string(),
+        "bg" => "Bułgarski".to_string(),
+        "bn" => "Bengalski".to_string(),
+        "bs" => "Bośniacki".to_string(),
+        "ca" => "Kataloński".to_string(),
+        "cs" => "Czeski".to_string(),
+        "cy" => "Walijski".to_string(),
+        "da" => "Duński".to_string(),
+        "it" => "Włoski".to_string(),
+        "en" => "Angielski".to_string(),
+        "fr" => "Francuski".to_string(),
+        "es" => "Hiszpański".to_string(),
+        "pt" => "Portugalski".to_string(),
+        "de" => "Niemiecki".to_string(),
+        "el" => "Grecki".to_string(),
+        "et" => "Estoński".to_string(),
+        "fa" => "Perski".to_string(),
+        "fi" => "Fiński".to_string(),
+        "hi" => "Hindi".to_string(),
+        "hr" => "Chorwacki".to_string(),
+        "hu" => "Węgierski".to_string(),
+        "lt" => "Litewski".to_string(),
+        "nl" => "Niderlandzki".to_string(),
+        "pl" => "Polski".to_string(),
+        "ro" => "Rumuński".to_string(),
+        "ru" => "Rosyjski".to_string(),
+        "sk" => "Słowacki".to_string(),
+        "sl" => "Słoweński".to_string(),
+        "sr" => "Serbski".to_string(),
+        "sv" => "Szwedzki".to_string(),
+        "tr" => "Turecki".to_string(),
+        "uk" => "Ukraiński".to_string(),
+        "vi" => "Wietnamski".to_string(),
+        "zh" => "Chiński".to_string(),
+        "ja" => "Japoński".to_string(),
         _ => locale.to_string(),
     }
 }
@@ -1467,11 +1782,16 @@ fn about_message() -> String {
 }
 
 fn changelog_message() -> String {
-    if Settings::load().ui_language == "it" {
-        include_str!("../changelog_it.md").replace("{version}", env!("CARGO_PKG_VERSION"))
-    } else {
-        include_str!("../changelog_en.md").replace("{version}", env!("CARGO_PKG_VERSION"))
-    }
+    let template = match normalize_ui_language(&Settings::load().ui_language).as_str() {
+        "it" => include_str!("../changelog_it.md"),
+        "fr" => include_str!("../changelog_fr.md"),
+        "es" => include_str!("../changelog_es.md"),
+        "pt" => include_str!("../changelog_pt.md"),
+        "cs" => include_str!("../changelog_cs.md"),
+        "pl" => include_str!("../changelog_pl.md"),
+        _ => include_str!("../changelog_en.md"),
+    };
+    template.replace("{version}", env!("CARGO_PKG_VERSION"))
 }
 
 fn donations_title() -> &'static str {
@@ -3399,9 +3719,34 @@ struct CommunityRadio {
 }
 
 
+fn default_radio_country_code_for_ui_language(ui_language: &str) -> &'static str {
+    match normalize_ui_language(ui_language).as_str() {
+        "it" => "it",
+        "fr" => "fr",
+        "es" => "es",
+        "pt" => "pt",
+        "cs" => "cz",
+        "pl" => "pl",
+        _ => "us",
+    }
+}
+
+fn rotate_country_options_to_default(
+    mut items: Vec<(&'static str, &'static str, &'static str)>,
+    ui_language: &str,
+) -> Vec<(&'static str, &'static str, &'static str)> {
+    let default_code = default_radio_country_code_for_ui_language(ui_language);
+    if let Some(index) = items.iter().position(|(code, _, _)| *code == default_code) {
+        let item = items.remove(index);
+        items.insert(0, item);
+    }
+    items
+}
+
 fn radio_country_options() -> Vec<(&'static str, &'static str, &'static str)> {
-    if Settings::load().ui_language == "it" {
-        vec![
+    let ui_language = Settings::load().ui_language;
+    let items = match ui_language.as_str() {
+        "it" => vec![
             ("it", "Italia", "Italy"),
             ("us", "Stati Uniti", "United States"),
             ("gb", "Regno Unito", "United Kingdom"),
@@ -3418,9 +3763,98 @@ fn radio_country_options() -> Vec<(&'static str, &'static str, &'static str)> {
             ("br", "Brasile", "Brazil"),
             ("ar", "Argentina", "Argentina"),
             ("ca", "Canada", "Canada"),
-        ]
-    } else {
-        vec![
+        ],
+        "fr" => vec![
+            ("it", "Italie", "Italy"),
+            ("us", "États-Unis", "United States"),
+            ("gb", "Royaume-Uni", "United Kingdom"),
+            ("fr", "France", "France"),
+            ("de", "Allemagne", "Germany"),
+            ("es", "Espagne", "Spain"),
+            ("pt", "Portugal", "Portugal"),
+            ("ch", "Suisse", "Switzerland"),
+            ("at", "Autriche", "Austria"),
+            ("tr", "Turquie", "Turkey"),
+            ("pl", "Pologne", "Poland"),
+            ("cz", "Tchéquie", "Czechia"),
+            ("se", "Suède", "Sweden"),
+            ("br", "Brésil", "Brazil"),
+            ("ar", "Argentine", "Argentina"),
+            ("ca", "Canada", "Canada"),
+        ],
+        "es" => vec![
+            ("it", "Italia", "Italy"),
+            ("us", "Estados Unidos", "United States"),
+            ("gb", "Reino Unido", "United Kingdom"),
+            ("fr", "Francia", "France"),
+            ("de", "Alemania", "Germany"),
+            ("es", "España", "Spain"),
+            ("pt", "Portugal", "Portugal"),
+            ("ch", "Suiza", "Switzerland"),
+            ("at", "Austria", "Austria"),
+            ("tr", "Turquía", "Turkey"),
+            ("pl", "Polonia", "Poland"),
+            ("cz", "Chequia", "Czechia"),
+            ("se", "Suecia", "Sweden"),
+            ("br", "Brasil", "Brazil"),
+            ("ar", "Argentina", "Argentina"),
+            ("ca", "Canadá", "Canada"),
+        ],
+        "pt" => vec![
+            ("it", "Itália", "Italy"),
+            ("us", "Estados Unidos", "United States"),
+            ("gb", "Reino Unido", "United Kingdom"),
+            ("fr", "França", "France"),
+            ("de", "Alemanha", "Germany"),
+            ("es", "Espanha", "Spain"),
+            ("pt", "Portugal", "Portugal"),
+            ("ch", "Suíça", "Switzerland"),
+            ("at", "Áustria", "Austria"),
+            ("tr", "Turquia", "Turkey"),
+            ("pl", "Polónia", "Poland"),
+            ("cz", "Chéquia", "Czechia"),
+            ("se", "Suécia", "Sweden"),
+            ("br", "Brasil", "Brazil"),
+            ("ar", "Argentina", "Argentina"),
+            ("ca", "Canadá", "Canada"),
+        ],
+        "cs" => vec![
+            ("it", "Itálie", "Italy"),
+            ("us", "Spojené státy", "United States"),
+            ("gb", "Spojené království", "United Kingdom"),
+            ("fr", "Francie", "France"),
+            ("de", "Německo", "Germany"),
+            ("es", "Španělsko", "Spain"),
+            ("pt", "Portugalsko", "Portugal"),
+            ("ch", "Švýcarsko", "Switzerland"),
+            ("at", "Rakousko", "Austria"),
+            ("tr", "Turecko", "Turkey"),
+            ("pl", "Polsko", "Poland"),
+            ("cz", "Česko", "Czechia"),
+            ("se", "Švédsko", "Sweden"),
+            ("br", "Brazílie", "Brazil"),
+            ("ar", "Argentina", "Argentina"),
+            ("ca", "Kanada", "Canada"),
+        ],
+        "pl" => vec![
+            ("it", "Włochy", "Italy"),
+            ("us", "Stany Zjednoczone", "United States"),
+            ("gb", "Wielka Brytania", "United Kingdom"),
+            ("fr", "Francja", "France"),
+            ("de", "Niemcy", "Germany"),
+            ("es", "Hiszpania", "Spain"),
+            ("pt", "Portugalia", "Portugal"),
+            ("ch", "Szwajcaria", "Switzerland"),
+            ("at", "Austria", "Austria"),
+            ("tr", "Turcja", "Turkey"),
+            ("pl", "Polska", "Poland"),
+            ("cz", "Czechy", "Czechia"),
+            ("se", "Szwecja", "Sweden"),
+            ("br", "Brazylia", "Brazil"),
+            ("ar", "Argentyna", "Argentina"),
+            ("ca", "Kanada", "Canada"),
+        ],
+        _ => vec![
             ("it", "Italy", "Italy"),
             ("us", "United States", "United States"),
             ("gb", "United Kingdom", "United Kingdom"),
@@ -3437,8 +3871,9 @@ fn radio_country_options() -> Vec<(&'static str, &'static str, &'static str)> {
             ("br", "Brazil", "Brazil"),
             ("ar", "Argentina", "Argentina"),
             ("ca", "Canada", "Canada"),
-        ]
-    }
+        ],
+    };
+    rotate_country_options_to_default(items, &ui_language)
 }
 
 fn fetch_radio_browser_country_city_stations(
@@ -3521,8 +3956,21 @@ fn open_radio_country_city_dialog(
     settings: &Arc<Mutex<Settings>>,
     radio_menu_state: &Arc<Mutex<RadioMenuState>>,
 ) {
-    let is_it = Settings::load().ui_language == "it";
-    let dialog = Dialog::builder(parent, if is_it { "Radio per nazione e città" } else { "Radio by country and city" })
+    let ui_language = Settings::load().ui_language;
+    let dialog_title = match ui_language.as_str() {
+        "it" => "Radio per nazione e città",
+        "es" => "Radio por país y ciudad",
+        "pt" => "Rádio por país e cidade",
+        "cs" => "Rádio podle země a města",
+        "pl" => "Radio według kraju i miasta",
+        _ => "Radio by country and city",
+    };
+    let country_label = match ui_language.as_str() { "it" => "Nazione", "es" => "País", "pt" => "País", "cs" => "Země", "pl" => "Kraj", _ => "Country" };
+    let city_label = match ui_language.as_str() { "it" => "Città o regione", "es" => "Ciudad o región", "pt" => "Cidade ou região", "cs" => "Město nebo region", "pl" => "Miasto lub region", _ => "City or region" };
+    let station_label = match ui_language.as_str() { "it" => "Nome radio", "es" => "Nombre de la radio", "pt" => "Nome da rádio", "cs" => "Název rádia", "pl" => "Nazwa radia", _ => "Station name" };
+    let search_label = match ui_language.as_str() { "it" => "Cerca", "es" => "Buscar", "pt" => "Pesquisar", "cs" => "Hledat", "pl" => "Szukaj", _ => "Search" };
+    let close_label = match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" };
+    let dialog = Dialog::builder(parent, dialog_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(620, 250)
         .build();
@@ -3530,7 +3978,7 @@ fn open_radio_country_city_dialog(
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let country_row = BoxSizer::builder(Orientation::Horizontal).build();
-    country_row.add(&StaticText::builder(&panel).with_label(if is_it { "Nazione" } else { "Country" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    country_row.add(&StaticText::builder(&panel).with_label(country_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let country_choice = Choice::builder(&panel).build();
     let countries = Rc::new(radio_country_options());
     for (_, label, _) in countries.iter() {
@@ -3541,20 +3989,20 @@ fn open_radio_country_city_dialog(
     root.add_sizer(&country_row, 0, SizerFlag::Expand, 0);
 
     let city_row = BoxSizer::builder(Orientation::Horizontal).build();
-    city_row.add(&StaticText::builder(&panel).with_label(if is_it { "Città o regione" } else { "City or region" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    city_row.add(&StaticText::builder(&panel).with_label(city_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let city_ctrl = TextCtrl::builder(&panel).build();
     city_row.add(&city_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&city_row, 0, SizerFlag::Expand, 0);
 
     let query_row = BoxSizer::builder(Orientation::Horizontal).build();
-    query_row.add(&StaticText::builder(&panel).with_label(if is_it { "Nome radio" } else { "Station name" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    query_row.add(&StaticText::builder(&panel).with_label(station_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let query_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
     query_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&query_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let search_button = Button::builder(&panel).with_label(if is_it { "Cerca" } else { "Search" }).build();
-    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(if is_it { "Chiudi" } else { "Close" }).build();
+    let search_button = Button::builder(&panel).with_label(search_label).build();
+    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(close_label).build();
     buttons.add_spacer(1);
     buttons.add(&search_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
@@ -4862,7 +5310,15 @@ fn open_radio_search_dialog(
     let languages = radio_menu_languages();
 
     println!("DEBUG: Radio Search Dialog - Building");
-    let dialog = Dialog::builder(parent, "Cerca radio")
+    let dialog_title = match ui_language.as_str() {
+        "it" => "Cerca radio",
+        "es" => "Buscar radio",
+        "pt" => "Pesquisar rádio",
+        "cs" => "Hledat rádio",
+        "pl" => "Szukaj radia",
+        _ => "Search radio",
+    };
+    let dialog = Dialog::builder(parent, dialog_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 260)
         .build();
@@ -4872,7 +5328,7 @@ fn open_radio_search_dialog(
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
     search_row.add(
         &StaticText::builder(&panel)
-            .with_label(if ui_language == "it" { "Testo" } else { "Text" })
+            .with_label(match ui_language.as_str() { "it" => "Testo", "es" => "Texto", "pt" => "Texto", "cs" => "Text", "pl" => "Tekst", _ => "Text" })
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -4887,11 +5343,7 @@ fn open_radio_search_dialog(
     let language_row = BoxSizer::builder(Orientation::Horizontal).build();
     language_row.add(
         &StaticText::builder(&panel)
-            .with_label(if ui_language == "it" {
-                "Lingua"
-            } else {
-                "Language"
-            })
+            .with_label(match ui_language.as_str() { "it" => "Lingua", "es" => "Idioma", "pt" => "Idioma", "cs" => "Jazyk", "pl" => "Język", _ => "Language" })
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -4913,27 +5365,22 @@ fn open_radio_search_dialog(
 
     let button_row = BoxSizer::builder(Orientation::Horizontal).build();
     let button_show_all = Button::builder(&panel)
-        .with_label(if ui_language == "it" {
-            "Visualizza tutte le stazioni della lingua selezionata"
-        } else {
-            "Show all stations for selected language"
+        .with_label(match ui_language.as_str() {
+            "it" => "Visualizza tutte le stazioni della lingua selezionata",
+            "es" => "Mostrar todas las emisoras del idioma seleccionado",
+            "pt" => "Mostrar todas as estações do idioma selecionado",
+            "cs" => "Zobrazit všechny stanice pro vybraný jazyk",
+            "pl" => "Pokaż wszystkie stacje dla wybranego języka",
+            _ => "Show all stations for selected language",
         })
         .build();
     let button_search = Button::builder(&panel)
         .with_id(ID_OK)
-        .with_label(if ui_language == "it" {
-            "Ricerca"
-        } else {
-            "Search"
-        })
+        .with_label(match ui_language.as_str() { "it" => "Ricerca", "es" => "Buscar", "pt" => "Pesquisar", "pl" => "Szukaj", _ => "Search" })
         .build();
     let button_close = Button::builder(&panel)
         .with_id(ID_CANCEL)
-        .with_label(if ui_language == "it" {
-            "Chiudi"
-        } else {
-            "Close"
-        })
+        .with_label(match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" })
         .build();
     button_row.add(&button_show_all, 1, SizerFlag::All, 5);
     button_row.add(&button_search, 0, SizerFlag::All, 5);
@@ -4945,10 +5392,13 @@ fn open_radio_search_dialog(
         .with_label(&current_ui_strings().add_radio_community)
         .build();
     let button_country_city = Button::builder(&panel)
-        .with_label(if ui_language == "it" {
-            "Radio per nazione e città"
-        } else {
-            "Radio by country and city"
+        .with_label(match ui_language.as_str() {
+            "it" => "Radio per nazione e città",
+            "es" => "Radio por país y ciudad",
+            "pt" => "Rádio por país e cidade",
+            "cs" => "Rádio podle země a města",
+            "pl" => "Radio według kraju i miasta",
+            _ => "Radio by country and city",
         })
         .build();
     community_button_row.add(&button_add_community, 0, SizerFlag::All, 5);
@@ -5061,10 +5511,13 @@ fn open_radio_search_dialog(
             show_message_subdialog(
                 &dialog_search,
                 "Radio",
-                if ui_language_search == "it" {
-                    "Inserisci un testo da cercare."
-                } else {
-                    "Enter text to search."
+                match ui_language_search.as_str() {
+                    "it" => "Inserisci un testo da cercare.",
+                    "es" => "Introduce un texto para buscar.",
+                    "pt" => "Introduz um texto para pesquisar.",
+                    "cs" => "Zadejte text k vyhledání.",
+                    "pl" => "Wpisz tekst do wyszukania.",
+                    _ => "Enter text to search.",
                 },
             );
             return;
@@ -5186,17 +5639,28 @@ fn open_radio_results_dialog(
         show_message_subdialog(
             parent,
             "Radio",
-            if ui_language == "it" {
-                "Nessuna radio trovata."
-            } else {
-                "No radio stations found."
+            match ui_language.as_str() {
+                "it" => "Nessuna radio trovata.",
+                "es" => "No se encontraron emisoras de radio.",
+                "pt" => "Não foram encontradas estações de rádio.",
+                "cs" => "Nebyly nalezeny žádné rádiové stanice.",
+                "pl" => "Nie znaleziono stacji radiowych.",
+                _ => "No radio stations found.",
             },
         );
         return;
     }
 
     append_podcast_log("radio_results_dialog.enter");
-    let dialog = Dialog::builder(parent, "Risultati radio")
+    let radio_results_title = match ui_language.as_str() {
+        "it" => "Risultati radio",
+        "es" => "Resultados de radio",
+        "pt" => "Resultados de rádio",
+        "cs" => "Výsledky rádia",
+        "pl" => "Wyniki radia",
+        _ => "Radio results",
+    };
+    let dialog = Dialog::builder(parent, radio_results_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(700, 190)
         .build();
@@ -5216,23 +5680,15 @@ fn open_radio_results_dialog(
 
     let page_row = BoxSizer::builder(Orientation::Horizontal).build();
     let previous_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" {
-            "Precedenti"
-        } else {
-            "Previous"
-        })
+        .with_label(match ui_language.as_str() { "it" => "Precedenti", "es" => "Anteriores", "pt" => "Anteriores", "cs" => "Předchozí", "pl" => "Poprzednie", _ => "Previous" })
         .build();
     let next_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" {
-            "Successivi"
-        } else {
-            "Next"
-        })
+        .with_label(match ui_language.as_str() { "it" => "Successivi", "es" => "Siguientes", "pt" => "Seguintes", "cs" => "Další", "pl" => "Następne", _ => "Next" })
         .build();
     let page_label = StaticText::builder(&panel).with_label("").build();
     let page_choice = Choice::builder(&panel).build();
     let goto_page_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" { "Vai" } else { "Go" })
+        .with_label(match ui_language.as_str() { "it" => "Vai", "es" => "Ir", "pt" => "Ir", "cs" => "Přejít", "pl" => "Idź", _ => "Go" })
         .build();
     page_row.add(&previous_button, 0, SizerFlag::All, 5);
     page_row.add(
@@ -5248,25 +5704,17 @@ fn open_radio_results_dialog(
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" { "Apri" } else { "Open" })
+        .with_label(match ui_language.as_str() { "it" => "Apri", "es" => "Abrir", "pt" => "Abrir", "cs" => "Otevřít", "pl" => "Otwórz", _ => "Open" })
         .build();
     let favorite_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" {
-            "Aggiungi ai preferiti"
-        } else {
-            "Add to favorites"
-        })
+        .with_label(match ui_language.as_str() { "it" => "Aggiungi ai preferiti", "es" => "Añadir a favoritos", "pt" => "Adicionar aos favoritos", "cs" => "Přidat do oblíbených", "pl" => "Dodaj do ulubionych", _ => "Add to favorites" })
         .build();
     let recordings_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" { "Registrazioni" } else { "Recordings" })
+        .with_label(match ui_language.as_str() { "it" => "Registrazioni", "es" => "Grabaciones", "pt" => "Gravações", "cs" => "Nahrávky", "pl" => "Nagrania", _ => "Recordings" })
         .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
-        .with_label(if ui_language == "it" {
-            "Chiudi"
-        } else {
-            "Close"
-        })
+        .with_label(match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" })
         .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
@@ -5785,9 +6233,102 @@ fn percent_encode(input: &str) -> String {
     url::form_urlencoded::byte_serialize(input.as_bytes()).collect()
 }
 
+fn google_news_params_for_language(news_language: &str) -> (&'static str, &'static str, &'static str) {
+    match normalize_news_language(news_language).as_str() {
+        "fr" => ("fr", "FR", "FR:fr"),
+        "es" => ("es", "ES", "ES:es"),
+        "pt" => ("pt-PT", "PT", "PT:pt-150"),
+        "cs" => ("cs", "CZ", "CZ:cs"),
+        "pl" => ("pl", "PL", "PL:pl"),
+        _ => ("it", "IT", "IT:it"),
+    }
+}
+
 fn build_google_news_rss_url(keyword: &str) -> String {
     let query = percent_encode(keyword.trim());
-    format!("https://news.google.com/rss/search?q={query}&hl=it&gl=IT&ceid=IT:it")
+    let settings = Settings::load();
+    let (hl, gl, ceid) = google_news_params_for_language(&settings.news_language);
+    format!("https://news.google.com/rss/search?q={query}&hl={hl}&gl={gl}&ceid={ceid}")
+}
+
+fn news_language_options(ui_language: &str) -> Vec<(&'static str, &'static str)> {
+    match normalize_ui_language(ui_language).as_str() {
+        "en" => vec![
+            ("Italian", "it"),
+            ("French", "fr"),
+            ("Spanish", "es"),
+            ("Portuguese", "pt"),
+            ("Czech", "cs"),
+            ("Polish", "pl"),
+        ],
+        "fr" => vec![
+            ("Italien", "it"),
+            ("Français", "fr"),
+            ("Espagnol", "es"),
+            ("Portugais", "pt"),
+            ("Tchèque", "cs"),
+            ("Polonais", "pl"),
+        ],
+        "es" => vec![
+            ("Italiano", "it"),
+            ("Francés", "fr"),
+            ("Español", "es"),
+            ("Portugués", "pt"),
+            ("Checo", "cs"),
+            ("Polaco", "pl"),
+        ],
+        "pt" => vec![
+            ("Italiano", "it"),
+            ("Francês", "fr"),
+            ("Espanhol", "es"),
+            ("Português", "pt"),
+            ("Checo", "cs"),
+            ("Polaco", "pl"),
+        ],
+        "cs" => vec![
+            ("Italština", "it"),
+            ("Francouzština", "fr"),
+            ("Španělština", "es"),
+            ("Portugalština", "pt"),
+            ("Čeština", "cs"),
+            ("Polština", "pl"),
+        ],
+        "pl" => vec![
+            ("Włoski", "it"),
+            ("Francuski", "fr"),
+            ("Hiszpański", "es"),
+            ("Portugalski", "pt"),
+            ("Czeski", "cs"),
+            ("Polski", "pl"),
+        ],
+        _ => vec![
+            ("Italiano", "it"),
+            ("Francese", "fr"),
+            ("Spagnolo", "es"),
+            ("Portoghese", "pt"),
+            ("Ceco", "cs"),
+            ("Polacco", "pl"),
+        ],
+    }
+}
+
+fn replace_default_article_sources_for_news_language(
+    current_sources: &[articles::ArticleSource],
+    news_language: &str,
+) -> Vec<articles::ArticleSource> {
+    let mut next = articles::default_sources_for_news_language(news_language);
+    let mut seen = next
+        .iter()
+        .map(|source| source.url.clone())
+        .collect::<HashSet<_>>();
+    for source in current_sources {
+        if !articles::is_default_source_url_any_news_language(&source.url)
+            && seen.insert(source.url.clone())
+        {
+            next.push(source.clone());
+        }
+    }
+    next
 }
 
 pub(crate) fn sanitize_filename(name: &str) -> String {
@@ -6131,7 +6672,14 @@ struct VoiceDictionaryEntry {
 }
 
 fn voice_dictionary_title() -> &'static str {
-    if Settings::load().ui_language == "it" { "Dizionario vocale" } else { "Voice dictionary" }
+    match Settings::load().ui_language.as_str() {
+        "it" => "Dizionario vocale",
+        "es" => "Diccionario de voz",
+        "pt" => "Dicionário vocal",
+        "cs" => "Hlasový slovník",
+        "pl" => "Słownik głosowy",
+        _ => "Voice dictionary",
+    }
 }
 
 fn load_voice_dictionary_entries() -> Vec<VoiceDictionaryEntry> {
@@ -6203,12 +6751,11 @@ fn apply_voice_dictionary_to_text(text: &str) -> String {
 }
 
 fn voice_dictionary_entry_label(entry: &VoiceDictionaryEntry) -> String {
+    let ui_language = Settings::load().ui_language;
     let mode = if entry.match_case {
-        if Settings::load().ui_language == "it" { "maiuscole/minuscole" } else { "match case" }
-    } else if Settings::load().ui_language == "it" {
-        "ignora maiuscole"
+        match ui_language.as_str() { "it" => "maiuscole/minuscole", "es" => "coincidir mayúsculas/minúsculas", "pt" => "distinguir maiúsculas/minúsculas", "cs" => "rozlišovat velikost písmen", "pl" => "rozróżniaj wielkość liter", _ => "match case" }
     } else {
-        "ignore case"
+        match ui_language.as_str() { "it" => "ignora maiuscole", "es" => "ignorar mayúsculas", "pt" => "ignorar maiúsculas", "cs" => "nerozlišovat velikost písmen", "pl" => "ignoruj wielkość liter", _ => "ignore case" }
     };
     format!("{} -> {} ({})", entry.original, entry.replacement, mode)
 }
@@ -6216,10 +6763,13 @@ fn voice_dictionary_entry_label(entry: &VoiceDictionaryEntry) -> String {
 fn refresh_voice_dictionary_choice(choice: &Choice, entries: &[VoiceDictionaryEntry]) {
     choice.clear();
     if entries.is_empty() {
-        choice.append(if Settings::load().ui_language == "it" {
-            "Nessuna voce nel dizionario."
-        } else {
-            "No dictionary entries."
+        choice.append(match Settings::load().ui_language.as_str() {
+            "it" => "Nessuna voce nel dizionario.",
+            "es" => "No hay entradas en el diccionario.",
+            "pt" => "Não há entradas no dicionário.",
+            "cs" => "Ve slovníku nejsou žádné položky.",
+            "pl" => "Brak wpisów w słowniku.",
+            _ => "No dictionary entries.",
         });
         choice.set_selection(0);
         return;
@@ -6231,7 +6781,15 @@ fn refresh_voice_dictionary_choice(choice: &Choice, entries: &[VoiceDictionaryEn
 }
 
 fn open_voice_dictionary_dialog(parent: &Frame) {
-    let is_it = Settings::load().ui_language == "it";
+    let ui_language = Settings::load().ui_language;
+    let original_label = match ui_language.as_str() { "it" => "Parola originale", "es" => "Palabra original", "pt" => "Palavra original", "cs" => "Původní slovo", "pl" => "Oryginalne słowo", _ => "Original word" };
+    let replacement_label = match ui_language.as_str() { "it" => "Sostituzione", "es" => "Sustitución", "pt" => "Substituição", "cs" => "Náhrada", "pl" => "Słowo zastępcze", _ => "Replacement" };
+    let match_case_label = match ui_language.as_str() { "it" => "Distingui maiuscole e minuscole", "es" => "Distinguir mayúsculas y minúsculas", "pt" => "Distinguir maiúsculas e minúsculas", "cs" => "Rozlišovat velikost písmen", "pl" => "Rozróżniaj wielkie i małe litery", _ => "Match case" };
+    let entries_label = match ui_language.as_str() { "it" => "Voci del dizionario", "es" => "Entradas del diccionario", "pt" => "Entradas do dicionário", "cs" => "Položky slovníku", "pl" => "Wpisy słownika", _ => "Dictionary entries" };
+    let add_label = match ui_language.as_str() { "it" => "Aggiungi", "es" => "Añadir", "pt" => "Adicionar", "cs" => "Přidat", "pl" => "Dodaj", _ => "Add" };
+    let remove_label = match ui_language.as_str() { "it" => "Elimina", "es" => "Eliminar", "pt" => "Eliminar", "cs" => "Odebrat", "pl" => "Usuń", _ => "Remove" };
+    let close_label = match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" };
+    let empty_original_message = match ui_language.as_str() { "it" => "Inserisci la parola originale.", "es" => "Introduce la palabra original.", "pt" => "Introduz a palavra original.", "cs" => "Zadejte původní slovo.", "pl" => "Wpisz oryginalne słowo.", _ => "Enter the original word." };
     let dialog = Dialog::builder(parent, voice_dictionary_title())
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(640, 300)
@@ -6240,31 +6798,31 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let original_row = BoxSizer::builder(Orientation::Horizontal).build();
-    original_row.add(&StaticText::builder(&panel).with_label(if is_it { "Parola originale" } else { "Original word" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    original_row.add(&StaticText::builder(&panel).with_label(original_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let original_ctrl = TextCtrl::builder(&panel).build();
     original_row.add(&original_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&original_row, 0, SizerFlag::Expand, 0);
 
     let replacement_row = BoxSizer::builder(Orientation::Horizontal).build();
-    replacement_row.add(&StaticText::builder(&panel).with_label(if is_it { "Sostituzione" } else { "Replacement" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    replacement_row.add(&StaticText::builder(&panel).with_label(replacement_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let replacement_ctrl = TextCtrl::builder(&panel).build();
     replacement_row.add(&replacement_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&replacement_row, 0, SizerFlag::Expand, 0);
 
-    let match_case = CheckBox::builder(&panel).with_label(if is_it { "Distingui maiuscole e minuscole" } else { "Match case" }).build();
+    let match_case = CheckBox::builder(&panel).with_label(match_case_label).build();
     match_case.set_value(true);
     root.add(&match_case, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
 
-    root.add(&StaticText::builder(&panel).with_label(if is_it { "Voci del dizionario" } else { "Dictionary entries" }).build(), 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
+    root.add(&StaticText::builder(&panel).with_label(entries_label).build(), 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
     let entries_choice = Choice::builder(&panel).build();
     let entries = Rc::new(RefCell::new(load_voice_dictionary_entries()));
     refresh_voice_dictionary_choice(&entries_choice, &entries.borrow());
     root.add(&entries_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let add_button = Button::builder(&panel).with_label(if is_it { "Aggiungi" } else { "Add" }).build();
-    let remove_button = Button::builder(&panel).with_label(if is_it { "Elimina" } else { "Remove" }).build();
-    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(if is_it { "Chiudi" } else { "Close" }).build();
+    let add_button = Button::builder(&panel).with_label(add_label).build();
+    let remove_button = Button::builder(&panel).with_label(remove_label).build();
+    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(close_label).build();
     buttons.add_spacer(1);
     buttons.add(&add_button, 0, SizerFlag::All, 10);
     buttons.add(&remove_button, 0, SizerFlag::All, 10);
@@ -6283,7 +6841,7 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
     add_button.on_click(move |_| {
         let original = original_add.get_value().trim().to_string();
         if original.is_empty() {
-            show_message_subdialog(&dialog_add, voice_dictionary_title(), if Settings::load().ui_language == "it" { "Inserisci la parola originale." } else { "Enter the original word." });
+            show_message_subdialog(&dialog_add, voice_dictionary_title(), empty_original_message);
             return;
         }
         let entry = VoiceDictionaryEntry {
@@ -6854,21 +7412,23 @@ fn save_cached_voices(voices: &[edge_tts::VoiceInfo]) {
 fn build_language_list(voices: &[edge_tts::VoiceInfo], ui_language: &str) -> Vec<(String, String)> {
     let mut l_map = BTreeMap::new();
     for voice in voices {
-        l_map.insert(
-            if ui_language == "en" {
-                get_language_name_en(&voice.locale)
-            } else {
-                get_language_name_it(&voice.locale)
-            },
-            voice.locale.clone(),
-        );
+        let label = match normalize_ui_language(ui_language).as_str() {
+            "en" => get_language_name_en(&voice.locale),
+            "es" => get_language_name_es(&voice.locale),
+            "pt" => get_language_name_pt(&voice.locale),
+            "cs" => get_language_name_cs(&voice.locale),
+            "pl" => get_language_name_pl(&voice.locale),
+            _ => get_language_name_it(&voice.locale),
+        };
+        l_map.insert(label, voice.locale.clone());
     }
     l_map.into_iter().collect()
 }
 
 fn normalize_settings_data(settings: &mut Settings) {
+    settings.news_language = normalize_news_language(&settings.news_language);
     if settings.article_sources.is_empty() {
-        settings.article_sources = articles::default_sources_for_ui_language(&settings.ui_language);
+        settings.article_sources = articles::default_sources_for_news_language(&settings.news_language);
     }
     for source in &mut settings.article_sources {
         let previous_url = source.url.clone();
@@ -10065,7 +10625,8 @@ fn open_settings_dialog(
     } else {
         build_language_list(&voices_snapshot, &settings_before.ui_language)
     };
-    let interface_languages = [("Italiano", "it"), ("English", "en")];
+    let interface_languages = [("Italiano", "it"), ("English", "en"), ("Français", "fr"), ("Español", "es"), ("Português", "pt"), ("Čeština", "cs"), ("Polski", "pl")];
+    let news_language_choices = news_language_options(&settings_before.ui_language);
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -10091,6 +10652,24 @@ fn open_settings_dialog(
     );
     ui_lang_row.add(&choice_ui_lang, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&ui_lang_row, 0, SizerFlag::Expand, 0);
+
+    let news_lang_row = BoxSizer::builder(Orientation::Horizontal).build();
+    news_lang_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.news_language_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_news_lang = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &choice_news_lang,
+        &settings_before.ui_language,
+        &ui.news_language_label,
+    );
+    news_lang_row.add(&choice_news_lang, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&news_lang_row, 0, SizerFlag::Expand, 0);
 
     let lang_row = BoxSizer::builder(Orientation::Horizontal).build();
     lang_row.add(
@@ -10190,10 +10769,13 @@ fn open_settings_dialog(
     let voice_preview_row = BoxSizer::builder(Orientation::Horizontal).build();
     voice_preview_row.add_spacer(1);
     let voice_preview_button = Button::builder(&panel)
-        .with_label(if settings_before.ui_language == "it" {
-            "Anteprima voce"
-        } else {
-            "Voice preview"
+        .with_label(match settings_before.ui_language.as_str() {
+            "it" => "Anteprima voce",
+            "es" => "Vista previa de voz",
+            "pt" => "Pré-visualização da voz",
+            "cs" => "Náhled hlasu",
+            "pl" => "Podgląd głosu",
+            _ => "Voice preview",
         })
         .build();
     voice_preview_row.add(&voice_preview_button, 0, SizerFlag::All, 5);
@@ -10297,6 +10879,19 @@ fn open_settings_dialog(
         choice_ui_lang.set_selection(0);
     }
 
+    for (label, _) in &news_language_choices {
+        choice_news_lang.append(label);
+    }
+    let normalized_news_language = normalize_news_language(&settings_before.news_language);
+    if let Some(pos) = news_language_choices
+        .iter()
+        .position(|(_, value)| *value == normalized_news_language)
+    {
+        choice_news_lang.set_selection(pos as u32);
+    } else {
+        choice_news_lang.set_selection(0);
+    }
+
     for (name, _) in &languages_snapshot {
         choice_lang.append(name);
     }
@@ -10384,16 +10979,22 @@ fn open_settings_dialog(
 
     let selected_voice_preview = Rc::clone(&selected_voice);
     let settings_title_preview = ui.settings_title.clone();
-    let empty_voice_message = if settings_before.ui_language == "it" {
-        "Seleziona una voce prima di ascoltare l'anteprima."
-    } else {
-        "Select a voice before playing the preview."
+    let empty_voice_message = match settings_before.ui_language.as_str() {
+        "it" => "Seleziona una voce prima di ascoltare l'anteprima.",
+        "es" => "Selecciona una voz antes de escuchar la vista previa.",
+        "pt" => "Seleciona uma voz antes de ouvir a pré-visualização.",
+        "cs" => "Před přehráním náhledu vyberte hlas.",
+        "pl" => "Wybierz głos przed odtworzeniem podglądu.",
+        _ => "Select a voice before playing the preview.",
     }
     .to_string();
-    let preview_text = if settings_before.ui_language == "it" {
-        "Questa è una prova della voce."
-    } else {
-        "This is a voice preview."
+    let preview_text = match settings_before.ui_language.as_str() {
+        "it" => "Questa è una prova della voce.",
+        "es" => "Esta es una prueba de voz.",
+        "pt" => "Esta é uma pré-visualização da voz.",
+        "cs" => "Toto je ukázka hlasu.",
+        "pl" => "To jest podgląd głosu.",
+        _ => "This is a voice preview.",
     }
     .to_string();
     let dialog_voice_preview = dialog;
@@ -10435,6 +11036,21 @@ fn open_settings_dialog(
         {
             updated.ui_language = (*value).to_string();
         }
+        if let Some(sel) = choice_news_lang.get_selection()
+            && let Some((_, value)) = news_language_choices.get(sel as usize)
+        {
+            updated.news_language = (*value).to_string();
+        }
+        if updated.news_language != settings_before.news_language {
+            updated.article_sources = replace_default_article_sources_for_news_language(
+                &settings_before.article_sources,
+                &updated.news_language,
+            );
+            updated.article_folders = normalized_article_folders(
+                &settings_before.article_folders,
+                &updated.article_sources,
+            );
+        }
         if let Some(sel) = choice_lang.get_selection()
             && let Some((name, _)) = languages.lock().unwrap().get(sel as usize)
         {
@@ -10464,6 +11080,7 @@ fn open_settings_dialog(
             || settings_before.pitch != updated.pitch
             || settings_before.volume != updated.volume;
         let changed = settings_before.ui_language != updated.ui_language
+            || settings_before.news_language != updated.news_language
             || settings_before.language != updated.language
             || settings_before.rai_luce_code != updated.rai_luce_code
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
@@ -10695,10 +11312,14 @@ fn weather_city_label(city: &WeatherCity) -> String {
 }
 
 fn weather_language_code() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "it"
-    } else {
-        "en"
+    match normalize_ui_language(&Settings::load().ui_language).as_str() {
+        "it" => "it",
+        "fr" => "fr",
+        "es" => "es",
+        "pt" => "pt",
+        "cs" => "cs",
+        "pl" => "pl",
+        _ => "en",
     }
 }
 
@@ -10800,65 +11421,225 @@ fn weather_code_label(code: Option<i32>) -> String {
     let Some(code) = code else {
         return "-".to_string();
     };
-    let is_italian = Settings::load().ui_language == "it";
-    let label = match (is_italian, code) {
-        (true, 0) => "Sereno",
-        (true, 1) => "Prevalentemente sereno",
-        (true, 2) => "Parzialmente nuvoloso",
-        (true, 3) => "Coperto",
-        (true, 45) => "Nebbia",
-        (true, 48) => "Nebbia con brina",
-        (true, 51) => "Pioviggine leggera",
-        (true, 53) => "Pioviggine moderata",
-        (true, 55) => "Pioviggine intensa",
-        (true, 56) => "Pioviggine gelata leggera",
-        (true, 57) => "Pioviggine gelata intensa",
-        (true, 61) => "Pioggia leggera",
-        (true, 63) => "Pioggia moderata",
-        (true, 65) => "Pioggia intensa",
-        (true, 66) => "Pioggia gelata leggera",
-        (true, 67) => "Pioggia gelata intensa",
-        (true, 71) => "Neve leggera",
-        (true, 73) => "Neve moderata",
-        (true, 75) => "Neve intensa",
-        (true, 77) => "Granelli di neve",
-        (true, 80) => "Rovesci leggeri",
-        (true, 81) => "Rovesci moderati",
-        (true, 82) => "Rovesci violenti",
-        (true, 85) => "Rovesci di neve leggeri",
-        (true, 86) => "Rovesci di neve intensi",
-        (true, 95) => "Temporale",
-        (true, 96) => "Temporale con grandine leggera",
-        (true, 99) => "Temporale con grandine intensa",
-        (false, 0) => "Clear sky",
-        (false, 1) => "Mainly clear",
-        (false, 2) => "Partly cloudy",
-        (false, 3) => "Overcast",
-        (false, 45) => "Fog",
-        (false, 48) => "Depositing rime fog",
-        (false, 51) => "Light drizzle",
-        (false, 53) => "Moderate drizzle",
-        (false, 55) => "Dense drizzle",
-        (false, 56) => "Light freezing drizzle",
-        (false, 57) => "Dense freezing drizzle",
-        (false, 61) => "Slight rain",
-        (false, 63) => "Moderate rain",
-        (false, 65) => "Heavy rain",
-        (false, 66) => "Light freezing rain",
-        (false, 67) => "Heavy freezing rain",
-        (false, 71) => "Slight snow fall",
-        (false, 73) => "Moderate snow fall",
-        (false, 75) => "Heavy snow fall",
-        (false, 77) => "Snow grains",
-        (false, 80) => "Slight rain showers",
-        (false, 81) => "Moderate rain showers",
-        (false, 82) => "Violent rain showers",
-        (false, 85) => "Slight snow showers",
-        (false, 86) => "Heavy snow showers",
-        (false, 95) => "Thunderstorm",
-        (false, 96) => "Thunderstorm with slight hail",
-        (false, 99) => "Thunderstorm with heavy hail",
-        _ => return code.to_string(),
+    let language = normalize_ui_language(&Settings::load().ui_language);
+    let label = match language.as_str() {
+        "it" => match code {
+            0 => "Sereno",
+            1 => "Prevalentemente sereno",
+            2 => "Parzialmente nuvoloso",
+            3 => "Coperto",
+            45 => "Nebbia",
+            48 => "Nebbia con brina",
+            51 => "Pioviggine leggera",
+            53 => "Pioviggine moderata",
+            55 => "Pioviggine intensa",
+            56 => "Pioviggine gelata leggera",
+            57 => "Pioviggine gelata intensa",
+            61 => "Pioggia leggera",
+            63 => "Pioggia moderata",
+            65 => "Pioggia intensa",
+            66 => "Pioggia gelata leggera",
+            67 => "Pioggia gelata intensa",
+            71 => "Neve leggera",
+            73 => "Neve moderata",
+            75 => "Neve intensa",
+            77 => "Granelli di neve",
+            80 => "Rovesci leggeri",
+            81 => "Rovesci moderati",
+            82 => "Rovesci violenti",
+            85 => "Rovesci di neve leggeri",
+            86 => "Rovesci di neve intensi",
+            95 => "Temporale",
+            96 => "Temporale con grandine leggera",
+            99 => "Temporale con grandine intensa",
+            _ => return code.to_string(),
+        },
+        "fr" => match code {
+            0 => "Ciel dégagé",
+            1 => "Principalement dégagé",
+            2 => "Partiellement nuageux",
+            3 => "Couvert",
+            45 => "Brouillard",
+            48 => "Brouillard givrant",
+            51 => "Bruine légère",
+            53 => "Bruine modérée",
+            55 => "Bruine dense",
+            56 => "Bruine verglaçante légère",
+            57 => "Bruine verglaçante dense",
+            61 => "Pluie légère",
+            63 => "Pluie modérée",
+            65 => "Forte pluie",
+            66 => "Pluie verglaçante légère",
+            67 => "Forte pluie verglaçante",
+            71 => "Faible chute de neige",
+            73 => "Chute de neige modérée",
+            75 => "Forte chute de neige",
+            77 => "Grains de neige",
+            80 => "Averses légères",
+            81 => "Averses modérées",
+            82 => "Averses violentes",
+            85 => "Averses de neige légères",
+            86 => "Averses de neige fortes",
+            95 => "Orage",
+            96 => "Orage avec légère grêle",
+            99 => "Orage avec forte grêle",
+            _ => return code.to_string(),
+        },
+        "es" => match code {
+            0 => "Cielo despejado",
+            1 => "Mayormente despejado",
+            2 => "Parcialmente nublado",
+            3 => "Cubierto",
+            45 => "Niebla",
+            48 => "Niebla con escarcha",
+            51 => "Llovizna ligera",
+            53 => "Llovizna moderada",
+            55 => "Llovizna intensa",
+            56 => "Llovizna helada ligera",
+            57 => "Llovizna helada intensa",
+            61 => "Lluvia ligera",
+            63 => "Lluvia moderada",
+            65 => "Lluvia intensa",
+            66 => "Lluvia helada ligera",
+            67 => "Lluvia helada intensa",
+            71 => "Nieve ligera",
+            73 => "Nieve moderada",
+            75 => "Nieve intensa",
+            77 => "Granos de nieve",
+            80 => "Chubascos ligeros",
+            81 => "Chubascos moderados",
+            82 => "Chubascos violentos",
+            85 => "Chubascos de nieve ligeros",
+            86 => "Chubascos de nieve intensos",
+            95 => "Tormenta",
+            96 => "Tormenta con granizo ligero",
+            99 => "Tormenta con granizo intenso",
+            _ => return code.to_string(),
+        },
+        "pt" => match code {
+            0 => "Céu limpo",
+            1 => "Maioritariamente limpo",
+            2 => "Parcialmente nublado",
+            3 => "Encoberto",
+            45 => "Nevoeiro",
+            48 => "Nevoeiro com geada",
+            51 => "Chuvisco ligeiro",
+            53 => "Chuvisco moderado",
+            55 => "Chuvisco intenso",
+            56 => "Chuvisco gelado ligeiro",
+            57 => "Chuvisco gelado intenso",
+            61 => "Chuva ligeira",
+            63 => "Chuva moderada",
+            65 => "Chuva intensa",
+            66 => "Chuva gelada ligeira",
+            67 => "Chuva gelada intensa",
+            71 => "Neve ligeira",
+            73 => "Neve moderada",
+            75 => "Neve intensa",
+            77 => "Grãos de neve",
+            80 => "Aguaceiros ligeiros",
+            81 => "Aguaceiros moderados",
+            82 => "Aguaceiros violentos",
+            85 => "Aguaceiros de neve ligeiros",
+            86 => "Aguaceiros de neve intensos",
+            95 => "Trovoada",
+            96 => "Trovoada com granizo ligeiro",
+            99 => "Trovoada com granizo intenso",
+            _ => return code.to_string(),
+        },
+        "cs" => match code {
+            0 => "Jasno",
+            1 => "Převážně jasno",
+            2 => "Polojasno",
+            3 => "Zataženo",
+            45 => "Mlha",
+            48 => "Namrzající mlha",
+            51 => "Slabé mrholení",
+            53 => "Mírné mrholení",
+            55 => "Husté mrholení",
+            56 => "Slabé mrznoucí mrholení",
+            57 => "Silné mrznoucí mrholení",
+            61 => "Slabý déšť",
+            63 => "Mírný déšť",
+            65 => "Silný déšť",
+            66 => "Slabý mrznoucí déšť",
+            67 => "Silný mrznoucí déšť",
+            71 => "Slabé sněžení",
+            73 => "Mírné sněžení",
+            75 => "Silné sněžení",
+            77 => "Sněhová zrna",
+            80 => "Slabé přeháňky",
+            81 => "Mírné přeháňky",
+            82 => "Prudké přeháňky",
+            85 => "Slabé sněhové přeháňky",
+            86 => "Silné sněhové přeháňky",
+            95 => "Bouřka",
+            96 => "Bouřka se slabým krupobitím",
+            99 => "Bouřka se silným krupobitím",
+            _ => return code.to_string(),
+        },
+        "pl" => match code {
+            0 => "Bezchmurnie",
+            1 => "Przeważnie bezchmurnie",
+            2 => "Częściowe zachmurzenie",
+            3 => "Pochmurno",
+            45 => "Mgła",
+            48 => "Mgła oszroniona",
+            51 => "Lekka mżawka",
+            53 => "Umiarkowana mżawka",
+            55 => "Gęsta mżawka",
+            56 => "Lekka marznąca mżawka",
+            57 => "Silna marznąca mżawka",
+            61 => "Lekki deszcz",
+            63 => "Umiarkowany deszcz",
+            65 => "Silny deszcz",
+            66 => "Lekki marznący deszcz",
+            67 => "Silny marznący deszcz",
+            71 => "Lekki śnieg",
+            73 => "Umiarkowany śnieg",
+            75 => "Intensywny śnieg",
+            77 => "Ziarna śniegu",
+            80 => "Lekkie przelotne opady deszczu",
+            81 => "Umiarkowane przelotne opady deszczu",
+            82 => "Gwałtowne przelotne opady deszczu",
+            85 => "Lekkie przelotne opady śniegu",
+            86 => "Intensywne przelotne opady śniegu",
+            95 => "Burza",
+            96 => "Burza z lekkim gradem",
+            99 => "Burza z silnym gradem",
+            _ => return code.to_string(),
+        },
+        _ => match code {
+            0 => "Clear sky",
+            1 => "Mainly clear",
+            2 => "Partly cloudy",
+            3 => "Overcast",
+            45 => "Fog",
+            48 => "Depositing rime fog",
+            51 => "Light drizzle",
+            53 => "Moderate drizzle",
+            55 => "Dense drizzle",
+            56 => "Light freezing drizzle",
+            57 => "Dense freezing drizzle",
+            61 => "Slight rain",
+            63 => "Moderate rain",
+            65 => "Heavy rain",
+            66 => "Light freezing rain",
+            67 => "Heavy freezing rain",
+            71 => "Slight snow fall",
+            73 => "Moderate snow fall",
+            75 => "Heavy snow fall",
+            77 => "Snow grains",
+            80 => "Slight rain showers",
+            81 => "Moderate rain showers",
+            82 => "Violent rain showers",
+            85 => "Slight snow showers",
+            86 => "Heavy snow showers",
+            95 => "Thunderstorm",
+            96 => "Thunderstorm with slight hail",
+            99 => "Thunderstorm with heavy hail",
+            _ => return code.to_string(),
+        },
     };
     label.to_string()
 }
@@ -11209,10 +11990,14 @@ const SONARPAD_ROUTE_CLIENT_TOKEN: &str = match option_env!("SONARPAD_ROUTE_CLIE
 };
 
 fn cinema_language_code() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "it-IT"
-    } else {
-        "en-US"
+    match normalize_ui_language(&Settings::load().ui_language).as_str() {
+        "it" => "it-IT",
+        "fr" => "fr-FR",
+        "es" => "es-ES",
+        "pt" => "pt-PT",
+        "cs" => "cs-CZ",
+        "pl" => "pl-PL",
+        _ => "en-US",
     }
 }
 
@@ -16048,7 +16833,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     for category in tv_categories.iter() {
         category_choice.append(&tv_channel_category_label(category));
     }
-    category_choice.set_selection(0);
+    let initial_category_index = tv_categories
+        .iter()
+        .position(|category| category == "Rai")
+        .unwrap_or(0);
+    category_choice.set_selection(initial_category_index as u32);
     category_row.add(&category_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&category_row, 0, SizerFlag::Expand, 0);
 
@@ -16090,7 +16879,13 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         &favorite_button,
         &channels,
         &visible_channel_indices,
-        tv_channel_indices_for_category(&channels, tv_categories.first().map(String::as_str).unwrap_or("")),
+        tv_channel_indices_for_category(
+            &channels,
+            tv_categories
+                .get(initial_category_index)
+                .map(String::as_str)
+                .unwrap_or(""),
+        ),
     );
     let add_channel_button = Button::builder(&panel)
         .with_label(tv_add_channel_button_label())
@@ -16274,12 +17069,49 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let visible_indices_open = Rc::clone(&visible_channel_indices);
     let parent_open = dialog;
     open_button.on_click(move |_| {
-        if let Some(sel) = choice_open.get_selection()
-            && let Some(index) = visible_indices_open.borrow().get(sel as usize).copied()
+        let selection = choice_open.get_selection();
+        let visible_snapshot = visible_indices_open.borrow().clone();
+        append_podcast_log(&format!(
+            "tv.dialog.open_clicked selection={:?} visible_count={} visible_indices={:?}",
+            selection,
+            visible_snapshot.len(),
+            visible_snapshot
+        ));
+        if let Some(sel) = selection
+            && let Some(index) = visible_snapshot.get(sel as usize).copied()
             && let Some(channel) = channels_open.get(index)
-            && let Err(err) = open_tv_stream_with_mpv(channel)
         {
-            show_message_subdialog(&parent_open, &current_ui_strings().tv_label, &err);
+            append_podcast_log(&format!(
+                "tv.dialog.open_selected selection={} index={} name={} category={} url={}",
+                sel,
+                index,
+                channel.name,
+                channel.category,
+                channel.url
+            ));
+            if let Err(err) = open_tv_stream_with_mpv(channel) {
+                append_podcast_log(&format!(
+                    "tv.dialog.open_failed name={} err={}",
+                    channel.name,
+                    err
+                ));
+                show_message_subdialog(&parent_open, &current_ui_strings().tv_label, &err);
+            }
+        } else {
+            append_podcast_log(&format!(
+                "tv.dialog.open_no_selection selection={:?} visible_count={}",
+                selection,
+                visible_snapshot.len()
+            ));
+            show_message_subdialog(
+                &parent_open,
+                &current_ui_strings().tv_label,
+                if Settings::load().ui_language == "it" {
+                    "Nessun canale TV selezionato."
+                } else {
+                    "No TV channel selected."
+                },
+            );
         }
     });
     let choice_guide = choice;
@@ -17651,6 +18483,66 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             minutes: "minutos",
             seconds: "segundos",
         },
+        "pt" => MpvVoiceMessages {
+            recording_started: "Gravação iniciada",
+            recording_saved: "Gravação guardada",
+            recording_failed: "Gravação não iniciada",
+            recording_already_running: "Gravação já em curso",
+            recording_not_available: "Gravação não disponível para este conteúdo",
+            media_paused: "Média em pausa",
+            media_playing: "Reprodução retomada",
+            media_stopped: "Média parado",
+            live_stream: "Direto",
+            position: "Posição",
+            volume: "Volume",
+            speed: "Velocidade",
+            percent: "por cento",
+            muted: "Áudio desativado",
+            unmuted: "Áudio ativado",
+            hours: "horas",
+            minutes: "minutos",
+            seconds: "segundos",
+        },
+        "cs" => MpvVoiceMessages {
+            recording_started: "Nahrávání spuštěno",
+            recording_saved: "Nahrávka uložena",
+            recording_failed: "Nahrávání se nespustilo",
+            recording_already_running: "Nahrávání již probíhá",
+            recording_not_available: "Nahrávání není pro tento obsah dostupné",
+            media_paused: "Média pozastavena",
+            media_playing: "Přehrávání obnoveno",
+            media_stopped: "Média zastavena",
+            live_stream: "Živé vysílání",
+            position: "Pozice",
+            volume: "Hlasitost",
+            speed: "Rychlost",
+            percent: "procent",
+            muted: "Ztlumeno",
+            unmuted: "Zvuk zapnut",
+            hours: "hodin",
+            minutes: "minut",
+            seconds: "sekund",
+        },
+        "pl" => MpvVoiceMessages {
+            recording_started: "Nagrywanie rozpoczęte",
+            recording_saved: "Nagranie zapisane",
+            recording_failed: "Nagrywanie nie rozpoczęło się",
+            recording_already_running: "Nagrywanie już trwa",
+            recording_not_available: "Nagrywanie nie jest dostępne dla tej zawartości",
+            media_paused: "Media wstrzymane",
+            media_playing: "Odtwarzanie wznowione",
+            media_stopped: "Media zatrzymane",
+            live_stream: "Transmisja na żywo",
+            position: "Pozycja",
+            volume: "Głośność",
+            speed: "Prędkość",
+            percent: "procent",
+            muted: "Wyciszono",
+            unmuted: "Dźwięk włączony",
+            hours: "godzin",
+            minutes: "minut",
+            seconds: "sekund",
+        },
         _ => MpvVoiceMessages {
             recording_started: "Recording started",
             recording_saved: "Recording saved",
@@ -17884,15 +18776,18 @@ fn refresh_recordings_choice(choice: &Choice, entries: &[RecordingEntry], select
 
 fn open_recordings_dialog(parent: &impl WxWidget) {
     let ui_language = Settings::load().ui_language;
-    let title = if ui_language == "it" { "Registrazioni" } else { "Recordings" };
+    let title = match ui_language.as_str() { "it" => "Registrazioni", "es" => "Grabaciones", "pt" => "Gravações", "cs" => "Nahrávky", "pl" => "Nagrania", _ => "Recordings" };
     let mut initial_entries = read_recordings_index();
     if initial_entries.is_empty() {
         let dialog = MessageDialog::builder(
             parent,
-            if ui_language == "it" {
-                "Nessuna registrazione salvata. Avvia una radio o una TV e premi Ctrl+R nel player per registrare."
-            } else {
-                "No saved recordings. Start a radio or TV stream and press Ctrl+R in the player to record."
+            match ui_language.as_str() {
+                "it" => "Nessuna registrazione salvata. Avvia una radio o una TV e premi Command+R nel player per registrare.",
+                "es" => "No hay grabaciones guardadas. Inicia una radio o TV y pulsa Command+R en el reproductor para grabar.",
+                "pt" => "Não há gravações guardadas. Inicia uma rádio ou TV e prime Command+R no leitor para gravar.",
+                "cs" => "Nejsou uloženy žádné nahrávky. Spusťte rádio nebo TV a pro nahrávání stiskněte v přehrávači Command+R.",
+                "pl" => "Brak zapisanych nagrań. Uruchom radio lub TV i naciśnij Command+R w odtwarzaczu, aby nagrywać.",
+                _ => "No saved recordings. Start a radio or TV stream and press Command+R in the player to record.",
             },
             title,
         )
@@ -17924,17 +18819,17 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" { "Apri" } else { "Open" })
+        .with_label(match ui_language.as_str() { "it" => "Apri", "es" => "Abrir", "pt" => "Abrir", "cs" => "Otevřít", "pl" => "Otwórz", _ => "Open" })
         .build();
     let delete_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" { "Elimina" } else { "Delete" })
+        .with_label(match ui_language.as_str() { "it" => "Elimina", "es" => "Eliminar", "pt" => "Eliminar", "cs" => "Smazat", "pl" => "Usuń", _ => "Delete" })
         .build();
     let share_button = Button::builder(&panel)
-        .with_label(if ui_language == "it" { "Condividi" } else { "Share" })
+        .with_label(match ui_language.as_str() { "it" => "Condividi", "es" => "Compartir", "pt" => "Partilhar", "cs" => "Sdílet", "pl" => "Udostępnij", _ => "Share" })
         .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
-        .with_label(if ui_language == "it" { "Chiudi" } else { "Close" })
+        .with_label(match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" })
         .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
@@ -17972,10 +18867,13 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
                 show_message_subdialog(
                     &dialog_share,
                     title,
-                    if ui_language_share == "it" {
-                        "Il file è stato selezionato nel Finder. Usa Condividi dal Finder per inviarlo."
-                    } else {
-                        "The file has been selected in Finder. Use Share from Finder to send it."
+                    match ui_language_share.as_str() {
+                        "it" => "Il file è stato selezionato nel Finder. Usa Condividi dal Finder per inviarlo.",
+                        "es" => "El archivo se ha seleccionado en Finder. Usa Compartir desde Finder para enviarlo.",
+                        "pt" => "O ficheiro foi selecionado no Finder. Usa Partilhar no Finder para o enviar.",
+                        "cs" => "Soubor byl vybrán ve Finderu. K odeslání použijte Sdílet ve Finderu.",
+                        "pl" => "Plik został zaznaczony w Finderze. Użyj Udostępnij w Finderze, aby go wysłać.",
+                        _ => "The file has been selected in Finder. Use Share from Finder to send it.",
                     },
                 );
             }
@@ -17998,10 +18896,13 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
         let Some(entry) = entry else { return };
         let ask = MessageDialog::builder(
             &dialog_delete,
-            if ui_language_delete == "it" {
-                "Vuoi eliminare questa registrazione?"
-            } else {
-                "Do you want to delete this recording?"
+            match ui_language_delete.as_str() {
+                "it" => "Vuoi eliminare questa registrazione?",
+                "es" => "¿Quieres eliminar esta grabación?",
+                "pt" => "Queres eliminar esta gravação?",
+                "cs" => "Chcete tuto nahrávku smazat?",
+                "pl" => "Czy chcesz usunąć to nagranie?",
+                _ => "Do you want to delete this recording?",
             },
             title,
         )
@@ -18012,7 +18913,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
             return;
         }
         if let Err(err) = std::fs::remove_file(&entry.path) {
-            show_message_subdialog(&dialog_delete, title, &format!("{}: {err}", if ui_language_delete == "it" { "Eliminazione fallita" } else { "Delete failed" }));
+            show_message_subdialog(&dialog_delete, title, &format!("{}: {err}", match ui_language_delete.as_str() { "it" => "Eliminazione fallita", "es" => "Error al eliminar", "pt" => "Falha ao eliminar", "cs" => "Smazání se nezdařilo", "pl" => "Usuwanie nie powiodło się", _ => "Delete failed" }));
             return;
         }
         {
@@ -18299,7 +19200,15 @@ local function log_basic_state(context)
     log_property("current-vo")
     log_property("video-codec")
     log_property("video-params")
+    log_property("video-out-params")
+    log_property("display-width")
+    log_property("display-height")
+    log_property("osd-dimensions")
+    log_property("window-minimized")
+    log_property("window-maximized")
+    log_property("fullscreen")
     log_property("estimated-vf-fps")
+    log_property("estimated-display-fps")
     log_property("audio")
     log_property("aid")
     log_property("audio-codec")
@@ -18330,7 +19239,7 @@ local function speak(text)
         playback_only = false,
         capture_stdout = false,
         capture_stderr = false,
-        args = {"/usr/bin/say", text}
+        args = {"/usr/bin/say", "-r", "145", text}
     }, function() end)
 end
 
@@ -18343,20 +19252,33 @@ local function run_shell_async(command, callback)
     mp.command_native_async({
         name = "subprocess",
         playback_only = false,
-        capture_stdout = false,
-        capture_stderr = false,
+        capture_stdout = true,
+        capture_stderr = true,
         args = {"/bin/sh", "-c", command}
-    }, callback or function() end)
+    }, callback or function(success, result, error)
+        local status = result and result.status or "nil"
+        log_line("shell.async_done success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error))
+    end)
 end
 
 local function run_shell_sync(command)
-    return mp.command_native({
+    local result = mp.command_native({
         name = "subprocess",
         playback_only = false,
-        capture_stdout = false,
-        capture_stderr = false,
+        capture_stdout = true,
+        capture_stderr = true,
         args = {"/bin/sh", "-c", command}
     })
+    if result then
+        local stdout = tostring(result.stdout or ""):gsub("
+", " ")
+        local stderr = tostring(result.stderr or ""):gsub("
+", " ")
+        log_line("shell.sync_done status=" .. tostring(result.status) .. " stdout=" .. stdout .. " stderr=" .. stderr)
+    else
+        log_line("shell.sync_done result=nil")
+    end
+    return result
 end
 
 local function build_output_path()
@@ -18387,16 +19309,32 @@ local function stop_ffmpeg_command(saved_path)
         .. append_recording_manifest_command(saved_path)
 end
 
+local function check_recording_process_later(path)
+    mp.add_timeout(1.0, function()
+        local command = "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. "); fi; "
+            .. "if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo sonarpad_recording_process_alive pid=$pid path=" .. shell_quote(path) .. "; exit 0; "
+            .. "elif [ -s " .. shell_quote(path) .. " ]; then echo sonarpad_recording_file_exists path=" .. shell_quote(path) .. "; exit 0; "
+            .. "else echo sonarpad_recording_process_not_alive path=" .. shell_quote(path) .. "; exit 3; fi"
+        local result = run_shell_sync(command)
+        local status = result and result.status or "nil"
+        log_line("recording.start_check status=" .. tostring(status) .. " path=" .. tostring(path))
+    end)
+end
+
 local function start_recording()
+    log_line("recording.start_requested enabled=" .. tostring(recording_enabled) .. " already_recording=" .. tostring(recording))
     if not recording_enabled then
+        log_line("recording.start_not_available")
         speak(msg_recording_not_available)
         return
     end
     if recording then
+        log_line("recording.start_already_running path=" .. tostring(current_recording_path))
         speak(msg_recording_already_running)
         return
     end
     current_recording_path = build_output_path()
+    local recording_log_path = current_recording_path .. ".log"
     local args = {}
     for _, arg in ipairs(ffmpeg_args) do
         table.insert(args, arg)
@@ -18407,37 +19345,67 @@ local function start_recording()
     for _, arg in ipairs(args) do
         table.insert(parts, shell_quote(arg))
     end
-    local command = ffmpeg_available_command() .. " && /bin/mkdir -p " .. shell_quote(recordings_dir) .. " && ( " .. table.concat(parts, " ") .. " </dev/null >/dev/null 2>&1 & echo $! > " .. shell_quote(pid_file) .. " )"
+    log_line("recording.start_path=" .. tostring(current_recording_path))
+    log_line("recording.ffmpeg_path=" .. tostring(ffmpeg_path))
+    log_line("recording.ffmpeg_log=" .. tostring(recording_log_path))
+    local command = ffmpeg_available_command() .. " && /bin/mkdir -p " .. shell_quote(recordings_dir) .. " && ( echo sonarpad_recording_ffmpeg_start > " .. shell_quote(recording_log_path) .. "; " .. table.concat(parts, " ") .. " </dev/null >> " .. shell_quote(recording_log_path) .. " 2>&1 & echo $! > " .. shell_quote(pid_file) .. " )"
     local result = run_shell_sync(command)
     if result and result.status == 0 then
         recording = true
+        log_line("recording.started path=" .. tostring(current_recording_path) .. " pid_file=" .. tostring(pid_file))
         speak(msg_recording_started)
+        check_recording_process_later(current_recording_path)
     else
+        log_line("recording.start_failed path=" .. tostring(current_recording_path))
+        current_recording_path = nil
         speak(msg_recording_failed)
     end
 end
 
 local function stop_recording(announce)
     if not recording then
+        log_line("recording.stop_ignored_not_running")
         return
     end
     recording = false
     local saved_path = current_recording_path
     current_recording_path = nil
     if saved_path == nil or saved_path == "" then
+        log_line("recording.stop_missing_path")
         return
     end
+    log_line("recording.stop_requested path=" .. tostring(saved_path) .. " announce=" .. tostring(announce))
     local command = stop_ffmpeg_command(saved_path)
     if announce then
-        run_shell_async(command, function()
-            speak(msg_recording_saved)
+        run_shell_async(command, function(success, result, error)
+            local status = result and result.status or "nil"
+            local stdout = result and tostring(result.stdout or ""):gsub("
+", " ") or ""
+            local stderr = result and tostring(result.stderr or ""):gsub("
+", " ") or ""
+            log_line("recording.stop_done success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error) .. " stdout=" .. stdout .. " stderr=" .. stderr .. " path=" .. tostring(saved_path))
+            if success and result and result.status == 0 then
+                speak(msg_recording_saved)
+            else
+                speak(msg_recording_failed)
+            end
         end)
     else
-        run_shell_sync(command)
+        local result = run_shell_sync(command)
+        local status = result and result.status or "nil"
+        log_line("recording.stop_done_sync status=" .. tostring(status) .. " path=" .. tostring(saved_path))
     end
 end
 
+local last_recording_toggle_time = 0
 local function toggle_recording()
+    local now = mp.get_time()
+    if now - last_recording_toggle_time < 1.0 then
+        log_line("recording.toggle_ignored_debounce recording=" .. tostring(recording))
+        return
+    end
+    last_recording_toggle_time = now
+    log_line("recording.toggle recording=" .. tostring(recording))
     if recording then
         stop_recording(true)
     else
@@ -18532,8 +19500,8 @@ mp.add_forced_key_binding("m", "sonarpad-mute-speech", toggle_mute_with_speech)
 mp.add_forced_key_binding("q", "sonarpad-stop-speech", stop_with_speech)
 mp.add_forced_key_binding("Q", "sonarpad-stop-speech-uppercase", stop_with_speech)
 mp.add_forced_key_binding("ESC", "sonarpad-stop-speech-escape", stop_with_speech)
-mp.add_forced_key_binding("Ctrl+r", "sonarpad-toggle-recording", toggle_recording)
-mp.add_forced_key_binding("Ctrl+R", "sonarpad-toggle-recording-uppercase", toggle_recording)
+mp.add_forced_key_binding("Meta+r", "sonarpad-toggle-recording-command", toggle_recording)
+mp.add_forced_key_binding("Meta+R", "sonarpad-toggle-recording-command-uppercase", toggle_recording)
 
 mp.register_event("shutdown", function()
     stop_recording(false)
@@ -21606,9 +22574,13 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let voices_state = Arc::clone(&voices_data);
         let languages_state = Arc::clone(&languages);
         let playback_state = Arc::clone(&playback);
+        let article_menu_state_settings = Arc::clone(&article_menu_state);
+        let rt_settings = Arc::clone(&rt);
         let settings_action: Rc<dyn Fn()> = Rc::new(move || {
             append_podcast_log("settings_dialog.open");
-            let previous_ui_language = settings_state.lock().unwrap().ui_language.clone();
+            let snapshot_before = settings_state.lock().unwrap().clone();
+            let previous_ui_language = snapshot_before.ui_language.clone();
+            let previous_news_language = snapshot_before.news_language.clone();
             open_settings_dialog(
                 &frame_settings,
                 &settings_state,
@@ -21616,7 +22588,17 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 &languages_state,
                 &playback_state,
             );
-            let updated_ui_language = settings_state.lock().unwrap().ui_language.clone();
+            let snapshot_after = settings_state.lock().unwrap().clone();
+            let updated_ui_language = snapshot_after.ui_language.clone();
+            let updated_news_language = snapshot_after.news_language.clone();
+            if previous_news_language != updated_news_language {
+                append_podcast_log(&format!(
+                    "settings.news_language.changed from={} to={}",
+                    previous_news_language, updated_news_language
+                ));
+                article_menu_state_settings.lock().unwrap().dirty = true;
+                refresh_all_article_sources(&rt_settings, &settings_state, &article_menu_state_settings);
+            }
             if previous_ui_language != updated_ui_language {
                 let ui = ui_strings(&updated_ui_language);
                 let message = if updated_ui_language == "it" {
