@@ -68,9 +68,6 @@ pub fn default_italian_sources() -> Vec<ArticleSource> {
     parse_default_sources(DEFAULT_IT_FEEDS)
 }
 
-pub fn default_english_sources() -> Vec<ArticleSource> {
-    parse_default_sources(DEFAULT_EN_FEEDS)
-}
 
 pub fn default_french_sources() -> Vec<ArticleSource> {
     parse_default_sources(DEFAULT_FR_FEEDS)
@@ -114,17 +111,6 @@ pub fn default_sources_for_news_language(news_language: &str) -> Vec<ArticleSour
     }
 }
 
-pub fn default_sources_for_ui_language(ui_language: &str) -> Vec<ArticleSource> {
-    match ui_language.trim().to_ascii_lowercase().as_str() {
-        "en" | "english" | "inglese" => default_english_sources(),
-        "fr" | "french" | "francese" | "français" => default_french_sources(),
-        "es" | "spanish" | "spagnolo" | "español" | "espanol" => default_spanish_sources(),
-        "pt" | "portuguese" | "portoghese" | "português" | "portugues" => default_portuguese_sources(),
-        "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" => default_czech_sources(),
-        "pl" | "polish" | "polacco" | "polski" => default_polish_sources(),
-        _ => default_italian_sources(),
-    }
-}
 
 pub fn is_default_source_url_any_news_language(url: &str) -> bool {
     let normalized = normalize_url(url);

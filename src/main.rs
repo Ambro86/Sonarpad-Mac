@@ -496,29 +496,6 @@ fn normalize_ui_language(value: &str) -> String {
 }
 
 
-fn is_ui_language_it() -> bool {
-    Settings::load().ui_language == "it"
-}
-
-fn is_ui_language_es() -> bool {
-    Settings::load().ui_language == "es"
-}
-
-fn is_ui_language_fr() -> bool {
-    Settings::load().ui_language == "fr"
-}
-
-fn is_ui_language_pt() -> bool {
-    Settings::load().ui_language == "pt"
-}
-
-fn is_ui_language_cs() -> bool {
-    Settings::load().ui_language == "cs"
-}
-
-fn is_ui_language_pl() -> bool {
-    Settings::load().ui_language == "pl"
-}
 
 fn system_language_code() -> String {
     for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
@@ -1099,7 +1076,6 @@ fn get_language_name_en(locale: &str) -> String {
         "id" => "Indonesian".to_string(),
         "is" => "Icelandic".to_string(),
         "pt" => "Portuguese".to_string(),
-        "cs" => "Czech".to_string(),
         "kk" => "Kazakh".to_string(),
         "km" => "Khmer".to_string(),
         "kn" => "Kannada".to_string(),

@@ -39,7 +39,6 @@ pub struct ScheduledProgram {
 
 #[derive(Clone, Debug)]
 pub struct ScheduledDay {
-    pub label: String,
     pub programs: Vec<ScheduledProgram>,
 }
 
@@ -305,7 +304,7 @@ pub fn load_scheduled_catalog() -> Result<Vec<ScheduledDay>, String> {
             } else if programs.is_empty() {
                 None
             } else {
-                Some(ScheduledDay { label, programs })
+                Some(ScheduledDay { programs })
             }
         })
         .collect::<Vec<_>>();
