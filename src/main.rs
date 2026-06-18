@@ -110,6 +110,7 @@ const ID_TOOLS_CINEMA: i32 = 2369;
 const ID_TOOLS_CONVERT_MEDIA: i32 = 2370;
 const ID_TOOLS_BDCIECHI: i32 = 2371;
 const ID_TOOLS_ROUTES: i32 = 2372;
+const ID_TOOLS_VOICE_DICTIONARY: i32 = 2373;
 const ID_RADIO_FAVORITE_BASE: i32 = 6000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
@@ -837,6 +838,8 @@ struct UiStrings {
     text_saved_ok: String,
     unsaved_changes_message: String,
     unsaved_changes_title: String,
+    unsaved_save: String,
+    unsaved_dont_save: String,
     close: String,
     open_document_title: String,
     analyzing_document: String,
@@ -1593,6 +1596,64 @@ fn ask_yes_no_dialog(parent: &Frame, title: &str, message: &str) -> bool {
         .build();
     localize_standard_dialog_buttons(&dialog);
     dialog.show_modal() == ID_YES
+}
+
+fn ask_unsaved_changes_dialog(parent: &Frame) -> i32 {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.unsaved_changes_title)
+        .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
+        .with_size(560, 190)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let message = StaticText::builder(&panel)
+        .with_label(&ui.unsaved_changes_message)
+        .build();
+    root.add(&message, 1, SizerFlag::Expand | SizerFlag::All, 12);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let save_button = Button::builder(&panel)
+        .with_id(ID_YES)
+        .with_label(&ui.unsaved_save)
+        .build();
+    let dont_save_button = Button::builder(&panel)
+        .with_id(ID_NO)
+        .with_label(&ui.unsaved_dont_save)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
+
+    buttons.add_spacer(1);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&dont_save_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_YES);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let dialog_save = dialog;
+    save_button.on_click(move |_| {
+        dialog_save.end_modal(ID_YES);
+    });
+
+    let dialog_dont_save = dialog;
+    dont_save_button.on_click(move |_| {
+        dialog_dont_save.end_modal(ID_NO);
+    });
+
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| {
+        dialog_cancel.end_modal(ID_CANCEL);
+    });
+
+    let response = dialog.show_modal();
+    dialog.destroy();
+    response
 }
 
 fn show_message_subdialog(parent: &Dialog, title: &str, message: &str) {
@@ -3337,6 +3398,214 @@ struct CommunityRadio {
     language: Option<String>,
 }
 
+
+fn radio_country_options() -> Vec<(&'static str, &'static str, &'static str)> {
+    if Settings::load().ui_language == "it" {
+        vec![
+            ("it", "Italia", "Italy"),
+            ("us", "Stati Uniti", "United States"),
+            ("gb", "Regno Unito", "United Kingdom"),
+            ("fr", "Francia", "France"),
+            ("de", "Germania", "Germany"),
+            ("es", "Spagna", "Spain"),
+            ("pt", "Portogallo", "Portugal"),
+            ("ch", "Svizzera", "Switzerland"),
+            ("at", "Austria", "Austria"),
+            ("tr", "Turchia", "Turkey"),
+            ("pl", "Polonia", "Poland"),
+            ("cz", "Cechia", "Czechia"),
+            ("se", "Svezia", "Sweden"),
+            ("br", "Brasile", "Brazil"),
+            ("ar", "Argentina", "Argentina"),
+            ("ca", "Canada", "Canada"),
+        ]
+    } else {
+        vec![
+            ("it", "Italy", "Italy"),
+            ("us", "United States", "United States"),
+            ("gb", "United Kingdom", "United Kingdom"),
+            ("fr", "France", "France"),
+            ("de", "Germany", "Germany"),
+            ("es", "Spain", "Spain"),
+            ("pt", "Portugal", "Portugal"),
+            ("ch", "Switzerland", "Switzerland"),
+            ("at", "Austria", "Austria"),
+            ("tr", "Turkey", "Turkey"),
+            ("pl", "Poland", "Poland"),
+            ("cz", "Czechia", "Czechia"),
+            ("se", "Sweden", "Sweden"),
+            ("br", "Brazil", "Brazil"),
+            ("ar", "Argentina", "Argentina"),
+            ("ca", "Canada", "Canada"),
+        ]
+    }
+}
+
+fn fetch_radio_browser_country_city_stations(
+    country_code: &str,
+    city_or_region: &str,
+    query_text: &str,
+) -> Result<Vec<RadioStation>, String> {
+    const RADIO_BROWSER_MIRRORS: [&str; 4] = [
+        "https://all.api.radio-browser.info",
+        "https://de1.api.radio-browser.info",
+        "https://fi1.api.radio-browser.info",
+        "https://at1.api.radio-browser.info",
+    ];
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(10))
+        .user_agent("Sonarpad Radio/1.0")
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let mut last_error = None;
+    for mirror in RADIO_BROWSER_MIRRORS {
+        let mut query = vec![
+            ("hidebroken", "true".to_string()),
+            ("order", "votes".to_string()),
+            ("reverse", "true".to_string()),
+            ("limit", "200".to_string()),
+            ("countrycode", country_code.to_uppercase()),
+        ];
+        let trimmed_city = city_or_region.trim();
+        if !trimmed_city.is_empty() {
+            query.push(("state", trimmed_city.to_string()));
+        }
+        let trimmed_query = query_text.trim();
+        if !trimmed_query.is_empty() {
+            query.push(("name", trimmed_query.to_string()));
+        }
+
+        match client
+            .get(format!("{mirror}/json/stations/search"))
+            .query(&query)
+            .send()
+            .and_then(|response| response.error_for_status())
+        {
+            Ok(response) => match response.json::<Vec<RadioBrowserStation>>() {
+                Ok(stations) => {
+                    let mut parsed = stations
+                        .into_iter()
+                        .filter_map(|station| {
+                            let stream_url = if station.url_resolved.trim().is_empty() {
+                                station.url.trim().to_string()
+                            } else {
+                                station.url_resolved.trim().to_string()
+                            };
+                            if stream_url.is_empty() {
+                                return None;
+                            }
+                            let name = if station.name.trim().is_empty() {
+                                stream_url.clone()
+                            } else {
+                                station.name.replace('&', "").trim().to_string()
+                            };
+                            Some(RadioStation { name, stream_url })
+                        })
+                        .collect::<Vec<_>>();
+                    parsed = normalize_radio_stations(parsed);
+                    return Ok(parsed);
+                }
+                Err(err) => last_error = Some(err.to_string()),
+            },
+            Err(err) => last_error = Some(err.to_string()),
+        }
+    }
+
+    Err(last_error.unwrap_or_else(|| "Radio Browser non raggiungibile".to_string()))
+}
+
+fn open_radio_country_city_dialog(
+    parent: &Dialog,
+    settings: &Arc<Mutex<Settings>>,
+    radio_menu_state: &Arc<Mutex<RadioMenuState>>,
+) {
+    let is_it = Settings::load().ui_language == "it";
+    let dialog = Dialog::builder(parent, if is_it { "Radio per nazione e città" } else { "Radio by country and city" })
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(620, 250)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let country_row = BoxSizer::builder(Orientation::Horizontal).build();
+    country_row.add(&StaticText::builder(&panel).with_label(if is_it { "Nazione" } else { "Country" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let country_choice = Choice::builder(&panel).build();
+    let countries = Rc::new(radio_country_options());
+    for (_, label, _) in countries.iter() {
+        country_choice.append(label);
+    }
+    country_choice.set_selection(0);
+    country_row.add(&country_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&country_row, 0, SizerFlag::Expand, 0);
+
+    let city_row = BoxSizer::builder(Orientation::Horizontal).build();
+    city_row.add(&StaticText::builder(&panel).with_label(if is_it { "Città o regione" } else { "City or region" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let city_ctrl = TextCtrl::builder(&panel).build();
+    city_row.add(&city_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&city_row, 0, SizerFlag::Expand, 0);
+
+    let query_row = BoxSizer::builder(Orientation::Horizontal).build();
+    query_row.add(&StaticText::builder(&panel).with_label(if is_it { "Nome radio" } else { "Station name" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let query_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
+    query_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&query_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let search_button = Button::builder(&panel).with_label(if is_it { "Cerca" } else { "Search" }).build();
+    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(if is_it { "Chiudi" } else { "Close" }).build();
+    buttons.add_spacer(1);
+    buttons.add(&search_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let countries_search = Rc::clone(&countries);
+    let country_choice_search = country_choice;
+    let city_ctrl_search = city_ctrl;
+    let query_ctrl_search = query_ctrl;
+    let dialog_search = dialog;
+    let settings_search = Arc::clone(settings);
+    let radio_menu_state_search = Arc::clone(radio_menu_state);
+    let run_search = Rc::new(move || {
+        let Some(sel) = country_choice_search.get_selection() else { return; };
+        let Some((country_code, _, _)) = countries_search.get(sel as usize) else { return; };
+        match fetch_radio_browser_country_city_stations(
+            country_code,
+            &city_ctrl_search.get_value(),
+            &query_ctrl_search.get_value(),
+        ) {
+            Ok(stations) => {
+                let results = stations
+                    .into_iter()
+                    .map(|station| favorite_from_station(&format!("country:{}", country_code), &station))
+                    .collect::<Vec<_>>();
+                open_radio_results_dialog(
+                    &dialog_search,
+                    &settings_search,
+                    &radio_menu_state_search,
+                    &results,
+                );
+            }
+            Err(err) => show_message_subdialog(&dialog_search, "Radio", &err),
+        }
+    });
+    let run_search_button = Rc::clone(&run_search);
+    search_button.on_click(move |_| run_search_button());
+    let run_search_enter = Rc::clone(&run_search);
+    query_ctrl.on_text_enter(move |_| run_search_enter());
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.centre();
+    country_choice.set_focus();
+    dialog.show_modal();
+    dialog.destroy();
+}
+
 fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>, String> {
     const RADIO_BROWSER_MIRRORS: [&str; 3] = [
         "https://de1.api.radio-browser.info",
@@ -4675,7 +4944,15 @@ fn open_radio_search_dialog(
     let button_add_community = Button::builder(&panel)
         .with_label(&current_ui_strings().add_radio_community)
         .build();
+    let button_country_city = Button::builder(&panel)
+        .with_label(if ui_language == "it" {
+            "Radio per nazione e città"
+        } else {
+            "Radio by country and city"
+        })
+        .build();
     community_button_row.add(&button_add_community, 0, SizerFlag::All, 5);
+    community_button_row.add(&button_country_city, 0, SizerFlag::All, 5);
     root.add_sizer(&community_button_row, 0, SizerFlag::Expand, 0);
 
     panel.set_sizer(root, true);
@@ -4822,6 +5099,17 @@ fn open_radio_search_dialog(
     let dialog_community = dialog;
     button_add_community.on_click(move |_| {
         open_add_community_radio_dialog(&dialog_community);
+    });
+
+    let dialog_country_city = dialog;
+    let settings_country_city = Arc::clone(settings);
+    let radio_menu_state_country_city = Arc::clone(radio_menu_state);
+    button_country_city.on_click(move |_| {
+        open_radio_country_city_dialog(
+            &dialog_country_city,
+            &settings_country_city,
+            &radio_menu_state_country_city,
+        );
     });
 
     dialog.centre();
@@ -5831,6 +6119,216 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
 
     std::fs::write(&storage_path, data)
         .map_err(|err| format!("scrittura file {} fallita: {}", storage_path.display(), err))
+}
+
+
+#[derive(Clone, Serialize, Deserialize, Debug)]
+struct VoiceDictionaryEntry {
+    original: String,
+    replacement: String,
+    #[serde(default)]
+    match_case: bool,
+}
+
+fn voice_dictionary_title() -> &'static str {
+    if Settings::load().ui_language == "it" { "Dizionario vocale" } else { "Voice dictionary" }
+}
+
+fn load_voice_dictionary_entries() -> Vec<VoiceDictionaryEntry> {
+    read_app_storage_text("voice_dictionary.json")
+        .and_then(|data| serde_json::from_str::<Vec<VoiceDictionaryEntry>>(&data).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|entry| !entry.original.trim().is_empty())
+        .map(|entry| VoiceDictionaryEntry {
+            original: entry.original.trim().to_string(),
+            replacement: entry.replacement.trim().to_string(),
+            match_case: entry.match_case,
+        })
+        .collect()
+}
+
+fn save_voice_dictionary_entries(entries: &[VoiceDictionaryEntry]) -> Result<(), String> {
+    let data = serde_json::to_string_pretty(entries)
+        .map_err(|err| format!("dizionario vocale non serializzabile: {err}"))?;
+    write_app_storage_text("voice_dictionary.json", &data)
+}
+
+fn replace_case_insensitive(text: &str, original: &str, replacement: &str) -> String {
+    if original.is_empty() {
+        return text.to_string();
+    }
+    let source: Vec<char> = text.chars().collect();
+    let needle: Vec<char> = original.chars().collect();
+    if needle.is_empty() {
+        return text.to_string();
+    }
+    let needle_lower: Vec<char> = original.to_lowercase().chars().collect();
+    let mut output = String::new();
+    let mut index = 0usize;
+    while index < source.len() {
+        let end = index + needle.len();
+        if end <= source.len() {
+            let slice: String = source[index..end].iter().collect();
+            let slice_lower: Vec<char> = slice.to_lowercase().chars().collect();
+            if slice_lower == needle_lower {
+                output.push_str(replacement);
+                index = end;
+                continue;
+            }
+        }
+        output.push(source[index]);
+        index += 1;
+    }
+    output
+}
+
+fn apply_voice_dictionary_to_text(text: &str) -> String {
+    let entries = load_voice_dictionary_entries();
+    if entries.is_empty() {
+        return text.to_string();
+    }
+    let mut output = text.to_string();
+    for entry in entries {
+        if entry.original.is_empty() {
+            continue;
+        }
+        if entry.match_case {
+            output = output.replace(&entry.original, &entry.replacement);
+        } else {
+            output = replace_case_insensitive(&output, &entry.original, &entry.replacement);
+        }
+    }
+    output
+}
+
+fn voice_dictionary_entry_label(entry: &VoiceDictionaryEntry) -> String {
+    let mode = if entry.match_case {
+        if Settings::load().ui_language == "it" { "maiuscole/minuscole" } else { "match case" }
+    } else if Settings::load().ui_language == "it" {
+        "ignora maiuscole"
+    } else {
+        "ignore case"
+    };
+    format!("{} -> {} ({})", entry.original, entry.replacement, mode)
+}
+
+fn refresh_voice_dictionary_choice(choice: &Choice, entries: &[VoiceDictionaryEntry]) {
+    choice.clear();
+    if entries.is_empty() {
+        choice.append(if Settings::load().ui_language == "it" {
+            "Nessuna voce nel dizionario."
+        } else {
+            "No dictionary entries."
+        });
+        choice.set_selection(0);
+        return;
+    }
+    for entry in entries {
+        choice.append(&voice_dictionary_entry_label(entry));
+    }
+    choice.set_selection(0);
+}
+
+fn open_voice_dictionary_dialog(parent: &Frame) {
+    let is_it = Settings::load().ui_language == "it";
+    let dialog = Dialog::builder(parent, voice_dictionary_title())
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(640, 300)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let original_row = BoxSizer::builder(Orientation::Horizontal).build();
+    original_row.add(&StaticText::builder(&panel).with_label(if is_it { "Parola originale" } else { "Original word" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let original_ctrl = TextCtrl::builder(&panel).build();
+    original_row.add(&original_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&original_row, 0, SizerFlag::Expand, 0);
+
+    let replacement_row = BoxSizer::builder(Orientation::Horizontal).build();
+    replacement_row.add(&StaticText::builder(&panel).with_label(if is_it { "Sostituzione" } else { "Replacement" }).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let replacement_ctrl = TextCtrl::builder(&panel).build();
+    replacement_row.add(&replacement_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&replacement_row, 0, SizerFlag::Expand, 0);
+
+    let match_case = CheckBox::builder(&panel).with_label(if is_it { "Distingui maiuscole e minuscole" } else { "Match case" }).build();
+    match_case.set_value(true);
+    root.add(&match_case, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
+
+    root.add(&StaticText::builder(&panel).with_label(if is_it { "Voci del dizionario" } else { "Dictionary entries" }).build(), 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
+    let entries_choice = Choice::builder(&panel).build();
+    let entries = Rc::new(RefCell::new(load_voice_dictionary_entries()));
+    refresh_voice_dictionary_choice(&entries_choice, &entries.borrow());
+    root.add(&entries_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let add_button = Button::builder(&panel).with_label(if is_it { "Aggiungi" } else { "Add" }).build();
+    let remove_button = Button::builder(&panel).with_label(if is_it { "Elimina" } else { "Remove" }).build();
+    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(if is_it { "Chiudi" } else { "Close" }).build();
+    buttons.add_spacer(1);
+    buttons.add(&add_button, 0, SizerFlag::All, 10);
+    buttons.add(&remove_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let entries_add = Rc::clone(&entries);
+    let choice_add = entries_choice;
+    let original_add = original_ctrl;
+    let replacement_add = replacement_ctrl;
+    let match_case_add = match_case;
+    let dialog_add = dialog;
+    add_button.on_click(move |_| {
+        let original = original_add.get_value().trim().to_string();
+        if original.is_empty() {
+            show_message_subdialog(&dialog_add, voice_dictionary_title(), if Settings::load().ui_language == "it" { "Inserisci la parola originale." } else { "Enter the original word." });
+            return;
+        }
+        let entry = VoiceDictionaryEntry {
+            original: original.clone(),
+            replacement: replacement_add.get_value().trim().to_string(),
+            match_case: match_case_add.get_value(),
+        };
+        {
+            let mut entries = entries_add.borrow_mut();
+            entries.retain(|item| !(item.original == entry.original && item.match_case == entry.match_case));
+            entries.push(entry);
+            if let Err(err) = save_voice_dictionary_entries(&entries) {
+                show_message_subdialog(&dialog_add, voice_dictionary_title(), &err);
+                return;
+            }
+            refresh_voice_dictionary_choice(&choice_add, &entries);
+        }
+        original_add.set_value("");
+        replacement_add.set_value("");
+        original_add.set_focus();
+    });
+
+    let entries_remove = Rc::clone(&entries);
+    let choice_remove = entries_choice;
+    let dialog_remove = dialog;
+    remove_button.on_click(move |_| {
+        let Some(sel) = choice_remove.get_selection() else { return; };
+        let mut entries = entries_remove.borrow_mut();
+        if entries.is_empty() || sel as usize >= entries.len() {
+            return;
+        }
+        entries.remove(sel as usize);
+        if let Err(err) = save_voice_dictionary_entries(&entries) {
+            show_message_subdialog(&dialog_remove, voice_dictionary_title(), &err);
+            return;
+        }
+        refresh_voice_dictionary_choice(&choice_remove, &entries);
+    });
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.centre();
+    original_ctrl.set_focus();
+    dialog.show_modal();
+    dialog.destroy();
 }
 
 #[cfg(any(target_os = "macos", windows))]
@@ -15936,6 +16434,100 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     dialog.destroy();
 }
 
+
+fn scheduled_audio_program_label(program: &rai_audiodescrizioni::ScheduledProgram) -> String {
+    let mut parts = Vec::new();
+    if !program.day_label.trim().is_empty() {
+        parts.push(program.day_label.trim().to_string());
+    }
+    if !program.time.trim().is_empty() {
+        parts.push(program.time.trim().to_string());
+    }
+    if !program.channel.trim().is_empty() {
+        parts.push(program.channel.trim().to_string());
+    }
+    if !program.title.trim().is_empty() {
+        parts.push(program.title.trim().to_string());
+    }
+    if !program.date_time.trim().is_empty() {
+        parts.push(program.date_time.trim().to_string());
+    }
+    if parts.is_empty() {
+        program.voice_text.clone()
+    } else {
+        parts.join(" - ")
+    }
+}
+
+fn open_rai_audio_scheduled_dialog(parent: &Dialog) {
+    let is_it = Settings::load().ui_language == "it";
+    match rai_audiodescrizioni::load_scheduled_catalog() {
+        Ok(days) => {
+            if days.is_empty() {
+                show_message_subdialog(parent, &current_ui_strings().rai_audio_descriptions_label, if is_it { "Nessuna audiodescrizione in programma al momento." } else { "No scheduled audio descriptions at the moment." });
+                return;
+            }
+            let dialog = Dialog::builder(parent, if is_it { "Prossime audiodescrizioni" } else { "Upcoming audio descriptions" })
+                .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+                .with_size(760, 280)
+                .build();
+            let panel = Panel::builder(&dialog).build();
+            let root = BoxSizer::builder(Orientation::Vertical).build();
+            let choice = Choice::builder(&panel).build();
+            let mut programs = Vec::new();
+            for day in days {
+                for program in day.programs {
+                    let label = scheduled_audio_program_label(&program);
+                    choice.append(&label);
+                    programs.push(program);
+                }
+            }
+            if !programs.is_empty() {
+                choice.set_selection(0);
+            }
+            root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+            let info = StaticText::builder(&panel)
+                .with_label(if is_it { "Seleziona un programma per ascoltare data, canale e titolo." } else { "Select a program to review date, channel and title." })
+                .build();
+            root.add(&info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
+
+            let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+            let details_button = Button::builder(&panel).with_label(if is_it { "Dettagli" } else { "Details" }).build();
+            let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&current_ui_strings().close).build();
+            buttons.add_spacer(1);
+            buttons.add(&details_button, 0, SizerFlag::All, 10);
+            buttons.add(&close_button, 0, SizerFlag::All, 10);
+            root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+            panel.set_sizer(root, true);
+            dialog.set_escape_id(ID_CANCEL);
+
+            let programs = Rc::new(programs);
+            let choice_details = choice;
+            let dialog_details = dialog;
+            details_button.on_click(move |_| {
+                if let Some(sel) = choice_details.get_selection()
+                    && let Some(program) = programs.get(sel as usize)
+                {
+                    let text = if program.voice_text.trim().is_empty() {
+                        scheduled_audio_program_label(program)
+                    } else {
+                        program.voice_text.clone()
+                    };
+                    show_message_subdialog(&dialog_details, if Settings::load().ui_language == "it" { "Prossime audiodescrizioni" } else { "Upcoming audio descriptions" }, &text);
+                }
+            });
+            let dialog_close = dialog;
+            close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+            dialog.centre();
+            choice.set_focus();
+            dialog.show_modal();
+            dialog.destroy();
+        }
+        Err(err) => show_message_subdialog(parent, &current_ui_strings().rai_audio_descriptions_label, &err),
+    }
+}
+
 fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::CatalogItem]) {
     let ui = current_ui_strings();
     if items.is_empty() {
@@ -15974,7 +16566,10 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
         .with_label(&ui.rai_save_content)
         .build();
     let all_button = Button::builder(&panel)
-        .with_label("Tutte le audiodescrizioni")
+        .with_label(if Settings::load().ui_language == "it" { "Tutte le audiodescrizioni" } else { "All audio descriptions" })
+        .build();
+    let scheduled_button = Button::builder(&panel)
+        .with_label(if Settings::load().ui_language == "it" { "Prossime audiodescrizioni" } else { "Upcoming audio descriptions" })
         .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
@@ -15984,6 +16579,7 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
     buttons.add(&play_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
     buttons.add(&all_button, 0, SizerFlag::All, 10);
+    buttons.add(&scheduled_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -16063,6 +16659,10 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
             ),
         },
     );
+    let parent_scheduled = dialog;
+    scheduled_button.on_click(move |_| {
+        open_rai_audio_scheduled_dialog(&parent_scheduled);
+    });
     let parent_search = dialog;
     let search_ctrl_button = search_ctrl;
     let perform_search = Rc::new(move || {
@@ -16781,33 +17381,75 @@ fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
 }
 
 fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
+    append_podcast_log(&format!(
+        "tv.open.begin name={} category={} original_url={} has_guide={} resolver={:?} endpoint={:?} realm={:?} channel_id={:?}",
+        channel.name,
+        channel.category,
+        channel.url,
+        channel.has_guide,
+        channel.stream_resolver,
+        channel.resolver_endpoint,
+        channel.resolver_realm,
+        channel.resolver_channel_id
+    ));
+
     let use_rai_audio_description = is_tv_rai_audio_description_channel(channel);
     let preferred_audio_track = if use_rai_audio_description {
         Some("3")
     } else {
         None
     };
+    append_podcast_log(&format!(
+        "tv.open.audio_policy name={} use_rai_audio_description={} preferred_audio_track={:?}",
+        channel.name, use_rai_audio_description, preferred_audio_track
+    ));
 
     let resolved_url = match crate::tv::resolve_tv_channel_url(channel) {
-        Ok(url) => url,
+        Ok(url) => {
+            append_podcast_log(&format!(
+                "tv.open.resolved name={} resolved_url={} changed={}",
+                channel.name,
+                url,
+                url != channel.url
+            ));
+            url
+        }
         Err(e) => {
+            append_podcast_log(&format!(
+                "tv.open.resolve_failed name={} original_url={} err={}",
+                channel.name, channel.url, e
+            ));
             return Err(format!("Errore risoluzione canale: {}", e));
         }
     };
 
     let recording_config = if use_rai_audio_description {
+        append_podcast_log(&format!(
+            "tv.open.recording_config name={} mode=rai_tv_audio_description",
+            channel.name
+        ));
         MpvRecordingConfig::rai_tv_audio_description(&resolved_url, &channel.name)
     } else {
+        append_podcast_log(&format!(
+            "tv.open.recording_config name={} mode=standard_tv",
+            channel.name
+        ));
         MpvRecordingConfig::tv(&resolved_url, &channel.name)
     };
 
-    open_stream_with_mpv_recordable(
+    let result = open_stream_with_mpv_recordable(
         &resolved_url,
         &channel.name,
         preferred_audio_track,
         false,
         Some(recording_config),
-    )
+    );
+    append_podcast_log(&format!(
+        "tv.open.end name={} success={}",
+        channel.name,
+        result.is_ok()
+    ));
+    result
 }
 
 fn is_tv_rai_audio_description_channel(channel: &tv::TvChannel) -> bool {
@@ -17420,6 +18062,31 @@ fn lua_string_literal(value: &str) -> String {
     out
 }
 
+
+fn mpv_diagnostic_log_path(title: &str) -> PathBuf {
+    let safe_title = sanitize_filename(title);
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let file_name = format!("mpv-{}-{}.log", safe_title, timestamp);
+    app_storage_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join(file_name)
+}
+
+fn log_path_diagnostics(label: &str, path: &Path) {
+    let exists = path.exists();
+    let is_file = path.is_file();
+    let is_dir = path.is_dir();
+    let len = std::fs::metadata(path).map(|m| m.len()).ok();
+    append_podcast_log(&format!(
+        "{label} path={} exists={} is_file={} is_dir={} len={:?}",
+        path.display(),
+        exists,
+        is_file,
+        is_dir,
+        len
+    ));
+}
+
 fn write_mpv_accessibility_script(
     mpv_config_dir: &Path,
     title: &str,
@@ -17447,6 +18114,7 @@ fn write_mpv_accessibility_script(
     let recording_extension = recording.map(|config| config.extension).unwrap_or(".mkv");
     let recording_kind = recording.map(|config| config.kind).unwrap_or("recording");
     let manifest_path = recordings_manifest_path();
+    let lua_log_path = app_storage_path("log.txt");
 
     let mut script = String::new();
     script.push_str("local mp = require 'mp'\n\n");
@@ -17481,6 +18149,10 @@ fn write_mpv_accessibility_script(
     script.push_str(&format!(
         "local pid_file = {}\n",
         lua_string_literal(&pid_path.to_string_lossy())
+    ));
+    script.push_str(&format!(
+        "local sonarpad_log_file = {}\n",
+        lua_string_literal(&lua_log_path.to_string_lossy())
     ));
     script.push_str(&format!(
         "local msg_recording_started = {}\n",
@@ -17566,6 +18238,88 @@ fn write_mpv_accessibility_script(
     script.push_str(r#"local recording = false
 local current_recording_path = nil
 local quitting_from_key = false
+
+local function log_line(message)
+    local file = io.open(sonarpad_log_file, "a")
+    if file then
+        file:write(os.date("[%Y-%m-%d %H:%M:%S] ") .. "mpv.lua." .. tostring(message or "") .. "\n")
+        file:close()
+    end
+end
+
+local function native_to_text(value, depth)
+    depth = depth or 0
+    if depth > 2 then
+        return "..."
+    end
+    local t = type(value)
+    if t == "nil" then
+        return "nil"
+    elseif t == "string" or t == "number" or t == "boolean" then
+        return tostring(value)
+    elseif t == "table" then
+        local parts = {}
+        local count = 0
+        for k, v in pairs(value) do
+            count = count + 1
+            if count > 30 then
+                table.insert(parts, "...")
+                break
+            end
+            table.insert(parts, tostring(k) .. "=" .. native_to_text(v, depth + 1))
+        end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+    return "<" .. t .. ">"
+end
+
+local function log_property(name)
+    local ok, value = pcall(function() return mp.get_property_native(name) end)
+    if ok then
+        log_line("property " .. name .. "=" .. native_to_text(value))
+    else
+        log_line("property_failed " .. name .. "=" .. tostring(value))
+    end
+end
+
+local function log_basic_state(context)
+    log_line(context)
+    log_property("path")
+    log_property("stream-open-filename")
+    log_property("media-title")
+    log_property("file-format")
+    log_property("demuxer")
+    log_property("duration")
+    log_property("time-pos")
+    log_property("seekable")
+    log_property("paused-for-cache")
+    log_property("cache-buffering-state")
+    log_property("video")
+    log_property("vid")
+    log_property("current-vo")
+    log_property("video-codec")
+    log_property("video-params")
+    log_property("estimated-vf-fps")
+    log_property("audio")
+    log_property("aid")
+    log_property("audio-codec")
+    log_property("audio-params")
+    log_property("track-list")
+end
+
+mp.register_event("start-file", function() log_basic_state("event start-file") end)
+mp.register_event("file-loaded", function()
+    log_basic_state("event file-loaded")
+    mp.add_timeout(1.0, function() log_basic_state("timer 1s after file-loaded") end)
+    mp.add_timeout(3.0, function() log_basic_state("timer 3s after file-loaded") end)
+end)
+mp.register_event("video-reconfig", function() log_basic_state("event video-reconfig") end)
+mp.register_event("audio-reconfig", function() log_basic_state("event audio-reconfig") end)
+mp.register_event("playback-restart", function() log_basic_state("event playback-restart") end)
+mp.register_event("end-file", function(event)
+    log_line("event end-file reason=" .. tostring(event and event.reason) .. " error=" .. tostring(event and event.error))
+    log_basic_state("event end-file state")
+end)
 
 local function speak(text)
     if text == nil or text == "" then
@@ -17806,10 +18560,34 @@ fn open_stream_with_mpv_recordable(
     enable_bookmarks: bool,
     recording: Option<MpvRecordingConfig>,
 ) -> Result<(), String> {
-    let mpv_executable =
-        podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
+    let mpv_executable = {
+        let path = podcast_player::bundled_mpv_executable_path();
+        #[cfg(target_os = "macos")]
+        let path = path.or_else(bundled_mpv_executable_path);
+        path.unwrap_or_else(|| PathBuf::from("mpv"))
+    };
+    let mpv_debug_log = mpv_diagnostic_log_path(title);
+    if let Some(parent) = mpv_debug_log.parent()
+        && let Err(err) = std::fs::create_dir_all(parent)
+    {
+        append_podcast_log(&format!(
+            "mpv.recordable.debug_log_dir_failed title={} dir={} err={}",
+            title,
+            parent.display(),
+            err
+        ));
+    }
+    append_podcast_log(&format!(
+        "mpv.recordable.prepare title={} url={} mpv={} debug_log={}",
+        title,
+        url,
+        mpv_executable.display(),
+        mpv_debug_log.display()
+    ));
+    log_path_diagnostics("mpv.recordable.mpv_path", &mpv_executable);
     let mut command = Command::new(&mpv_executable);
     let mpv_input_conf = bundled_mpv_input_conf_path();
+    log_path_diagnostics("mpv.recordable.input_conf_path", &mpv_input_conf);
     let allow_bookmarks = enable_bookmarks && media_bookmarks_enabled();
     let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
     if let Some(parent_dir) = mpv_executable.parent()
@@ -17825,9 +18603,9 @@ fn open_stream_with_mpv_recordable(
         .arg("--no-terminal")
         .arg("--osc=yes")
         .arg("--input-default-bindings=yes")
-        .arg("--volume-max=300");
-    #[cfg(target_os = "macos")]
-    command.arg("--vo=gpu").arg("--gpu-context=cocoa");
+        .arg("--volume-max=300")
+        .arg(format!("--log-file={}", mpv_debug_log.display()))
+        .arg("--msg-level=all=v");
     if allow_bookmarks {
         command
             .arg(format!(
@@ -17842,21 +18620,94 @@ fn open_stream_with_mpv_recordable(
     }
 
     let accessibility_script = write_mpv_accessibility_script(&mpv_config_dir, title, recording.as_ref())?;
+    append_podcast_log(&format!(
+        "mpv.recordable.config title={} input_conf={} config_dir={} accessibility_script={} bookmarks={} preferred_audio_track={:?} recording_enabled={} debug_log={}",
+        title,
+        mpv_input_conf.display(),
+        mpv_config_dir.display(),
+        accessibility_script.display(),
+        allow_bookmarks,
+        preferred_audio_track,
+        recording.is_some(),
+        mpv_debug_log.display()
+    ));
+    log_path_diagnostics("mpv.recordable.config_dir_path", &mpv_config_dir);
+    log_path_diagnostics("mpv.recordable.accessibility_script_path", &accessibility_script);
     command.arg(format!("--script={}", accessibility_script.display()));
 
     if let Some(audio_track) = preferred_audio_track {
         if audio_track == "3" {
             let script_path = write_mpv_preferred_audio_fallback_script(&mpv_config_dir, 3)?;
+            append_podcast_log(&format!(
+                "mpv.recordable.preferred_audio_script title={} preferred_aid=3 script={}",
+                title,
+                script_path.display()
+            ));
+            log_path_diagnostics("mpv.recordable.preferred_audio_script_path", &script_path);
             command.arg(format!("--script={}", script_path.display()));
         } else {
             command.arg(format!("--aid={audio_track}"));
         }
     }
     command.arg(format!("--title=Sonarpad - {title}")).arg(url);
-    let _child = command
-        .spawn()
-        .map_err(|err| format!("avvio mpv fallito: {err}"))?;
-    Ok(())
+    append_podcast_log(&format!(
+        "mpv.recordable.spawn title={} url={} mpv={} debug_log={} current_dir={}",
+        title,
+        url,
+        mpv_executable.display(),
+        mpv_debug_log.display(),
+        mpv_executable
+            .parent()
+            .map(|p| p.display().to_string())
+            .unwrap_or_default()
+    ));
+    match command.spawn() {
+        Ok(mut child) => {
+            let pid = child.id();
+            let title_for_log = title.to_string();
+            let url_for_log = url.to_string();
+            let debug_log_for_log = mpv_debug_log.clone();
+            append_podcast_log(&format!(
+                "mpv.recordable.started pid={} title={} url={} debug_log={}",
+                pid,
+                title,
+                url,
+                mpv_debug_log.display()
+            ));
+            std::thread::spawn(move || {
+                match child.wait() {
+                    Ok(status) => append_podcast_log(&format!(
+                        "mpv.recordable.exited pid={} title={} url={} status={} debug_log={}",
+                        pid,
+                        title_for_log,
+                        url_for_log,
+                        status,
+                        debug_log_for_log.display()
+                    )),
+                    Err(err) => append_podcast_log(&format!(
+                        "mpv.recordable.wait_failed pid={} title={} url={} err={} debug_log={}",
+                        pid,
+                        title_for_log,
+                        url_for_log,
+                        err,
+                        debug_log_for_log.display()
+                    )),
+                }
+            });
+            Ok(())
+        }
+        Err(err) => {
+            append_podcast_log(&format!(
+                "mpv.recordable.spawn_failed title={} url={} mpv={} err={} debug_log={}",
+                title,
+                url,
+                mpv_executable.display(),
+                err,
+                mpv_debug_log.display()
+            ));
+            Err(format!("avvio mpv fallito: {err}"))
+        }
+    }
 }
 
 fn write_mpv_preferred_audio_fallback_script(
@@ -18470,6 +19321,12 @@ fn main() {
             &ui.routes_title,
             ItemKind::Normal,
         );
+        tools_menu.append(
+            ID_TOOLS_VOICE_DICTIONARY,
+            voice_dictionary_title(),
+            voice_dictionary_title(),
+            ItemKind::Normal,
+        );
         if Settings::load().ui_language == "it" {
             tools_menu.append_separator();
             tools_menu.append(
@@ -18957,20 +19814,7 @@ fn main() {
         let frame_close = frame;
         frame.on_close(move |event| {
             if tc_close.is_modified() {
-                let ui = current_ui_strings();
-                let dialog = MessageDialog::builder(
-                    &frame_close,
-                    &ui.unsaved_changes_message,
-                    &ui.unsaved_changes_title,
-                )
-                .with_style(
-                    MessageDialogStyle::YesNo
-                        | MessageDialogStyle::Cancel
-                        | MessageDialogStyle::IconQuestion,
-                )
-                .build();
-                localize_standard_dialog_buttons(&dialog);
-                match dialog.show_modal() {
+                match ask_unsaved_changes_dialog(&frame_close) {
                     ID_YES
                         if !save_current_document(
                             &frame_close,
@@ -18982,11 +19826,11 @@ fn main() {
                         event.skip(false);
                         return;
                     }
-                    ID_CANCEL => {
+                    ID_YES | ID_NO => {}
+                    _ => {
                         event.skip(false);
                         return;
                     }
-                    _ => {}
                 }
             }
             remember_text_bookmark(&settings_close, &tc_close, &current_document_close);
@@ -19124,6 +19968,8 @@ fn main() {
                 open_convert_media_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_ROUTES {
                 routes::open_routes_dialog(&f_menu, tc_menu);
+            } else if event.get_id() == ID_TOOLS_VOICE_DICTIONARY {
+                open_voice_dictionary_dialog(&f_menu);
             } else if event.get_id() == ID_RAI_AUDIO_DESCRIPTIONS {
                 open_rai_audio_descriptions_dialog(&f_menu);
             } else if event.get_id() == ID_RAIPLAY_BROWSE {
@@ -19879,11 +20725,11 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop_tts_playback(&pb_p_start);
             }
             let full_text = tc_p_start.get_value();
-            let text = text_from_user_reading_start(
+            let text = apply_voice_dictionary_to_text(&text_from_user_reading_start(
                 &full_text,
                 tc_p_start.get_insertion_point(),
                 cursor_moved_start.get(),
-            );
+            ));
             if text.trim().is_empty() {
                 append_podcast_log("start_action.text_empty");
                 return;
@@ -20351,6 +21197,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
             if let Some(path_buf) = prompt_audiobook_save_path(&f_save, &s_save) {
                 let path = path_buf.to_string_lossy().into_owned();
                 append_podcast_log(&format!("audiobook_save.begin path={path}"));
+                let text = apply_voice_dictionary_to_text(&text);
                 let chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
                 let total = chunks.len();
                 append_podcast_log(&format!("audiobook_save.chunks total={total}"));

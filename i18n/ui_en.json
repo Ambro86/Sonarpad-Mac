@@ -172,6 +172,8 @@
   "text_saved_ok": "Text saved successfully.",
   "unsaved_changes_message": "The current text has unsaved changes. Do you want to save them before closing?",
   "unsaved_changes_title": "Unsaved changes",
+  "unsaved_save": "Save",
+  "unsaved_dont_save": "Don't save",
   "close": "Close",
   "open_document_title": "Open document",
   "analyzing_document": "Analyzing document...",

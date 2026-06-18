@@ -26,6 +26,78 @@ pub struct CatalogGroup {
     pub items: Vec<CatalogItem>,
 }
 
+
+#[derive(Clone, Debug)]
+pub struct ScheduledProgram {
+    pub day_label: String,
+    pub time: String,
+    pub channel: String,
+    pub title: String,
+    pub voice_text: String,
+    pub date_time: String,
+}
+
+#[derive(Clone, Debug)]
+pub struct ScheduledDay {
+    pub label: String,
+    pub programs: Vec<ScheduledProgram>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ScheduledResponse {
+    #[serde(default)]
+    dati: Option<ScheduledRoot>,
+    #[serde(default)]
+    ok: Option<bool>,
+    #[serde(default)]
+    messaggio: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    giorni: Vec<ScheduledDayJson>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ScheduledRoot {
+    #[serde(default)]
+    ok: Option<bool>,
+    #[serde(default)]
+    messaggio: Option<String>,
+    #[serde(default)]
+    error: Option<String>,
+    #[serde(default)]
+    giorni: Vec<ScheduledDayJson>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ScheduledDayJson {
+    #[serde(default)]
+    giorno_label: String,
+    #[serde(default)]
+    data_estesa: String,
+    #[serde(default)]
+    programmi: Vec<ScheduledProgramJson>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct ScheduledProgramJson {
+    #[serde(default)]
+    giorno_label: String,
+    #[serde(default)]
+    orario: String,
+    #[serde(default)]
+    canale: String,
+    #[serde(default)]
+    titolo: String,
+    #[serde(default)]
+    testo_voce: String,
+    #[serde(default)]
+    datetime: String,
+}
+
+const RAI_AUDIODESCRIZIONI_SCHEDULED_URL: &str =
+    "https://sonarpad.com/api/audiodescrizioni/prossime_audiodescrizioni.php?mode=json";
+
 #[derive(Debug, Deserialize)]
 struct ExternalItem {
     title: String,
@@ -156,6 +228,88 @@ pub fn search_catalog(query: &str) -> Result<Vec<CatalogItem>, String> {
     }
 
     Ok(matches)
+}
+
+
+pub fn load_scheduled_catalog() -> Result<Vec<ScheduledDay>, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .user_agent("SonarpadMinimal/1.0")
+        .build()
+        .map_err(|err| err.to_string())?;
+    let response: ScheduledResponse = client
+        .get(RAI_AUDIODESCRIZIONI_SCHEDULED_URL)
+        .header("Accept", "application/json")
+        .send()
+        .map_err(|err| format!("Impossibile scaricare le prossime audiodescrizioni: {err}"))?
+        .error_for_status()
+        .map_err(|err| format!("Errore di rete prossime audiodescrizioni: {err}"))?
+        .json()
+        .map_err(|err| format!("Risposta prossime audiodescrizioni non valida: {err}"))?;
+
+    let root = response.dati.unwrap_or(ScheduledRoot {
+        ok: response.ok,
+        messaggio: response.messaggio,
+        error: response.error,
+        giorni: response.giorni,
+    });
+    if root.ok == Some(false) {
+        return Err(root
+            .messaggio
+            .or(root.error)
+            .unwrap_or_else(|| "Servizio non disponibile".to_string()));
+    }
+
+    let days = root
+        .giorni
+        .into_iter()
+        .filter_map(|day| {
+            let label = if day.giorno_label.trim().is_empty() {
+                day.data_estesa.trim().to_string()
+            } else {
+                day.giorno_label.trim().to_string()
+            };
+            let programs = day
+                .programmi
+                .into_iter()
+                .filter_map(|program| {
+                    let title = program.titolo.trim().to_string();
+                    let voice_text = program.testo_voce.trim().to_string();
+                    if title.is_empty() && voice_text.is_empty() {
+                        return None;
+                    }
+                    let day_label = if program.giorno_label.trim().is_empty() {
+                        label.clone()
+                    } else {
+                        program.giorno_label.trim().to_string()
+                    };
+                    let fallback_voice = format!(
+                        "{} alle {}, {}, {}.",
+                        day_label,
+                        program.orario.trim(),
+                        program.canale.trim(),
+                        title
+                    );
+                    Some(ScheduledProgram {
+                        day_label,
+                        time: program.orario.trim().to_string(),
+                        channel: program.canale.trim().to_string(),
+                        title,
+                        voice_text: if voice_text.is_empty() { fallback_voice } else { voice_text },
+                        date_time: program.datetime.trim().to_string(),
+                    })
+                })
+                .collect::<Vec<_>>();
+            if label.is_empty() && programs.is_empty() {
+                None
+            } else if programs.is_empty() {
+                None
+            } else {
+                Some(ScheduledDay { label, programs })
+            }
+        })
+        .collect::<Vec<_>>();
+    Ok(days)
 }
 
 pub fn resolve_audio_url(audio_url: &str) -> Result<String, String> {

@@ -172,6 +172,8 @@
   "text_saved_ok": "Testo salvato correttamente.",
   "unsaved_changes_message": "Il testo corrente ha modifiche non salvate. Vuoi salvarle prima di chiudere?",
   "unsaved_changes_title": "Modifiche non salvate",
+  "unsaved_save": "Salva",
+  "unsaved_dont_save": "Non salvare",
   "close": "Chiudi",
   "open_document_title": "Apertura documento",
   "analyzing_document": "Analisi documento...",
