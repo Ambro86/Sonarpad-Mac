@@ -19227,7 +19227,7 @@ local function speak(text)
         playback_only = false,
         capture_stdout = false,
         capture_stderr = false,
-        args = {"/usr/bin/say", "-r", "145", text}
+        args = {"/usr/bin/say", "-r", "170", text}
     }, function() end)
 end
 
@@ -19265,6 +19265,25 @@ local function run_shell_sync(command)
         log_line("shell.sync_done result=nil")
     end
     return result
+end
+
+local function run_shell_detached(command)
+    local ok, result = pcall(function()
+        return mp.command_native({
+            name = "subprocess",
+            playback_only = false,
+            detach = true,
+            capture_stdout = false,
+            capture_stderr = false,
+            args = {"/bin/sh", "-c", command}
+        })
+    end)
+    if ok then
+        log_line("shell.detached_started result=" .. native_to_text(result))
+        return true
+    end
+    log_line("shell.detached_failed error=" .. tostring(result))
+    return false
 end
 
 local function build_output_path()
@@ -19334,11 +19353,11 @@ local function start_recording()
     log_line("recording.start_path=" .. tostring(current_recording_path))
     log_line("recording.ffmpeg_path=" .. tostring(ffmpeg_path))
     log_line("recording.ffmpeg_log=" .. tostring(recording_log_path))
-    local command = ffmpeg_available_command() .. " && /bin/mkdir -p " .. shell_quote(recordings_dir) .. " && ( echo sonarpad_recording_ffmpeg_start > " .. shell_quote(recording_log_path) .. "; " .. table.concat(parts, " ") .. " </dev/null >> " .. shell_quote(recording_log_path) .. " 2>&1 & echo $! > " .. shell_quote(pid_file) .. " )"
-    local result = run_shell_sync(command)
-    if result and result.status == 0 then
+    local command = ffmpeg_available_command() .. " && /bin/mkdir -p " .. shell_quote(recordings_dir) .. " && ( echo sonarpad_recording_ffmpeg_start > " .. shell_quote(recording_log_path) .. "; echo $$ > " .. shell_quote(pid_file) .. "; exec " .. table.concat(parts, " ") .. " </dev/null >> " .. shell_quote(recording_log_path) .. " 2>&1 )"
+    local started = run_shell_detached(command)
+    if started then
         recording = true
-        log_line("recording.started path=" .. tostring(current_recording_path) .. " pid_file=" .. tostring(pid_file))
+        log_line("recording.started_detached path=" .. tostring(current_recording_path) .. " pid_file=" .. tostring(pid_file))
         speak(msg_recording_started)
         check_recording_process_later(current_recording_path)
     else
@@ -19437,9 +19456,15 @@ local function seek_with_speech(seconds)
 end
 
 local function volume_with_speech(delta)
+    local before = mp.get_property_number("volume", 0)
     mp.commandv("add", "volume", tostring(delta))
-    local volume = mp.get_property_number("volume", 0)
-    speak(msg_volume .. " " .. math.floor(volume + 0.5) .. " " .. msg_percent)
+    local volume = mp.get_property_number("volume", before)
+    local before_i = math.floor((before or 0) + 0.5)
+    local volume_i = math.floor((volume or 0) + 0.5)
+    log_line("volume.change requested_delta=" .. tostring(delta) .. " before=" .. tostring(before_i) .. " after=" .. tostring(volume_i))
+    if volume_i ~= before_i then
+        speak(msg_volume .. " " .. volume_i .. " " .. msg_percent)
+    end
 end
 
 local function format_speed(speed)
@@ -19486,7 +19511,7 @@ mp.add_forced_key_binding("Q", "sonarpad-stop-speech-uppercase", stop_with_speec
 mp.add_forced_key_binding("ESC", "sonarpad-stop-speech-escape", stop_with_speech)
 mp.add_forced_key_binding("Meta+r", "sonarpad-toggle-recording-command", toggle_recording)
 mp.add_forced_key_binding("Meta+R", "sonarpad-toggle-recording-command-uppercase", toggle_recording)
-log_line("bindings_registered recording_key=Meta+r speak_rate=145")
+log_line("bindings_registered recording_key=Meta+r speak_rate=170")
 
 mp.register_event("shutdown", function()
     stop_recording(false)
