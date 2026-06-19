@@ -16883,6 +16883,16 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
+    open_button.show(true);
+    open_button.enable(!visible_channel_indices.borrow().is_empty());
+    panel.layout();
+    dialog.layout();
+    append_podcast_log(&format!(
+        "tv.dialog.initialized category_index={} visible_count={} open_enabled={}",
+        initial_category_index,
+        visible_channel_indices.borrow().len(),
+        !visible_channel_indices.borrow().is_empty()
+    ));
     let channels = Rc::new(channels);
     let category_choice_change = category_choice;
     let choice_category_change = choice;
@@ -19192,6 +19202,8 @@ local function log_basic_state(context)
     log_property("track-list")
 end
 
+log_line("script_loaded recording_enabled=" .. tostring(recording_enabled) .. " title=" .. tostring(recording_title))
+
 mp.register_event("start-file", function() log_basic_state("event start-file") end)
 mp.register_event("file-loaded", function()
     log_basic_state("event file-loaded")
@@ -19246,10 +19258,8 @@ local function run_shell_sync(command)
         args = {"/bin/sh", "-c", command}
     })
     if result then
-        local stdout = tostring(result.stdout or ""):gsub("
-", " ")
-        local stderr = tostring(result.stderr or ""):gsub("
-", " ")
+        local stdout = tostring(result.stdout or ""):gsub("\n", " ")
+        local stderr = tostring(result.stderr or ""):gsub("\n", " ")
         log_line("shell.sync_done status=" .. tostring(result.status) .. " stdout=" .. stdout .. " stderr=" .. stderr)
     else
         log_line("shell.sync_done result=nil")
@@ -19355,10 +19365,8 @@ local function stop_recording(announce)
     if announce then
         run_shell_async(command, function(success, result, error)
             local status = result and result.status or "nil"
-            local stdout = result and tostring(result.stdout or ""):gsub("
-", " ") or ""
-            local stderr = result and tostring(result.stderr or ""):gsub("
-", " ") or ""
+            local stdout = result and tostring(result.stdout or ""):gsub("\n", " ") or ""
+            local stderr = result and tostring(result.stderr or ""):gsub("\n", " ") or ""
             log_line("recording.stop_done success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error) .. " stdout=" .. stdout .. " stderr=" .. stderr .. " path=" .. tostring(saved_path))
             if success and result and result.status == 0 then
                 speak(msg_recording_saved)
@@ -19478,6 +19486,7 @@ mp.add_forced_key_binding("Q", "sonarpad-stop-speech-uppercase", stop_with_speec
 mp.add_forced_key_binding("ESC", "sonarpad-stop-speech-escape", stop_with_speech)
 mp.add_forced_key_binding("Meta+r", "sonarpad-toggle-recording-command", toggle_recording)
 mp.add_forced_key_binding("Meta+R", "sonarpad-toggle-recording-command-uppercase", toggle_recording)
+log_line("bindings_registered recording_key=Meta+r speak_rate=145")
 
 mp.register_event("shutdown", function()
     stop_recording(false)
