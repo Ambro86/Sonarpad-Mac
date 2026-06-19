@@ -19298,7 +19298,7 @@ end
 local function check_recording_process_later(path)
     mp.add_timeout(1.0, function()
         local command = "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. "); fi; "
-            .. "if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then echo sonarpad_recording_process_alive pid=$pid path=" .. shell_quote(path) .. "; exit 0; "
+            .. "if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo sonarpad_recording_process_alive pid=$pid path=" .. shell_quote(path) .. "; exit 0; "
             .. "elif [ -s " .. shell_quote(path) .. " ]; then echo sonarpad_recording_file_exists path=" .. shell_quote(path) .. "; exit 0; "
             .. "else echo sonarpad_recording_process_not_alive path=" .. shell_quote(path) .. "; exit 3; fi"
         local result = run_shell_sync(command)
