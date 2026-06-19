@@ -18297,7 +18297,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "radio",
-            extension: ".mka",
+            extension: ".m4a",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18306,8 +18306,13 @@ impl MpvRecordingConfig {
                 "-y".to_string(),
                 "-i".to_string(),
                 url.to_string(),
-                "-c".to_string(),
-                "copy".to_string(),
+                "-vn".to_string(),
+                "-c:a".to_string(),
+                "aac".to_string(),
+                "-b:a".to_string(),
+                "160k".to_string(),
+                "-f".to_string(),
+                "ipod".to_string(),
             ],
         }
     }
@@ -18316,7 +18321,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "tv",
-            extension: ".mkv",
+            extension: ".mp4",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18326,9 +18331,13 @@ impl MpvRecordingConfig {
                 "-i".to_string(),
                 url.to_string(),
                 "-map".to_string(),
-                "0".to_string(),
+                "0:v:0?".to_string(),
+                "-map".to_string(),
+                "0:a?".to_string(),
                 "-c".to_string(),
                 "copy".to_string(),
+                "-f".to_string(),
+                "mp4".to_string(),
             ],
         }
     }
@@ -18337,7 +18346,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "tv",
-            extension: ".mkv",
+            extension: ".mp4",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18356,6 +18365,8 @@ impl MpvRecordingConfig {
                 "copy".to_string(),
                 "-disposition:a:0".to_string(),
                 "default".to_string(),
+                "-f".to_string(),
+                "mp4".to_string(),
             ],
         }
     }
@@ -18364,7 +18375,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "tv",
-            extension: ".mkv",
+            extension: ".mp4",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18381,6 +18392,8 @@ impl MpvRecordingConfig {
                 "1:a:0".to_string(),
                 "-c".to_string(),
                 "copy".to_string(),
+                "-f".to_string(),
+                "mp4".to_string(),
             ],
         }
     }
@@ -18584,7 +18597,7 @@ fn is_recording_media_file(path: &Path) -> bool {
     };
     matches!(
         extension.to_lowercase().as_str(),
-        "mkv" | "mka" | "mp3" | "mp4" | "aac" | "ts" | "wav" | "flac" | "ogg"
+        "mkv" | "mka" | "m4a" | "mp3" | "mp4" | "aac" | "ts" | "wav" | "flac" | "ogg"
     )
 }
 
@@ -18661,7 +18674,7 @@ fn read_recordings_index() -> Vec<RecordingEntry> {
             let path = item.path();
             if path.is_file() && is_recording_media_file(&path) && !known_paths.contains(&path) {
                 let title = recording_title_from_path(&path);
-                let kind = if path.extension().and_then(|value| value.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("mka")) {
+                let kind = if path.extension().and_then(|value| value.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("mka") || ext.eq_ignore_ascii_case("m4a")) {
                     "radio".to_string()
                 } else {
                     "recording".to_string()
@@ -18982,6 +18995,7 @@ fn write_mpv_accessibility_script(
     let script_id = uuid::Uuid::new_v4().to_string();
     let script_path = mpv_config_dir.join(format!("sonarpad-mpv-accessibility-{script_id}.lua"));
     let pid_path = mpv_config_dir.join(format!("sonarpad-recording-{script_id}.pid"));
+    let say_pid_path = mpv_config_dir.join(format!("sonarpad-say-{script_id}.pid"));
     let language = Settings::load().ui_language;
     let messages = mpv_voice_messages(&language);
     let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
@@ -19036,6 +19050,10 @@ fn write_mpv_accessibility_script(
     script.push_str(&format!(
         "local pid_file = {}\n",
         lua_string_literal(&pid_path.to_string_lossy())
+    ));
+    script.push_str(&format!(
+        "local say_pid_file = {}\n",
+        lua_string_literal(&say_pid_path.to_string_lossy())
     ));
     script.push_str(&format!(
         "local sonarpad_log_file = {}\n",
@@ -19218,22 +19236,34 @@ mp.register_event("end-file", function(event)
     log_basic_state("event end-file state")
 end)
 
+local function shell_quote(value)
+    value = tostring(value or "")
+    return "'" .. value:gsub("'", [=['\'']=]) .. "'"
+end
+
+local function stop_current_speech_command()
+    return "old=''; if [ -f " .. shell_quote(say_pid_file) .. " ]; then old=$(cat " .. shell_quote(say_pid_file) .. " 2>/dev/null); fi; "
+        .. "if [ -n \"$old\" ] && /bin/ps -p \"$old\" -o command= 2>/dev/null | /usr/bin/grep -q '/usr/bin/say'; then /bin/kill \"$old\" 2>/dev/null || true; fi; "
+        .. "rm -f " .. shell_quote(say_pid_file) .. "; "
+end
+
 local function speak(text)
     if text == nil or text == "" then
         return
     end
+    local command = stop_current_speech_command()
+        .. "/usr/bin/say -r 185 " .. shell_quote(text) .. " & echo $! > " .. shell_quote(say_pid_file)
     mp.command_native_async({
         name = "subprocess",
         playback_only = false,
         capture_stdout = false,
         capture_stderr = false,
-        args = {"/usr/bin/say", "-r", "170", text}
-    }, function() end)
-end
-
-local function shell_quote(value)
-    value = tostring(value or "")
-    return "'" .. value:gsub("'", "'\\''") .. "'"
+        args = {"/bin/sh", "-c", command}
+    }, function(success, result, error)
+        if not success then
+            log_line("speech.start_failed error=" .. tostring(error))
+        end
+    end)
 end
 
 local function run_shell_async(command, callback)
@@ -19299,11 +19329,12 @@ end
 
 local function append_recording_manifest_command(path)
     local saved_at = os.date("%Y-%m-%d %H:%M:%S")
-    return "if [ -s " .. shell_quote(path) .. " ]; then /usr/bin/printf '%s\t%s\t%s\t%s\n' "
+    return "if [ -s " .. shell_quote(path) .. " ]; then /bin/mkdir -p " .. shell_quote(recordings_dir) .. "; /usr/bin/printf '%s\t%s\t%s\t%s\n' "
         .. shell_quote(path) .. " "
         .. shell_quote(recording_title) .. " "
         .. shell_quote(recording_kind) .. " "
-        .. shell_quote(saved_at) .. " >> " .. shell_quote(manifest_file) .. "; fi"
+        .. shell_quote(saved_at) .. " >> " .. shell_quote(manifest_file) .. "; echo sonarpad_recording_saved path=" .. shell_quote(path) .. "; exit 0; "
+        .. "else echo sonarpad_recording_missing_or_empty path=" .. shell_quote(path) .. "; exit 4; fi"
 end
 
 local function stop_ffmpeg_command(saved_path)
@@ -19323,6 +19354,12 @@ local function check_recording_process_later(path)
         local result = run_shell_sync(command)
         local status = result and result.status or "nil"
         log_line("recording.start_check status=" .. tostring(status) .. " path=" .. tostring(path))
+        if status ~= 0 and recording and current_recording_path == path then
+            recording = false
+            current_recording_path = nil
+            log_line("recording.start_check_failed_reset path=" .. tostring(path))
+            speak(msg_recording_failed)
+        end
     end)
 end
 
@@ -19511,7 +19548,7 @@ mp.add_forced_key_binding("Q", "sonarpad-stop-speech-uppercase", stop_with_speec
 mp.add_forced_key_binding("ESC", "sonarpad-stop-speech-escape", stop_with_speech)
 mp.add_forced_key_binding("Meta+r", "sonarpad-toggle-recording-command", toggle_recording)
 mp.add_forced_key_binding("Meta+R", "sonarpad-toggle-recording-command-uppercase", toggle_recording)
-log_line("bindings_registered recording_key=Meta+r speak_rate=170")
+log_line("bindings_registered recording_key=Meta+r speak_rate=185")
 
 mp.register_event("shutdown", function()
     stop_recording(false)
