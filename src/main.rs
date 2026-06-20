@@ -18297,7 +18297,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "radio",
-            extension: ".m4a",
+            extension: ".mp3",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18321,7 +18321,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "tv",
-            extension: ".mp4",
+            extension: ".ts",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18346,7 +18346,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "tv",
-            extension: ".mp4",
+            extension: ".ts",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18375,7 +18375,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "tv",
-            extension: ".mp4",
+            extension: ".ts",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -18674,7 +18674,7 @@ fn read_recordings_index() -> Vec<RecordingEntry> {
             let path = item.path();
             if path.is_file() && is_recording_media_file(&path) && !known_paths.contains(&path) {
                 let title = recording_title_from_path(&path);
-                let kind = if path.extension().and_then(|value| value.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("mka") || ext.eq_ignore_ascii_case("m4a")) {
+                let kind = if path.extension().and_then(|value| value.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("mka") || ext.eq_ignore_ascii_case("m4a") || ext.eq_ignore_ascii_case("mp3")) {
                     "radio".to_string()
                 } else {
                     "recording".to_string()
@@ -19252,18 +19252,20 @@ local function speak(text)
         return
     end
     local command = stop_current_speech_command()
+        .. "/usr/bin/pkill -x say 2>/dev/null || true; "
         .. "/usr/bin/say -r 185 " .. shell_quote(text) .. " & echo $! > " .. shell_quote(say_pid_file)
-    mp.command_native_async({
-        name = "subprocess",
-        playback_only = false,
-        capture_stdout = false,
-        capture_stderr = false,
-        args = {"/bin/sh", "-c", command}
-    }, function(success, result, error)
-        if not success then
-            log_line("speech.start_failed error=" .. tostring(error))
-        end
+    local ok, result = pcall(function()
+        return mp.command_native({
+            name = "subprocess",
+            playback_only = false,
+            capture_stdout = false,
+            capture_stderr = false,
+            args = {"/bin/sh", "-c", command}
+        })
     end)
+    if not ok then
+        log_line("speech.start_failed error=" .. tostring(result))
+    end
 end
 
 local function run_shell_async(command, callback)
@@ -19327,14 +19329,47 @@ local function ffmpeg_available_command()
     return "command -v " .. shell_quote(ffmpeg_path) .. " >/dev/null 2>&1"
 end
 
-local function append_recording_manifest_command(path)
+local function mp4_path_for_recording(path)
+    local mp4_path = tostring(path or ""):gsub("%.ts$", ".mp4")
+    if mp4_path == path then
+        mp4_path = tostring(path or "") .. ".mp4"
+    end
+    return mp4_path
+end
+
+local function append_recording_manifest_command_for(path, title, kind)
     local saved_at = os.date("%Y-%m-%d %H:%M:%S")
     return "if [ -s " .. shell_quote(path) .. " ]; then /bin/mkdir -p " .. shell_quote(recordings_dir) .. "; /usr/bin/printf '%s\t%s\t%s\t%s\n' "
         .. shell_quote(path) .. " "
-        .. shell_quote(recording_title) .. " "
-        .. shell_quote(recording_kind) .. " "
+        .. shell_quote(title or recording_title) .. " "
+        .. shell_quote(kind or recording_kind) .. " "
         .. shell_quote(saved_at) .. " >> " .. shell_quote(manifest_file) .. "; echo sonarpad_recording_saved path=" .. shell_quote(path) .. "; exit 0; "
         .. "else echo sonarpad_recording_missing_or_empty path=" .. shell_quote(path) .. "; exit 4; fi"
+end
+
+local function append_recording_manifest_command(path)
+    return append_recording_manifest_command_for(path, recording_title, recording_kind)
+end
+
+local function finalize_recording_command(path)
+    if recording_kind ~= "tv" then
+        return append_recording_manifest_command(path)
+    end
+    local mp4_path = mp4_path_for_recording(path)
+    local convert_log = tostring(path or "") .. ".ffmpeg.log"
+    local convert_command = ffmpeg_available_command()
+        .. " && " .. shell_quote(ffmpeg_path)
+        .. " -hide_banner -loglevel warning -y -i " .. shell_quote(path)
+        .. " -map 0 -c copy -movflags +faststart -f mp4 " .. shell_quote(mp4_path)
+        .. " > " .. shell_quote(convert_log) .. " 2>&1"
+    return "if [ ! -s " .. shell_quote(path) .. " ]; then echo sonarpad_recording_missing_or_empty path=" .. shell_quote(path) .. "; exit 4; fi; "
+        .. "echo sonarpad_recording_convert_begin src=" .. shell_quote(path) .. " dst=" .. shell_quote(mp4_path) .. "; "
+        .. "if " .. convert_command .. " && [ -s " .. shell_quote(mp4_path) .. " ]; then "
+        .. "rm -f " .. shell_quote(path) .. "; echo sonarpad_recording_converted_to_mp4 path=" .. shell_quote(mp4_path) .. "; "
+        .. append_recording_manifest_command_for(mp4_path, recording_title, recording_kind)
+        .. "; else echo sonarpad_recording_convert_failed keeping_ts=" .. shell_quote(path) .. " log=" .. shell_quote(convert_log) .. "; "
+        .. append_recording_manifest_command(path)
+        .. "; fi"
 end
 
 local function stop_ffmpeg_command(saved_path)
@@ -19376,29 +19411,23 @@ local function start_recording()
         return
     end
     current_recording_path = build_output_path()
-    local recording_log_path = current_recording_path .. ".log"
-    local args = {}
-    for _, arg in ipairs(ffmpeg_args) do
-        table.insert(args, arg)
-    end
-    table.insert(args, current_recording_path)
-
-    local parts = {shell_quote(ffmpeg_path)}
-    for _, arg in ipairs(args) do
-        table.insert(parts, shell_quote(arg))
-    end
     log_line("recording.start_path=" .. tostring(current_recording_path))
-    log_line("recording.ffmpeg_path=" .. tostring(ffmpeg_path))
-    log_line("recording.ffmpeg_log=" .. tostring(recording_log_path))
-    local command = ffmpeg_available_command() .. " && /bin/mkdir -p " .. shell_quote(recordings_dir) .. " && ( echo sonarpad_recording_ffmpeg_start > " .. shell_quote(recording_log_path) .. "; echo $$ > " .. shell_quote(pid_file) .. "; exec " .. table.concat(parts, " ") .. " </dev/null >> " .. shell_quote(recording_log_path) .. " 2>&1 )"
-    local started = run_shell_detached(command)
-    if started then
+    local mkdir_result = run_shell_sync("/bin/mkdir -p " .. shell_quote(recordings_dir))
+    if mkdir_result == nil or mkdir_result.status ~= 0 then
+        log_line("recording.start_mkdir_failed path=" .. tostring(recordings_dir))
+        current_recording_path = nil
+        speak(msg_recording_failed)
+        return
+    end
+    local ok, err = pcall(function()
+        mp.set_property("stream-record", current_recording_path)
+    end)
+    if ok then
         recording = true
-        log_line("recording.started_detached path=" .. tostring(current_recording_path) .. " pid_file=" .. tostring(pid_file))
+        log_line("recording.stream_record_started path=" .. tostring(current_recording_path))
         speak(msg_recording_started)
-        check_recording_process_later(current_recording_path)
     else
-        log_line("recording.start_failed path=" .. tostring(current_recording_path))
+        log_line("recording.stream_record_failed error=" .. tostring(err) .. " path=" .. tostring(current_recording_path))
         current_recording_path = nil
         speak(msg_recording_failed)
     end
@@ -19417,13 +19446,16 @@ local function stop_recording(announce)
         return
     end
     log_line("recording.stop_requested path=" .. tostring(saved_path) .. " announce=" .. tostring(announce))
-    local command = stop_ffmpeg_command(saved_path)
+    pcall(function()
+        mp.set_property("stream-record", "")
+    end)
+    local command = "sleep 0.4; " .. finalize_recording_command(saved_path)
     if announce then
         run_shell_async(command, function(success, result, error)
             local status = result and result.status or "nil"
             local stdout = result and tostring(result.stdout or ""):gsub("\n", " ") or ""
             local stderr = result and tostring(result.stderr or ""):gsub("\n", " ") or ""
-            log_line("recording.stop_done success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error) .. " stdout=" .. stdout .. " stderr=" .. stderr .. " path=" .. tostring(saved_path))
+            log_line("recording.stream_record_stop_done success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error) .. " stdout=" .. stdout .. " stderr=" .. stderr .. " path=" .. tostring(saved_path))
             if success and result and result.status == 0 then
                 speak(msg_recording_saved)
             else
@@ -19433,7 +19465,7 @@ local function stop_recording(announce)
     else
         local result = run_shell_sync(command)
         local status = result and result.status or "nil"
-        log_line("recording.stop_done_sync status=" .. tostring(status) .. " path=" .. tostring(saved_path))
+        log_line("recording.stream_record_stop_done_sync status=" .. tostring(status) .. " path=" .. tostring(saved_path))
     end
 end
 
