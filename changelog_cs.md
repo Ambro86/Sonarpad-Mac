@@ -90,5 +90,4 @@ Verze 0.2.0
 - Hierarchické kategorie podcastů a první globální/macOS zkratky.
 - Bezpečnější nahrávání TV na Macu: živý stream se nahrává jako TS a po zastavení se jej Sonarpad pokusí automaticky převést do MP4; pokud převod selže, soubor TS zůstane zachován.
 - Vyhledávání rádií podle země: názvy zemí se nyní lokalizují pomocí i18n-country-translations/CLDR místo ruční tabulky.
-
-- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.
+- Diagnostika TV na Macu: přidány rozšířené logy mpv, stav okna/videa, možnosti výstupu, výpisy logu mpv a diagnostické snímky pro zjištění příčiny prázdného okna videa.

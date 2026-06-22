@@ -90,5 +90,5 @@ Versione 0.2.0
 - Supporto PDF OCR su macOS, download aggiornamenti e pacchetti DMG dedicati.
 - Categorie podcast gerarchiche e primi shortcut globali/macOS.
 - Ricerca radio per nazione: i nomi dei paesi ora vengono localizzati tramite i18n-country-translations/CLDR invece di una tabella manuale.
-
-- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.
+- Corretto il comando Articoli recenti su macOS: ora usa davvero Command+trattino, come gli altri comandi Command.
+- Diagnostica TV Mac: aggiunti log estesi di mpv, stato finestra/video, opzioni di output, snapshot del log mpv e screenshot diagnostici per capire la causa della finestra video vuota.

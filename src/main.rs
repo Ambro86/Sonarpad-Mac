@@ -1588,6 +1588,11 @@ fn handle_shortcut_event(
                         (actions.settings)();
                         return;
                     }
+                    _ if matches_ascii_key(key_code, unicode_key, '-') => {
+                        append_podcast_log("mac_shortcut.trigger recent_articles");
+                        (actions.recent_articles)();
+                        return;
+                    }
                     _ => {}
                 }
             } else if command_shortcut_down(key_event)
@@ -1597,14 +1602,6 @@ fn handle_shortcut_event(
             {
                 append_podcast_log("mac_shortcut.trigger save");
                 (actions.save)();
-                return;
-            } else if command_shortcut_down(key_event)
-                && !key_event.alt_down()
-                && !key_event.shift_down()
-                && matches_ascii_key(key_code, unicode_key, '-')
-            {
-                append_podcast_log("mac_shortcut.trigger recent_articles");
-                (actions.recent_articles)();
                 return;
             }
             event.skip(true);
@@ -19089,6 +19086,73 @@ fn log_path_diagnostics(label: &str, path: &Path) {
     ));
 }
 
+
+fn log_mpv_debug_log_snapshot(context: &str, path: &Path) {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            append_podcast_log(&format!(
+                "mpv.recordable.debug_snapshot context={} path={} read_metadata_failed={}",
+                context,
+                path.display(),
+                err
+            ));
+            return;
+        }
+    };
+    let bytes = metadata.len();
+    let content = match std::fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(err) => {
+            append_podcast_log(&format!(
+                "mpv.recordable.debug_snapshot context={} path={} bytes={} read_failed={}",
+                context,
+                path.display(),
+                bytes,
+                err
+            ));
+            return;
+        }
+    };
+    let lines: Vec<&str> = content.lines().collect();
+    let total_lines = lines.len();
+    let keywords = [
+        "error", "failed", "warn", "fatal", "exception", "vo/", "[vo", "video", "cocoa",
+        "mac", "window", "gpu", "opengl", "metal", "vulkan", "libmpv", "render", "swap",
+        "display", "h264", "avcodec", "aid", "vid", "track", "reconfig", "decoder",
+    ];
+    let mut relevant: Vec<&str> = lines
+        .iter()
+        .copied()
+        .filter(|line| {
+            let lower = line.to_ascii_lowercase();
+            keywords.iter().any(|keyword| lower.contains(keyword))
+        })
+        .collect();
+    let source = if relevant.is_empty() {
+        lines.iter().rev().take(80).copied().collect::<Vec<&str>>()
+    } else {
+        relevant.reverse();
+        relevant.into_iter().take(140).collect::<Vec<&str>>()
+    };
+    append_podcast_log(&format!(
+        "mpv.recordable.debug_snapshot context={} path={} bytes={} total_lines={} exported_lines={}",
+        context,
+        path.display(),
+        bytes,
+        total_lines,
+        source.len()
+    ));
+    for line in source.into_iter().rev() {
+        let clean = line.replace('\n', " ").replace('\r', " ");
+        append_podcast_log(&format!(
+            "mpv.recordable.debug_snapshot.line context={} {}",
+            context,
+            clean
+        ));
+    }
+}
+
 fn write_mpv_accessibility_script(
     mpv_config_dir: &Path,
     title: &str,
@@ -19106,6 +19170,16 @@ fn write_mpv_accessibility_script(
         format!(
             "creazione cartella registrazioni {} fallita: {}",
             recordings_dir.display(),
+            err
+        )
+    })?;
+    let diagnostic_dir = app_storage_dir()
+        .unwrap_or_else(std::env::temp_dir)
+        .join("mpv-video-diagnostics");
+    std::fs::create_dir_all(&diagnostic_dir).map_err(|err| {
+        format!(
+            "creazione cartella diagnostica video {} fallita: {}",
+            diagnostic_dir.display(),
             err
         )
     })?;
@@ -19132,6 +19206,10 @@ fn write_mpv_accessibility_script(
     script.push_str(&format!(
         "local recordings_dir = {}\n",
         lua_string_literal(&recordings_dir.to_string_lossy())
+    ));
+    script.push_str(&format!(
+        "local diagnostic_dir = {}\n",
+        lua_string_literal(&diagnostic_dir.to_string_lossy())
     ));
     script.push_str(&format!(
         "local recording_title = {}\n",
@@ -19301,20 +19379,38 @@ local function log_basic_state(context)
     log_property("seekable")
     log_property("paused-for-cache")
     log_property("cache-buffering-state")
+    log_property("core-idle")
+    log_property("idle-active")
+    log_property("eof-reached")
     log_property("video")
     log_property("vid")
+    log_property("vo-configured")
     log_property("current-vo")
     log_property("video-codec")
+    log_property("video-format")
+    log_property("video-bitrate")
     log_property("video-params")
     log_property("video-out-params")
+    log_property("video-frame-info")
     log_property("display-width")
     log_property("display-height")
+    log_property("display-names")
     log_property("osd-dimensions")
+    log_property("window-id")
+    log_property("focused")
     log_property("window-minimized")
     log_property("window-maximized")
     log_property("fullscreen")
+    log_property("current-window-scale")
     log_property("estimated-vf-fps")
     log_property("estimated-display-fps")
+    log_property("mistimed-frame-count")
+    log_property("vo-delayed-frame-count")
+    log_property("vo-drop-frame-count")
+    log_property("frame-drop-count")
+    log_property("decoder-frame-drop-count")
+    log_property("total-avsync-change")
+    log_property("avsync")
     log_property("audio")
     log_property("aid")
     log_property("audio-codec")
@@ -19322,20 +19418,101 @@ local function log_basic_state(context)
     log_property("track-list")
 end
 
-log_line("script_loaded recording_enabled=" .. tostring(recording_enabled) .. " title=" .. tostring(recording_title))
+local function log_option_state(context)
+    log_line(context)
+    log_property("options/vo")
+    log_property("options/gpu-api")
+    log_property("options/gpu-context")
+    log_property("options/hwdec")
+    log_property("options/hwdec-codecs")
+    log_property("options/force-window")
+    log_property("options/keep-open")
+    log_property("options/idle")
+    log_property("options/osc")
+    log_property("options/osd-level")
+    log_property("options/input-default-bindings")
+    log_property("options/video")
+    log_property("options/vid")
+    log_property("options/aid")
+    log_property("options/profile")
+    log_property("options/geometry")
+    log_property("options/autofit")
+    log_property("options/window-scale")
+    log_property("options/border")
+    log_property("options/ontop")
+    log_property("options/fullscreen")
+end
 
-mp.register_event("start-file", function() log_basic_state("event start-file") end)
+local function diagnostic_screenshot(tag)
+    local safe = tostring(recording_title or "sonarpad"):gsub("[^%w%-%_]+", "_")
+    local path = diagnostic_dir .. "/video-" .. safe .. "-" .. tostring(os.time()) .. "-" .. tostring(tag) .. ".png"
+    log_line("diagnostic.screenshot.request tag=" .. tostring(tag) .. " path=" .. tostring(path))
+    local ok, err = pcall(function()
+        mp.commandv("screenshot-to-file", path, "video")
+    end)
+    if not ok then
+        log_line("diagnostic.screenshot.failed tag=" .. tostring(tag) .. " err=" .. tostring(err))
+        return
+    end
+    mp.add_timeout(0.8, function()
+        local file = io.open(path, "rb")
+        if not file then
+            log_line("diagnostic.screenshot.result tag=" .. tostring(tag) .. " path=" .. tostring(path) .. " exists=false")
+            return
+        end
+        local size = file:seek("end") or 0
+        file:close()
+        log_line("diagnostic.screenshot.result tag=" .. tostring(tag) .. " path=" .. tostring(path) .. " exists=true size=" .. tostring(size))
+    end)
+end
+
+local function log_full_video_diagnostics(context)
+    log_basic_state(context .. " basic")
+    log_option_state(context .. " options")
+end
+
+local function observe_property(name)
+    mp.observe_property(name, "native", function(_, value)
+        log_line("observe " .. tostring(name) .. "=" .. native_to_text(value))
+    end)
+end
+
+log_line("script_loaded recording_enabled=" .. tostring(recording_enabled) .. " title=" .. tostring(recording_title))
+log_option_state("initial options")
+observe_property("current-vo")
+observe_property("vo-configured")
+observe_property("video")
+observe_property("vid")
+observe_property("video-params")
+observe_property("video-out-params")
+observe_property("display-width")
+observe_property("display-height")
+observe_property("osd-dimensions")
+observe_property("window-minimized")
+observe_property("window-maximized")
+observe_property("fullscreen")
+observe_property("cache-buffering-state")
+observe_property("paused-for-cache")
+
+mp.register_event("start-file", function() log_full_video_diagnostics("event start-file") end)
 mp.register_event("file-loaded", function()
-    log_basic_state("event file-loaded")
-    mp.add_timeout(1.0, function() log_basic_state("timer 1s after file-loaded") end)
-    mp.add_timeout(3.0, function() log_basic_state("timer 3s after file-loaded") end)
+    log_full_video_diagnostics("event file-loaded")
+    mp.add_timeout(1.0, function() log_full_video_diagnostics("timer 1s after file-loaded") end)
+    mp.add_timeout(3.0, function()
+        log_full_video_diagnostics("timer 3s after file-loaded")
+        diagnostic_screenshot("3s")
+    end)
+    mp.add_timeout(8.0, function()
+        log_full_video_diagnostics("timer 8s after file-loaded")
+        diagnostic_screenshot("8s")
+    end)
 end)
-mp.register_event("video-reconfig", function() log_basic_state("event video-reconfig") end)
-mp.register_event("audio-reconfig", function() log_basic_state("event audio-reconfig") end)
-mp.register_event("playback-restart", function() log_basic_state("event playback-restart") end)
+mp.register_event("video-reconfig", function() log_full_video_diagnostics("event video-reconfig") end)
+mp.register_event("audio-reconfig", function() log_full_video_diagnostics("event audio-reconfig") end)
+mp.register_event("playback-restart", function() log_full_video_diagnostics("event playback-restart") end)
 mp.register_event("end-file", function(event)
     log_line("event end-file reason=" .. tostring(event and event.reason) .. " error=" .. tostring(event and event.error))
-    log_basic_state("event end-file state")
+    log_full_video_diagnostics("event end-file state")
 end)
 
 local function shell_quote(value)
@@ -19682,7 +19859,17 @@ mp.add_forced_key_binding("Q", "sonarpad-stop-speech-uppercase", stop_with_speec
 mp.add_forced_key_binding("ESC", "sonarpad-stop-speech-escape", stop_with_speech)
 mp.add_forced_key_binding("Meta+r", "sonarpad-toggle-recording-command", toggle_recording)
 mp.add_forced_key_binding("Meta+R", "sonarpad-toggle-recording-command-uppercase", toggle_recording)
-log_line("bindings_registered recording_key=Meta+r speak_rate=185")
+mp.add_forced_key_binding("Meta+d", "sonarpad-video-diagnostics-command", function()
+    log_full_video_diagnostics("manual Meta+d diagnostics")
+    diagnostic_screenshot("manual")
+    speak("Diagnostica video salvata")
+end)
+mp.add_forced_key_binding("Meta+D", "sonarpad-video-diagnostics-command-uppercase", function()
+    log_full_video_diagnostics("manual Meta+d diagnostics")
+    diagnostic_screenshot("manual")
+    speak("Diagnostica video salvata")
+end)
+log_line("bindings_registered recording_key=Meta+r video_diagnostic_key=Meta+d speak_rate=185")
 
 mp.register_event("shutdown", function()
     stop_recording(false)
@@ -19744,6 +19931,7 @@ fn open_stream_with_mpv_recordable(
     {
         command.current_dir(parent_dir);
     }
+    append_podcast_log("mpv.recordable.video_output_mode safe_default_no_forced_vo diagnostics_enabled=true");
     command
         .arg(format!("--config-dir={}", mpv_config_dir.display()))
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
@@ -19755,19 +19943,6 @@ fn open_stream_with_mpv_recordable(
         .arg("--volume-max=300")
         .arg(format!("--log-file={}", mpv_debug_log.display()))
         .arg("--msg-level=all=v");
-    #[cfg(target_os = "macos")]
-    {
-        command
-            .arg("--vo=gpu-next,gpu,libmpv")
-            .arg("--gpu-api=opengl")
-            .arg("--hwdec=no")
-            .arg("--autofit=1280x720")
-            .arg("--geometry=50%:50%");
-        append_podcast_log(&format!(
-            "mpv.recordable.video_output_args title={} vo=gpu-next,gpu,libmpv gpu_api=opengl hwdec=no autofit=1280x720 geometry=50%:50%",
-            title
-        ));
-    }
     if allow_bookmarks {
         command
             .arg(format!(
@@ -19812,6 +19987,16 @@ fn open_stream_with_mpv_recordable(
         }
     }
     command.arg(format!("--title=Sonarpad - {title}")).arg(url);
+    let args_for_log = command
+        .get_args()
+        .map(|arg| arg.to_string_lossy().to_string())
+        .collect::<Vec<_>>();
+    append_podcast_log(&format!(
+        "mpv.recordable.argv title={} program={} args={:?}",
+        title,
+        command.get_program().to_string_lossy(),
+        args_for_log
+    ));
     append_podcast_log(&format!(
         "mpv.recordable.spawn title={} url={} mpv={} debug_log={} current_dir={}",
         title,
@@ -19836,6 +20021,16 @@ fn open_stream_with_mpv_recordable(
                 url,
                 mpv_debug_log.display()
             ));
+            let debug_log_for_snapshots = mpv_debug_log.clone();
+            std::thread::spawn(move || {
+                for delay_secs in [2_u64, 6, 12] {
+                    std::thread::sleep(std::time::Duration::from_secs(delay_secs));
+                    log_mpv_debug_log_snapshot(
+                        &format!("pid={} after={}s", pid, delay_secs),
+                        &debug_log_for_snapshots,
+                    );
+                }
+            });
             std::thread::spawn(move || {
                 match child.wait() {
                     Ok(status) => append_podcast_log(&format!(

@@ -90,5 +90,4 @@ Wersja 0.2.0
 - Hierarchiczne kategorie podcastów i pierwsze globalne skróty/macOS.
 - Bezpieczniejsze nagrywanie TV na Macu: transmisja na żywo jest nagrywana jako TS, a po zatrzymaniu Sonarpad próbuje automatycznie przekonwertować ją do MP4; jeśli konwersja się nie powiedzie, plik TS zostaje zachowany.
 - Wyszukiwanie radia według kraju: nazwy krajów są teraz lokalizowane przez i18n-country-translations/CLDR zamiast ręcznej tabeli.
-
-- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.
+- Diagnostyka TV na Macu: dodano rozszerzone logi mpv, stan okna/wideo, opcje wyjścia, zrzuty logu mpv i zrzuty diagnostyczne, aby ustalić przyczynę pustego okna wideo.
