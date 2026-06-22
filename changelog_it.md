@@ -1,6 +1,12 @@
+- Scorciatoia Articoli recenti su Mac aggiornata a Command+trattino.
+- Convertiti i dialoghi Sì/No standard in finestre personalizzate localizzate.
+- In Biblioteca digitale, Invio nel campo ricerca ora avvia Cerca.
+- Ricerca radio: aggiunto filtro per nazione con nomi estesi.
+
 Changelog
 
 Versione 0.2.9 - 1 maggio 2026
+- Registrazione TV più sicura su Mac: il flusso live viene registrato in TS e, alla chiusura, Sonarpad prova a convertirlo automaticamente in MP4; se la conversione fallisce, conserva comunque il file TS.
 - Estese le funzionalità YouTube anche per i Mac Intel e Catalina.
 - Velocizzata enormemente la ricerca YouTube.
 - Migliore gestione dei risultati YouTube, con canali e playlist inseriti all'inizio.
@@ -83,3 +89,6 @@ Versione 0.2.0
 - Supporto lettura testo, articoli e podcast con sintesi vocale.
 - Supporto PDF OCR su macOS, download aggiornamenti e pacchetti DMG dedicati.
 - Categorie podcast gerarchiche e primi shortcut globali/macOS.
+- Ricerca radio per nazione: i nomi dei paesi ora vengono localizzati tramite i18n-country-translations/CLDR invece di una tabella manuale.
+
+- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.

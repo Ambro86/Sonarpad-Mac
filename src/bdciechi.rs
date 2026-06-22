@@ -1,5 +1,6 @@
 use crate::{ID_CANCEL, ID_OK};
 use crate::{Settings, current_ui_strings as ui_strings, open_url_in_browser};
+use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use wxdragon::*;
@@ -488,7 +489,7 @@ fn show_bdciechi_dashboard(
     sizer.add(&quota_label, 0, SizerFlag::All, 10);
 
     let search_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-    let search_ctrl = TextCtrl::builder(&panel).build();
+    let search_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
     let search_btn = Button::builder(&panel)
         .with_label(&ui.bdciechi_search_button)
         .build();
@@ -784,7 +785,7 @@ fn show_bdciechi_dashboard(
     let up_search = update_page.clone();
     let nprov_search = identify.nprov.clone();
     let results_combo_search_focus = results_combo;
-    search_btn.on_click(move |_| {
+    let run_search = Rc::new(move || {
         let query = search_ref.get_value().trim().to_string();
         if query.is_empty() {
             show_bdciechi_message(
@@ -855,6 +856,16 @@ fn show_bdciechi_dashboard(
             }
             progress.update(progress_value, Some(loading_message));
         }
+    });
+
+    let run_search_click = Rc::clone(&run_search);
+    search_btn.on_click(move |_| {
+        run_search_click();
+    });
+
+    let run_search_enter = Rc::clone(&run_search);
+    search_ctrl.on_text_enter(move |_| {
+        run_search_enter();
     });
 
     let do_action = move |preview: bool,

@@ -1,6 +1,12 @@
+- Updated the Recent articles shortcut on Mac to Command+hyphen.
+- Replaced standard Yes/No prompts with localized custom dialogs.
+- In Digital Library, pressing Enter in the search field now starts Search.
+- Radio search: added a country filter with full country names.
+
 Changelog
 
 Version 0.2.9 - May 1, 2026
+- Safer TV recording on Mac: live streams are recorded as TS and, when stopped, Sonarpad automatically tries to convert them to MP4; if conversion fails, the TS file is kept.
 - Extended YouTube features to Intel Macs and Catalina.
 - Greatly improved YouTube search speed.
 - Improved YouTube results handling, placing channels and playlists at the top.
@@ -70,3 +76,6 @@ Version 0.2.0
 - Text reading, articles, and podcast support with speech synthesis.
 - macOS PDF OCR support, update downloads, and dedicated DMG packages.
 - Hierarchical podcast categories and the first macOS shortcut work.
+- Radio country search: country names are now localized through i18n-country-translations/CLDR instead of a manual table.
+
+- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.

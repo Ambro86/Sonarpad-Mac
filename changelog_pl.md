@@ -1,3 +1,8 @@
+- Skrót Ostatnie artykuły na Macu zmieniono na Command+myślnik.
+- Standardowe okna Tak/Nie zastąpiono lokalizowanymi oknami niestandardowymi.
+- W Bibliotece cyfrowej klawisz Enter w polu wyszukiwania uruchamia wyszukiwanie.
+- Wyszukiwanie radia: dodano filtr kraju z pełnymi nazwami państw.
+
 Lista zmian
 
 Wersja 0.2.9 - 1 maja 2026
@@ -83,3 +88,7 @@ Wersja 0.2.0
 - Obsługa czytania tekstu, artykułów i podcastów z syntezą mowy.
 - Obsługa OCR PDF na macOS, pobierania aktualizacji i dedykowanych pakietów DMG.
 - Hierarchiczne kategorie podcastów i pierwsze globalne skróty/macOS.
+- Bezpieczniejsze nagrywanie TV na Macu: transmisja na żywo jest nagrywana jako TS, a po zatrzymaniu Sonarpad próbuje automatycznie przekonwertować ją do MP4; jeśli konwersja się nie powiedzie, plik TS zostaje zachowany.
+- Wyszukiwanie radia według kraju: nazwy krajów są teraz lokalizowane przez i18n-country-translations/CLDR zamiast ręcznej tabeli.
+
+- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.

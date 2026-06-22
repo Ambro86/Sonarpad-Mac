@@ -1,3 +1,8 @@
+- Atajo de Artículos recientes en Mac actualizado a Command+guion.
+- Sustituidos los cuadros Sí/No estándar por diálogos personalizados localizados.
+- En Biblioteca digital, Enter en el campo de búsqueda inicia la búsqueda.
+- Búsqueda de radio: añadido filtro por país con nombres completos.
+
 Registro de cambios
 
 Versión 0.2.9 - 1 de mayo de 2026
@@ -83,3 +88,7 @@ Versión 0.2.0
 - Soporte de lectura de texto, artículos y podcasts con síntesis de voz.
 - Soporte de OCR PDF en macOS, descarga de actualizaciones y paquetes DMG dedicados.
 - Categorías de podcast jerárquicas y primeros atajos globales/macOS.
+- Grabación de TV más segura en Mac: el directo se graba en TS y, al detenerlo, Sonarpad intenta convertirlo automáticamente a MP4; si la conversión falla, conserva el archivo TS.
+- Búsqueda de radio por país: los nombres de los países ahora se localizan mediante i18n-country-translations/CLDR en lugar de una tabla manual.
+
+- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.

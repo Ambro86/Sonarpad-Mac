@@ -23,7 +23,7 @@
   "button_stop_reading": "Stop Reading",
   "button_stop_podcast": "Stop Podcast",
   "button_recent_articles": "Recent articles",
-  "menu_recent_articles": "Recent articles\\tAlt+-",
+  "menu_recent_articles": "Recent articles\\tCommand+-",
   "button_save_audiobook": "Save Audiobook",
   "button_settings": "Settings",
   "button_back_30": "Back 10s",

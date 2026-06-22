@@ -1,6 +1,12 @@
+- Raccourci Articles récents sur Mac mis à jour en Command+tiret.
+- Remplacement des alertes Oui/Non standard par des dialogues personnalisés localisés.
+- Dans la Bibliothèque numérique, Entrée dans le champ de recherche lance la recherche.
+- Recherche radio : ajout d’un filtre par pays avec les noms complets.
+
 Journal des nouveautés
 
 Version 0.2.9 - 1er mai 2026
+- Enregistrement TV plus sûr sur Mac : le flux en direct est enregistré en TS puis Sonarpad tente de le convertir automatiquement en MP4 à l’arrêt ; si la conversion échoue, le fichier TS est conservé.
 - Les fonctionnalités YouTube ont été étendues également aux Mac Intel et à Catalina.
 - La recherche YouTube a été fortement accélérée.
 - La gestion des résultats YouTube a été améliorée, avec les chaînes et les playlists placées en tête.
@@ -83,3 +89,6 @@ Version 0.2.0
 - Support de la lecture de texte, d’articles et de podcasts avec synthèse vocale.
 - Support de l’OCR PDF sur macOS, téléchargement des mises à jour et paquets DMG dédiés.
 - Catégories de podcast hiérarchiques et premiers raccourcis globaux/macOS.
+- Recherche radio par pays : les noms des pays sont désormais localisés via i18n-country-translations/CLDR au lieu d’une table manuelle.
+
+- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.

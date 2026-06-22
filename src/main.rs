@@ -17,6 +17,7 @@ mod tv;
 
 use chrono::Datelike;
 use docx_rs::{Docx, Paragraph, Run};
+use i18n_country_translations::Registry;
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
 use quick_xml::Reader;
 use quick_xml::events::Event;
@@ -574,26 +575,15 @@ fn radio_menu_languages() -> Vec<(String, String)> {
 }
 
 fn radio_menu_entry_label(code: &str) -> String {
-    let ui_language = Settings::load().ui_language;
-    match code {
-        "country:de" => match ui_language.as_str() {
-            "it" => "Germania".to_string(),
-            "es" => "Alemania".to_string(),
-            "pt" => "Alemanha".to_string(),
-            "cs" => "Německo".to_string(),
-            "pl" => "Niemcy".to_string(),
-            _ => "Germany".to_string(),
-        },
-        "country:ch" => match ui_language.as_str() {
-            "it" => "Svizzera".to_string(),
-            "es" => "Suiza".to_string(),
-            "pt" => "Suíça".to_string(),
-            "cs" => "Švýcarsko".to_string(),
-            "pl" => "Szwajcaria".to_string(),
-            _ => "Switzerland".to_string(),
-        },
-        _ => get_language_name(code),
+    if let Some(country_code) = code.strip_prefix("country:") {
+        if let Some((_, label, _)) = radio_country_options()
+            .into_iter()
+            .find(|(candidate, _, _)| candidate.as_str() == country_code)
+        {
+            return label;
+        }
     }
+    get_language_name(code)
 }
 
 #[derive(Deserialize)]
@@ -1608,11 +1598,12 @@ fn handle_shortcut_event(
                 append_podcast_log("mac_shortcut.trigger save");
                 (actions.save)();
                 return;
-            } else if !command_shortcut_down(key_event)
-                && key_event.alt_down()
+            } else if command_shortcut_down(key_event)
+                && !key_event.alt_down()
                 && !key_event.shift_down()
                 && matches_ascii_key(key_code, unicode_key, '-')
             {
+                append_podcast_log("mac_shortcut.trigger recent_articles");
                 (actions.recent_articles)();
                 return;
             }
@@ -1647,7 +1638,7 @@ fn handle_shortcut_event(
                 65 | 97 => (actions.save)(),
                 _ => {}
             }
-        } else if !command_shortcut_down(key_event) && key_event.alt_down() && !key_event.shift_down() {
+        } else if command_shortcut_down(key_event) && !key_event.alt_down() && !key_event.shift_down() {
             if key_code == 45 || unicode_key == 45 {
                 (actions.recent_articles)();
             }
@@ -1886,12 +1877,61 @@ fn show_message_dialog(parent: &Frame, title: &str, message: &str) {
     dialog.show_modal();
 }
 
-fn ask_yes_no_dialog(parent: &Frame, title: &str, message: &str) -> bool {
-    let dialog = MessageDialog::builder(parent, message, title)
-        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+fn localized_no_label() -> &'static str {
+    match Settings::load().ui_language.as_str() {
+        "it" => "No",
+        "es" => "No",
+        "pt" => "Não",
+        "fr" => "Non",
+        "cs" => "Ne",
+        "pl" => "Nie",
+        _ => "No",
+    }
+}
+
+fn ask_yes_no_dialog(parent: &impl WxWidget, title: &str, message: &str) -> bool {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
+        .with_size(500, 170)
         .build();
-    localize_standard_dialog_buttons(&dialog);
-    dialog.show_modal() == ID_YES
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let label = StaticText::builder(&panel).with_label(message).build();
+    root.add(&label, 1, SizerFlag::Expand | SizerFlag::All, 12);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let yes_button = Button::builder(&panel)
+        .with_id(ID_YES)
+        .with_label(&ui.yes)
+        .build();
+    let no_button = Button::builder(&panel)
+        .with_id(ID_NO)
+        .with_label(localized_no_label())
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&yes_button, 0, SizerFlag::All, 10);
+    buttons.add(&no_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_YES);
+    dialog.set_escape_id(ID_NO);
+
+    let dialog_yes = dialog;
+    yes_button.on_click(move |_| {
+        dialog_yes.end_modal(ID_YES);
+    });
+
+    let dialog_no = dialog;
+    no_button.on_click(move |_| {
+        dialog_no.end_modal(ID_NO);
+    });
+
+    let response = dialog.show_modal() == ID_YES;
+    dialog.destroy();
+    response
 }
 
 fn ask_unsaved_changes_dialog(parent: &Frame) -> i32 {
@@ -2725,15 +2765,7 @@ fn prompt_text_save_path(
         let path = folder.join(format!("{filename}.{extension}"));
 
         if path.exists() {
-            let overwrite_dialog = MessageDialog::builder(
-                &dialog_save,
-                &ui.overwrite_existing_file,
-                &ui.save_text_title,
-            )
-            .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
-            .build();
-            localize_standard_dialog_buttons(&overwrite_dialog);
-            if overwrite_dialog.show_modal() != ID_YES {
+            if !ask_yes_no_dialog(&dialog_save, &ui.save_text_title, &ui.overwrite_existing_file) {
                 return;
             }
         }
@@ -3242,15 +3274,7 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
         let path = folder.join(format!("{filename}.{extension}"));
 
         if path.exists() {
-            let overwrite_dialog = MessageDialog::builder(
-                &dialog_save,
-                &ui.overwrite_existing_file,
-                &ui.save_audiobook_title,
-            )
-            .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconWarning)
-            .build();
-            localize_standard_dialog_buttons(&overwrite_dialog);
-            if overwrite_dialog.show_modal() != ID_YES {
+            if !ask_yes_no_dialog(&dialog_save, &ui.save_audiobook_title, &ui.overwrite_existing_file) {
                 return;
             }
         }
@@ -3440,7 +3464,7 @@ fn confirm_delete_dialog(parent: &Frame, title: &str, message: &str) -> bool {
         .build();
     let no_button = Button::builder(&panel)
         .with_id(ID_NO)
-        .with_label(&ui.close)
+        .with_label(localized_no_label())
         .build();
     buttons.add_spacer(1);
     buttons.add(&yes_button, 0, SizerFlag::All, 10);
@@ -3688,6 +3712,16 @@ struct RadioBrowserStation {
 }
 
 #[derive(Deserialize)]
+struct RadioBrowserCountry {
+    #[serde(default)]
+    name: String,
+    #[serde(default)]
+    iso_3166_1: String,
+    #[serde(default)]
+    stationcount: u32,
+}
+
+#[derive(Deserialize)]
 struct CommunityRadio {
     name: Option<String>,
     url: Option<String>,
@@ -3707,149 +3741,183 @@ fn default_radio_country_code_for_ui_language(ui_language: &str) -> &'static str
     }
 }
 
+fn country_display_locale_for_ui_language(ui_language: &str) -> &'static str {
+    match normalize_ui_language(ui_language).as_str() {
+        "it" => "it",
+        "fr" => "fr",
+        "es" => "es",
+        "pt" => "pt",
+        "cs" => "cs",
+        "pl" => "pl",
+        _ => "en",
+    }
+}
+
+fn localized_country_name_with_registry(
+    registry: Option<&Registry>,
+    locale: &str,
+    country_code: &str,
+    fallback_name: &str,
+) -> String {
+    let code = country_code.trim().to_ascii_uppercase();
+    if !code.is_empty()
+        && let Some(registry) = registry
+        && let Some(name) = registry.get_name_for_locale(locale, &code)
+    {
+        return name.to_string();
+    }
+    if !fallback_name.trim().is_empty() {
+        fallback_name.trim().to_string()
+    } else {
+        code
+    }
+}
+
+fn localized_country_name(ui_language: &str, country_code: &str, fallback_name: &str) -> String {
+    let locale = country_display_locale_for_ui_language(ui_language);
+    let mut registry = Registry::new();
+    let registry = if registry.register_locale(locale).is_ok() {
+        Some(registry)
+    } else {
+        None
+    };
+    localized_country_name_with_registry(registry.as_ref(), locale, country_code, fallback_name)
+}
+
 fn rotate_country_options_to_default(
-    mut items: Vec<(&'static str, &'static str, &'static str)>,
+    mut items: Vec<(String, String, String)>,
     ui_language: &str,
-) -> Vec<(&'static str, &'static str, &'static str)> {
+) -> Vec<(String, String, String)> {
     let default_code = default_radio_country_code_for_ui_language(ui_language);
-    if let Some(index) = items.iter().position(|(code, _, _)| *code == default_code) {
+    if let Some(index) = items.iter().position(|(code, _, _)| code == default_code) {
         let item = items.remove(index);
         items.insert(0, item);
     }
     items
 }
 
-fn radio_country_options() -> Vec<(&'static str, &'static str, &'static str)> {
-    let ui_language = Settings::load().ui_language;
-    let items = match ui_language.as_str() {
-        "it" => vec![
-            ("it", "Italia", "Italy"),
-            ("us", "Stati Uniti", "United States"),
-            ("gb", "Regno Unito", "United Kingdom"),
-            ("fr", "Francia", "France"),
-            ("de", "Germania", "Germany"),
-            ("es", "Spagna", "Spain"),
-            ("pt", "Portogallo", "Portugal"),
-            ("ch", "Svizzera", "Switzerland"),
-            ("at", "Austria", "Austria"),
-            ("tr", "Turchia", "Turkey"),
-            ("pl", "Polonia", "Poland"),
-            ("cz", "Cechia", "Czechia"),
-            ("se", "Svezia", "Sweden"),
-            ("br", "Brasile", "Brazil"),
-            ("ar", "Argentina", "Argentina"),
-            ("ca", "Canada", "Canada"),
-        ],
-        "fr" => vec![
-            ("it", "Italie", "Italy"),
-            ("us", "États-Unis", "United States"),
-            ("gb", "Royaume-Uni", "United Kingdom"),
-            ("fr", "France", "France"),
-            ("de", "Allemagne", "Germany"),
-            ("es", "Espagne", "Spain"),
-            ("pt", "Portugal", "Portugal"),
-            ("ch", "Suisse", "Switzerland"),
-            ("at", "Autriche", "Austria"),
-            ("tr", "Turquie", "Turkey"),
-            ("pl", "Pologne", "Poland"),
-            ("cz", "Tchéquie", "Czechia"),
-            ("se", "Suède", "Sweden"),
-            ("br", "Brésil", "Brazil"),
-            ("ar", "Argentine", "Argentina"),
-            ("ca", "Canada", "Canada"),
-        ],
-        "es" => vec![
-            ("it", "Italia", "Italy"),
-            ("us", "Estados Unidos", "United States"),
-            ("gb", "Reino Unido", "United Kingdom"),
-            ("fr", "Francia", "France"),
-            ("de", "Alemania", "Germany"),
-            ("es", "España", "Spain"),
-            ("pt", "Portugal", "Portugal"),
-            ("ch", "Suiza", "Switzerland"),
-            ("at", "Austria", "Austria"),
-            ("tr", "Turquía", "Turkey"),
-            ("pl", "Polonia", "Poland"),
-            ("cz", "Chequia", "Czechia"),
-            ("se", "Suecia", "Sweden"),
-            ("br", "Brasil", "Brazil"),
-            ("ar", "Argentina", "Argentina"),
-            ("ca", "Canadá", "Canada"),
-        ],
-        "pt" => vec![
-            ("it", "Itália", "Italy"),
-            ("us", "Estados Unidos", "United States"),
-            ("gb", "Reino Unido", "United Kingdom"),
-            ("fr", "França", "France"),
-            ("de", "Alemanha", "Germany"),
-            ("es", "Espanha", "Spain"),
-            ("pt", "Portugal", "Portugal"),
-            ("ch", "Suíça", "Switzerland"),
-            ("at", "Áustria", "Austria"),
-            ("tr", "Turquia", "Turkey"),
-            ("pl", "Polónia", "Poland"),
-            ("cz", "Chéquia", "Czechia"),
-            ("se", "Suécia", "Sweden"),
-            ("br", "Brasil", "Brazil"),
-            ("ar", "Argentina", "Argentina"),
-            ("ca", "Canadá", "Canada"),
-        ],
-        "cs" => vec![
-            ("it", "Itálie", "Italy"),
-            ("us", "Spojené státy", "United States"),
-            ("gb", "Spojené království", "United Kingdom"),
-            ("fr", "Francie", "France"),
-            ("de", "Německo", "Germany"),
-            ("es", "Španělsko", "Spain"),
-            ("pt", "Portugalsko", "Portugal"),
-            ("ch", "Švýcarsko", "Switzerland"),
-            ("at", "Rakousko", "Austria"),
-            ("tr", "Turecko", "Turkey"),
-            ("pl", "Polsko", "Poland"),
-            ("cz", "Česko", "Czechia"),
-            ("se", "Švédsko", "Sweden"),
-            ("br", "Brazílie", "Brazil"),
-            ("ar", "Argentina", "Argentina"),
-            ("ca", "Kanada", "Canada"),
-        ],
-        "pl" => vec![
-            ("it", "Włochy", "Italy"),
-            ("us", "Stany Zjednoczone", "United States"),
-            ("gb", "Wielka Brytania", "United Kingdom"),
-            ("fr", "Francja", "France"),
-            ("de", "Niemcy", "Germany"),
-            ("es", "Hiszpania", "Spain"),
-            ("pt", "Portugalia", "Portugal"),
-            ("ch", "Szwajcaria", "Switzerland"),
-            ("at", "Austria", "Austria"),
-            ("tr", "Turcja", "Turkey"),
-            ("pl", "Polska", "Poland"),
-            ("cz", "Czechy", "Czechia"),
-            ("se", "Szwecja", "Sweden"),
-            ("br", "Brazylia", "Brazil"),
-            ("ar", "Argentyna", "Argentina"),
-            ("ca", "Kanada", "Canada"),
-        ],
-        _ => vec![
-            ("it", "Italy", "Italy"),
-            ("us", "United States", "United States"),
-            ("gb", "United Kingdom", "United Kingdom"),
-            ("fr", "France", "France"),
-            ("de", "Germany", "Germany"),
-            ("es", "Spain", "Spain"),
-            ("pt", "Portugal", "Portugal"),
-            ("ch", "Switzerland", "Switzerland"),
-            ("at", "Austria", "Austria"),
-            ("tr", "Turkey", "Turkey"),
-            ("pl", "Poland", "Poland"),
-            ("cz", "Czechia", "Czechia"),
-            ("se", "Sweden", "Sweden"),
-            ("br", "Brazil", "Brazil"),
-            ("ar", "Argentina", "Argentina"),
-            ("ca", "Canada", "Canada"),
-        ],
+fn fallback_radio_country_codes() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("it", "Italy"),
+        ("us", "United States"),
+        ("gb", "United Kingdom"),
+        ("fr", "France"),
+        ("de", "Germany"),
+        ("es", "Spain"),
+        ("pt", "Portugal"),
+        ("ch", "Switzerland"),
+        ("at", "Austria"),
+        ("tr", "Turkey"),
+        ("pl", "Poland"),
+        ("cz", "Czechia"),
+        ("se", "Sweden"),
+        ("br", "Brazil"),
+        ("ar", "Argentina"),
+        ("ca", "Canada"),
+        ("au", "Australia"),
+        ("be", "Belgium"),
+        ("nl", "Netherlands"),
+        ("dk", "Denmark"),
+        ("fi", "Finland"),
+        ("no", "Norway"),
+        ("ie", "Ireland"),
+        ("mx", "Mexico"),
+        ("jp", "Japan"),
+    ]
+}
+
+fn fallback_radio_country_options(ui_language: &str) -> Vec<(String, String, String)> {
+    let locale = country_display_locale_for_ui_language(ui_language);
+    let mut registry = Registry::new();
+    let registry = if registry.register_locale(locale).is_ok() {
+        Some(registry)
+    } else {
+        None
     };
-    rotate_country_options_to_default(items, &ui_language)
+    let mut items = fallback_radio_country_codes()
+        .into_iter()
+        .map(|(code, english)| {
+            (
+                code.to_string(),
+                localized_country_name_with_registry(registry.as_ref(), locale, code, english),
+                english.to_string(),
+            )
+        })
+        .collect::<Vec<_>>();
+    items.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    rotate_country_options_to_default(items, ui_language)
+}
+
+fn fetch_radio_browser_country_options(ui_language: &str) -> Result<Vec<(String, String, String)>, String> {
+    const RADIO_BROWSER_MIRRORS: [&str; 4] = [
+        "https://all.api.radio-browser.info",
+        "https://de1.api.radio-browser.info",
+        "https://fi1.api.radio-browser.info",
+        "https://at1.api.radio-browser.info",
+    ];
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(8))
+        .user_agent("Sonarpad Radio/1.0")
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    let locale = country_display_locale_for_ui_language(ui_language);
+    let mut registry = Registry::new();
+    let registry = if registry.register_locale(locale).is_ok() {
+        Some(registry)
+    } else {
+        None
+    };
+
+    let mut last_error = None;
+    for mirror in RADIO_BROWSER_MIRRORS {
+        match client
+            .get(format!("{mirror}/json/countries"))
+            .send()
+            .and_then(|response| response.error_for_status())
+        {
+            Ok(response) => match response.json::<Vec<RadioBrowserCountry>>() {
+                Ok(countries) => {
+                    let mut seen = HashSet::new();
+                    let mut items = countries
+                        .into_iter()
+                        .filter_map(|country| {
+                            let code = country.iso_3166_1.trim().to_ascii_lowercase();
+                            if code.len() != 2 || country.stationcount == 0 || !seen.insert(code.clone()) {
+                                return None;
+                            }
+                            let english = if country.name.trim().is_empty() {
+                                code.to_ascii_uppercase()
+                            } else {
+                                country.name.trim().to_string()
+                            };
+                            let label = localized_country_name_with_registry(
+                                registry.as_ref(),
+                                locale,
+                                &code,
+                                &english,
+                            );
+                            Some((code, label, english))
+                        })
+                        .collect::<Vec<_>>();
+                    items.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+                    return Ok(rotate_country_options_to_default(items, ui_language));
+                }
+                Err(err) => last_error = Some(err.to_string()),
+            },
+            Err(err) => last_error = Some(err.to_string()),
+        }
+    }
+    Err(last_error.unwrap_or_else(|| "RadioBrowser country list unavailable".to_string()))
+}
+
+fn radio_country_options() -> Vec<(String, String, String)> {
+    let ui_language = Settings::load().ui_language;
+    match fetch_radio_browser_country_options(&ui_language) {
+        Ok(items) if !items.is_empty() => items,
+        _ => fallback_radio_country_options(&ui_language),
+    }
 }
 
 fn fetch_radio_browser_country_city_stations(
@@ -5296,7 +5364,7 @@ fn open_radio_search_dialog(
     };
     let dialog = Dialog::builder(parent, dialog_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(760, 260)
+        .with_size(760, 310)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -5338,6 +5406,34 @@ fn open_radio_search_dialog(
     choice_language.set_selection(initial_selection);
     language_row.add(&choice_language, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&language_row, 0, SizerFlag::Expand, 0);
+
+    let country_row = BoxSizer::builder(Orientation::Horizontal).build();
+    country_row.add(
+        &StaticText::builder(&panel)
+            .with_label(match ui_language.as_str() { "it" => "Nazione", "es" => "País", "pt" => "País", "cs" => "Země", "pl" => "Kraj", "fr" => "Pays", _ => "Country" })
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let country_choice = Choice::builder(&panel).build();
+    let mut country_items = vec![(
+        String::new(),
+        match ui_language.as_str() { "it" => "Tutte le nazioni", "es" => "Todos los países", "pt" => "Todos os países", "cs" => "Všechny země", "pl" => "Wszystkie kraje", "fr" => "Tous les pays", _ => "Any country" }.to_string(),
+        String::new(),
+    )];
+    country_items.extend(
+        radio_country_options()
+            .into_iter()
+            .map(|(code, label, english)| (code.to_string(), label.to_string(), english.to_string())),
+    );
+    let country_items = Rc::new(country_items);
+    for (_, label, _) in country_items.iter() {
+        country_choice.append(label);
+    }
+    country_choice.set_selection(0);
+    country_row.add(&country_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&country_row, 0, SizerFlag::Expand, 0);
 
     let button_row = BoxSizer::builder(Orientation::Horizontal).build();
     let button_show_all = Button::builder(&panel)
@@ -5398,9 +5494,10 @@ fn open_radio_search_dialog(
 
     let gather_results = Rc::new({
         let languages = languages.clone();
+        let country_items = Rc::clone(&country_items);
         let radio_menu_state_search = Arc::clone(radio_menu_state);
         let community_cache_gather = Arc::clone(&community_cache);
-        move |language_selection: usize, keyword: &str, show_all: bool| {
+        move |language_selection: usize, country_selection: usize, keyword: &str, show_all: bool| {
             let mut results = Vec::<RadioFavorite>::new();
             let language_code_opt = languages
                 .get(language_selection)
@@ -5435,6 +5532,25 @@ fn open_radio_search_dialog(
                     }
                 }
             }
+            if let Some((country_code, _, _)) = country_items.get(country_selection)
+                && !country_code.is_empty()
+            {
+                match fetch_radio_browser_country_city_stations(country_code, "", keyword) {
+                    Ok(country_stations) => {
+                        let country_language_code = format!("country:{country_code}");
+                        for station in country_stations {
+                            results.push(favorite_from_station(&country_language_code, &station));
+                        }
+                    }
+                    Err(err) => {
+                        append_podcast_log(&format!(
+                            "radio_search_dialog.country_search_error country={} error={}",
+                            country_code, err
+                        ));
+                    }
+                }
+            }
+
             let kw_owned = keyword.trim().to_lowercase();
             results.sort_by(|left, right| {
                 if show_all || kw_owned.is_empty() {
@@ -5455,6 +5571,7 @@ fn open_radio_search_dialog(
     });
 
     let choice_language_all = choice_language;
+    let country_choice_all = country_choice;
     let keyword_ctrl_all = keyword_ctrl;
     let dialog_show_all = dialog;
     let settings_show_all = Arc::clone(settings);
@@ -5463,7 +5580,8 @@ fn open_radio_search_dialog(
     button_show_all.on_click(move |_| {
         append_podcast_log("radio_search_dialog.show_all_clicked");
         let selection = choice_language_all.get_selection().unwrap_or(0) as usize;
-        let results = gather_results_show_all(selection, &keyword_ctrl_all.get_value(), true);
+        let country_selection = country_choice_all.get_selection().unwrap_or(0) as usize;
+        let results = gather_results_show_all(selection, country_selection, &keyword_ctrl_all.get_value(), true);
         open_radio_results_dialog(
             &dialog_show_all,
             &settings_show_all,
@@ -5473,6 +5591,7 @@ fn open_radio_search_dialog(
     });
 
     let choice_language_search = choice_language;
+    let country_choice_search = country_choice;
     let keyword_ctrl_search = keyword_ctrl;
     let dialog_search = dialog;
     let ui_language_search = ui_language.clone();
@@ -5482,23 +5601,25 @@ fn open_radio_search_dialog(
     let perform_search = Rc::new(move || {
         append_podcast_log("radio_search_dialog.perform_search");
         let selection = choice_language_search.get_selection().unwrap_or(0) as usize;
+        let country_selection = country_choice_search.get_selection().unwrap_or(0) as usize;
         let keyword = keyword_ctrl_search.get_value();
-        if keyword.trim().is_empty() {
+        if keyword.trim().is_empty() && country_selection == 0 {
             show_message_subdialog(
                 &dialog_search,
                 "Radio",
                 match ui_language_search.as_str() {
-                    "it" => "Inserisci un testo da cercare.",
-                    "es" => "Introduce un texto para buscar.",
-                    "pt" => "Introduz um texto para pesquisar.",
-                    "cs" => "Zadejte text k vyhledání.",
-                    "pl" => "Wpisz tekst do wyszukania.",
-                    _ => "Enter text to search.",
+                    "it" => "Inserisci un testo da cercare oppure scegli una nazione.",
+                    "es" => "Introduce un texto para buscar o elige un país.",
+                    "pt" => "Introduz um texto para pesquisar ou escolhe um país.",
+                    "cs" => "Zadejte text k vyhledání nebo vyberte zemi.",
+                    "pl" => "Wpisz tekst do wyszukania albo wybierz kraj.",
+                    "fr" => "Saisissez un texte à rechercher ou choisissez un pays.",
+                    _ => "Enter text to search or choose a country.",
                 },
             );
             return;
         }
-        let results = gather_results_search(selection, &keyword, false);
+        let results = gather_results_search(selection, country_selection, &keyword, false);
         open_radio_results_dialog(
             &dialog_search,
             &settings_search,
@@ -6056,11 +6177,7 @@ fn handle_update_check_result(
                         latest_version
                     )
                 };
-                let dialog = MessageDialog::builder(parent, &message, &ui.updates_title)
-                    .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-                    .build();
-                localize_standard_dialog_buttons(&dialog);
-                if dialog.show_modal() == ID_YES {
+                if ask_yes_no_dialog(parent, &ui.updates_title, &message) {
                     #[cfg(target_os = "macos")]
                     {
                         match matching_macos_release_asset(&release)
@@ -11208,15 +11325,7 @@ fn handle_rai_missing_code(parent: &Frame, err: &str) -> bool {
         return false;
     }
     let ui = current_ui_strings();
-    let ask = MessageDialog::builder(
-        parent,
-        &ui.rai_missing_code_message,
-        &ui.rai_missing_code_title,
-    )
-    .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-    .build();
-    localize_standard_dialog_buttons(&ask);
-    if ask.show_modal() == ID_YES {
+    if ask_yes_no_dialog(parent, &ui.rai_missing_code_title, &ui.rai_missing_code_message) {
         let dialog = Dialog::builder(parent, &ui.rai_request_code_button).build();
         request_rai_luce_code(&dialog);
         dialog.destroy();
@@ -18893,22 +19002,15 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
             entries.get(index).cloned()
         };
         let Some(entry) = entry else { return };
-        let ask = MessageDialog::builder(
-            &dialog_delete,
-            match ui_language_delete.as_str() {
-                "it" => "Vuoi eliminare questa registrazione?",
-                "es" => "¿Quieres eliminar esta grabación?",
-                "pt" => "Queres eliminar esta gravação?",
-                "cs" => "Chcete tuto nahrávku smazat?",
-                "pl" => "Czy chcesz usunąć to nagranie?",
-                _ => "Do you want to delete this recording?",
-            },
-            title,
-        )
-        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
-        .build();
-        localize_standard_dialog_buttons(&ask);
-        if ask.show_modal() != ID_YES {
+        let delete_message = match ui_language_delete.as_str() {
+            "it" => "Vuoi eliminare questa registrazione?",
+            "es" => "¿Quieres eliminar esta grabación?",
+            "pt" => "Queres eliminar esta gravação?",
+            "cs" => "Chcete tuto nahrávku smazat?",
+            "pl" => "Czy chcesz usunąć to nagranie?",
+            _ => "Do you want to delete this recording?",
+        };
+        if !ask_yes_no_dialog(&dialog_delete, title, delete_message) {
             return;
         }
         if let Err(err) = std::fs::remove_file(&entry.path) {
@@ -19653,6 +19755,19 @@ fn open_stream_with_mpv_recordable(
         .arg("--volume-max=300")
         .arg(format!("--log-file={}", mpv_debug_log.display()))
         .arg("--msg-level=all=v");
+    #[cfg(target_os = "macos")]
+    {
+        command
+            .arg("--vo=gpu-next,gpu,libmpv")
+            .arg("--gpu-api=opengl")
+            .arg("--hwdec=no")
+            .arg("--autofit=1280x720")
+            .arg("--geometry=50%:50%");
+        append_podcast_log(&format!(
+            "mpv.recordable.video_output_args title={} vo=gpu-next,gpu,libmpv gpu_api=opengl hwdec=no autofit=1280x720 geometry=50%:50%",
+            title
+        ));
+    }
     if allow_bookmarks {
         command
             .arg(format!(
@@ -20453,7 +20568,7 @@ fn main() {
         btn_sizer.add(&btn_stop, 1, SizerFlag::All, 10);
         let btn_recent_articles = Button::builder(&panel)
             .with_id(ID_RECENT_ARTICLES)
-            .with_label(&format!("{} (Alt+-)", ui.button_recent_articles))
+            .with_label(&format!("{} ({}+-)", ui.button_recent_articles, MOD_CMD))
             .build();
         btn_recent_articles.show(false);
         btn_sizer.add(&btn_recent_articles, 1, SizerFlag::All, 10);

@@ -1,3 +1,8 @@
+- Zkratka Nedávné články na Macu změněna na Command+spojovník.
+- Standardní dialogy Ano/Ne nahrazeny lokalizovanými vlastními dialogy.
+- V Digitální knihovně klávesa Enter ve vyhledávacím poli spustí hledání.
+- Vyhledávání rádií: přidán filtr podle země s úplnými názvy zemí.
+
 Seznam změn
 
 Verze 0.2.9 - 1. května 2026
@@ -83,3 +88,7 @@ Verze 0.2.0
 - Podpora čtení textu, článků a podcastů se syntézou řeči.
 - Podpora OCR PDF v macOS, stahování aktualizací a vyhrazené balíčky DMG.
 - Hierarchické kategorie podcastů a první globální/macOS zkratky.
+- Bezpečnější nahrávání TV na Macu: živý stream se nahrává jako TS a po zastavení se jej Sonarpad pokusí automaticky převést do MP4; pokud převod selže, soubor TS zůstane zachován.
+- Vyhledávání rádií podle země: názvy zemí se nyní lokalizují pomocí i18n-country-translations/CLDR místo ruční tabulky.
+
+- Migliorata l'apertura video TV su macOS: mpv ora usa un output video GPU con fallback per evitare finestre vuote.
