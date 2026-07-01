@@ -16828,6 +16828,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 programs: Vec::new(),
                 guide_channel: None,
                 guide_name: None,
+                tvg_id: None,
                 stream_resolver: None,
                 resolver_endpoint: None,
                 resolver_realm: None,
