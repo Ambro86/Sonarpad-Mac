@@ -3770,17 +3770,6 @@ fn localized_country_name_with_registry(
     }
 }
 
-fn localized_country_name(ui_language: &str, country_code: &str, fallback_name: &str) -> String {
-    let locale = country_display_locale_for_ui_language(ui_language);
-    let mut registry = Registry::new();
-    let registry = if registry.register_locale(locale).is_ok() {
-        Some(registry)
-    } else {
-        None
-    };
-    localized_country_name_with_registry(registry.as_ref(), locale, country_code, fallback_name)
-}
-
 fn rotate_country_options_to_default(
     mut items: Vec<(String, String, String)>,
     ui_language: &str,
@@ -23366,4 +23355,3 @@ Non posso scaricare la pagina web al posto dell'audio.",
         frame.centre();
     });
 }
-
