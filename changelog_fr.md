@@ -91,3 +91,5 @@ Version 0.2.0
 - Catégories de podcast hiérarchiques et premiers raccourcis globaux/macOS.
 - Recherche radio par pays : les noms des pays sont désormais localisés via i18n-country-translations/CLDR au lieu d’une table manuelle.
 - Diagnostic TV Mac : ajout de journaux mpv étendus, état fenêtre/vidéo, options de sortie, extraits du journal mpv et captures diagnostiques pour identifier la cause de la fenêtre vidéo vide.
+
+- TV Mac : le catalogue des chaînes utilise désormais uniquement le catalogue distant Sonarpad, avec les mêmes en-têtes et corrections La7/La7D que la version mobile. Ajout d’un lancement mpv via LaunchServices pour diagnostiquer/corriger la fenêtre vidéo blanche.

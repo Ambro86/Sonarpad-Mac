@@ -92,3 +92,5 @@ Versione 0.2.0
 - Ricerca radio per nazione: i nomi dei paesi ora vengono localizzati tramite i18n-country-translations/CLDR invece di una tabella manuale.
 - Corretto il comando Articoli recenti su macOS: ora usa davvero Command+trattino, come gli altri comandi Command.
 - Diagnostica TV Mac: aggiunti log estesi di mpv, stato finestra/video, opzioni di output, snapshot del log mpv e screenshot diagnostici per capire la causa della finestra video vuota.
+
+- TV Mac: il catalogo canali ora usa solo il catalogo remoto Sonarpad, con gli stessi header e correzioni La7/La7D della versione mobile. Aggiunta prova di avvio mpv via LaunchServices per diagnosticare/fissare la finestra video bianca.

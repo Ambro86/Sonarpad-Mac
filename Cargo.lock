@@ -1526,23 +1526,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "i18n-country-translations"
-version = "0.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "20c81937ea26a5ade8e116250e59ef90427a73e53f2e00787ac9c8668e10d675"
-dependencies = [
- "i18n-country-translations-data",
- "once_cell",
- "serde_json",
-]
-
-[[package]]
-name = "i18n-country-translations-data"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d27782ebf4336bfb18ccef313789ec646559d8dd9d800a58901cc6fa35255e3b"
-
-[[package]]
 name = "iana-time-zone"
 version = "0.1.65"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3804,7 +3787,6 @@ dependencies = [
  "hex",
  "hound",
  "html2text",
- "i18n-country-translations",
  "objc2",
  "objc2-av-foundation",
  "objc2-core-media",

@@ -8,10 +8,14 @@ use std::io::Read;
 
 const TV_PAYLOAD_STATIC_KEY_PARTS: &[&[u8]] = &[b"sonar", b"pad-", b"SonarSecure-"];
 const LA7_STREAM_URL: &str = "https://d1chghleocc9sm.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-evfku205gqrtf/Live.m3u8";
+const LA7_CINEMA_DASH_URL: &str = "https://d15umi5iaezxgx.cloudfront.net/HBBTV/LA7D/DASH/Live.mpd";
+const SONARPAD_TV_TOKEN: &str = "";
 const OGGI_IN_TV_TIMELINE_URL_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMMuhZfR1S+OWXPRn4oJR5K4nkpYbgWGup/jgB+m6jPWForBe9oLtOwaBOreEeoqetOYbKLTxeLIC4fDkh4S9vy3U4I3E=","algorithm":"gzip-xor-base64-v1"}"#;
 const OGGI_IN_TV_GUIDE_URL_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMMiawFTr6bjtEskCkzkNJJ+Zweyc6I0xoq5wAQq2me+nsGOl55vyuggHwBZyk/4KnTrP2iV7rNEEN7i90j4pqQXbXPAgPICMLN0By","algorithm":"gzip-xor-base64-v1"}"#;
 const TV_CHANNELS_REMOTE_URL_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhOxyawhT16bj9FstrDzDx0LnYYFeIHCjUg0J4I2IRoLCC6WbXJFAJY66itPMER8CXxsWb8uE7xHG1LOQ==","algorithm":"gzip-xor-base64-v1"}"#;
+#[allow(dead_code)]
 const TV_CHANNELS_PAYLOAD_JSON: &str = r#"{"payload_b64":"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","algorithm":"gzip-xor-base64-v1"}"#;
+#[allow(dead_code)]
 const REGIONAL_TV_CHANNELS_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMMo4nOUegdie+WUmPr85Uj4uCpYb+eOdb7HZeI0qNCD7T7Xlq+7Z34/VojdnssHYJrF8MsIN5yUmAdYLumBrJ3Y1fD74xbk4UyD4bsx3g1GAH6rS84/ksoTk2E5536VjBOx7IYFz//hI2DPNEaUMkNk3znFwDXVNEy6+Gs3OSPhzVG0YQg3Bp3eSj7+Wkpd4LYzxx8+P6woCB2UIxKrXej36b/GQGUDa4cAtnmqla69uoehBDRXsxpp4RqRyyEb2tNmQ3RJW5O0OAP5bLMLL7atRd6lJbLxaATCMxAitjohs7CnWm8GxiW/cpCuMxbLffbLf1U/FkojcCWoVMxjem+MWbDOpyuO3x5muELmrcBfSFOTGK+6DNBm7b8XfmwsQz3QmoQRHIYcfwje/j6a/9frT35X3LSJAB0+UwSVGeMvCSSyeQcTJY3NtQUPd59Qt0svtvFwdksay9OjgKmvZiPQ5k+4hsR/DPixpoUFDgJboB3rR9+kw2i1mzYuAt7dEazKqaDh9C4uZTFVroYKOYNLxcfPoDvLE4NM0LJo6uRuYotBkMQS6GKep2TCJciQi9d+cbBLcfoVRw3Yajra9G/ZLbihg22u50J3iLTuUkSfsUHWepqHC90J//JfXmqFYzNKCZe5KO5vtS6z6+F1P51ZkPdA1En4a3jokxcqsPFN38rlbpsXG4IuphfOeNxneAac0Cjxlm1p/E7BdAnZkWb0g/i8gTcTmVjP5/4OICFuz5mn3DHcnXD61/vpIBJVvcgr8JnPx3OuYCfkoBgt3XSOoVjd2rqOKYfZyj64RqZrXV2olVFmKSBjU+9aVCugpQaYSeOgOcaO3qhFh7lqmb1blGphnTTe0eV4EtT068jcyJlzeGZ9n9I7ZqIVodQZXSJwJnRFNQLXnn6d3g86kkH5uyX2+/GiEWGGMlNIHm4g/wnzFkRgr9R/OSo2Fn9slLaF5vcpsYVy7GQK+O7p3wN0eSRb3Y39Qbbz2LB58SAEU432sE7yI6wA4cHgit33noxPQWM2kGNWfSFvJILtsEpWMAJYJnmwxGTIQgLwJRjGnZ8nnBdaUpLNf7ap9EHcW3PdAjH2Hjs+EG9SGj6f6D/x9RGzuowx7Am1t4odnr+KqBC34Z7jhe3ixIhkEE5pqfiPnqheU6X5gG/OZMKymJwo2+uOSPdWsu7A2nUaHJyUuv2sKbPjxELlIfjs8cWK21XEvL5fk9wfo3KdGjQkDrRKo9dpJbEzDKsexZqrT9c+A3ELAhv6gIMI0TRLCApOyH3E9/hFv7uzzcd4W10GEzWaOz1BZ+pVZy0+NCEyrQeFJDS8FxorM/2VPCGIPgejoFJ/UcaJeYyEILf1ZwcHb0G/SmyQTBY7F4eLnhwbvnVehk6clOMa09b9Lk+vxkvSAGuAbTnN+ZQGRWuk77GmFgTyho/0tmf+5y0XUG7zm8FXEjH0yiGtHoO7jrCkXH+pRGTPi9gA3RKZkhlfOiwa2bVrk/6/VtUloaCv0hrS0mvPojNLr6SPFEQDayGWwEluc+TWqkJO9VdvTNXcVIDDBvPnm6WcvsyUkcPX4PnbDVm+w5mzvNd4e8B7jHWHJM","algorithm":"gzip-xor-base64-v1"}"#;
 
 #[derive(Clone, Debug)]
@@ -24,6 +28,7 @@ pub(crate) struct TvChannel {
     pub(crate) programs: Vec<TvProgram>,
     pub(crate) guide_channel: Option<String>,
     pub(crate) guide_name: Option<String>,
+    pub(crate) tvg_id: Option<String>,
     pub(crate) stream_resolver: Option<String>,
     pub(crate) resolver_endpoint: Option<String>,
     pub(crate) resolver_realm: Option<String>,
@@ -51,11 +56,13 @@ impl TvChannel {
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct TvPayload {
     channels: Vec<TvChannelPayload>,
 }
 
 #[derive(Deserialize)]
+#[allow(dead_code)]
 struct TvChannelPayload {
     name: String,
     url: String,
@@ -71,6 +78,7 @@ struct RemoteTvChannelPayload {
     name: String,
     url: String,
     tvg_name: Option<String>,
+    tvg_id: Option<String>,
     group_title: Option<String>,
     has_guide: Option<bool>,
     stream_resolver: Option<String>,
@@ -97,14 +105,16 @@ struct OggiInTvProgram {
 }
 
 pub(crate) fn load_channels() -> Result<Vec<TvChannel>, String> {
-    if let Ok(mut channels) = fetch_remote_channels() {
-        append_current_programs(&mut channels);
-        return Ok(channels);
-    }
-
-    load_local_channels()
+    let mut channels = fetch_remote_channels().map_err(|err| {
+        format!(
+            "Impossibile scaricare i canali TV dal catalogo Sonarpad: {err}"
+        )
+    })?;
+    append_current_programs(&mut channels);
+    Ok(channels)
 }
 
+#[allow(dead_code)]
 fn load_local_channels() -> Result<Vec<TvChannel>, String> {
     let raw = decode_tv_payload()?;
     let payload: TvPayload =
@@ -132,6 +142,7 @@ fn load_local_channels() -> Result<Vec<TvChannel>, String> {
                     programs: Vec::new(),
                     guide_channel: None,
                     guide_name: None,
+                    tvg_id: None,
                     stream_resolver: None,
                     resolver_endpoint: None,
                     resolver_realm: None,
@@ -157,6 +168,7 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
         .map_err(|err| err.to_string())?
         .get(&remote_url)
         .header("Accept", "application/json")
+        .header("X-Sonarpad-TV-Token", SONARPAD_TV_TOKEN)
         .header("X-Sonarpad-Route-Token", SONARPAD_ROUTE_CLIENT_TOKEN)
         .send()
         .map_err(|err| err.to_string())?
@@ -169,8 +181,14 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
         .channels
         .into_iter()
         .filter_map(|channel| {
-            let name = channel.name.trim().to_string();
-            let url = channel.url.trim().to_string();
+            let name = channel.name.trim().trim_start_matches(|c: char| c == '[' || c.is_ascii_digit() || c == ']' || c.is_whitespace()).trim().to_string();
+            let mut url = channel.url.trim().to_string();
+            if name == "La7" {
+                url = LA7_STREAM_URL.to_string();
+            }
+            if matches!(name.as_str(), "La7 Cinema" | "La7D" | "LA7D") {
+                url = LA7_CINEMA_DASH_URL.to_string();
+            }
             if name.is_empty() || url.is_empty() {
                 return None;
             }
@@ -190,6 +208,10 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
                     .tvg_name
                     .map(|name| name.trim().to_string())
                     .filter(|name| !name.is_empty()),
+                tvg_id: channel
+                    .tvg_id
+                    .map(|id| id.trim().to_string())
+                    .filter(|id| !id.is_empty()),
                 stream_resolver: channel.stream_resolver,
                 resolver_endpoint: channel.resolver_endpoint,
                 resolver_realm: channel.resolver_realm,
@@ -204,10 +226,12 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
     }
 }
 
+#[allow(dead_code)]
 fn decode_tv_payload() -> Result<String, String> {
     decode_encrypted_payload(TV_CHANNELS_PAYLOAD_JSON, "TV")
 }
 
+#[allow(dead_code)]
 fn load_regional_channels() -> Result<Vec<TvChannel>, String> {
     let raw = decode_encrypted_payload(REGIONAL_TV_CHANNELS_PAYLOAD_JSON, "TV regionali")?;
     let payload: TvPayload = serde_json::from_str(&raw)
@@ -230,6 +254,7 @@ fn load_regional_channels() -> Result<Vec<TvChannel>, String> {
                     programs: Vec::new(),
                     guide_channel: None,
                     guide_name: None,
+                    tvg_id: None,
                     stream_resolver: None,
                     resolver_endpoint: None,
                     resolver_realm: None,
@@ -287,9 +312,25 @@ fn append_current_programs(channels: &mut [TvChannel]) {
         if !channel.has_guide {
             continue;
         }
-        let guide_name = channel.guide_name.as_deref().unwrap_or(&channel.name);
-        let key = normalize_oggi_in_tv_channel_name(guide_name);
-        if let Some(programs) = programs_by_channel.get(&key) {
+        let mut lookup_keys = Vec::new();
+        for value in [
+            Some(channel.name.as_str()),
+            channel.guide_name.as_deref(),
+            channel.tvg_id.as_deref(),
+            channel
+                .tvg_id
+                .as_deref()
+                .and_then(|id| id.strip_suffix(".it")),
+        ]
+        .into_iter()
+        .flatten()
+        {
+            let key = normalize_oggi_in_tv_channel_name(value);
+            if !key.is_empty() && !lookup_keys.contains(&key) {
+                lookup_keys.push(key);
+            }
+        }
+        if let Some(programs) = lookup_keys.iter().find_map(|key| programs_by_channel.get(key)) {
             channel.programs = programs.clone();
             channel.guide_channel = programs.first().map(|program| program.channel.clone());
             if let Some(program) = programs

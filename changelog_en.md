@@ -79,3 +79,5 @@ Version 0.2.0
 - Radio country search: country names are now localized through i18n-country-translations/CLDR instead of a manual table.
 - Fixed Recent articles on macOS: it now really uses Command+hyphen, matching the other Command shortcuts.
 - Mac TV diagnostics: added extended mpv logs, window/video state, output options, mpv log snapshots, and diagnostic screenshots to identify the cause of the blank video window.
+
+- Mac TV: the channel catalog now uses only the remote Sonarpad catalog, with the same headers and La7/La7D fixes used by the mobile version. Added a LaunchServices mpv launch test to diagnose/fix the blank video window.

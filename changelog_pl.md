@@ -91,3 +91,5 @@ Wersja 0.2.0
 - Bezpieczniejsze nagrywanie TV na Macu: transmisja na żywo jest nagrywana jako TS, a po zatrzymaniu Sonarpad próbuje automatycznie przekonwertować ją do MP4; jeśli konwersja się nie powiedzie, plik TS zostaje zachowany.
 - Wyszukiwanie radia według kraju: nazwy krajów są teraz lokalizowane przez i18n-country-translations/CLDR zamiast ręcznej tabeli.
 - Diagnostyka TV na Macu: dodano rozszerzone logi mpv, stan okna/wideo, opcje wyjścia, zrzuty logu mpv i zrzuty diagnostyczne, aby ustalić przyczynę pustego okna wideo.
+
+- TV na Macu: katalog kanałów korzysta teraz wyłącznie ze zdalnego katalogu Sonarpad, z tymi samymi nagłówkami i poprawkami La7/La7D co wersja mobilna. Dodano uruchamianie mpv przez LaunchServices do diagnozy/naprawy białego okna wideo.

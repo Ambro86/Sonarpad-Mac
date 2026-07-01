@@ -91,3 +91,5 @@ Versión 0.2.0
 - Grabación de TV más segura en Mac: el directo se graba en TS y, al detenerlo, Sonarpad intenta convertirlo automáticamente a MP4; si la conversión falla, conserva el archivo TS.
 - Búsqueda de radio por país: los nombres de los países ahora se localizan mediante i18n-country-translations/CLDR en lugar de una tabla manual.
 - Diagnóstico TV en Mac: se añadieron registros mpv ampliados, estado de ventana/vídeo, opciones de salida, capturas del registro mpv y capturas diagnósticas para identificar la causa de la ventana de vídeo vacía.
+
+- TV en Mac: el catálogo de canales usa ahora solo el catálogo remoto de Sonarpad, con las mismas cabeceras y correcciones La7/La7D de la versión móvil. Añadida una prueba de inicio de mpv mediante LaunchServices para diagnosticar/corregir la ventana de vídeo en blanco.

@@ -19997,11 +19997,54 @@ fn open_stream_with_mpv_recordable(
         command.get_program().to_string_lossy(),
         args_for_log
     ));
+
+    #[cfg(target_os = "macos")]
+    {
+        let launch_with_open_app = recording
+            .as_ref()
+            .map(|recording| recording.kind == "tv")
+            .unwrap_or(false);
+        if launch_with_open_app {
+            if let Some(app_bundle) = mpv_executable
+                .parent()
+                .and_then(|macos_dir| macos_dir.parent())
+                .and_then(|contents_dir| contents_dir.parent())
+            {
+                append_podcast_log(&format!(
+                    "mpv.recordable.launch_mode launchservices_open_app_bundle title={} app={} reason=tv_video_window_compositing_test",
+                    title,
+                    app_bundle.display()
+                ));
+                let mut open_command = Command::new("/usr/bin/open");
+                open_command
+                    .arg("-n")
+                    .arg("-W")
+                    .arg("-a")
+                    .arg(app_bundle)
+                    .arg("--args");
+                for arg in &args_for_log {
+                    open_command.arg(arg);
+                }
+                command = open_command;
+            } else {
+                append_podcast_log(&format!(
+                    "mpv.recordable.launch_mode direct_executable title={} reason=app_bundle_not_detected",
+                    title
+                ));
+            }
+        } else {
+            append_podcast_log(&format!(
+                "mpv.recordable.launch_mode direct_executable title={} reason=not_tv_or_not_macos",
+                title
+            ));
+        }
+    }
+
     append_podcast_log(&format!(
-        "mpv.recordable.spawn title={} url={} mpv={} debug_log={} current_dir={}",
+        "mpv.recordable.spawn title={} url={} program={} debug_log={} current_dir={}",
         title,
         url,
-        mpv_executable.display(),
+        command.get_program().to_string_lossy(),
         mpv_debug_log.display(),
         mpv_executable
             .parent()
