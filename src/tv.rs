@@ -1,4 +1,4 @@
-use crate::SONARPAD_ROUTE_CLIENT_TOKEN;
+use crate::{SONARPAD_ROUTE_CLIENT_TOKEN, append_podcast_log};
 use base64::{Engine as _, engine::general_purpose::STANDARD};
 use chrono::Local;
 use flate2::read::GzDecoder;
@@ -161,21 +161,66 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
         TV_CHANNELS_REMOTE_URL_PAYLOAD_JSON,
         "TV Channels Remote URL",
     )?;
-    let payload = reqwest::blocking::Client::builder()
+    let route_token_present = !SONARPAD_ROUTE_CLIENT_TOKEN.trim().is_empty();
+    append_podcast_log(&format!(
+        "tv.remote.request begin url={} tv_token_mode=mobile_static route_token_present={} route_token_len={}",
+        remote_url,
+        route_token_present,
+        SONARPAD_ROUTE_CLIENT_TOKEN.len()
+    ));
+
+    let response = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(15))
         .user_agent("Sonarpad TV/1.0")
         .build()
-        .map_err(|err| err.to_string())?
+        .map_err(|err| {
+            append_podcast_log(&format!("tv.remote.client_build_error err={}", err));
+            err.to_string()
+        })?
         .get(&remote_url)
         .header("Accept", "application/json")
         .header("X-Sonarpad-TV-Token", SONARPAD_TV_TOKEN)
         .header("X-Sonarpad-Route-Token", SONARPAD_ROUTE_CLIENT_TOKEN)
         .send()
-        .map_err(|err| err.to_string())?
-        .error_for_status()
-        .map_err(|err| err.to_string())?
-        .json::<RemoteTvPayload>()
-        .map_err(|err| err.to_string())?;
+        .map_err(|err| {
+            append_podcast_log(&format!("tv.remote.request_error err={}", err));
+            err.to_string()
+        })?;
+
+    let status = response.status();
+    let body = response.text().map_err(|err| {
+        append_podcast_log(&format!("tv.remote.read_body_error status={} err={}", status, err));
+        err.to_string()
+    })?;
+    append_podcast_log(&format!(
+        "tv.remote.response status={} success={} body_len={}",
+        status,
+        status.is_success(),
+        body.len()
+    ));
+    if !status.is_success() {
+        let snippet: String = body.chars().take(500).collect();
+        append_podcast_log(&format!(
+            "tv.remote.response_error status={} body_snippet={}",
+            status,
+            snippet.replace('\n', " ").replace('\r', " ")
+        ));
+        return Err(format!("HTTP {} dal catalogo TV Sonarpad", status));
+    }
+
+    let payload: RemoteTvPayload = serde_json::from_str(&body).map_err(|err| {
+        let snippet: String = body.chars().take(500).collect();
+        append_podcast_log(&format!(
+            "tv.remote.json_error err={} body_snippet={}",
+            err,
+            snippet.replace('\n', " ").replace('\r', " ")
+        ));
+        err.to_string()
+    })?;
+    append_podcast_log(&format!(
+        "tv.remote.parsed channels={}",
+        payload.channels.len()
+    ));
 
     let channels = payload
         .channels

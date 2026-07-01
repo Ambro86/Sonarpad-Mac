@@ -105,6 +105,16 @@ jobs:
           path: dist/curl-cffi
           key: ${{ runner.os }}-${{ matrix.rust_target }}-curl-cffi-v1
 
+      - name: Validate Sonarpad route token
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SONARPAD_ROUTE_CLIENT_TOKEN:-}" ]; then
+            echo "ERROR: SONARPAD_ROUTE_CLIENT_TOKEN secret is missing or empty."
+            exit 1
+          fi
+          echo "SONARPAD_ROUTE_CLIENT_TOKEN is configured."
+
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.rust_target }}
 

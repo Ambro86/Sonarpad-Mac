@@ -1,3 +1,4 @@
+- Mac : le catalogue TV utilise maintenant le même jeton TV fixe que la version mobile ; aucun secret de workflow `SONARPAD_TV_CLIENT_TOKEN` n’est nécessaire.
 - Raccourci Articles récents sur Mac mis à jour en Command+tiret.
 - Remplacement des alertes Oui/Non standard par des dialogues personnalisés localisés.
 - Dans la Bibliothèque numérique, Entrée dans le champ de recherche lance la recherche.
@@ -93,3 +94,4 @@ Version 0.2.0
 - Diagnostic TV Mac : ajout de journaux mpv étendus, état fenêtre/vidéo, options de sortie, extraits du journal mpv et captures diagnostiques pour identifier la cause de la fenêtre vidéo vide.
 
 - TV Mac : le catalogue des chaînes utilise désormais uniquement le catalogue distant Sonarpad, avec les mêmes en-têtes et corrections La7/La7D que la version mobile. Ajout d’un lancement mpv via LaunchServices pour diagnostiquer/corriger la fenêtre vidéo blanche.
+- Diagnostic TV : le Mac journalise si le jeton itinéraires est présent, le statut HTTP et un court extrait d’erreur du catalogue TV, sans afficher la valeur du jeton.

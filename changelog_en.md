@@ -1,3 +1,4 @@
+- Mac: the TV catalog now uses the same fixed TV token as the mobile version; no `SONARPAD_TV_CLIENT_TOKEN` workflow secret is required.
 - Updated the Recent articles shortcut on Mac to Command+hyphen.
 - Replaced standard Yes/No prompts with localized custom dialogs.
 - In Digital Library, pressing Enter in the search field now starts Search.
@@ -81,3 +82,4 @@ Version 0.2.0
 - Mac TV diagnostics: added extended mpv logs, window/video state, output options, mpv log snapshots, and diagnostic screenshots to identify the cause of the blank video window.
 
 - Mac TV: the channel catalog now uses only the remote Sonarpad catalog, with the same headers and La7/La7D fixes used by the mobile version. Added a LaunchServices mpv launch test to diagnose/fix the blank video window.
+- TV diagnostics: Mac now logs whether the route token is present, the HTTP status, and a short catalog error snippet without printing the token value.

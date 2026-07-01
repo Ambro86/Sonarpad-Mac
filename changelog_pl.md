@@ -1,3 +1,4 @@
+- Mac: katalog TV używa teraz tego samego stałego tokenu TV co wersja mobilna; sekret workflow `SONARPAD_TV_CLIENT_TOKEN` nie jest potrzebny.
 - Skrót Ostatnie artykuły na Macu zmieniono na Command+myślnik.
 - Standardowe okna Tak/Nie zastąpiono lokalizowanymi oknami niestandardowymi.
 - W Bibliotece cyfrowej klawisz Enter w polu wyszukiwania uruchamia wyszukiwanie.
@@ -93,3 +94,4 @@ Wersja 0.2.0
 - Diagnostyka TV na Macu: dodano rozszerzone logi mpv, stan okna/wideo, opcje wyjścia, zrzuty logu mpv i zrzuty diagnostyczne, aby ustalić przyczynę pustego okna wideo.
 
 - TV na Macu: katalog kanałów korzysta teraz wyłącznie ze zdalnego katalogu Sonarpad, z tymi samymi nagłówkami i poprawkami La7/La7D co wersja mobilna. Dodano uruchamianie mpv przez LaunchServices do diagnozy/naprawy białego okna wideo.
+- Diagnostyka TV: Mac zapisuje teraz, czy token tras jest obecny, status HTTP i krótki fragment błędu katalogu TV, bez ujawniania wartości tokenu.

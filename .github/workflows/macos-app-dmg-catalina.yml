@@ -78,6 +78,16 @@ jobs:
             dist/ffmpeg-install
           key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v12
 
+      - name: Validate Sonarpad route token
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -z "${SONARPAD_ROUTE_CLIENT_TOKEN:-}" ]; then
+            echo "ERROR: SONARPAD_ROUTE_CLIENT_TOKEN secret is missing or empty."
+            exit 1
+          fi
+          echo "SONARPAD_ROUTE_CLIENT_TOKEN is configured."
+
       - name: Build release binary
         shell: bash
         run: |
