@@ -36,6 +36,7 @@ pub(crate) struct TvChannel {
     pub(crate) resolver_endpoint: Option<String>,
     pub(crate) resolver_realm: Option<String>,
     pub(crate) resolver_channel_id: Option<String>,
+    pub(crate) http_user_agent: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -55,6 +56,14 @@ impl TvChannel {
             }
             _ => self.name.clone(),
         }
+    }
+
+    pub(crate) fn playback_user_agent(&self) -> &str {
+        self.http_user_agent
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("Sonarpad TV/1.0")
     }
 }
 
@@ -88,6 +97,7 @@ struct RemoteTvChannelPayload {
     resolver_endpoint: Option<String>,
     resolver_realm: Option<String>,
     resolver_channel_id: Option<String>,
+    http_user_agent: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -109,11 +119,8 @@ struct OggiInTvProgram {
 
 pub(crate) fn load_channels() -> Result<Vec<TvChannel>, String> {
     ensure_tv_access_code()?;
-    let mut channels = fetch_remote_channels().map_err(|err| {
-        format!(
-            "Impossibile scaricare i canali TV dal catalogo Sonarpad: {err}"
-        )
-    })?;
+    let mut channels = fetch_remote_channels()
+        .map_err(|err| format!("Impossibile scaricare i canali TV dal catalogo Sonarpad: {err}"))?;
     append_current_programs(&mut channels);
     Ok(channels)
 }
@@ -151,6 +158,7 @@ fn load_local_channels() -> Result<Vec<TvChannel>, String> {
                     resolver_endpoint: None,
                     resolver_realm: None,
                     resolver_channel_id: None,
+                    http_user_agent: None,
                 })
             }
         })
@@ -190,7 +198,10 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
 
     let status = response.status();
     let body = response.text().map_err(|err| {
-        append_podcast_log(&format!("tv.remote.read_body_error status={} err={}", status, err));
+        append_podcast_log(&format!(
+            "tv.remote.read_body_error status={} err={}",
+            status, err
+        ));
         err.to_string()
     })?;
     append_podcast_log(&format!(
@@ -227,7 +238,14 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
         .channels
         .into_iter()
         .filter_map(|channel| {
-            let name = channel.name.trim().trim_start_matches(|c: char| c == '[' || c.is_ascii_digit() || c == ']' || c.is_whitespace()).trim().to_string();
+            let name = channel
+                .name
+                .trim()
+                .trim_start_matches(|c: char| {
+                    c == '[' || c.is_ascii_digit() || c == ']' || c.is_whitespace()
+                })
+                .trim()
+                .to_string();
             let mut url = channel.url.trim().to_string();
             if name == "La7" {
                 url = LA7_STREAM_URL.to_string();
@@ -262,6 +280,10 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
                 resolver_endpoint: channel.resolver_endpoint,
                 resolver_realm: channel.resolver_realm,
                 resolver_channel_id: channel.resolver_channel_id,
+                http_user_agent: channel
+                    .http_user_agent
+                    .map(|value| value.trim().to_string())
+                    .filter(|value| !value.is_empty()),
             })
         })
         .collect::<Vec<_>>();
@@ -305,6 +327,7 @@ fn load_regional_channels() -> Result<Vec<TvChannel>, String> {
                     resolver_endpoint: None,
                     resolver_realm: None,
                     resolver_channel_id: None,
+                    http_user_agent: None,
                 })
             }
         })
@@ -384,7 +407,10 @@ fn append_current_programs(channels: &mut [TvChannel]) {
                 lookup_keys.push(key);
             }
         }
-        if let Some(programs) = lookup_keys.iter().find_map(|key| programs_by_channel.get(key)) {
+        if let Some(programs) = lookup_keys
+            .iter()
+            .find_map(|key| programs_by_channel.get(key))
+        {
             channel.programs = programs.clone();
             channel.guide_channel = programs.first().map(|program| program.channel.clone());
             if let Some(program) = programs
@@ -639,39 +665,59 @@ struct AuroraPayload<'a> {
 }
 
 pub(crate) fn resolve_tv_channel_url(channel: &TvChannel) -> Result<String, String> {
-    
     let mut eff_resolver = channel.stream_resolver.as_deref();
     let mut eff_channel_id = channel.resolver_channel_id.as_deref();
-    
+
     let norm_name = channel.name.to_lowercase().replace(" ", "");
     match norm_name.as_str() {
-        "realtime" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("2"); },
-        "nove" | "la9" | "9" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("3"); },
-        "dmax" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("4"); },
-        "foodnetwork" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("6"); },
-        "motortrend" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("11"); },
-        "discoverychannel" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("12"); },
-        "hgtv" => { eff_resolver = Some("aurora_channel"); eff_channel_id = Some("13"); },
+        "realtime" => {
+            eff_resolver = Some("aurora_channel");
+            eff_channel_id = Some("2");
+        }
+        "nove" | "la9" | "9" => {
+            eff_resolver = Some("aurora_channel");
+            eff_channel_id = Some("3");
+        }
+        "dmax" => {
+            eff_resolver = Some("aurora_channel");
+            eff_channel_id = Some("4");
+        }
+        "foodnetwork" => {
+            eff_resolver = Some("aurora_channel");
+            eff_channel_id = Some("6");
+        }
+        "motortrend" => {
+            eff_resolver = Some("aurora_channel");
+            eff_channel_id = Some("11");
+        }
+        "discoverychannel" => {
+            eff_resolver = Some("aurora_channel");
+            eff_channel_id = Some("12");
+        }
+        "hgtv" => {
+            eff_resolver = Some("aurora_channel");
+            eff_channel_id = Some("13");
+        }
         _ => {}
     }
 
     if let Some(resolver) = eff_resolver
-        && resolver == "aurora_channel" {
+        && resolver == "aurora_channel"
+    {
+        let endpoint = channel
+            .resolver_endpoint
+            .as_deref()
+            .unwrap_or("https://public.aurora.enhanced.live");
+        let realm = channel.resolver_realm.as_deref().unwrap_or("it");
+        let channel_id = eff_channel_id.ok_or("Missing channel_id")?;
 
-            let endpoint = channel
-                .resolver_endpoint
-                .as_deref()
-                .unwrap_or("https://public.aurora.enhanced.live");
-            let realm = channel.resolver_realm.as_deref().unwrap_or("it");
-            let channel_id = eff_channel_id.ok_or("Missing channel_id")?;
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| e.to_string())?;
 
-            let client = reqwest::blocking::Client::builder()
-                .timeout(std::time::Duration::from_secs(10))
-                .build()
-                .map_err(|e| e.to_string())?;
-
-            let token_url = format!("{}/token?realm={}", endpoint, realm);
-            let token_resp: serde_json::Value = client.get(&token_url)
+        let token_url = format!("{}/token?realm={}", endpoint, realm);
+        let token_resp: serde_json::Value = client.get(&token_url)
                 .header("Accept", "application/json,text/plain,*/*")
                 .header("Origin", "https://nove.tv")
                 .header("Referer", &channel.url)
@@ -684,30 +730,30 @@ pub(crate) fn resolve_tv_channel_url(channel: &TvChannel) -> Result<String, Stri
                 .json()
                 .map_err(|e| format!("JSON error: {}", e))?;
 
-            let token = token_resp["data"]["attributes"]["token"]
-                .as_str()
-                .ok_or("Aurora token not found in response")?;
+        let token = token_resp["data"]["attributes"]["token"]
+            .as_str()
+            .ok_or("Aurora token not found in response")?;
 
-            let payload = AuroraPayload {
-                channel_id,
-                device_info: AuroraDeviceInfo {
-                    ad_blocker: false,
-                    drm_supported: true,
-                    hdr_capabilities: vec!["SDR"],
-                    hw_decoding_capabilities: vec![],
-                    sound_capabilities: vec!["STEREO"],
+        let payload = AuroraPayload {
+            channel_id,
+            device_info: AuroraDeviceInfo {
+                ad_blocker: false,
+                drm_supported: true,
+                hdr_capabilities: vec!["SDR"],
+                hw_decoding_capabilities: vec![],
+                sound_capabilities: vec!["STEREO"],
+            },
+            wisteria_properties: AuroraWisteria {
+                device: AuroraDevice {
+                    browser: json!({ "name": "chrome", "version": "136" }),
+                    device_type: "desktop",
                 },
-                wisteria_properties: AuroraWisteria {
-                    device: AuroraDevice {
-                        browser: json!({ "name": "chrome", "version": "136" }),
-                        device_type: "desktop",
-                    },
-                    platform: "desktop",
-                },
-            };
+                platform: "desktop",
+            },
+        };
 
-            let playback_url = format!("{}/playback/v3/channelPlaybackInfo", endpoint);
-            let pb_resp: serde_json::Value = client.post(&playback_url)
+        let playback_url = format!("{}/playback/v3/channelPlaybackInfo", endpoint);
+        let pb_resp: serde_json::Value = client.post(&playback_url)
                 .header("Accept", "application/json,text/plain,*/*")
                 .header("Content-Type", "application/json")
                 .header("Origin", "https://nove.tv")
@@ -723,30 +769,94 @@ pub(crate) fn resolve_tv_channel_url(channel: &TvChannel) -> Result<String, Stri
                 .json()
                 .map_err(|e| format!("JSON pb error: {}", e))?;
 
-            // recursive search for .m3u8 url
-            fn find_m3u8(val: &serde_json::Value) -> Option<String> {
-                if let Some(s) = val.as_str() {
-                    if s.contains(".m3u8") && s.starts_with("http") {
-                        return Some(s.to_string());
-                    }
-                } else if let Some(arr) = val.as_array() {
-                    for v in arr {
-                        if let Some(url) = find_m3u8(v) {
-                            return Some(url);
-                        }
-                    }
-                } else if let Some(obj) = val.as_object() {
-                    for v in obj.values() {
-                        if let Some(url) = find_m3u8(v) {
-                            return Some(url);
-                        }
+        // recursive search for .m3u8 url
+        fn find_m3u8(val: &serde_json::Value) -> Option<String> {
+            if let Some(s) = val.as_str() {
+                if s.contains(".m3u8") && s.starts_with("http") {
+                    return Some(s.to_string());
+                }
+            } else if let Some(arr) = val.as_array() {
+                for v in arr {
+                    if let Some(url) = find_m3u8(v) {
+                        return Some(url);
                     }
                 }
-                None
+            } else if let Some(obj) = val.as_object() {
+                for v in obj.values() {
+                    if let Some(url) = find_m3u8(v) {
+                        return Some(url);
+                    }
+                }
             }
-
-            return find_m3u8(&pb_resp).ok_or("Aurora stream url not found".to_string());
+            None
         }
 
+        return find_m3u8(&pb_resp).ok_or("Aurora stream url not found".to_string());
+    }
+
+    if channel.url.contains("/relinker/relinkerServlet") {
+        let mut parsed = reqwest::Url::parse(&channel.url)
+            .map_err(|err| format!("URL relinker Rai non valido: {err}"))?;
+        let mut query_params = parsed
+            .query_pairs()
+            .map(|(key, value)| (key.into_owned(), value.into_owned()))
+            .collect::<Vec<_>>();
+        if let Some((_, value)) = query_params
+            .iter_mut()
+            .find(|(key, _)| key.eq_ignore_ascii_case("output"))
+        {
+            *value = "54".to_string();
+        } else {
+            query_params.push(("output".to_string(), "54".to_string()));
+        }
+        parsed.query_pairs_mut().clear().extend_pairs(query_params);
+        let req_url = parsed.to_string();
+
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|err| format!("Client relinker Rai non creato: {err}"))?;
+        let response = client
+            .get(&req_url)
+            .header("User-Agent", channel.playback_user_agent())
+            .send()
+            .map_err(|err| format!("Richiesta relinker Rai fallita: {err}"))?;
+        let status = response.status();
+        let body = response
+            .text()
+            .map_err(|err| format!("Risposta relinker Rai non leggibile: {err}"))?
+            .trim()
+            .to_string();
+        if !status.is_success() {
+            return Err(format!("HTTP {} dal relinker Rai", status));
+        }
+        if body.starts_with("http") {
+            return Ok(body);
+        }
+        if body.starts_with("#EXTM3U") {
+            return Ok(req_url);
+        }
+        if let Some(url) = extract_relinker_xml_url(&body) {
+            return Ok(url);
+        }
+        return Err("Stream TV Rai non trovato nel relinker.".to_string());
+    }
+
     Ok(channel.url.clone())
+}
+
+fn extract_relinker_xml_url(body: &str) -> Option<String> {
+    for tag in ["<url type=\"content\">", "<url>"] {
+        if let Some(start_index) = body.find(tag) {
+            let start = start_index + tag.len();
+            if let Some(relative_end) = body[start..].find("</url>") {
+                let end = start + relative_end;
+                let value = body[start..end].trim();
+                if !value.is_empty() {
+                    return Some(value.to_string());
+                }
+            }
+        }
+    }
+    None
 }

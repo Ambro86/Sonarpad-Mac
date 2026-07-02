@@ -25,22 +25,26 @@ struct GeocodeCandidate {
 impl GeocodeCandidate {
     fn display_label(&self) -> String {
         if let Some(lbl) = &self.label
-            && !lbl.trim().is_empty() {
-                return lbl.clone();
-            }
+            && !lbl.trim().is_empty()
+        {
+            return lbl.clone();
+        }
         let mut parts = Vec::new();
         if let Some(n) = &self.name
-            && !n.trim().is_empty() {
-                parts.push(n.clone());
-            }
+            && !n.trim().is_empty()
+        {
+            parts.push(n.clone());
+        }
         if let Some(l) = &self.locality
-            && !l.trim().is_empty() {
-                parts.push(l.clone());
-            }
+            && !l.trim().is_empty()
+        {
+            parts.push(l.clone());
+        }
         if let Some(c) = &self.country
-            && !c.trim().is_empty() {
-                parts.push(c.clone());
-            }
+            && !c.trim().is_empty()
+        {
+            parts.push(c.clone());
+        }
         if parts.is_empty() {
             "Unknown".to_string()
         } else {
@@ -197,17 +201,18 @@ fn calculate_route(
     }
 
     if let Some(routes) = data.routes
-        && !routes.is_empty() {
-            let mut results = Vec::new();
-            for path in routes {
-                results.push(RouteResult {
-                    distance_meters: path.distance_meters.unwrap_or(0.0),
-                    duration_seconds: path.duration_seconds.unwrap_or(0.0),
-                    steps: path.steps.unwrap_or_default(),
-                });
-            }
-            return Ok(results);
+        && !routes.is_empty()
+    {
+        let mut results = Vec::new();
+        for path in routes {
+            results.push(RouteResult {
+                distance_meters: path.distance_meters.unwrap_or(0.0),
+                duration_seconds: path.duration_seconds.unwrap_or(0.0),
+                steps: path.steps.unwrap_or_default(),
+            });
         }
+        return Ok(results);
+    }
 
     Ok(vec![RouteResult {
         distance_meters: data.distance_meters.unwrap_or(0.0),

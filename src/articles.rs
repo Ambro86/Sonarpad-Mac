@@ -68,7 +68,6 @@ pub fn default_italian_sources() -> Vec<ArticleSource> {
     parse_default_sources(DEFAULT_IT_FEEDS)
 }
 
-
 pub fn default_french_sources() -> Vec<ArticleSource> {
     parse_default_sources(DEFAULT_FR_FEEDS)
 }
@@ -110,7 +109,6 @@ pub fn default_sources_for_news_language(news_language: &str) -> Vec<ArticleSour
         _ => default_italian_sources(),
     }
 }
-
 
 pub fn is_default_source_url_any_news_language(url: &str) -> bool {
     let normalized = normalize_url(url);

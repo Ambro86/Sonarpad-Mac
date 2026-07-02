@@ -490,13 +490,13 @@ fn normalize_ui_language(value: &str) -> String {
         "fr" | "french" | "francese" | "français" | "francais" => "fr".to_string(),
         "es" | "spanish" | "spagnolo" | "español" | "espanol" => "es".to_string(),
         "pt" | "portuguese" | "portoghese" | "português" | "portugues" => "pt".to_string(),
-        "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" | "cestina" | "česky" | "cesky" => "cs".to_string(),
+        "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" | "cestina" | "česky" | "cesky" => {
+            "cs".to_string()
+        }
         "pl" | "polish" | "polacco" | "polski" | "polonais" => "pl".to_string(),
         _ => "it".to_string(),
     }
 }
-
-
 
 fn system_language_code() -> String {
     for key in ["LC_ALL", "LC_MESSAGES", "LANG"] {
@@ -559,7 +559,10 @@ fn radio_menu_languages() -> Vec<(String, String)> {
     ];
 
     let ui_preferred = normalize_ui_language(&Settings::load().ui_language);
-    let preferred = if matches!(ui_preferred.as_str(), "it" | "en" | "es" | "pt" | "cs" | "pl") {
+    let preferred = if matches!(
+        ui_preferred.as_str(),
+        "it" | "en" | "es" | "pt" | "cs" | "pl"
+    ) {
         ui_preferred
     } else {
         system_language_code()
@@ -1153,7 +1156,6 @@ fn get_language_name_fr(locale: &str) -> String {
     }
 }
 
-
 fn get_language_name_es(locale: &str) -> String {
     let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
     match base.as_str() {
@@ -1243,7 +1245,6 @@ fn get_language_name_pt(locale: &str) -> String {
         _ => locale.to_string(),
     }
 }
-
 
 fn get_language_name_cs(locale: &str) -> String {
     let base = locale.split('-').next().unwrap_or(locale).to_lowercase();
@@ -1635,7 +1636,10 @@ fn handle_shortcut_event(
                 65 | 97 => (actions.save)(),
                 _ => {}
             }
-        } else if command_shortcut_down(key_event) && !key_event.alt_down() && !key_event.shift_down() {
+        } else if command_shortcut_down(key_event)
+            && !key_event.alt_down()
+            && !key_event.shift_down()
+        {
             if key_code == 45 || unicode_key == 45 {
                 (actions.recent_articles)();
             }
@@ -2762,7 +2766,11 @@ fn prompt_text_save_path(
         let path = folder.join(format!("{filename}.{extension}"));
 
         if path.exists() {
-            if !ask_yes_no_dialog(&dialog_save, &ui.save_text_title, &ui.overwrite_existing_file) {
+            if !ask_yes_no_dialog(
+                &dialog_save,
+                &ui.save_text_title,
+                &ui.overwrite_existing_file,
+            ) {
                 return;
             }
         }
@@ -3271,7 +3279,11 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
         let path = folder.join(format!("{filename}.{extension}"));
 
         if path.exists() {
-            if !ask_yes_no_dialog(&dialog_save, &ui.save_audiobook_title, &ui.overwrite_existing_file) {
+            if !ask_yes_no_dialog(
+                &dialog_save,
+                &ui.save_audiobook_title,
+                &ui.overwrite_existing_file,
+            ) {
                 return;
             }
         }
@@ -3695,6 +3707,7 @@ fn open_radio_station(
         None,
         false,
         Some(MpvRecordingConfig::radio(stream_url, station_name)),
+        None,
     )
 }
 
@@ -3724,7 +3737,6 @@ struct CommunityRadio {
     url: Option<String>,
     language: Option<String>,
 }
-
 
 fn default_radio_country_code_for_ui_language(ui_language: &str) -> &'static str {
     match normalize_ui_language(ui_language).as_str() {
@@ -3834,7 +3846,9 @@ fn fallback_radio_country_options(ui_language: &str) -> Vec<(String, String, Str
     rotate_country_options_to_default(items, ui_language)
 }
 
-fn fetch_radio_browser_country_options(ui_language: &str) -> Result<Vec<(String, String, String)>, String> {
+fn fetch_radio_browser_country_options(
+    ui_language: &str,
+) -> Result<Vec<(String, String, String)>, String> {
     const RADIO_BROWSER_MIRRORS: [&str; 4] = [
         "https://all.api.radio-browser.info",
         "https://de1.api.radio-browser.info",
@@ -3870,7 +3884,10 @@ fn fetch_radio_browser_country_options(ui_language: &str) -> Result<Vec<(String,
                         .into_iter()
                         .filter_map(|country| {
                             let code = country.iso_3166_1.trim().to_ascii_lowercase();
-                            if code.len() != 2 || country.stationcount == 0 || !seen.insert(code.clone()) {
+                            if code.len() != 2
+                                || country.stationcount == 0
+                                || !seen.insert(code.clone())
+                            {
                                 return None;
                             }
                             let english = if country.name.trim().is_empty() {
@@ -3995,11 +4012,46 @@ fn open_radio_country_city_dialog(
         "pl" => "Radio według kraju i miasta",
         _ => "Radio by country and city",
     };
-    let country_label = match ui_language.as_str() { "it" => "Nazione", "es" => "País", "pt" => "País", "cs" => "Země", "pl" => "Kraj", _ => "Country" };
-    let city_label = match ui_language.as_str() { "it" => "Città o regione", "es" => "Ciudad o región", "pt" => "Cidade ou região", "cs" => "Město nebo region", "pl" => "Miasto lub region", _ => "City or region" };
-    let station_label = match ui_language.as_str() { "it" => "Nome radio", "es" => "Nombre de la radio", "pt" => "Nome da rádio", "cs" => "Název rádia", "pl" => "Nazwa radia", _ => "Station name" };
-    let search_label = match ui_language.as_str() { "it" => "Cerca", "es" => "Buscar", "pt" => "Pesquisar", "cs" => "Hledat", "pl" => "Szukaj", _ => "Search" };
-    let close_label = match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" };
+    let country_label = match ui_language.as_str() {
+        "it" => "Nazione",
+        "es" => "País",
+        "pt" => "País",
+        "cs" => "Země",
+        "pl" => "Kraj",
+        _ => "Country",
+    };
+    let city_label = match ui_language.as_str() {
+        "it" => "Città o regione",
+        "es" => "Ciudad o región",
+        "pt" => "Cidade ou região",
+        "cs" => "Město nebo region",
+        "pl" => "Miasto lub region",
+        _ => "City or region",
+    };
+    let station_label = match ui_language.as_str() {
+        "it" => "Nome radio",
+        "es" => "Nombre de la radio",
+        "pt" => "Nome da rádio",
+        "cs" => "Název rádia",
+        "pl" => "Nazwa radia",
+        _ => "Station name",
+    };
+    let search_label = match ui_language.as_str() {
+        "it" => "Cerca",
+        "es" => "Buscar",
+        "pt" => "Pesquisar",
+        "cs" => "Hledat",
+        "pl" => "Szukaj",
+        _ => "Search",
+    };
+    let close_label = match ui_language.as_str() {
+        "it" => "Chiudi",
+        "es" => "Cerrar",
+        "pt" => "Fechar",
+        "cs" => "Zavřít",
+        "pl" => "Zamknij",
+        _ => "Close",
+    };
     let dialog = Dialog::builder(parent, dialog_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(620, 250)
@@ -4008,7 +4060,14 @@ fn open_radio_country_city_dialog(
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let country_row = BoxSizer::builder(Orientation::Horizontal).build();
-    country_row.add(&StaticText::builder(&panel).with_label(country_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    country_row.add(
+        &StaticText::builder(&panel)
+            .with_label(country_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let country_choice = Choice::builder(&panel).build();
     let countries = Rc::new(radio_country_options());
     for (_, label, _) in countries.iter() {
@@ -4019,20 +4078,37 @@ fn open_radio_country_city_dialog(
     root.add_sizer(&country_row, 0, SizerFlag::Expand, 0);
 
     let city_row = BoxSizer::builder(Orientation::Horizontal).build();
-    city_row.add(&StaticText::builder(&panel).with_label(city_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    city_row.add(
+        &StaticText::builder(&panel).with_label(city_label).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let city_ctrl = TextCtrl::builder(&panel).build();
     city_row.add(&city_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&city_row, 0, SizerFlag::Expand, 0);
 
     let query_row = BoxSizer::builder(Orientation::Horizontal).build();
-    query_row.add(&StaticText::builder(&panel).with_label(station_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
-    let query_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
+    query_row.add(
+        &StaticText::builder(&panel)
+            .with_label(station_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let query_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
     query_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&query_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let search_button = Button::builder(&panel).with_label(search_label).build();
-    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(close_label).build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(close_label)
+        .build();
     buttons.add_spacer(1);
     buttons.add(&search_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
@@ -4049,8 +4125,12 @@ fn open_radio_country_city_dialog(
     let settings_search = Arc::clone(settings);
     let radio_menu_state_search = Arc::clone(radio_menu_state);
     let run_search = Rc::new(move || {
-        let Some(sel) = country_choice_search.get_selection() else { return; };
-        let Some((country_code, _, _)) = countries_search.get(sel as usize) else { return; };
+        let Some(sel) = country_choice_search.get_selection() else {
+            return;
+        };
+        let Some((country_code, _, _)) = countries_search.get(sel as usize) else {
+            return;
+        };
         match fetch_radio_browser_country_city_stations(
             country_code,
             &city_ctrl_search.get_value(),
@@ -4059,7 +4139,9 @@ fn open_radio_country_city_dialog(
             Ok(stations) => {
                 let results = stations
                     .into_iter()
-                    .map(|station| favorite_from_station(&format!("country:{}", country_code), &station))
+                    .map(|station| {
+                        favorite_from_station(&format!("country:{}", country_code), &station)
+                    })
                     .collect::<Vec<_>>();
                 open_radio_results_dialog(
                     &dialog_search,
@@ -4138,33 +4220,36 @@ fn fetch_radio_browser_stations(language_code: &str) -> Result<Vec<RadioStation>
         .header("Accept", "application/json")
         .send()
         .and_then(|response| response.error_for_status())
-        && let Ok(comm_list) = comm_resp.json::<Vec<CommunityRadio>>() {
-            let wanted_lang = if language_code.starts_with("country:") {
-                None
-            } else {
-                Some(radio_browser_language_name(language_code))
-            };
+        && let Ok(comm_list) = comm_resp.json::<Vec<CommunityRadio>>()
+    {
+        let wanted_lang = if language_code.starts_with("country:") {
+            None
+        } else {
+            Some(radio_browser_language_name(language_code))
+        };
 
-            for cr in comm_list {
-                if let Some(w) = &wanted_lang {
-                    if let Some(l) = &cr.language {
-                        if l.to_lowercase() != w.to_lowercase() {
-                            continue;
-                        }
-                    } else {
+        for cr in comm_list {
+            if let Some(w) = &wanted_lang {
+                if let Some(l) = &cr.language {
+                    if l.to_lowercase() != w.to_lowercase() {
                         continue;
                     }
+                } else {
+                    continue;
                 }
+            }
 
-                if let (Some(name), Some(url)) = (cr.name, cr.url)
-                    && !name.trim().is_empty() && !url.trim().is_empty() {
-                        comm_stations.push(RadioStation {
-                            name: name.replace('&', "").trim().to_string(),
-                            stream_url: url.trim().to_string(),
-                        });
-                    }
+            if let (Some(name), Some(url)) = (cr.name, cr.url)
+                && !name.trim().is_empty()
+                && !url.trim().is_empty()
+            {
+                comm_stations.push(RadioStation {
+                    name: name.replace('&', "").trim().to_string(),
+                    stream_url: url.trim().to_string(),
+                });
             }
         }
+    }
 
     let stations = stations.unwrap_or_else(Vec::new);
 
@@ -5358,7 +5443,14 @@ fn open_radio_search_dialog(
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
     search_row.add(
         &StaticText::builder(&panel)
-            .with_label(match ui_language.as_str() { "it" => "Testo", "es" => "Texto", "pt" => "Texto", "cs" => "Text", "pl" => "Tekst", _ => "Text" })
+            .with_label(match ui_language.as_str() {
+                "it" => "Testo",
+                "es" => "Texto",
+                "pt" => "Texto",
+                "cs" => "Text",
+                "pl" => "Tekst",
+                _ => "Text",
+            })
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -5373,7 +5465,14 @@ fn open_radio_search_dialog(
     let language_row = BoxSizer::builder(Orientation::Horizontal).build();
     language_row.add(
         &StaticText::builder(&panel)
-            .with_label(match ui_language.as_str() { "it" => "Lingua", "es" => "Idioma", "pt" => "Idioma", "cs" => "Jazyk", "pl" => "Język", _ => "Language" })
+            .with_label(match ui_language.as_str() {
+                "it" => "Lingua",
+                "es" => "Idioma",
+                "pt" => "Idioma",
+                "cs" => "Jazyk",
+                "pl" => "Język",
+                _ => "Language",
+            })
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -5396,7 +5495,15 @@ fn open_radio_search_dialog(
     let country_row = BoxSizer::builder(Orientation::Horizontal).build();
     country_row.add(
         &StaticText::builder(&panel)
-            .with_label(match ui_language.as_str() { "it" => "Nazione", "es" => "País", "pt" => "País", "cs" => "Země", "pl" => "Kraj", "fr" => "Pays", _ => "Country" })
+            .with_label(match ui_language.as_str() {
+                "it" => "Nazione",
+                "es" => "País",
+                "pt" => "País",
+                "cs" => "Země",
+                "pl" => "Kraj",
+                "fr" => "Pays",
+                _ => "Country",
+            })
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -5405,13 +5512,24 @@ fn open_radio_search_dialog(
     let country_choice = Choice::builder(&panel).build();
     let mut country_items = vec![(
         String::new(),
-        match ui_language.as_str() { "it" => "Tutte le nazioni", "es" => "Todos los países", "pt" => "Todos os países", "cs" => "Všechny země", "pl" => "Wszystkie kraje", "fr" => "Tous les pays", _ => "Any country" }.to_string(),
+        match ui_language.as_str() {
+            "it" => "Tutte le nazioni",
+            "es" => "Todos los países",
+            "pt" => "Todos os países",
+            "cs" => "Všechny země",
+            "pl" => "Wszystkie kraje",
+            "fr" => "Tous les pays",
+            _ => "Any country",
+        }
+        .to_string(),
         String::new(),
     )];
     country_items.extend(
         radio_country_options()
             .into_iter()
-            .map(|(code, label, english)| (code.to_string(), label.to_string(), english.to_string())),
+            .map(|(code, label, english)| {
+                (code.to_string(), label.to_string(), english.to_string())
+            }),
     );
     let country_items = Rc::new(country_items);
     for (_, label, _) in country_items.iter() {
@@ -5434,11 +5552,24 @@ fn open_radio_search_dialog(
         .build();
     let button_search = Button::builder(&panel)
         .with_id(ID_OK)
-        .with_label(match ui_language.as_str() { "it" => "Ricerca", "es" => "Buscar", "pt" => "Pesquisar", "pl" => "Szukaj", _ => "Search" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Ricerca",
+            "es" => "Buscar",
+            "pt" => "Pesquisar",
+            "pl" => "Szukaj",
+            _ => "Search",
+        })
         .build();
     let button_close = Button::builder(&panel)
         .with_id(ID_CANCEL)
-        .with_label(match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Chiudi",
+            "es" => "Cerrar",
+            "pt" => "Fechar",
+            "cs" => "Zavřít",
+            "pl" => "Zamknij",
+            _ => "Close",
+        })
         .build();
     button_row.add(&button_show_all, 1, SizerFlag::All, 5);
     button_row.add(&button_search, 0, SizerFlag::All, 5);
@@ -5567,7 +5698,12 @@ fn open_radio_search_dialog(
         append_podcast_log("radio_search_dialog.show_all_clicked");
         let selection = choice_language_all.get_selection().unwrap_or(0) as usize;
         let country_selection = country_choice_all.get_selection().unwrap_or(0) as usize;
-        let results = gather_results_show_all(selection, country_selection, &keyword_ctrl_all.get_value(), true);
+        let results = gather_results_show_all(
+            selection,
+            country_selection,
+            &keyword_ctrl_all.get_value(),
+            true,
+        );
         open_radio_results_dialog(
             &dialog_show_all,
             &settings_show_all,
@@ -5763,15 +5899,36 @@ fn open_radio_results_dialog(
 
     let page_row = BoxSizer::builder(Orientation::Horizontal).build();
     let previous_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Precedenti", "es" => "Anteriores", "pt" => "Anteriores", "cs" => "Předchozí", "pl" => "Poprzednie", _ => "Previous" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Precedenti",
+            "es" => "Anteriores",
+            "pt" => "Anteriores",
+            "cs" => "Předchozí",
+            "pl" => "Poprzednie",
+            _ => "Previous",
+        })
         .build();
     let next_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Successivi", "es" => "Siguientes", "pt" => "Seguintes", "cs" => "Další", "pl" => "Następne", _ => "Next" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Successivi",
+            "es" => "Siguientes",
+            "pt" => "Seguintes",
+            "cs" => "Další",
+            "pl" => "Następne",
+            _ => "Next",
+        })
         .build();
     let page_label = StaticText::builder(&panel).with_label("").build();
     let page_choice = Choice::builder(&panel).build();
     let goto_page_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Vai", "es" => "Ir", "pt" => "Ir", "cs" => "Přejít", "pl" => "Idź", _ => "Go" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Vai",
+            "es" => "Ir",
+            "pt" => "Ir",
+            "cs" => "Přejít",
+            "pl" => "Idź",
+            _ => "Go",
+        })
         .build();
     page_row.add(&previous_button, 0, SizerFlag::All, 5);
     page_row.add(
@@ -5787,17 +5944,45 @@ fn open_radio_results_dialog(
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Apri", "es" => "Abrir", "pt" => "Abrir", "cs" => "Otevřít", "pl" => "Otwórz", _ => "Open" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Apri",
+            "es" => "Abrir",
+            "pt" => "Abrir",
+            "cs" => "Otevřít",
+            "pl" => "Otwórz",
+            _ => "Open",
+        })
         .build();
     let favorite_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Aggiungi ai preferiti", "es" => "Añadir a favoritos", "pt" => "Adicionar aos favoritos", "cs" => "Přidat do oblíbených", "pl" => "Dodaj do ulubionych", _ => "Add to favorites" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Aggiungi ai preferiti",
+            "es" => "Añadir a favoritos",
+            "pt" => "Adicionar aos favoritos",
+            "cs" => "Přidat do oblíbených",
+            "pl" => "Dodaj do ulubionych",
+            _ => "Add to favorites",
+        })
         .build();
     let recordings_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Registrazioni", "es" => "Grabaciones", "pt" => "Gravações", "cs" => "Nahrávky", "pl" => "Nagrania", _ => "Recordings" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Registrazioni",
+            "es" => "Grabaciones",
+            "pt" => "Gravações",
+            "cs" => "Nahrávky",
+            "pl" => "Nagrania",
+            _ => "Recordings",
+        })
         .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
-        .with_label(match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Chiudi",
+            "es" => "Cerrar",
+            "pt" => "Fechar",
+            "cs" => "Zavřít",
+            "pl" => "Zamknij",
+            _ => "Close",
+        })
         .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
@@ -6312,7 +6497,9 @@ fn percent_encode(input: &str) -> String {
     url::form_urlencoded::byte_serialize(input.as_bytes()).collect()
 }
 
-fn google_news_params_for_language(news_language: &str) -> (&'static str, &'static str, &'static str) {
+fn google_news_params_for_language(
+    news_language: &str,
+) -> (&'static str, &'static str, &'static str) {
     match normalize_news_language(news_language).as_str() {
         "fr" => ("fr", "FR", "FR:fr"),
         "es" => ("es", "ES", "ES:es"),
@@ -6585,8 +6772,11 @@ fn request_current_article_open(
         "article_open.request source_index={} item_index={} title={} link={}",
         source_index, item_index, item.title, item.link
     ));
-    *pending_article_open.borrow_mut() =
-        Some(current_article_state_from_item(source_index, item_index, item));
+    *pending_article_open.borrow_mut() = Some(current_article_state_from_item(
+        source_index,
+        item_index,
+        item,
+    ));
 }
 
 fn article_initial_selection_from_state(
@@ -6741,7 +6931,6 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
         .map_err(|err| format!("scrittura file {} fallita: {}", storage_path.display(), err))
 }
 
-
 #[derive(Clone, Serialize, Deserialize, Debug)]
 struct VoiceDictionaryEntry {
     original: String,
@@ -6832,9 +7021,23 @@ fn apply_voice_dictionary_to_text(text: &str) -> String {
 fn voice_dictionary_entry_label(entry: &VoiceDictionaryEntry) -> String {
     let ui_language = Settings::load().ui_language;
     let mode = if entry.match_case {
-        match ui_language.as_str() { "it" => "maiuscole/minuscole", "es" => "coincidir mayúsculas/minúsculas", "pt" => "distinguir maiúsculas/minúsculas", "cs" => "rozlišovat velikost písmen", "pl" => "rozróżniaj wielkość liter", _ => "match case" }
+        match ui_language.as_str() {
+            "it" => "maiuscole/minuscole",
+            "es" => "coincidir mayúsculas/minúsculas",
+            "pt" => "distinguir maiúsculas/minúsculas",
+            "cs" => "rozlišovat velikost písmen",
+            "pl" => "rozróżniaj wielkość liter",
+            _ => "match case",
+        }
     } else {
-        match ui_language.as_str() { "it" => "ignora maiuscole", "es" => "ignorar mayúsculas", "pt" => "ignorar maiúsculas", "cs" => "nerozlišovat velikost písmen", "pl" => "ignoruj wielkość liter", _ => "ignore case" }
+        match ui_language.as_str() {
+            "it" => "ignora maiuscole",
+            "es" => "ignorar mayúsculas",
+            "pt" => "ignorar maiúsculas",
+            "cs" => "nerozlišovat velikost písmen",
+            "pl" => "ignoruj wielkość liter",
+            _ => "ignore case",
+        }
     };
     format!("{} -> {} ({})", entry.original, entry.replacement, mode)
 }
@@ -6861,14 +7064,70 @@ fn refresh_voice_dictionary_choice(choice: &Choice, entries: &[VoiceDictionaryEn
 
 fn open_voice_dictionary_dialog(parent: &Frame) {
     let ui_language = Settings::load().ui_language;
-    let original_label = match ui_language.as_str() { "it" => "Parola originale", "es" => "Palabra original", "pt" => "Palavra original", "cs" => "Původní slovo", "pl" => "Oryginalne słowo", _ => "Original word" };
-    let replacement_label = match ui_language.as_str() { "it" => "Sostituzione", "es" => "Sustitución", "pt" => "Substituição", "cs" => "Náhrada", "pl" => "Słowo zastępcze", _ => "Replacement" };
-    let match_case_label = match ui_language.as_str() { "it" => "Distingui maiuscole e minuscole", "es" => "Distinguir mayúsculas y minúsculas", "pt" => "Distinguir maiúsculas e minúsculas", "cs" => "Rozlišovat velikost písmen", "pl" => "Rozróżniaj wielkie i małe litery", _ => "Match case" };
-    let entries_label = match ui_language.as_str() { "it" => "Voci del dizionario", "es" => "Entradas del diccionario", "pt" => "Entradas do dicionário", "cs" => "Položky slovníku", "pl" => "Wpisy słownika", _ => "Dictionary entries" };
-    let add_label = match ui_language.as_str() { "it" => "Aggiungi", "es" => "Añadir", "pt" => "Adicionar", "cs" => "Přidat", "pl" => "Dodaj", _ => "Add" };
-    let remove_label = match ui_language.as_str() { "it" => "Elimina", "es" => "Eliminar", "pt" => "Eliminar", "cs" => "Odebrat", "pl" => "Usuń", _ => "Remove" };
-    let close_label = match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" };
-    let empty_original_message = match ui_language.as_str() { "it" => "Inserisci la parola originale.", "es" => "Introduce la palabra original.", "pt" => "Introduz a palavra original.", "cs" => "Zadejte původní slovo.", "pl" => "Wpisz oryginalne słowo.", _ => "Enter the original word." };
+    let original_label = match ui_language.as_str() {
+        "it" => "Parola originale",
+        "es" => "Palabra original",
+        "pt" => "Palavra original",
+        "cs" => "Původní slovo",
+        "pl" => "Oryginalne słowo",
+        _ => "Original word",
+    };
+    let replacement_label = match ui_language.as_str() {
+        "it" => "Sostituzione",
+        "es" => "Sustitución",
+        "pt" => "Substituição",
+        "cs" => "Náhrada",
+        "pl" => "Słowo zastępcze",
+        _ => "Replacement",
+    };
+    let match_case_label = match ui_language.as_str() {
+        "it" => "Distingui maiuscole e minuscole",
+        "es" => "Distinguir mayúsculas y minúsculas",
+        "pt" => "Distinguir maiúsculas e minúsculas",
+        "cs" => "Rozlišovat velikost písmen",
+        "pl" => "Rozróżniaj wielkie i małe litery",
+        _ => "Match case",
+    };
+    let entries_label = match ui_language.as_str() {
+        "it" => "Voci del dizionario",
+        "es" => "Entradas del diccionario",
+        "pt" => "Entradas do dicionário",
+        "cs" => "Položky slovníku",
+        "pl" => "Wpisy słownika",
+        _ => "Dictionary entries",
+    };
+    let add_label = match ui_language.as_str() {
+        "it" => "Aggiungi",
+        "es" => "Añadir",
+        "pt" => "Adicionar",
+        "cs" => "Přidat",
+        "pl" => "Dodaj",
+        _ => "Add",
+    };
+    let remove_label = match ui_language.as_str() {
+        "it" => "Elimina",
+        "es" => "Eliminar",
+        "pt" => "Eliminar",
+        "cs" => "Odebrat",
+        "pl" => "Usuń",
+        _ => "Remove",
+    };
+    let close_label = match ui_language.as_str() {
+        "it" => "Chiudi",
+        "es" => "Cerrar",
+        "pt" => "Fechar",
+        "cs" => "Zavřít",
+        "pl" => "Zamknij",
+        _ => "Close",
+    };
+    let empty_original_message = match ui_language.as_str() {
+        "it" => "Inserisci la parola originale.",
+        "es" => "Introduce la palabra original.",
+        "pt" => "Introduz a palavra original.",
+        "cs" => "Zadejte původní slovo.",
+        "pl" => "Wpisz oryginalne słowo.",
+        _ => "Enter the original word.",
+    };
     let dialog = Dialog::builder(parent, voice_dictionary_title())
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(640, 300)
@@ -6877,22 +7136,50 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let original_row = BoxSizer::builder(Orientation::Horizontal).build();
-    original_row.add(&StaticText::builder(&panel).with_label(original_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    original_row.add(
+        &StaticText::builder(&panel)
+            .with_label(original_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let original_ctrl = TextCtrl::builder(&panel).build();
     original_row.add(&original_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&original_row, 0, SizerFlag::Expand, 0);
 
     let replacement_row = BoxSizer::builder(Orientation::Horizontal).build();
-    replacement_row.add(&StaticText::builder(&panel).with_label(replacement_label).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    replacement_row.add(
+        &StaticText::builder(&panel)
+            .with_label(replacement_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     let replacement_ctrl = TextCtrl::builder(&panel).build();
     replacement_row.add(&replacement_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&replacement_row, 0, SizerFlag::Expand, 0);
 
-    let match_case = CheckBox::builder(&panel).with_label(match_case_label).build();
+    let match_case = CheckBox::builder(&panel)
+        .with_label(match_case_label)
+        .build();
     match_case.set_value(true);
-    root.add(&match_case, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
+    root.add(
+        &match_case,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        5,
+    );
 
-    root.add(&StaticText::builder(&panel).with_label(entries_label).build(), 0, SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 5);
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(entries_label)
+            .build(),
+        0,
+        SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        5,
+    );
     let entries_choice = Choice::builder(&panel).build();
     let entries = Rc::new(RefCell::new(load_voice_dictionary_entries()));
     refresh_voice_dictionary_choice(&entries_choice, &entries.borrow());
@@ -6901,7 +7188,10 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let add_button = Button::builder(&panel).with_label(add_label).build();
     let remove_button = Button::builder(&panel).with_label(remove_label).build();
-    let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(close_label).build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(close_label)
+        .build();
     buttons.add_spacer(1);
     buttons.add(&add_button, 0, SizerFlag::All, 10);
     buttons.add(&remove_button, 0, SizerFlag::All, 10);
@@ -6920,7 +7210,11 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
     add_button.on_click(move |_| {
         let original = original_add.get_value().trim().to_string();
         if original.is_empty() {
-            show_message_subdialog(&dialog_add, voice_dictionary_title(), empty_original_message);
+            show_message_subdialog(
+                &dialog_add,
+                voice_dictionary_title(),
+                empty_original_message,
+            );
             return;
         }
         let entry = VoiceDictionaryEntry {
@@ -6930,7 +7224,9 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
         };
         {
             let mut entries = entries_add.borrow_mut();
-            entries.retain(|item| !(item.original == entry.original && item.match_case == entry.match_case));
+            entries.retain(|item| {
+                !(item.original == entry.original && item.match_case == entry.match_case)
+            });
             entries.push(entry);
             if let Err(err) = save_voice_dictionary_entries(&entries) {
                 show_message_subdialog(&dialog_add, voice_dictionary_title(), &err);
@@ -6947,7 +7243,9 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
     let choice_remove = entries_choice;
     let dialog_remove = dialog;
     remove_button.on_click(move |_| {
-        let Some(sel) = choice_remove.get_selection() else { return; };
+        let Some(sel) = choice_remove.get_selection() else {
+            return;
+        };
         let mut entries = entries_remove.borrow_mut();
         if entries.is_empty() || sel as usize >= entries.len() {
             return;
@@ -7507,7 +7805,8 @@ fn build_language_list(voices: &[edge_tts::VoiceInfo], ui_language: &str) -> Vec
 fn normalize_settings_data(settings: &mut Settings) {
     settings.news_language = normalize_news_language(&settings.news_language);
     if settings.article_sources.is_empty() {
-        settings.article_sources = articles::default_sources_for_news_language(&settings.news_language);
+        settings.article_sources =
+            articles::default_sources_for_news_language(&settings.news_language);
     }
     for source in &mut settings.article_sources {
         let previous_url = source.url.clone();
@@ -7862,8 +8161,14 @@ fn open_article_source_items_dialog(
     let choice = Choice::builder(&panel).build();
     let visible_count = source.items.len().min(MAX_MENU_ARTICLES_PER_SOURCE);
     let initial_selection = initial_selection.min(visible_count.saturating_sub(1));
-    let dialog_items: Rc<Vec<articles::ArticleItem>> =
-        Rc::new(source.items.iter().take(MAX_MENU_ARTICLES_PER_SOURCE).cloned().collect());
+    let dialog_items: Rc<Vec<articles::ArticleItem>> = Rc::new(
+        source
+            .items
+            .iter()
+            .take(MAX_MENU_ARTICLES_PER_SOURCE)
+            .cloned()
+            .collect(),
+    );
     for item in dialog_items.iter() {
         let label = sanitize_dynamic_menu_label(&item.title, &item.link);
         choice.append(&label);
@@ -7929,7 +8234,8 @@ fn open_article_source_items_dialog(
     let pending_article_open_ok = pending_article_open.cloned();
     ok_button.on_click(move |_| {
         if let Some(selection) = choice_ok.get_selection() {
-            selected_index_ok.set((selection as usize).min(dialog_items_ok.len().saturating_sub(1)));
+            selected_index_ok
+                .set((selection as usize).min(dialog_items_ok.len().saturating_sub(1)));
         }
         let selection = selected_index_ok.get();
         if let Some(item) = dialog_items_ok.get(selection) {
@@ -8046,15 +8352,13 @@ fn open_article_folder_contents_dialog(
             .get_selection()
             .and_then(|selection| entries.get(selection as usize))
             .and_then(|(_, entry)| match entry {
-                ArticleFolderDialogEntry::Folder(folder) => {
-                    open_article_folder_contents_dialog(
-                        parent,
-                        settings,
-                        loading_urls,
-                        folder,
-                        current_article_state,
-                    )
-                }
+                ArticleFolderDialogEntry::Folder(folder) => open_article_folder_contents_dialog(
+                    parent,
+                    settings,
+                    loading_urls,
+                    folder,
+                    current_article_state,
+                ),
                 ArticleFolderDialogEntry::Source(source_index) => {
                     sources.get(*source_index).and_then(|source| {
                         open_article_source_items_dialog(
@@ -8316,8 +8620,16 @@ fn rebuild_radio_menu(
     let _ = radio_menu.append(ID_RADIO_SEARCH, "Cerca...", "Cerca radio", ItemKind::Normal);
     let _ = radio_menu.append(
         ID_RADIO_RECORDINGS,
-        if ui_language == "it" { "Registrazioni..." } else { "Recordings..." },
-        if ui_language == "it" { "Registrazioni radio e TV" } else { "Radio and TV recordings" },
+        if ui_language == "it" {
+            "Registrazioni..."
+        } else {
+            "Recordings..."
+        },
+        if ui_language == "it" {
+            "Registrazioni radio e TV"
+        } else {
+            "Radio and TV recordings"
+        },
         ItemKind::Normal,
     );
     let _ = radio_menu.append(
@@ -10704,7 +11016,15 @@ fn open_settings_dialog(
     } else {
         build_language_list(&voices_snapshot, &settings_before.ui_language)
     };
-    let interface_languages = [("Italiano", "it"), ("English", "en"), ("Français", "fr"), ("Español", "es"), ("Português", "pt"), ("Čeština", "cs"), ("Polski", "pl")];
+    let interface_languages = [
+        ("Italiano", "it"),
+        ("English", "en"),
+        ("Français", "fr"),
+        ("Español", "es"),
+        ("Português", "pt"),
+        ("Čeština", "cs"),
+        ("Polski", "pl"),
+    ];
     let news_language_choices = news_language_options(&settings_before.ui_language);
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
@@ -11311,7 +11631,11 @@ fn handle_rai_missing_code(parent: &Frame, err: &str) -> bool {
         return false;
     }
     let ui = current_ui_strings();
-    if ask_yes_no_dialog(parent, &ui.rai_missing_code_title, &ui.rai_missing_code_message) {
+    if ask_yes_no_dialog(
+        parent,
+        &ui.rai_missing_code_title,
+        &ui.rai_missing_code_message,
+    ) {
         let dialog = Dialog::builder(parent, &ui.rai_request_code_button).build();
         request_rai_luce_code(&dialog);
         dialog.destroy();
@@ -12817,20 +13141,21 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
                 }
             }
         } else if line.contains("time=")
-            && let Some(idx) = line.find("time=") {
-                let sub = &line[idx + 5..];
-                let time_end = sub.find(' ').unwrap_or(sub.len());
-                let time_str = &sub[..time_end];
-                let parts: Vec<&str> = time_str.split(':').collect();
-                if parts.len() == 3 && total_secs > 0.0 {
-                    let h: f64 = parts[0].parse().unwrap_or(0.0);
-                    let m: f64 = parts[1].parse().unwrap_or(0.0);
-                    let s: f64 = parts[2].parse().unwrap_or(0.0);
-                    let cur_secs = h * 3600.0 + m * 60.0 + s;
-                    let pct = ((cur_secs / total_secs) * 100.0) as i32;
-                    state_thread.lock().unwrap().percent = pct.clamp(0, 99);
-                }
+            && let Some(idx) = line.find("time=")
+        {
+            let sub = &line[idx + 5..];
+            let time_end = sub.find(' ').unwrap_or(sub.len());
+            let time_str = &sub[..time_end];
+            let parts: Vec<&str> = time_str.split(':').collect();
+            if parts.len() == 3 && total_secs > 0.0 {
+                let h: f64 = parts[0].parse().unwrap_or(0.0);
+                let m: f64 = parts[1].parse().unwrap_or(0.0);
+                let s: f64 = parts[2].parse().unwrap_or(0.0);
+                let cur_secs = h * 3600.0 + m * 60.0 + s;
+                let pct = ((cur_secs / total_secs) * 100.0) as i32;
+                state_thread.lock().unwrap().percent = pct.clamp(0, 99);
             }
+        }
         buffer.clear();
     }
 
@@ -16517,7 +16842,10 @@ fn refresh_tv_guide_programs(program_choice: &Choice, programs: &[tv::TvProgram]
 fn tv_channel_categories(channels: &[tv::TvChannel]) -> Vec<String> {
     let mut categories = Vec::new();
     for channel in channels {
-        if !categories.iter().any(|category| category == &channel.category) {
+        if !categories
+            .iter()
+            .any(|category| category == &channel.category)
+        {
             categories.push(channel.category.clone());
         }
     }
@@ -16591,10 +16919,7 @@ fn refresh_tv_channel_choice(
     }
 }
 
-fn tv_channel_indices_for_category(
-    channels: &[tv::TvChannel],
-    category: &str,
-) -> Vec<usize> {
+fn tv_channel_indices_for_category(channels: &[tv::TvChannel], category: &str) -> Vec<usize> {
     channels
         .iter()
         .enumerate()
@@ -16822,6 +17147,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 resolver_endpoint: None,
                 resolver_realm: None,
                 resolver_channel_id: None,
+                http_user_agent: None,
             };
             if let Err(err) = open_tv_stream_with_mpv(&channel) {
                 show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
@@ -16963,7 +17289,11 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         .with_label(tv_add_channel_button_label())
         .build();
     let recordings_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" { "Registrazioni" } else { "Recordings" })
+        .with_label(if Settings::load().ui_language == "it" {
+            "Registrazioni"
+        } else {
+            "Recordings"
+        })
         .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
@@ -17028,15 +17358,8 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let tv_search_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let tv_search_timer = Rc::new(RefCell::new(None::<Rc<Timer<Dialog>>>));
     let perform_tv_search = Rc::new({
-
-
-
-
-
-
         let channels = Rc::clone(&channels);
         let visible_indices = Rc::clone(&visible_channel_indices);
-
 
         let tv_search_progress = Rc::clone(&tv_search_progress);
         let tv_search_timer = Rc::clone(&tv_search_timer);
@@ -17089,11 +17412,12 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     && let Some(category_index) = tv_categories_timer
                         .iter()
                         .position(|category| category == first_category)
-                    && category_choice_timer.get_selection() != Some(category_index as u32) {
-                        programmatic_category_change_timer.set(true);
-                        category_choice_timer.set_selection(category_index as u32);
-                        programmatic_category_change_timer.set(false);
-                    }
+                    && category_choice_timer.get_selection() != Some(category_index as u32)
+                {
+                    programmatic_category_change_timer.set(true);
+                    category_choice_timer.set_selection(category_index as u32);
+                    programmatic_category_change_timer.set(false);
+                }
                 refresh_tv_channel_choice(
                     &choice_timer,
                     &open_button_timer,
@@ -17138,12 +17462,14 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             && let Some(category_index) = tv_categories_visibility
                 .iter()
                 .position(|category| category == &channel.category)
-            && category_choice_visibility.get_selection() != Some(category_index as u32) {
-                programmatic_category_change.set(true);
-                category_choice_visibility.set_selection(category_index as u32);
-                programmatic_category_change.set(false);
-            }
-        let has_guide = selected_channel.is_some_and(|channel| channel.has_guide && !channel.programs.is_empty());
+            && category_choice_visibility.get_selection() != Some(category_index as u32)
+        {
+            programmatic_category_change.set(true);
+            category_choice_visibility.set_selection(category_index as u32);
+            programmatic_category_change.set(false);
+        }
+        let has_guide = selected_channel
+            .is_some_and(|channel| channel.has_guide && !channel.programs.is_empty());
         guide_button_visibility.enable(has_guide);
     });
     let choice_open = choice;
@@ -17165,17 +17491,12 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         {
             append_podcast_log(&format!(
                 "tv.dialog.open_selected selection={} index={} name={} category={} url={}",
-                sel,
-                index,
-                channel.name,
-                channel.category,
-                channel.url
+                sel, index, channel.name, channel.category, channel.url
             ));
             if let Err(err) = open_tv_stream_with_mpv(channel) {
                 append_podcast_log(&format!(
                     "tv.dialog.open_failed name={} err={}",
-                    channel.name,
-                    err
+                    channel.name, err
                 ));
                 show_message_subdialog(&parent_open, &current_ui_strings().tv_label, &err);
             }
@@ -17348,7 +17669,6 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     dialog.destroy();
 }
 
-
 fn scheduled_audio_program_label(program: &rai_audiodescrizioni::ScheduledProgram) -> String {
     let mut parts = Vec::new();
     if !program.day_label.trim().is_empty() {
@@ -17378,13 +17698,28 @@ fn open_rai_audio_scheduled_dialog(parent: &Dialog) {
     match rai_audiodescrizioni::load_scheduled_catalog() {
         Ok(days) => {
             if days.is_empty() {
-                show_message_subdialog(parent, &current_ui_strings().rai_audio_descriptions_label, if is_it { "Nessuna audiodescrizione in programma al momento." } else { "No scheduled audio descriptions at the moment." });
+                show_message_subdialog(
+                    parent,
+                    &current_ui_strings().rai_audio_descriptions_label,
+                    if is_it {
+                        "Nessuna audiodescrizione in programma al momento."
+                    } else {
+                        "No scheduled audio descriptions at the moment."
+                    },
+                );
                 return;
             }
-            let dialog = Dialog::builder(parent, if is_it { "Prossime audiodescrizioni" } else { "Upcoming audio descriptions" })
-                .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-                .with_size(760, 280)
-                .build();
+            let dialog = Dialog::builder(
+                parent,
+                if is_it {
+                    "Prossime audiodescrizioni"
+                } else {
+                    "Upcoming audio descriptions"
+                },
+            )
+            .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+            .with_size(760, 280)
+            .build();
             let panel = Panel::builder(&dialog).build();
             let root = BoxSizer::builder(Orientation::Vertical).build();
             let choice = Choice::builder(&panel).build();
@@ -17402,13 +17737,27 @@ fn open_rai_audio_scheduled_dialog(parent: &Dialog) {
             root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
             let info = StaticText::builder(&panel)
-                .with_label(if is_it { "Seleziona un programma per ascoltare data, canale e titolo." } else { "Select a program to review date, channel and title." })
+                .with_label(if is_it {
+                    "Seleziona un programma per ascoltare data, canale e titolo."
+                } else {
+                    "Select a program to review date, channel and title."
+                })
                 .build();
-            root.add(&info, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
+            root.add(
+                &info,
+                0,
+                SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
+                8,
+            );
 
             let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-            let details_button = Button::builder(&panel).with_label(if is_it { "Dettagli" } else { "Details" }).build();
-            let close_button = Button::builder(&panel).with_id(ID_CANCEL).with_label(&current_ui_strings().close).build();
+            let details_button = Button::builder(&panel)
+                .with_label(if is_it { "Dettagli" } else { "Details" })
+                .build();
+            let close_button = Button::builder(&panel)
+                .with_id(ID_CANCEL)
+                .with_label(&current_ui_strings().close)
+                .build();
             buttons.add_spacer(1);
             buttons.add(&details_button, 0, SizerFlag::All, 10);
             buttons.add(&close_button, 0, SizerFlag::All, 10);
@@ -17428,7 +17777,15 @@ fn open_rai_audio_scheduled_dialog(parent: &Dialog) {
                     } else {
                         program.voice_text.clone()
                     };
-                    show_message_subdialog(&dialog_details, if Settings::load().ui_language == "it" { "Prossime audiodescrizioni" } else { "Upcoming audio descriptions" }, &text);
+                    show_message_subdialog(
+                        &dialog_details,
+                        if Settings::load().ui_language == "it" {
+                            "Prossime audiodescrizioni"
+                        } else {
+                            "Upcoming audio descriptions"
+                        },
+                        &text,
+                    );
                 }
             });
             let dialog_close = dialog;
@@ -17438,7 +17795,11 @@ fn open_rai_audio_scheduled_dialog(parent: &Dialog) {
             dialog.show_modal();
             dialog.destroy();
         }
-        Err(err) => show_message_subdialog(parent, &current_ui_strings().rai_audio_descriptions_label, &err),
+        Err(err) => show_message_subdialog(
+            parent,
+            &current_ui_strings().rai_audio_descriptions_label,
+            &err,
+        ),
     }
 }
 
@@ -17480,10 +17841,18 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
         .with_label(&ui.rai_save_content)
         .build();
     let all_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" { "Tutte le audiodescrizioni" } else { "All audio descriptions" })
+        .with_label(if Settings::load().ui_language == "it" {
+            "Tutte le audiodescrizioni"
+        } else {
+            "All audio descriptions"
+        })
         .build();
     let scheduled_button = Button::builder(&panel)
-        .with_label(if Settings::load().ui_language == "it" { "Prossime audiodescrizioni" } else { "Upcoming audio descriptions" })
+        .with_label(if Settings::load().ui_language == "it" {
+            "Prossime audiodescrizioni"
+        } else {
+            "Upcoming audio descriptions"
+        })
         .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
@@ -18296,7 +18665,7 @@ fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
 
 fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
     append_podcast_log(&format!(
-        "tv.open.begin name={} category={} original_url={} has_guide={} resolver={:?} endpoint={:?} realm={:?} channel_id={:?}",
+        "tv.open.begin name={} category={} original_url={} has_guide={} resolver={:?} endpoint={:?} realm={:?} channel_id={:?} user_agent={}",
         channel.name,
         channel.category,
         channel.url,
@@ -18304,7 +18673,8 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
         channel.stream_resolver,
         channel.resolver_endpoint,
         channel.resolver_realm,
-        channel.resolver_channel_id
+        channel.resolver_channel_id,
+        channel.playback_user_agent()
     ));
 
     let use_rai_audio_description = is_tv_rai_audio_description_channel(channel);
@@ -18342,13 +18712,18 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
             "tv.open.recording_config name={} mode=rai_tv_audio_description",
             channel.name
         ));
-        MpvRecordingConfig::rai_tv_audio_description(&resolved_url, &channel.name)
+        MpvRecordingConfig::rai_tv_audio_description(
+            &resolved_url,
+            &channel.name,
+            Some(channel.playback_user_agent()),
+        )
     } else {
         append_podcast_log(&format!(
             "tv.open.recording_config name={} mode=standard_tv",
             channel.name
         ));
         MpvRecordingConfig::tv(&resolved_url, &channel.name)
+            .with_input_user_agent(Some(channel.playback_user_agent()))
     };
 
     let result = open_stream_with_mpv_recordable(
@@ -18357,6 +18732,7 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
         preferred_audio_track,
         false,
         Some(recording_config),
+        Some(channel.playback_user_agent()),
     );
     append_podcast_log(&format!(
         "tv.open.end name={} success={}",
@@ -18377,7 +18753,14 @@ fn open_stream_with_mpv(
     preferred_audio_track: Option<&str>,
     enable_bookmarks: bool,
 ) -> Result<(), String> {
-    open_stream_with_mpv_recordable(url, title, preferred_audio_track, enable_bookmarks, None)
+    open_stream_with_mpv_recordable(
+        url,
+        title,
+        preferred_audio_track,
+        enable_bookmarks,
+        None,
+        None,
+    )
 }
 
 #[derive(Clone)]
@@ -18438,7 +18821,7 @@ impl MpvRecordingConfig {
         }
     }
 
-    fn rai_tv_audio_description(url: &str, title: &str) -> Self {
+    fn rai_tv_audio_description(url: &str, title: &str, user_agent: Option<&str>) -> Self {
         Self {
             title: title.to_string(),
             kind: "tv",
@@ -18465,6 +18848,7 @@ impl MpvRecordingConfig {
                 "mp4".to_string(),
             ],
         }
+        .with_input_user_agent(user_agent)
     }
 
     fn rai_separate_audio_description(video_url: &str, audio_url: &str, title: &str) -> Self {
@@ -18492,6 +18876,19 @@ impl MpvRecordingConfig {
                 "mp4".to_string(),
             ],
         }
+    }
+
+    fn with_input_user_agent(mut self, user_agent: Option<&str>) -> Self {
+        let Some(user_agent) = user_agent.map(str::trim).filter(|value| !value.is_empty()) else {
+            return self;
+        };
+        if let Some(input_index) = self.ffmpeg_args.iter().position(|arg| arg == "-i") {
+            self.ffmpeg_args.splice(
+                input_index..input_index,
+                ["-user_agent".to_string(), user_agent.to_string()],
+            );
+        }
+        self
     }
 }
 
@@ -18748,10 +19145,14 @@ fn read_recordings_index() -> Vec<RecordingEntry> {
     if let Ok(data) = std::fs::read_to_string(&manifest_path) {
         for line in data.lines() {
             let mut parts = line.splitn(4, '\t');
-            let Some(path_text) = parts.next() else { continue };
+            let Some(path_text) = parts.next() else {
+                continue;
+            };
             let Some(title) = parts.next() else { continue };
             let Some(kind) = parts.next() else { continue };
-            let Some(saved_at) = parts.next() else { continue };
+            let Some(saved_at) = parts.next() else {
+                continue;
+            };
             let path = PathBuf::from(path_text);
             if path.is_file() {
                 known_paths.insert(path.clone());
@@ -18770,7 +19171,14 @@ fn read_recordings_index() -> Vec<RecordingEntry> {
             let path = item.path();
             if path.is_file() && is_recording_media_file(&path) && !known_paths.contains(&path) {
                 let title = recording_title_from_path(&path);
-                let kind = if path.extension().and_then(|value| value.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("mka") || ext.eq_ignore_ascii_case("m4a") || ext.eq_ignore_ascii_case("mp3")) {
+                let kind = if path
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|ext| {
+                        ext.eq_ignore_ascii_case("mka")
+                            || ext.eq_ignore_ascii_case("m4a")
+                            || ext.eq_ignore_ascii_case("mp3")
+                    }) {
                     "radio".to_string()
                 } else {
                     "recording".to_string()
@@ -18785,14 +19193,20 @@ fn read_recordings_index() -> Vec<RecordingEntry> {
         }
     }
 
-    entries.sort_by(|left, right| right.saved_at.cmp(&left.saved_at).then_with(|| right.title.cmp(&left.title)));
+    entries.sort_by(|left, right| {
+        right
+            .saved_at
+            .cmp(&left.saved_at)
+            .then_with(|| right.title.cmp(&left.title))
+    });
     entries.dedup_by(|left, right| left.path == right.path);
     entries
 }
 
 fn rewrite_recordings_manifest(entries: &[RecordingEntry]) -> Result<(), String> {
     let dir = default_recordings_dir();
-    std::fs::create_dir_all(&dir).map_err(|err| format!("creazione cartella registrazioni fallita: {err}"))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|err| format!("creazione cartella registrazioni fallita: {err}"))?;
     let mut data = String::new();
     for entry in entries.iter().filter(|entry| entry.path.is_file()) {
         let path = entry.path.to_string_lossy().replace('\t', " ");
@@ -18859,19 +19273,34 @@ fn share_recording_with_system(path: &Path) -> Result<(), String> {
     }
 }
 
-fn refresh_recordings_choice(choice: &Choice, entries: &[RecordingEntry], selected_index: Option<usize>) {
+fn refresh_recordings_choice(
+    choice: &Choice,
+    entries: &[RecordingEntry],
+    selected_index: Option<usize>,
+) {
     choice.clear();
     for entry in entries {
         choice.append(&recording_entry_label(entry));
     }
     if !entries.is_empty() {
-        choice.set_selection(selected_index.unwrap_or(0).min(entries.len().saturating_sub(1)) as u32);
+        choice.set_selection(
+            selected_index
+                .unwrap_or(0)
+                .min(entries.len().saturating_sub(1)) as u32,
+        );
     }
 }
 
 fn open_recordings_dialog(parent: &impl WxWidget) {
     let ui_language = Settings::load().ui_language;
-    let title = match ui_language.as_str() { "it" => "Registrazioni", "es" => "Grabaciones", "pt" => "Gravações", "cs" => "Nahrávky", "pl" => "Nagrania", _ => "Recordings" };
+    let title = match ui_language.as_str() {
+        "it" => "Registrazioni",
+        "es" => "Grabaciones",
+        "pt" => "Gravações",
+        "cs" => "Nahrávky",
+        "pl" => "Nagrania",
+        _ => "Recordings",
+    };
     let mut initial_entries = read_recordings_index();
     if initial_entries.is_empty() {
         let dialog = MessageDialog::builder(
@@ -18914,17 +19343,45 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Apri", "es" => "Abrir", "pt" => "Abrir", "cs" => "Otevřít", "pl" => "Otwórz", _ => "Open" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Apri",
+            "es" => "Abrir",
+            "pt" => "Abrir",
+            "cs" => "Otevřít",
+            "pl" => "Otwórz",
+            _ => "Open",
+        })
         .build();
     let delete_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Elimina", "es" => "Eliminar", "pt" => "Eliminar", "cs" => "Smazat", "pl" => "Usuń", _ => "Delete" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Elimina",
+            "es" => "Eliminar",
+            "pt" => "Eliminar",
+            "cs" => "Smazat",
+            "pl" => "Usuń",
+            _ => "Delete",
+        })
         .build();
     let share_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() { "it" => "Condividi", "es" => "Compartir", "pt" => "Partilhar", "cs" => "Sdílet", "pl" => "Udostępnij", _ => "Share" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Condividi",
+            "es" => "Compartir",
+            "pt" => "Partilhar",
+            "cs" => "Sdílet",
+            "pl" => "Udostępnij",
+            _ => "Share",
+        })
         .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
-        .with_label(match ui_language.as_str() { "it" => "Chiudi", "es" => "Cerrar", "pt" => "Fechar", "cs" => "Zavřít", "pl" => "Zamknij", _ => "Close" })
+        .with_label(match ui_language.as_str() {
+            "it" => "Chiudi",
+            "es" => "Cerrar",
+            "pt" => "Fechar",
+            "cs" => "Zavřít",
+            "pl" => "Zamknij",
+            _ => "Close",
+        })
         .build();
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
@@ -18941,9 +19398,13 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
     let choice_open = choice;
     let dialog_open = dialog;
     open_button.on_click(move |_| {
-        let Some(selection) = choice_open.get_selection() else { return };
+        let Some(selection) = choice_open.get_selection() else {
+            return;
+        };
         let entries = entries_open.borrow();
-        let Some(entry) = entries.get(selection as usize) else { return };
+        let Some(entry) = entries.get(selection as usize) else {
+            return;
+        };
         if let Err(err) = open_path_with_system(&entry.path) {
             show_message_subdialog(&dialog_open, title, &err);
         }
@@ -18982,7 +19443,9 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
     let panel_delete = panel;
     let ui_language_delete = ui_language.clone();
     delete_button.on_click(move |_| {
-        let Some(selection) = choice_delete.get_selection() else { return };
+        let Some(selection) = choice_delete.get_selection() else {
+            return;
+        };
         let index = selection as usize;
         let entry = {
             let entries = entries_delete.borrow();
@@ -19001,7 +19464,21 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
             return;
         }
         if let Err(err) = std::fs::remove_file(&entry.path) {
-            show_message_subdialog(&dialog_delete, title, &format!("{}: {err}", match ui_language_delete.as_str() { "it" => "Eliminazione fallita", "es" => "Error al eliminar", "pt" => "Falha ao eliminar", "cs" => "Smazání se nezdařilo", "pl" => "Usuwanie nie powiodło się", _ => "Delete failed" }));
+            show_message_subdialog(
+                &dialog_delete,
+                title,
+                &format!(
+                    "{}: {err}",
+                    match ui_language_delete.as_str() {
+                        "it" => "Eliminazione fallita",
+                        "es" => "Error al eliminar",
+                        "pt" => "Falha ao eliminar",
+                        "cs" => "Smazání se nezdařilo",
+                        "pl" => "Usuwanie nie powiodło się",
+                        _ => "Delete failed",
+                    }
+                ),
+            );
             return;
         }
         {
@@ -19051,7 +19528,6 @@ fn lua_string_literal(value: &str) -> String {
     out
 }
 
-
 fn mpv_diagnostic_log_path(title: &str) -> PathBuf {
     let safe_title = sanitize_filename(title);
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
@@ -19075,7 +19551,6 @@ fn log_path_diagnostics(label: &str, path: &Path) {
         len
     ));
 }
-
 
 fn log_mpv_debug_log_snapshot(context: &str, path: &Path) {
     let metadata = match std::fs::metadata(path) {
@@ -19107,9 +19582,32 @@ fn log_mpv_debug_log_snapshot(context: &str, path: &Path) {
     let lines: Vec<&str> = content.lines().collect();
     let total_lines = lines.len();
     let keywords = [
-        "error", "failed", "warn", "fatal", "exception", "vo/", "[vo", "video", "cocoa",
-        "mac", "window", "gpu", "opengl", "metal", "vulkan", "libmpv", "render", "swap",
-        "display", "h264", "avcodec", "aid", "vid", "track", "reconfig", "decoder",
+        "error",
+        "failed",
+        "warn",
+        "fatal",
+        "exception",
+        "vo/",
+        "[vo",
+        "video",
+        "cocoa",
+        "mac",
+        "window",
+        "gpu",
+        "opengl",
+        "metal",
+        "vulkan",
+        "libmpv",
+        "render",
+        "swap",
+        "display",
+        "h264",
+        "avcodec",
+        "aid",
+        "vid",
+        "track",
+        "reconfig",
+        "decoder",
     ];
     let mut relevant: Vec<&str> = lines
         .iter()
@@ -19137,8 +19635,7 @@ fn log_mpv_debug_log_snapshot(context: &str, path: &Path) {
         let clean = line.replace('\n', " ").replace('\r', " ");
         append_podcast_log(&format!(
             "mpv.recordable.debug_snapshot.line context={} {}",
-            context,
-            clean
+            context, clean
         ));
     }
 }
@@ -19885,6 +20382,7 @@ fn open_stream_with_mpv_recordable(
     preferred_audio_track: Option<&str>,
     enable_bookmarks: bool,
     recording: Option<MpvRecordingConfig>,
+    user_agent: Option<&str>,
 ) -> Result<(), String> {
     let mpv_executable = {
         let path = podcast_player::bundled_mpv_executable_path();
@@ -19921,7 +20419,9 @@ fn open_stream_with_mpv_recordable(
     {
         command.current_dir(parent_dir);
     }
-    append_podcast_log("mpv.recordable.video_output_mode safe_default_no_forced_vo diagnostics_enabled=true");
+    append_podcast_log(
+        "mpv.recordable.video_output_mode safe_default_no_forced_vo diagnostics_enabled=true",
+    );
     command
         .arg(format!("--config-dir={}", mpv_config_dir.display()))
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
@@ -19945,8 +20445,12 @@ fn open_stream_with_mpv_recordable(
     } else {
         command.arg("--resume-playback=no");
     }
+    if let Some(user_agent) = user_agent.map(str::trim).filter(|value| !value.is_empty()) {
+        command.arg(format!("--user-agent={user_agent}"));
+    }
 
-    let accessibility_script = write_mpv_accessibility_script(&mpv_config_dir, title, recording.as_ref())?;
+    let accessibility_script =
+        write_mpv_accessibility_script(&mpv_config_dir, title, recording.as_ref())?;
     append_podcast_log(&format!(
         "mpv.recordable.config title={} input_conf={} config_dir={} accessibility_script={} bookmarks={} preferred_audio_track={:?} recording_enabled={} debug_log={}",
         title,
@@ -19959,7 +20463,10 @@ fn open_stream_with_mpv_recordable(
         mpv_debug_log.display()
     ));
     log_path_diagnostics("mpv.recordable.config_dir_path", &mpv_config_dir);
-    log_path_diagnostics("mpv.recordable.accessibility_script_path", &accessibility_script);
+    log_path_diagnostics(
+        "mpv.recordable.accessibility_script_path",
+        &accessibility_script,
+    );
     command.arg(format!("--script={}", accessibility_script.display()));
 
     if let Some(audio_track) = preferred_audio_track {
@@ -20064,25 +20571,23 @@ fn open_stream_with_mpv_recordable(
                     );
                 }
             });
-            std::thread::spawn(move || {
-                match child.wait() {
-                    Ok(status) => append_podcast_log(&format!(
-                        "mpv.recordable.exited pid={} title={} url={} status={} debug_log={}",
-                        pid,
-                        title_for_log,
-                        url_for_log,
-                        status,
-                        debug_log_for_log.display()
-                    )),
-                    Err(err) => append_podcast_log(&format!(
-                        "mpv.recordable.wait_failed pid={} title={} url={} err={} debug_log={}",
-                        pid,
-                        title_for_log,
-                        url_for_log,
-                        err,
-                        debug_log_for_log.display()
-                    )),
-                }
+            std::thread::spawn(move || match child.wait() {
+                Ok(status) => append_podcast_log(&format!(
+                    "mpv.recordable.exited pid={} title={} url={} status={} debug_log={}",
+                    pid,
+                    title_for_log,
+                    url_for_log,
+                    status,
+                    debug_log_for_log.display()
+                )),
+                Err(err) => append_podcast_log(&format!(
+                    "mpv.recordable.wait_failed pid={} title={} url={} err={} debug_log={}",
+                    pid,
+                    title_for_log,
+                    url_for_log,
+                    err,
+                    debug_log_for_log.display()
+                )),
             });
             Ok(())
         }
@@ -20154,6 +20659,7 @@ fn open_raiplay_target_with_mpv(
         None,
         true,
         Some(recording_config),
+        None,
     )
 }
 
@@ -20474,8 +20980,10 @@ fn main() {
         current_audio_url: String::new(),
         status: PlaybackStatus::Stopped,
     }));
-    let current_article_state: Rc<RefCell<Option<CurrentArticleState>>> = Rc::new(RefCell::new(None));
-    let pending_recent_article_open: Rc<RefCell<Option<CurrentArticleState>>> = Rc::new(RefCell::new(None));
+    let current_article_state: Rc<RefCell<Option<CurrentArticleState>>> =
+        Rc::new(RefCell::new(None));
+    let pending_recent_article_open: Rc<RefCell<Option<CurrentArticleState>>> =
+        Rc::new(RefCell::new(None));
 
     let playback = Arc::new(Mutex::new(GlobalPlayback {
         sink: None,
@@ -20996,7 +21504,12 @@ fn main() {
                         "article_menu.pending_dialog.selected title={} link={}",
                         item.title, item.link
                     ));
-                    remember_current_article_state(&current_article_state_timer, source_index, item_index, &item);
+                    remember_current_article_state(
+                        &current_article_state_timer,
+                        source_index,
+                        item_index,
+                        &item,
+                    );
                     show_article_item(
                         &item,
                         &rt_articles_timer,
@@ -21032,7 +21545,12 @@ fn main() {
                             .map(|item| (item, pending.source_index, item_index))
                     });
                 if let Some((item, source_index, item_index)) = selected_item {
-                    remember_current_article_state(&current_article_state_timer, source_index, item_index, &item);
+                    remember_current_article_state(
+                        &current_article_state_timer,
+                        source_index,
+                        item_index,
+                        &item,
+                    );
                     show_article_item(
                         &item,
                         &rt_articles_timer,
@@ -21973,17 +22491,27 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let panel_ra = panel.clone();
         let recent_articles_action: Rc<dyn Fn()> = Rc::new(move || {
             append_podcast_log("recent_articles.shortcut.open");
-            let remembered_article_state = last_article_state()
-                .or_else(|| current_article_state_ra.borrow().clone());
+            let remembered_article_state =
+                last_article_state().or_else(|| current_article_state_ra.borrow().clone());
             if let Some(article_state) = remembered_article_state {
                 let source_index = article_state.source_index;
-                let source_opt = settings_ra.lock().unwrap().article_sources.get(source_index).cloned();
+                let source_opt = settings_ra
+                    .lock()
+                    .unwrap()
+                    .article_sources
+                    .get(source_index)
+                    .cloned();
                 if let Some(source) = source_opt {
                     let loading_urls = article_menu_state_ra.lock().unwrap().loading_urls.clone();
-                    let initial_selection = article_initial_selection_from_state(&source, &article_state);
+                    let initial_selection =
+                        article_initial_selection_from_state(&source, &article_state);
                     append_podcast_log(&format!(
                         "recent_articles.shortcut.current_state source_index={} state_item_index={} computed_initial={} title={} link={}",
-                        source_index, article_state.item_index, initial_selection, article_state.title, article_state.link
+                        source_index,
+                        article_state.item_index,
+                        initial_selection,
+                        article_state.title,
+                        article_state.link
                     ));
                     if let Some((item, _, item_index)) = open_article_source_items_dialog(
                         &f_ra,
@@ -21999,7 +22527,12 @@ Non posso scaricare la pagina web al posto dell'audio.",
                             source_index, item_index, item.title
                         ));
                         let _ = pending_recent_article_open_ra.borrow_mut().take();
-                        remember_current_article_state(&current_article_state_ra, source_index, item_index, &item);
+                        remember_current_article_state(
+                            &current_article_state_ra,
+                            source_index,
+                            item_index,
+                            &item,
+                        );
                         show_article_item(
                             &item,
                             &rt_ra,
@@ -23019,7 +23552,11 @@ Non posso scaricare la pagina web al posto dell'audio.",
                     previous_news_language, updated_news_language
                 ));
                 article_menu_state_settings.lock().unwrap().dirty = true;
-                refresh_all_article_sources(&rt_settings, &settings_state, &article_menu_state_settings);
+                refresh_all_article_sources(
+                    &rt_settings,
+                    &settings_state,
+                    &article_menu_state_settings,
+                );
             }
             if previous_ui_language != updated_ui_language {
                 let ui = ui_strings(&updated_ui_language);

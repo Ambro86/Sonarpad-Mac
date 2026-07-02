@@ -186,7 +186,6 @@ pub fn bdciechi_fetch_list(nprov: &str, latest: bool) -> Result<Vec<String>, Str
         .collect())
 }
 
-
 fn bdciechi_filter_catalog(catalog: &[String], query: &str) -> Vec<String> {
     let query = query.trim().to_lowercase();
     catalog
@@ -439,11 +438,7 @@ fn show_bdciechi_login_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>, t
                             bdciechi_error_title(),
                             MessageDialogStyle::OK | MessageDialogStyle::IconError,
                         );
-                        show_bdciechi_login_dialog(
-                            &parent_clone,
-                            &settings_clone,
-                            tc_clone,
-                        );
+                        show_bdciechi_login_dialog(&parent_clone, &settings_clone, tc_clone);
                     }
                 }
                 break;
@@ -489,7 +484,9 @@ fn show_bdciechi_dashboard(
     sizer.add(&quota_label, 0, SizerFlag::All, 10);
 
     let search_sizer = BoxSizer::builder(Orientation::Horizontal).build();
-    let search_ctrl = TextCtrl::builder(&panel).with_style(TextCtrlStyle::ProcessEnter).build();
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
     let search_btn = Button::builder(&panel)
         .with_label(&ui.bdciechi_search_button)
         .build();
@@ -715,9 +712,10 @@ fn show_bdciechi_dashboard(
     let nprov = identify.nprov.clone();
     std::thread::spawn(move || {
         if let Ok(cat) = bdciechi_fetch_list(&nprov, false)
-            && let Ok(mut c) = catalog_clone.lock() {
-                *c = cat;
-            }
+            && let Ok(mut c) = catalog_clone.lock()
+        {
+            *c = cat;
+        }
     });
 
     let d_latest = dialog;
@@ -946,26 +944,27 @@ fn show_bdciechi_dashboard(
                                 .build();
 
                             if fd.show_modal() == crate::ID_OK
-                                && let Some(path) = fd.get_path() {
-                                    if let Err(e) = std::fs::write(&path, &text) {
-                                        let msg = e_msg.replace("{err}", &e.to_string());
-                                        show_bdciechi_message(
-                                            &d,
-                                            &msg,
-                                            bdciechi_error_title(),
-                                            MessageDialogStyle::OK | MessageDialogStyle::IconError,
-                                        );
-                                    } else {
-                                        show_bdciechi_message(
-                                            &d,
-                                            &i_msg,
-                                            bdciechi_info_title(),
-                                            MessageDialogStyle::OK
-                                                | MessageDialogStyle::IconInformation,
-                                        );
-                                        d.end_modal(crate::ID_OK);
-                                    }
+                                && let Some(path) = fd.get_path()
+                            {
+                                if let Err(e) = std::fs::write(&path, &text) {
+                                    let msg = e_msg.replace("{err}", &e.to_string());
+                                    show_bdciechi_message(
+                                        &d,
+                                        &msg,
+                                        bdciechi_error_title(),
+                                        MessageDialogStyle::OK | MessageDialogStyle::IconError,
+                                    );
+                                } else {
+                                    show_bdciechi_message(
+                                        &d,
+                                        &i_msg,
+                                        bdciechi_info_title(),
+                                        MessageDialogStyle::OK
+                                            | MessageDialogStyle::IconInformation,
+                                    );
+                                    d.end_modal(crate::ID_OK);
                                 }
+                            }
                             fd.destroy();
                         }
                     }

@@ -26,7 +26,6 @@ pub struct CatalogGroup {
     pub items: Vec<CatalogItem>,
 }
 
-
 #[derive(Clone, Debug)]
 pub struct ScheduledProgram {
     pub day_label: String,
@@ -229,7 +228,6 @@ pub fn search_catalog(query: &str) -> Result<Vec<CatalogItem>, String> {
     Ok(matches)
 }
 
-
 pub fn load_scheduled_catalog() -> Result<Vec<ScheduledDay>, String> {
     let client = reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(12))
@@ -294,7 +292,11 @@ pub fn load_scheduled_catalog() -> Result<Vec<ScheduledDay>, String> {
                         time: program.orario.trim().to_string(),
                         channel: program.canale.trim().to_string(),
                         title,
-                        voice_text: if voice_text.is_empty() { fallback_voice } else { voice_text },
+                        voice_text: if voice_text.is_empty() {
+                            fallback_voice
+                        } else {
+                            voice_text
+                        },
                         date_time: program.datetime.trim().to_string(),
                     })
                 })

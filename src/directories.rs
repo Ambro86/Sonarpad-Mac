@@ -68,9 +68,10 @@ pub fn search_directory(
 
     let mut mapped_what = what.to_string();
     if let DirectoryKind::PagineGialle = kind
-        && mapped_what.trim().eq_ignore_ascii_case("bar") {
-            mapped_what = "bar caffetteria".to_string();
-        }
+        && mapped_what.trim().eq_ignore_ascii_case("bar")
+    {
+        mapped_what = "bar caffetteria".to_string();
+    }
 
     let mut url = format!("{base_url}{endpoint}?client={client_id}&version={version}");
     let what_enc = url::form_urlencoded::byte_serialize(mapped_what.as_bytes()).collect::<String>();
@@ -100,10 +101,10 @@ pub fn search_directory(
             if let DirectoryKind::PagineGialle = kind
                 && let Ok(mut fb_resp) =
                     search_directory(DirectoryKind::PagineBianche, what, where_loc, page)
-                {
-                    fb_resp.actual_directory_index = Some(0);
-                    return Ok(fb_resp);
-                }
+            {
+                fb_resp.actual_directory_index = Some(0);
+                return Ok(fb_resp);
+            }
             return Ok(SearchResponse {
                 display_where: None,
                 results: vec![],
