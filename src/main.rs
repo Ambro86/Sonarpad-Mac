@@ -647,6 +647,7 @@ struct UiStrings {
     button_stop_reading: String,
     button_stop_podcast: String,
     button_recent_articles: String,
+    button_share_article: String,
     menu_recent_articles: String,
     button_save_audiobook: String,
     button_settings: String,
@@ -662,6 +663,10 @@ struct UiStrings {
     book_toc_chapter_label: String,
     book_toc_open: String,
     book_toc_unavailable: String,
+    share_article_title: String,
+    share_article_choose_service: String,
+    share_article_no_article: String,
+    share_article_no_services: String,
     menu_articles: String,
     menu_podcasts: String,
     menu_radio: String,
@@ -7021,6 +7026,161 @@ fn request_current_article_open(
     ));
 }
 
+fn article_share_text(state: &CurrentArticleState) -> String {
+    if state.link.trim().is_empty() {
+        state.title.clone()
+    } else if state.title.trim().is_empty() {
+        state.link.clone()
+    } else {
+        format!("{}\n{}", state.title.trim(), state.link.trim())
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn available_article_share_services(
+    share_text: &str,
+) -> Vec<(String, objc2::rc::Retained<objc2_app_kit::NSSharingService>)> {
+    use objc2::runtime::AnyObject;
+    use objc2_app_kit::NSSharingService;
+    use objc2_foundation::{NSArray, NSString};
+
+    let ns_text = NSString::from_str(share_text);
+    let item: objc2::rc::Retained<AnyObject> =
+        unsafe { objc2::rc::Retained::cast_unchecked(ns_text) };
+    let items = NSArray::from_retained_slice(&[item]);
+    #[allow(deprecated)]
+    let services = unsafe { NSSharingService::sharingServicesForItems(&items) };
+    services
+        .into_iter()
+        .map(|service| (service.title().to_string(), service))
+        .collect()
+}
+
+#[cfg(target_os = "macos")]
+fn perform_article_share_service(
+    service: &objc2_app_kit::NSSharingService,
+    share_text: &str,
+) -> Result<(), String> {
+    use objc2::runtime::AnyObject;
+    use objc2_foundation::{NSArray, NSString};
+
+    let ns_text = NSString::from_str(share_text);
+    let item: objc2::rc::Retained<AnyObject> =
+        unsafe { objc2::rc::Retained::cast_unchecked(ns_text) };
+    let items = NSArray::from_retained_slice(&[item]);
+    if unsafe { !service.canPerformWithItems(Some(&items)) } {
+        return Err(current_ui_strings().share_article_no_services.clone());
+    }
+    unsafe {
+        service.performWithItems(&items);
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn open_article_share_dialog(parent: &Frame, state: &CurrentArticleState) {
+    let ui = current_ui_strings();
+    let share_text = article_share_text(state);
+    if share_text.trim().is_empty() {
+        show_message_dialog(
+            parent,
+            &ui.share_article_title,
+            &ui.share_article_no_article,
+        );
+        return;
+    }
+
+    let services = available_article_share_services(&share_text);
+    if services.is_empty() {
+        show_message_dialog(
+            parent,
+            &ui.share_article_title,
+            &ui.share_article_no_services,
+        );
+        return;
+    }
+
+    let dialog = Dialog::builder(parent, &ui.share_article_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(520, 160)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.share_article_choose_service)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice = Choice::builder(&panel).build();
+    for (title, _) in &services {
+        choice.append(title);
+    }
+    choice.set_selection(0);
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let share_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.button_share_article)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&share_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let services = Rc::new(services);
+    let services_share = Rc::clone(&services);
+    let choice_share = choice;
+    let dialog_share = dialog;
+    let share_text_share = share_text.clone();
+    share_button.on_click(move |_| {
+        let Some(selection) = choice_share.get_selection() else {
+            return;
+        };
+        let Some((title, service)) = services_share.get(selection as usize) else {
+            return;
+        };
+        append_podcast_log(&format!(
+            "article_share.perform service={} chars={}",
+            title,
+            share_text_share.chars().count()
+        ));
+        match perform_article_share_service(service, &share_text_share) {
+            Ok(()) => dialog_share.end_modal(ID_OK),
+            Err(err) => show_message_subdialog(
+                &dialog_share,
+                &current_ui_strings().share_article_title,
+                &err,
+            ),
+        }
+    });
+
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+#[cfg(not(target_os = "macos"))]
+fn open_article_share_dialog(parent: &Frame, _state: &CurrentArticleState) {
+    let ui = current_ui_strings();
+    show_message_dialog(
+        parent,
+        &ui.share_article_title,
+        &ui.share_article_no_services,
+    );
+}
+
 fn article_initial_selection_from_state(
     source: &articles::ArticleSource,
     state: &CurrentArticleState,
@@ -8236,6 +8396,34 @@ fn aiff_sample_rate(path: &Path) -> Option<i32> {
 }
 
 #[cfg(target_os = "macos")]
+fn aiff_info_summary(path: &Path) -> String {
+    let metadata_len = std::fs::metadata(path).ok().map(|metadata| metadata.len());
+    let output = Command::new("/usr/bin/afinfo").arg(path).output();
+    match output {
+        Ok(output) if output.status.success() => {
+            let text = String::from_utf8_lossy(&output.stdout);
+            let file_type = text
+                .lines()
+                .find(|line| line.trim_start().starts_with("File type ID:"))
+                .map(str::trim)
+                .unwrap_or("File type ID: unknown");
+            let data_format = text
+                .lines()
+                .find(|line| line.trim_start().starts_with("Data format:"))
+                .map(str::trim)
+                .unwrap_or("Data format: unknown");
+            format!("len={metadata_len:?} {file_type} {data_format}")
+        }
+        Ok(output) => format!(
+            "len={metadata_len:?} afinfo_failed code={:?} stderr={}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr).trim()
+        ),
+        Err(err) => format!("len={metadata_len:?} afinfo_spawn_failed err={err}"),
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn synthesize_system_voice_to_mp3(
     text: &str,
     voice: &str,
@@ -8244,6 +8432,7 @@ fn synthesize_system_voice_to_mp3(
     volume: i32,
 ) -> Result<Vec<u8>, String> {
     let ffmpeg = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
+    append_podcast_log(&format!("system_tts.ffmpeg_path path={}", ffmpeg.display()));
     let stamp = chrono::Local::now().timestamp_millis();
     let prefix = format!("sonarpad-system-tts-{}-{stamp}", std::process::id());
     let temp_dir = std::env::temp_dir();
@@ -8292,6 +8481,11 @@ fn synthesize_system_voice_to_mp3(
             stderr
         });
     }
+    append_podcast_log(&format!(
+        "system_tts.say_done voice={} {}",
+        voice,
+        aiff_info_summary(&aiff_path)
+    ));
 
     let pitch_factor = system_pitch_factor(voiceover_settings, pitch);
     let volume_factor = system_volume_factor(voiceover_settings, volume);
@@ -8334,9 +8528,19 @@ fn synthesize_system_voice_to_mp3(
         let stderr = String::from_utf8_lossy(&ffmpeg_output.stderr)
             .trim()
             .to_string();
+        append_podcast_log(&format!(
+            "system_tts.ffmpeg_failed path={} {} stderr={}",
+            ffmpeg.display(),
+            aiff_info_summary(&aiff_path),
+            stderr
+        ));
         cleanup(&text_path, &aiff_path, &mp3_path);
         return Err(if stderr.is_empty() {
             "conversione audio voce di sistema fallita.".to_string()
+        } else if stderr.contains("Invalid data found when processing input") {
+            format!(
+                "{stderr}\n\nLa build di FFmpeg non riesce a leggere l'AIFF prodotto dalla voce di sistema. Aggiorna Sonarpad a una build che include il supporto AIFF/pcm_s16be."
+            )
         } else {
             stderr
         });
@@ -22192,6 +22396,11 @@ fn main() {
             .build();
         btn_recent_articles.show(false);
         btn_sizer.add(&btn_recent_articles, 1, SizerFlag::All, 10);
+        let btn_share_article = Button::builder(&panel)
+            .with_label(&ui.button_share_article)
+            .build();
+        btn_share_article.show(false);
+        btn_sizer.add(&btn_share_article, 1, SizerFlag::All, 10);
         let btn_podcast_back = Button::builder(&panel)
             .with_id(ID_PODCAST_BACKWARD)
             .with_label(&format!(
@@ -22275,6 +22484,7 @@ fn main() {
         let current_article_state_timer = Rc::clone(&current_article_state);
         let pending_recent_article_open_timer = Rc::clone(&pending_recent_article_open);
         let btn_recent_articles_timer = btn_recent_articles.clone();
+        let btn_share_article_timer = btn_share_article.clone();
 
         timer_tick.on_tick(move |_| {
             let tts_status = pb_timer.lock().unwrap().status;
@@ -22308,6 +22518,8 @@ fn main() {
             btn_podcast_back_timer.show(seek_visible);
             btn_podcast_forward_timer.show(seek_visible);
             podcast_seek_choice_timer.show(seek_visible);
+            btn_share_article_timer
+                .show(!podcast_mode && current_article_state_timer.borrow().is_some());
             if seek_visible {
                 let minutes = {
                     let podcast_state = podcast_playback_timer.borrow();
@@ -22548,6 +22760,7 @@ fn main() {
                     &tc_articles_timer,
                     &current_document_timer,
                 );
+                *current_article_state_timer.borrow_mut() = None;
                 if is_media_path(&path) {
                     match open_local_media_with_mpv(&path) {
                         Ok(()) => {
@@ -22680,6 +22893,7 @@ fn main() {
                         path.display()
                     ));
                     remember_text_bookmark(&settings_menu, &tc_menu, &current_document_menu);
+                    *current_article_state_menu.borrow_mut() = None;
                     match open_text_document_for_display(
                         &f_menu,
                         &settings_menu,
@@ -22713,6 +22927,7 @@ fn main() {
                 {
                     let path = Path::new(&path);
                     remember_text_bookmark(&settings_menu, &tc_menu, &current_document_menu);
+                    *current_article_state_menu.borrow_mut() = None;
                     if is_media_path(path) {
                         if let Err(err) = open_local_media_with_mpv(path) {
                             show_message_dialog(&f_menu, &ui.open_document_title, &err);
@@ -23479,6 +23694,21 @@ Non posso scaricare la pagina web al posto dell'audio.",
             }
         });
 
+        let f_share_article = frame;
+        let current_article_state_share = Rc::clone(&current_article_state);
+        btn_share_article.on_click(move |_| {
+            if let Some(state) = current_article_state_share.borrow().clone() {
+                open_article_share_dialog(&f_share_article, &state);
+            } else {
+                let ui = current_ui_strings();
+                show_message_dialog(
+                    &f_share_article,
+                    &ui.share_article_title,
+                    &ui.share_article_no_article,
+                );
+            }
+        });
+
         let start_action: Rc<dyn Fn()> = Rc::new(move || {
             let selected_episode = podcast_playback_start.borrow().selected_episode.clone();
             if let Some(episode) = selected_episode
@@ -23790,7 +24020,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                                     rate,
                                     pitch,
                                     volume,
-                                    40,
+                                    10,
                                 )
                                 .await
                             };

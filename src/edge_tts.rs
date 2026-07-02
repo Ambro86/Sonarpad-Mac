@@ -20,7 +20,7 @@ pub const WSS_URL_BASE: &str =
 pub const VOICE_LIST_URL: &str =
     "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list";
 pub const EDGE_TTS_MAX_BYTES: usize = 1800;
-pub const EDGE_TTS_REALTIME_MAX_BYTES: usize = EDGE_TTS_MAX_BYTES;
+pub const EDGE_TTS_REALTIME_MAX_BYTES: usize = 900;
 const EDGE_TTS_REALTIME_FIRST_CHUNK_MAX_BYTES: usize = 280;
 const EDGE_TTS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const EDGE_TTS_READ_TIMEOUT: Duration = Duration::from_secs(3);
@@ -411,6 +411,10 @@ pub async fn synthesize_realtime_chunk_with_retry(
                     "DEBUG: Tentativo realtime {}/{} fallito: {}",
                     attempt, max_retries, err
                 );
+                crate::append_podcast_log(&format!(
+                    "edge_tts.realtime.retry_failed attempt={} max_retries={} err={}",
+                    attempt, max_retries, err
+                ));
                 last_err = err;
                 session = None;
                 if attempt < max_retries {
