@@ -38,7 +38,7 @@ use std::rc::Rc;
 use std::sync::OnceLock;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 #[cfg(any(target_os = "macos", windows))]
 use uuid::Uuid;
@@ -18744,7 +18744,6 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
 
 fn is_tv_rai_audio_description_channel(channel: &tv::TvChannel) -> bool {
     matches!(channel.name.as_str(), "Rai 1" | "Rai 2" | "Rai 3")
-        && channel.url.contains("mediapolis.rai.it/relinker/")
 }
 
 fn open_stream_with_mpv(
@@ -19950,6 +19949,77 @@ local function diagnostic_screenshot(tag)
         local size = file:seek("end") or 0
         file:close()
         log_line("diagnostic.screenshot.result tag=" .. tostring(tag) .. " path=" .. tostring(path) .. " exists=true size=" .. tostring(size))
+        local function quote_for_shell(value)
+            value = tostring(value or "")
+            return "'" .. value:gsub("'", [=['\'']=]) .. "'"
+        end
+        local command = "/usr/bin/python3 - " .. quote_for_shell(path) .. " <<'PY'\n"
+            .. "import struct, sys, zlib\n"
+            .. "path = sys.argv[1]\n"
+            .. "raw = open(path, 'rb').read()\n"
+            .. "if raw[:8] != b'\\x89PNG\\r\\n\\x1a\\n':\n"
+            .. "    print('png_probe ok=false reason=not_png')\n"
+            .. "    raise SystemExit(0)\n"
+            .. "pos = 8\n"
+            .. "width = height = bit_depth = color_type = None\n"
+            .. "idat = []\n"
+            .. "while pos + 8 <= len(raw):\n"
+            .. "    length = struct.unpack('>I', raw[pos:pos+4])[0]\n"
+            .. "    kind = raw[pos+4:pos+8]\n"
+            .. "    data = raw[pos+8:pos+8+length]\n"
+            .. "    pos += 12 + length\n"
+            .. "    if kind == b'IHDR':\n"
+            .. "        width, height, bit_depth, color_type = struct.unpack('>IIBB', data[:10])\n"
+            .. "    elif kind == b'IDAT':\n"
+            .. "        idat.append(data)\n"
+            .. "if bit_depth != 8 or color_type not in (2, 6) or not width or not height:\n"
+            .. "    print(f'png_probe ok=false width={width} height={height} bit_depth={bit_depth} color_type={color_type}')\n"
+            .. "    raise SystemExit(0)\n"
+            .. "channels = 4 if color_type == 6 else 3\n"
+            .. "stride = width * channels\n"
+            .. "data = zlib.decompress(b''.join(idat))\n"
+            .. "prev = bytearray(stride)\n"
+            .. "nonblack = 0\n"
+            .. "idx = 0\n"
+            .. "for _ in range(height):\n"
+            .. "    f = data[idx]\n"
+            .. "    idx += 1\n"
+            .. "    row = bytearray(data[idx:idx+stride])\n"
+            .. "    idx += stride\n"
+            .. "    for i in range(stride):\n"
+            .. "        left = row[i - channels] if i >= channels else 0\n"
+            .. "        up = prev[i]\n"
+            .. "        ul = prev[i - channels] if i >= channels else 0\n"
+            .. "        if f == 1:\n"
+            .. "            row[i] = (row[i] + left) & 255\n"
+            .. "        elif f == 2:\n"
+            .. "            row[i] = (row[i] + up) & 255\n"
+            .. "        elif f == 3:\n"
+            .. "            row[i] = (row[i] + ((left + up) >> 1)) & 255\n"
+            .. "        elif f == 4:\n"
+            .. "            p = left + up - ul\n"
+            .. "            pa, pb, pc = abs(p-left), abs(p-up), abs(p-ul)\n"
+            .. "            pr = left if pa <= pb and pa <= pc else (up if pb <= pc else ul)\n"
+            .. "            row[i] = (row[i] + pr) & 255\n"
+            .. "    for i in range(0, stride, channels):\n"
+            .. "        if row[i] or row[i+1] or row[i+2]:\n"
+            .. "            nonblack += 1\n"
+            .. "    prev = row\n"
+            .. "pixels = width * height\n"
+            .. "print(f'png_probe ok=true width={width} height={height} nonblack_pixels={nonblack} black_frame={str(nonblack == 0).lower()} nonblack_ratio={nonblack / pixels:.6f}')\n"
+            .. "PY"
+        mp.command_native_async({
+            name = "subprocess",
+            playback_only = false,
+            capture_stdout = true,
+            capture_stderr = true,
+            args = {"/bin/sh", "-c", command}
+        }, function(success, result, error)
+            local stdout = result and tostring(result.stdout or ""):gsub("\n", " ") or ""
+            local stderr = result and tostring(result.stderr or ""):gsub("\n", " ") or ""
+            local status = result and result.status or "nil"
+            log_line("diagnostic.screenshot.png_probe tag=" .. tostring(tag) .. " success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error) .. " stdout=" .. stdout .. " stderr=" .. stderr .. " path=" .. tostring(path))
+        end)
     end)
 end
 
@@ -20613,8 +20683,29 @@ fn write_mpv_preferred_audio_fallback_script(
     let script = format!(
         r#"local preferred_aid = {preferred_aid}
 
+local function is_audio_description_track(track)
+    if track.type ~= "audio" then
+        return false
+    end
+    local lang = tostring(track.lang or ""):lower()
+    if lang == "des" or lang == "ad" or lang == "qad" then
+        return true
+    end
+    if track["visual-impaired"] == true then
+        return true
+    end
+    local title = tostring(track.title or ""):lower()
+    return title:find("descr", 1, true) ~= nil or title:find("audio description", 1, true) ~= nil
+end
+
 mp.register_event("file-loaded", function()
     local tracks = mp.get_property_native("track-list", {{}})
+    for _, track in ipairs(tracks) do
+        if is_audio_description_track(track) then
+            mp.set_property_number("aid", track.id)
+            return
+        end
+    end
     for _, track in ipairs(tracks) do
         if track.type == "audio" and track.id == preferred_aid then
             mp.set_property_number("aid", preferred_aid)
@@ -22662,6 +22753,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 (s.voice.clone(), s.rate, s.pitch, s.volume)
             };
             let mut pb = pb_p_start.lock().unwrap();
+            let tts_started = Instant::now();
             append_podcast_log(&format!(
                 "start_action.tts_begin chars={} trimmed_chars={}",
                 text.len(),
@@ -22806,9 +22898,15 @@ Non posso scaricare la pagina web al posto dell'audio.",
                                 }
                             }
 
+                            let chunk_started = Instant::now();
                             append_podcast_log(&format!(
-                                "start_action.tts_chunk_request index={} voice={} rate={} pitch={} volume={}",
-                                chunk_index, voice_download, rate, pitch, volume
+                                "start_action.tts_chunk_request index={} chars={} voice={} rate={} pitch={} volume={}",
+                                chunk_index,
+                                chunk.chars().count(),
+                                voice_download,
+                                rate,
+                                pitch,
+                                volume
                             ));
                             match edge_tts::synthesize_realtime_chunk_with_retry(
                                 edge_session,
@@ -22830,9 +22928,10 @@ Non posso scaricare la pagina web al posto dell'audio.",
                                         continue;
                                     }
                                     append_podcast_log(&format!(
-                                        "start_action.tts_chunk_ok index={} bytes={}",
+                                        "start_action.tts_chunk_ok index={} bytes={} elapsed_ms={}",
                                         chunk_index,
-                                        data.len()
+                                        data.len(),
+                                        chunk_started.elapsed().as_millis()
                                     ));
                                     if audio_tx.send(Ok((chunk_index, data))).await.is_err() {
                                         break;
@@ -22901,6 +23000,12 @@ Non posso scaricare la pagina web al posto dell'audio.",
                     cached_chunks.push(data.clone());
                     if let Ok(source) = Decoder::new(Cursor::new(data)) {
                         sink_arc.append(source);
+                        if chunk_index == 0 {
+                            append_podcast_log(&format!(
+                                "start_action.tts_first_audio_appended elapsed_ms={}",
+                                tts_started.elapsed().as_millis()
+                            ));
+                        }
                     } else {
                         append_podcast_log(&format!(
                             "start_action.decoder_failed index={}",

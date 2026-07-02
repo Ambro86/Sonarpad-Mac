@@ -5,7 +5,7 @@ use rand::Rng;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::VecDeque;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::net::TcpStream;
 use tokio_tungstenite::{
     MaybeTlsStream, WebSocketStream, connect_async, tungstenite::client::IntoClientRequest,
@@ -21,7 +21,7 @@ pub const VOICE_LIST_URL: &str =
     "https://speech.platform.bing.com/consumer/speech/synthesize/readaloud/voices/list";
 pub const EDGE_TTS_MAX_BYTES: usize = 1800;
 pub const EDGE_TTS_REALTIME_MAX_BYTES: usize = EDGE_TTS_MAX_BYTES;
-const EDGE_TTS_REALTIME_FIRST_CHUNK_MAX_BYTES: usize = 700;
+const EDGE_TTS_REALTIME_FIRST_CHUNK_MAX_BYTES: usize = 280;
 const EDGE_TTS_SEND_TIMEOUT: Duration = Duration::from_secs(5);
 const EDGE_TTS_READ_TIMEOUT: Duration = Duration::from_secs(3);
 
@@ -240,6 +240,7 @@ pub async fn synthesize_text_chunk(
 
 impl EdgeRealtimeSession {
     pub async fn connect() -> Result<Self> {
+        let started = Instant::now();
         let request_id = Uuid::new_v4().simple().to_string().to_uppercase();
         let sec_ms_gec = generate_sec_ms_gec();
         let sec_ms_gec_version = "1-132.0.2917.39";
@@ -280,6 +281,11 @@ impl EdgeRealtimeSession {
         .await
         .map_err(|_| anyhow!("Realtime speech.config send timeout"))??;
 
+        crate::append_podcast_log(&format!(
+            "edge_tts.realtime.connect_ok elapsed_ms={}",
+            started.elapsed().as_millis()
+        ));
+
         Ok(Self { write, read })
     }
 
@@ -291,6 +297,7 @@ impl EdgeRealtimeSession {
         pitch: i32,
         volume: i32,
     ) -> Result<Vec<u8>> {
+        let started = Instant::now();
         let normalized_text = normalize_for_tts(text);
         if normalized_text.is_empty() {
             return Ok(Vec::new());
@@ -346,6 +353,13 @@ impl EdgeRealtimeSession {
                 _ => {}
             }
         }
+
+        crate::append_podcast_log(&format!(
+            "edge_tts.realtime.chunk_done chars={} bytes={} elapsed_ms={}",
+            normalized_text.chars().count(),
+            audio_data.len(),
+            started.elapsed().as_millis()
+        ));
 
         Ok(audio_data)
     }

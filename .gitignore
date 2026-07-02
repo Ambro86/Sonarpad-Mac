@@ -1,3 +1,6 @@
 /target
 /settings.json
 /voices_cache.json
+/avvia-sonarpad-mac.command
+/.sonarpad-local-env
+/run.local.bat
