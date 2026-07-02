@@ -26,6 +26,7 @@ jobs:
       CURL_CFFI_VERSION: "0.7.0"
       SONARPAD_MACOS_BUILD_FLAVOR: intel-catalina
       SONARPAD_ROUTE_CLIENT_TOKEN: ${{ secrets.SONARPAD_ROUTE_CLIENT_TOKEN }}
+      SONARPAD_TV_CLIENT_TOKEN: ${{ secrets.SONARPAD_TV_CLIENT_TOKEN }}
 
     steps:
       - name: Checkout
@@ -78,7 +79,7 @@ jobs:
             dist/ffmpeg-install
           key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v12
 
-      - name: Validate Sonarpad route token
+      - name: Validate Sonarpad tokens
         shell: bash
         run: |
           set -euo pipefail
@@ -86,7 +87,12 @@ jobs:
             echo "ERROR: SONARPAD_ROUTE_CLIENT_TOKEN secret is missing or empty."
             exit 1
           fi
+          if [ -z "${SONARPAD_TV_CLIENT_TOKEN:-}" ]; then
+            echo "ERROR: SONARPAD_TV_CLIENT_TOKEN secret is missing or empty."
+            exit 1
+          fi
           echo "SONARPAD_ROUTE_CLIENT_TOKEN is configured."
+          echo "SONARPAD_TV_CLIENT_TOKEN is configured."
 
       - name: Build release binary
         shell: bash

@@ -1,4 +1,4 @@
-- Mac : le catalogue TV utilise maintenant le même jeton TV fixe que la version mobile ; aucun secret de workflow `SONARPAD_TV_CLIENT_TOKEN` n’est nécessaire.
+- Mac : suppression du jeton TV fixe dans le code ; le catalogue TV utilise maintenant le secret de workflow `SONARPAD_TV_CLIENT_TOKEN`.
 - Raccourci Articles récents sur Mac mis à jour en Command+tiret.
 - Remplacement des alertes Oui/Non standard par des dialogues personnalisés localisés.
 - Dans la Bibliothèque numérique, Entrée dans le champ de recherche lance la recherche.

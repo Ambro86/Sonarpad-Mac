@@ -1,4 +1,4 @@
-- Mac: the TV catalog now uses the same fixed TV token as the mobile version; no `SONARPAD_TV_CLIENT_TOKEN` workflow secret is required.
+- Mac: removed the fixed TV token from source code; the TV catalog now uses the `SONARPAD_TV_CLIENT_TOKEN` workflow secret.
 - Updated the Recent articles shortcut on Mac to Command+hyphen.
 - Replaced standard Yes/No prompts with localized custom dialogs.
 - In Digital Library, pressing Enter in the search field now starts Search.

@@ -1,4 +1,4 @@
-- Mac: katalog TV nyní používá stejný pevný TV token jako mobilní verze; secret workflow `SONARPAD_TV_CLIENT_TOKEN` není potřeba.
+- Mac: pevný TV token byl odebrán ze zdrojového kódu; katalog TV nyní používá workflow secret `SONARPAD_TV_CLIENT_TOKEN`.
 - Zkratka Nedávné články na Macu změněna na Command+spojovník.
 - Standardní dialogy Ano/Ne nahrazeny lokalizovanými vlastními dialogy.
 - V Digitální knihovně klávesa Enter ve vyhledávacím poli spustí hledání.

@@ -1,4 +1,4 @@
-- Mac: o catálogo de TV agora usa o mesmo token TV fixo da versão móvel; não é necessário nenhum secret `SONARPAD_TV_CLIENT_TOKEN` no workflow.
+- Mac: removido o token TV fixo do código; o catálogo TV agora usa o secret de workflow `SONARPAD_TV_CLIENT_TOKEN`.
 - Atalho de Artigos recentes no Mac atualizado para Command+hífen.
 - Substituídas as janelas padrão Sim/Não por diálogos personalizados localizados.
 - Na Biblioteca digital, Enter no campo de pesquisa inicia a pesquisa.

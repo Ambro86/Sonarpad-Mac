@@ -1,4 +1,4 @@
-- Mac: katalog TV używa teraz tego samego stałego tokenu TV co wersja mobilna; sekret workflow `SONARPAD_TV_CLIENT_TOKEN` nie jest potrzebny.
+- Mac: usunięto stały token TV z kodu; katalog TV używa teraz secretu workflow `SONARPAD_TV_CLIENT_TOKEN`.
 - Skrót Ostatnie artykuły na Macu zmieniono na Command+myślnik.
 - Standardowe okna Tak/Nie zastąpiono lokalizowanymi oknami niestandardowymi.
 - W Bibliotece cyfrowej klawisz Enter w polu wyszukiwania uruchamia wyszukiwanie.

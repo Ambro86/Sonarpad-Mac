@@ -9,7 +9,10 @@ use std::io::Read;
 const TV_PAYLOAD_STATIC_KEY_PARTS: &[&[u8]] = &[b"sonar", b"pad-", b"SonarSecure-"];
 const LA7_STREAM_URL: &str = "https://d1chghleocc9sm.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-evfku205gqrtf/Live.m3u8";
 const LA7_CINEMA_DASH_URL: &str = "https://d15umi5iaezxgx.cloudfront.net/HBBTV/LA7D/DASH/Live.mpd";
-const SONARPAD_TV_TOKEN: &str = "";
+const SONARPAD_TV_CLIENT_TOKEN: &str = match option_env!("SONARPAD_TV_CLIENT_TOKEN") {
+    Some(token) => token,
+    None => "",
+};
 const TV_CHANNELS_REMOTE_URL: &str = "https://sonarpad.com/api/tv_channels_resolver.php?resolve=0";
 #[allow(dead_code)]
 const OGGI_IN_TV_TIMELINE_URL_PAYLOAD_JSON: &str = r#"{"payload_b64":"csAxIXZQMnhMMuhZfR1S+OWXPRn4oJR5K4nkpYbgWGup/jgB+m6jPWForBe9oLtOwaBOreEeoqetOYbKLTxeLIC4fDkh4S9vy3U4I3E=","algorithm":"gzip-xor-base64-v1"}"#;
@@ -170,12 +173,13 @@ fn load_local_channels() -> Result<Vec<TvChannel>, String> {
 
 fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
     let remote_url = TV_CHANNELS_REMOTE_URL;
+    let tv_token_present = !SONARPAD_TV_CLIENT_TOKEN.trim().is_empty();
     let route_token_present = !SONARPAD_ROUTE_CLIENT_TOKEN.trim().is_empty();
     append_podcast_log(&format!(
-        "tv.remote.request begin url={} tv_token_mode=mobile_static route_token_present={} route_token_len={}",
+        "tv.remote.request begin url={} tv_token_present={} route_token_present={}",
         remote_url,
+        tv_token_present,
         route_token_present,
-        SONARPAD_ROUTE_CLIENT_TOKEN.len()
     ));
 
     let response = reqwest::blocking::Client::builder()
@@ -188,7 +192,7 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
         })?
         .get(remote_url)
         .header("Accept", "application/json")
-        .header("X-Sonarpad-TV-Token", SONARPAD_TV_TOKEN)
+        .header("X-Sonarpad-TV-Token", SONARPAD_TV_CLIENT_TOKEN)
         .header("X-Sonarpad-Route-Token", SONARPAD_ROUTE_CLIENT_TOKEN)
         .send()
         .map_err(|err| {

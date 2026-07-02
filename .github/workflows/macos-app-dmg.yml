@@ -47,6 +47,7 @@ jobs:
       CURL_CFFI_VERSION: "0.7.0"
       SONARPAD_MACOS_BUILD_FLAVOR: ${{ matrix.build_flavor }}
       SONARPAD_ROUTE_CLIENT_TOKEN: ${{ secrets.SONARPAD_ROUTE_CLIENT_TOKEN }}
+      SONARPAD_TV_CLIENT_TOKEN: ${{ secrets.SONARPAD_TV_CLIENT_TOKEN }}
 
     steps:
       - name: Checkout
@@ -105,7 +106,7 @@ jobs:
           path: dist/curl-cffi
           key: ${{ runner.os }}-${{ matrix.rust_target }}-curl-cffi-v1
 
-      - name: Validate Sonarpad route token
+      - name: Validate Sonarpad tokens
         shell: bash
         run: |
           set -euo pipefail
@@ -113,7 +114,12 @@ jobs:
             echo "ERROR: SONARPAD_ROUTE_CLIENT_TOKEN secret is missing or empty."
             exit 1
           fi
+          if [ -z "${SONARPAD_TV_CLIENT_TOKEN:-}" ]; then
+            echo "ERROR: SONARPAD_TV_CLIENT_TOKEN secret is missing or empty."
+            exit 1
+          fi
           echo "SONARPAD_ROUTE_CLIENT_TOKEN is configured."
+          echo "SONARPAD_TV_CLIENT_TOKEN is configured."
 
       - name: Build release binary
         run: cargo build --release --target ${{ matrix.rust_target }}
