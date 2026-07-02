@@ -65,6 +65,38 @@ fn show_bdciechi_message(
     dialog.destroy();
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bdciechi_catalog_search_ignores_word_order() {
+        let catalog = vec![
+            "I promessi sposi - Alessandro Manzoni".to_string(),
+            "Le avventure di Pinocchio - Carlo Collodi".to_string(),
+        ];
+
+        assert_eq!(
+            bdciechi_filter_catalog(&catalog, "alessandro manzoni"),
+            vec!["I promessi sposi - Alessandro Manzoni".to_string()]
+        );
+        assert_eq!(
+            bdciechi_filter_catalog(&catalog, "manzoni alessandro"),
+            vec!["I promessi sposi - Alessandro Manzoni".to_string()]
+        );
+    }
+
+    #[test]
+    fn bdciechi_catalog_search_normalizes_punctuation_and_accents() {
+        let catalog = vec!["Citta e poesia - Autore".to_string()];
+
+        assert_eq!(
+            bdciechi_filter_catalog(&catalog, "città poesia"),
+            vec!["Citta e poesia - Autore".to_string()]
+        );
+    }
+}
+
 fn ask_bdciechi_open_saved_book(parent: &impl WxWidget, message: &str) -> bool {
     let dialog = Dialog::builder(parent, bdciechi_info_title())
         .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
@@ -234,12 +266,46 @@ pub fn bdciechi_fetch_list(nprov: &str, latest: bool) -> Result<Vec<String>, Str
 }
 
 fn bdciechi_filter_catalog(catalog: &[String], query: &str) -> Vec<String> {
-    let query = query.trim().to_lowercase();
+    let query_terms = bdciechi_search_terms(query);
+    if query_terms.is_empty() {
+        return catalog.to_vec();
+    }
+
     catalog
         .iter()
-        .filter(|item| item.to_lowercase().contains(&query))
+        .filter(|item| {
+            let search_key = bdciechi_search_key(item);
+            query_terms.iter().all(|term| search_key.contains(term))
+        })
         .cloned()
         .collect()
+}
+
+fn bdciechi_search_terms(query: &str) -> Vec<String> {
+    bdciechi_search_key(query)
+        .split_whitespace()
+        .map(str::to_string)
+        .collect()
+}
+
+fn bdciechi_search_key(text: &str) -> String {
+    text.chars()
+        .flat_map(|ch| {
+            let normalized = match ch {
+                'à' | 'á' | 'â' | 'ä' | 'ã' | 'å' | 'À' | 'Á' | 'Â' | 'Ä' | 'Ã' | 'Å' => {
+                    'a'
+                }
+                'è' | 'é' | 'ê' | 'ë' | 'È' | 'É' | 'Ê' | 'Ë' => 'e',
+                'ì' | 'í' | 'î' | 'ï' | 'Ì' | 'Í' | 'Î' | 'Ï' => 'i',
+                'ò' | 'ó' | 'ô' | 'ö' | 'õ' | 'Ò' | 'Ó' | 'Ô' | 'Ö' | 'Õ' => 'o',
+                'ù' | 'ú' | 'û' | 'ü' | 'Ù' | 'Ú' | 'Û' | 'Ü' => 'u',
+                'ç' | 'Ç' => 'c',
+                other if other.is_alphanumeric() => other.to_ascii_lowercase(),
+                _ => ' ',
+            };
+            normalized.to_lowercase()
+        })
+        .collect::<String>()
 }
 
 fn bdciechi_search_loading_message() -> &'static str {
