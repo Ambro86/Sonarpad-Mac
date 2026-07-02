@@ -225,6 +225,7 @@ jobs:
             --enable-protocol=tcp \
             --enable-protocol=tls \
             --enable-demuxer=hls \
+            --enable-demuxer=aiff \
             --enable-demuxer=mpegts \
             --enable-demuxer=matroska \
             --enable-demuxer=mov \
@@ -243,6 +244,7 @@ jobs:
             --enable-parser=mpegaudio \
             --enable-parser=opus \
             --enable-decoder=aac \
+            --enable-decoder=pcm_s16be \
             --enable-decoder=h264 \
             --enable-decoder=hevc \
             --enable-decoder=mpeg2video \
@@ -252,6 +254,8 @@ jobs:
             --enable-encoder=aac \
             --enable-filter=atrim \
             --enable-filter=aresample \
+            --enable-filter=asetrate \
+            --enable-filter=volume \
             --enable-filter=anull
           make -j"$(sysctl -n hw.ncpu)"
           make install

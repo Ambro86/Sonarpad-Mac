@@ -177,9 +177,7 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
     let route_token_present = !SONARPAD_ROUTE_CLIENT_TOKEN.trim().is_empty();
     append_podcast_log(&format!(
         "tv.remote.request begin url={} tv_token_present={} route_token_present={}",
-        remote_url,
-        tv_token_present,
-        route_token_present,
+        remote_url, tv_token_present, route_token_present,
     ));
 
     let response = reqwest::blocking::Client::builder()

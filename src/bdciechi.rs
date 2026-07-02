@@ -5,6 +5,8 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use wxdragon::*;
 
+const ID_BDCIECHI_OPEN_WITH_SONARPAD: i32 = 4201;
+
 fn bdciechi_is_italian_ui() -> bool {
     Settings::load().ui_language == "it"
 }
@@ -61,6 +63,51 @@ fn show_bdciechi_message(
     crate::localize_standard_dialog_buttons(&dialog);
     dialog.show_modal();
     dialog.destroy();
+}
+
+fn ask_bdciechi_open_saved_book(parent: &impl WxWidget, message: &str) -> bool {
+    let dialog = Dialog::builder(parent, bdciechi_info_title())
+        .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
+        .with_size(500, 180)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let text = StaticText::builder(&panel).with_label(message).build();
+    root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 12);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label("OK")
+        .build();
+    let open_button = Button::builder(&panel)
+        .with_id(ID_BDCIECHI_OPEN_WITH_SONARPAD)
+        .with_label("Apri con Sonarpad")
+        .build();
+
+    buttons.add_spacer(1);
+    buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_OK);
+
+    let dialog_ok = dialog;
+    ok_button.on_click(move |_| {
+        dialog_ok.end_modal(ID_OK);
+    });
+
+    let dialog_open = dialog;
+    open_button.on_click(move |_| {
+        dialog_open.end_modal(ID_BDCIECHI_OPEN_WITH_SONARPAD);
+    });
+
+    let should_open = dialog.show_modal() == ID_BDCIECHI_OPEN_WITH_SONARPAD;
+    dialog.destroy();
+    should_open
 }
 
 pub struct BdCiechiIdentifyResponse {
@@ -875,7 +922,7 @@ fn show_bdciechi_dashboard(
                           d: Dialog,
                           ui_tit: String,
                           ui_load: String,
-                          _tc: TextCtrl,
+                          tc: TextCtrl,
                           e_msg: String,
                           i_msg: String,
                           p_tit: String| {
@@ -955,13 +1002,10 @@ fn show_bdciechi_dashboard(
                                         MessageDialogStyle::OK | MessageDialogStyle::IconError,
                                     );
                                 } else {
-                                    show_bdciechi_message(
-                                        &d,
-                                        &i_msg,
-                                        bdciechi_info_title(),
-                                        MessageDialogStyle::OK
-                                            | MessageDialogStyle::IconInformation,
-                                    );
+                                    let open_saved_book = ask_bdciechi_open_saved_book(&d, &i_msg);
+                                    if open_saved_book {
+                                        tc.set_value(&text);
+                                    }
                                     d.end_modal(crate::ID_OK);
                                 }
                             }

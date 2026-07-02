@@ -42,7 +42,7 @@ use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
 #[cfg(any(target_os = "macos", windows))]
 use uuid::Uuid;
-use wxdragon::event::KeyboardEvent;
+use wxdragon::event::{KeyboardEvent, MenuEvents};
 use wxdragon::prelude::*;
 use wxdragon::timer::Timer;
 
@@ -71,6 +71,7 @@ const ID_SAVE_TEXT_AS: i32 = 2008;
 const ID_READ_ONLY_MODE: i32 = 2009;
 const ID_BOOK_TOC: i32 = 2010;
 const ID_RECENT_ARTICLES: i32 = 2011;
+const ID_RECENT_TEXT_FILE_BASE: i32 = 12000;
 const ID_PODCAST_BACKWARD: i32 = 2005;
 const ID_PODCAST_FORWARD: i32 = 2006;
 const ID_ARTICLES_ADD_SOURCE: i32 = 2100;
@@ -121,7 +122,7 @@ const ID_ARTICLE_SOURCE_DIALOG_BASE: i32 = 9000;
 const ID_ARTICLES_ARTICLE_BASE: i32 = 10000;
 const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
-const PODCAST_SEEK_SECONDS: f64 = 10.0;
+const MAX_RECENT_TEXT_FILES: usize = 10;
 const PODCAST_SEEK_CHOICE_FALLBACK_MINUTES: usize = 180;
 
 const AUDIOBOOK_SAVE_THREADS: usize = 8;
@@ -147,6 +148,7 @@ const MOD_ALT: &str = "Option";
 #[cfg(not(target_os = "macos"))]
 const MOD_ALT: &str = "Alt";
 
+#[cfg(not(target_os = "macos"))]
 const SONARPAD_MINIMAL_RELEASES_URL: &str =
     "https://github.com/Ambro86/Sonarpad-Mac/releases/latest";
 const SONARPAD_MINIMAL_RELEASES_API_URL: &str =
@@ -170,6 +172,7 @@ struct GlobalPlayback {
 #[derive(Clone)]
 struct TtsPlaybackCache {
     text: String,
+    engine: String,
     voice: String,
     rate: i32,
     pitch: i32,
@@ -311,6 +314,12 @@ struct Settings {
     news_language: String,
     language: String,
     voice: String,
+    #[serde(default = "default_voice_engine")]
+    voice_engine: String,
+    #[serde(default)]
+    system_voice: String,
+    #[serde(default = "default_media_seek_seconds")]
+    media_seek_seconds: u32,
     rate: i32,
     pitch: i32,
     volume: i32,
@@ -331,6 +340,8 @@ struct Settings {
     #[serde(default)]
     auto_media_bookmark: bool,
     #[serde(default)]
+    disable_blank_line_pauses: bool,
+    #[serde(default)]
     read_only_mode: bool,
     #[serde(default = "default_auto_check_updates")]
     auto_check_updates: bool,
@@ -342,6 +353,8 @@ struct Settings {
     last_text_save_format: String,
     #[serde(default)]
     last_text_save_dir: String,
+    #[serde(default)]
+    recent_text_files: Vec<String>,
     #[serde(default)]
     bdciechi_username: String,
     #[serde(default)]
@@ -363,6 +376,9 @@ impl Settings {
             news_language: default_news_language(),
             language: "Italiano".to_string(),
             voice: "".to_string(),
+            voice_engine: default_voice_engine(),
+            system_voice: String::new(),
+            media_seek_seconds: default_media_seek_seconds(),
             rate: 0,
             pitch: 0,
             volume: 100,
@@ -374,12 +390,14 @@ impl Settings {
             tv_favorites: Vec::new(),
             rai_luce_code: String::new(),
             auto_media_bookmark: false,
+            disable_blank_line_pauses: false,
             read_only_mode: false,
             auto_check_updates: default_auto_check_updates(),
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
             last_text_save_dir: String::new(),
+            recent_text_files: Vec::new(),
             bdciechi_username: String::new(),
             bdciechi_password: String::new(),
         };
@@ -449,6 +467,14 @@ fn default_ui_language() -> String {
 
 fn default_news_language() -> String {
     "it".to_string()
+}
+
+fn default_voice_engine() -> String {
+    "microsoft".to_string()
+}
+
+fn default_media_seek_seconds() -> u32 {
+    60
 }
 
 fn normalize_news_language(value: &str) -> String {
@@ -596,13 +622,15 @@ struct UiStrings {
     donations_title: String,
     interface_language_label: String,
     news_language_label: String,
+    voice_engine_label: String,
+    voice_engine_microsoft: String,
+    voice_engine_system: String,
+    media_seek_step_label: String,
     voice_language_label: String,
     voice_label: String,
     rate_label: String,
     pitch_label: String,
     volume_label: String,
-    #[cfg(target_os = "macos")]
-    file_associations_label: String,
     #[cfg(target_os = "macos")]
     file_associations_button: String,
     #[cfg(target_os = "macos")]
@@ -625,6 +653,8 @@ struct UiStrings {
     button_back_30: String,
     button_forward_30: String,
     menu_file: String,
+    menu_recent_text_files: String,
+    menu_recent_text_files_empty: String,
     menu_view: String,
     menu_read_only_mode: String,
     menu_book_toc: String,
@@ -632,8 +662,6 @@ struct UiStrings {
     book_toc_chapter_label: String,
     book_toc_open: String,
     book_toc_unavailable: String,
-    #[cfg(target_os = "macos")]
-    menu_edit: String,
     menu_articles: String,
     menu_podcasts: String,
     menu_radio: String,
@@ -753,30 +781,6 @@ struct UiStrings {
     menu_settings: String,
     #[cfg(target_os = "macos")]
     menu_settings_help: String,
-    #[cfg(target_os = "macos")]
-    menu_undo: String,
-    #[cfg(target_os = "macos")]
-    menu_undo_help: String,
-    #[cfg(target_os = "macos")]
-    menu_redo: String,
-    #[cfg(target_os = "macos")]
-    menu_redo_help: String,
-    #[cfg(target_os = "macos")]
-    menu_cut: String,
-    #[cfg(target_os = "macos")]
-    menu_cut_help: String,
-    #[cfg(target_os = "macos")]
-    menu_copy: String,
-    #[cfg(target_os = "macos")]
-    menu_copy_help: String,
-    #[cfg(target_os = "macos")]
-    menu_paste: String,
-    #[cfg(target_os = "macos")]
-    menu_paste_help: String,
-    #[cfg(target_os = "macos")]
-    menu_select_all: String,
-    #[cfg(target_os = "macos")]
-    menu_select_all_help: String,
     menu_exit: String,
     menu_exit_help: String,
     menu_about: String,
@@ -941,6 +945,7 @@ struct UiStrings {
     routes_route_name: String,
     rai_luce_code_label: String,
     auto_media_bookmark_label: String,
+    disable_blank_line_pauses_label: String,
     auto_check_updates_label: String,
     rai_missing_code_title: String,
     rai_missing_code_message: String,
@@ -1437,6 +1442,8 @@ const VOLUME_PRESETS: [(&str, i32); 5] = [
     ("Molto alto", 180),
 ];
 
+const MEDIA_SEEK_PRESETS_SECONDS: [u32; 11] = [5, 10, 20, 30, 40, 50, 60, 90, 120, 150, 180];
+
 fn nearest_preset_index(presets: &[(&str, i32)], value: i32) -> usize {
     presets
         .iter()
@@ -1444,6 +1451,79 @@ fn nearest_preset_index(presets: &[(&str, i32)], value: i32) -> usize {
         .min_by_key(|(_, (_, v))| (*v - value).abs())
         .map(|(idx, _)| idx)
         .unwrap_or(0)
+}
+
+fn normalize_media_seek_seconds(value: u32) -> u32 {
+    if MEDIA_SEEK_PRESETS_SECONDS.contains(&value) {
+        value
+    } else {
+        default_media_seek_seconds()
+    }
+}
+
+fn current_media_seek_seconds() -> u32 {
+    normalize_media_seek_seconds(Settings::load().media_seek_seconds)
+}
+
+fn media_seek_label(seconds: u32, ui_language: &str) -> String {
+    match ui_language {
+        "it" => match seconds {
+            60 => "1 minuto".to_string(),
+            90 => "1 minuto e 30 secondi".to_string(),
+            120 => "2 minuti".to_string(),
+            150 => "2 minuti e 30 secondi".to_string(),
+            180 => "3 minuti".to_string(),
+            _ => format!("{seconds} secondi"),
+        },
+        "es" => match seconds {
+            60 => "1 minuto".to_string(),
+            90 => "1 minuto y 30 segundos".to_string(),
+            120 => "2 minutos".to_string(),
+            150 => "2 minutos y 30 segundos".to_string(),
+            180 => "3 minutos".to_string(),
+            _ => format!("{seconds} segundos"),
+        },
+        "pt" => match seconds {
+            60 => "1 minuto".to_string(),
+            90 => "1 minuto e 30 segundos".to_string(),
+            120 => "2 minutos".to_string(),
+            150 => "2 minutos e 30 segundos".to_string(),
+            180 => "3 minutos".to_string(),
+            _ => format!("{seconds} segundos"),
+        },
+        "fr" => match seconds {
+            60 => "1 minute".to_string(),
+            90 => "1 minute et 30 secondes".to_string(),
+            120 => "2 minutes".to_string(),
+            150 => "2 minutes et 30 secondes".to_string(),
+            180 => "3 minutes".to_string(),
+            _ => format!("{seconds} secondes"),
+        },
+        "cs" => match seconds {
+            60 => "1 minuta".to_string(),
+            90 => "1 minuta a 30 sekund".to_string(),
+            120 => "2 minuty".to_string(),
+            150 => "2 minuty a 30 sekund".to_string(),
+            180 => "3 minuty".to_string(),
+            _ => format!("{seconds} sekund"),
+        },
+        "pl" => match seconds {
+            60 => "1 minuta".to_string(),
+            90 => "1 minuta i 30 sekund".to_string(),
+            120 => "2 minuty".to_string(),
+            150 => "2 minuty i 30 sekund".to_string(),
+            180 => "3 minuty".to_string(),
+            _ => format!("{seconds} sekund"),
+        },
+        _ => match seconds {
+            60 => "1 minute".to_string(),
+            90 => "1 minute 30 seconds".to_string(),
+            120 => "2 minutes".to_string(),
+            150 => "2 minutes 30 seconds".to_string(),
+            180 => "3 minutes".to_string(),
+            _ => format!("{seconds} seconds"),
+        },
+    }
 }
 
 fn start_button_label(podcast_mode: bool) -> String {
@@ -1564,14 +1644,20 @@ fn handle_shortcut_event(
                     WXK_LEFT => {
                         if podcast_seek_back.borrow().selected_episode.is_some() {
                             append_podcast_log("mac_shortcut.trigger seek_back");
-                            seek_podcast_playback(podcast_seek_back, -PODCAST_SEEK_SECONDS);
+                            seek_podcast_playback(
+                                podcast_seek_back,
+                                -(current_media_seek_seconds() as f64),
+                            );
                         }
                         return;
                     }
                     WXK_RIGHT => {
                         if podcast_seek_forward.borrow().selected_episode.is_some() {
                             append_podcast_log("mac_shortcut.trigger seek_forward");
-                            seek_podcast_playback(podcast_seek_forward, PODCAST_SEEK_SECONDS);
+                            seek_podcast_playback(
+                                podcast_seek_forward,
+                                current_media_seek_seconds() as f64,
+                            );
                         }
                         return;
                     }
@@ -1619,10 +1705,16 @@ fn handle_shortcut_event(
                 76 | 108 => (actions.start)(),
                 80 | 112 => (actions.play_pause)(),
                 WXK_LEFT if podcast_seek_back.borrow().selected_episode.is_some() => {
-                    seek_podcast_playback(podcast_seek_back, -PODCAST_SEEK_SECONDS);
+                    seek_podcast_playback(
+                        podcast_seek_back,
+                        -(current_media_seek_seconds() as f64),
+                    );
                 }
                 WXK_RIGHT if podcast_seek_forward.borrow().selected_episode.is_some() => {
-                    seek_podcast_playback(podcast_seek_forward, PODCAST_SEEK_SECONDS);
+                    seek_podcast_playback(
+                        podcast_seek_forward,
+                        current_media_seek_seconds() as f64,
+                    );
                 }
                 _ if unicode_key == 46 => (actions.stop)(),
                 _ if unicode_key == 44 => (actions.settings)(),
@@ -1678,7 +1770,12 @@ fn text_from_user_reading_start(
     }
 
     let byte_index = text_control_position_to_byte_index(text, insertion_point.max(0) as usize);
-    text[byte_index..].to_string()
+    let remaining = text[byte_index..].to_string();
+    if remaining.trim().is_empty() {
+        text.to_string()
+    } else {
+        remaining
+    }
 }
 
 fn text_control_position_to_byte_index(text: &str, target_position: usize) -> usize {
@@ -2193,6 +2290,25 @@ fn ffmpeg_executable_path() -> Option<PathBuf> {
         });
         if candidate.is_file() {
             return Some(candidate);
+        }
+    }
+    if let Ok(mut dir) = std::env::current_dir() {
+        loop {
+            let candidate =
+                dir.join("dist")
+                    .join("ffmpeg-install")
+                    .join("bin")
+                    .join(if cfg!(windows) {
+                        "ffmpeg.exe"
+                    } else {
+                        "ffmpeg"
+                    });
+            if candidate.is_file() {
+                return Some(candidate);
+            }
+            if !dir.pop() {
+                break;
+            }
         }
     }
     None
@@ -2829,6 +2945,97 @@ fn is_plain_text_path(path: &Path) -> bool {
         .is_some_and(|ext| ext.eq_ignore_ascii_case("txt"))
 }
 
+fn recent_text_file_menu_id(index: usize) -> i32 {
+    ID_RECENT_TEXT_FILE_BASE + index as i32
+}
+
+fn recent_text_file_index(menu_id: i32) -> Option<usize> {
+    let index = menu_id - ID_RECENT_TEXT_FILE_BASE;
+    if (0..MAX_RECENT_TEXT_FILES as i32).contains(&index) {
+        Some(index as usize)
+    } else {
+        None
+    }
+}
+
+fn normalize_recent_text_files(files: &[String]) -> Vec<String> {
+    let mut normalized = Vec::new();
+    let mut seen = HashSet::new();
+    for file in files {
+        let path = PathBuf::from(file.trim());
+        if file.trim().is_empty() || is_media_path(&path) || !path.is_file() {
+            continue;
+        }
+        let key = path.to_string_lossy().to_string();
+        if seen.insert(key.clone()) {
+            normalized.push(key);
+        }
+        if normalized.len() >= MAX_RECENT_TEXT_FILES {
+            break;
+        }
+    }
+    normalized
+}
+
+fn remember_recent_text_file(settings: &Arc<Mutex<Settings>>, path: &Path) {
+    if is_media_path(path) || !path.is_file() {
+        return;
+    }
+    let key = path.to_string_lossy().to_string();
+    let mut locked = settings.lock().unwrap();
+    locked
+        .recent_text_files
+        .retain(|existing| existing != &key && !existing.trim().is_empty());
+    locked.recent_text_files.insert(0, key);
+    locked.recent_text_files = normalize_recent_text_files(&locked.recent_text_files);
+    locked.save();
+}
+
+fn recent_text_files_snapshot(settings: &Arc<Mutex<Settings>>) -> Vec<String> {
+    let mut locked = settings.lock().unwrap();
+    let normalized = normalize_recent_text_files(&locked.recent_text_files);
+    if normalized != locked.recent_text_files {
+        locked.recent_text_files = normalized.clone();
+        locked.save();
+    }
+    normalized
+}
+
+fn recent_text_file_label(path: &str) -> String {
+    Path::new(path)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .filter(|name| !name.trim().is_empty())
+        .unwrap_or(path)
+        .to_string()
+}
+
+fn rebuild_recent_text_files_menu(submenu: &Menu, settings: &Arc<Mutex<Settings>>, ui: &UiStrings) {
+    for item in submenu.get_menu_items().into_iter().rev() {
+        let _ = submenu.delete_item(&item);
+    }
+    let recent_files = recent_text_files_snapshot(settings);
+    if recent_files.is_empty() {
+        let _ = submenu.append(
+            ID_RECENT_TEXT_FILE_BASE - 1,
+            &ui.menu_recent_text_files_empty,
+            &ui.menu_recent_text_files_empty,
+            ItemKind::Normal,
+        );
+        let _ = submenu.enable_item(ID_RECENT_TEXT_FILE_BASE - 1, false);
+    } else {
+        for (index, path) in recent_files.iter().enumerate() {
+            let label = sanitize_dynamic_menu_label(&recent_text_file_label(path), path);
+            let _ = submenu.append(
+                recent_text_file_menu_id(index),
+                &label,
+                path,
+                ItemKind::Normal,
+            );
+        }
+    }
+}
+
 fn load_text_bookmarks() -> HashMap<String, usize> {
     read_app_storage_text("text_bookmarks.json")
         .and_then(|data| serde_json::from_str::<HashMap<String, usize>>(&data).ok())
@@ -2958,6 +3165,37 @@ fn set_current_document_state_with_toc(
         direct_save_path,
         epub_toc,
     };
+}
+
+fn open_text_document_for_display(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    text_ctrl: &TextCtrl,
+    document_state: &Arc<Mutex<CurrentDocumentState>>,
+    podcast_playback: &Rc<RefCell<PodcastPlaybackState>>,
+    cursor_moved: &Rc<Cell<bool>>,
+    path: &Path,
+    log_prefix: &str,
+) -> Result<(), String> {
+    let document = load_file_for_display(parent, path)?;
+    let text_len = document.text.len();
+    podcast_playback.borrow_mut().selected_episode = None;
+    text_ctrl.set_value(&document.text);
+    let bookmark_restored = restore_text_bookmark(settings, text_ctrl, path);
+    cursor_moved.set(bookmark_restored);
+    text_ctrl.set_modified(false);
+    set_current_document_state_with_toc(
+        document_state,
+        Some(path.to_path_buf()),
+        document.epub_toc,
+    );
+    remember_recent_text_file(settings, path);
+    append_podcast_log(&format!(
+        "{log_prefix}.loaded path={} length={}",
+        path.display(),
+        text_len
+    ));
+    Ok(())
 }
 
 fn save_current_document(
@@ -6762,6 +7000,10 @@ fn last_article_state() -> Option<CurrentArticleState> {
     LAST_ARTICLE_STATE.with(|last| last.borrow().clone())
 }
 
+fn mark_articles_menu_dirty(article_menu_state: &Arc<Mutex<ArticleMenuState>>) {
+    article_menu_state.lock().unwrap().dirty = true;
+}
+
 fn request_current_article_open(
     pending_article_open: &Rc<RefCell<Option<CurrentArticleState>>>,
     source_index: usize,
@@ -7016,6 +7258,39 @@ fn apply_voice_dictionary_to_text(text: &str) -> String {
         }
     }
     output
+}
+
+fn remove_blank_line_pauses_for_tts(text: &str) -> String {
+    let mut output = String::with_capacity(text.len());
+    let mut had_blank_line = false;
+
+    for line in text.lines() {
+        if line.trim().is_empty() {
+            had_blank_line = true;
+            continue;
+        }
+
+        if !output.is_empty() {
+            if had_blank_line {
+                output.push(' ');
+            } else {
+                output.push('\n');
+            }
+        }
+        output.push_str(line.trim_end());
+        had_blank_line = false;
+    }
+
+    output
+}
+
+fn prepare_text_for_tts(text: &str, disable_blank_line_pauses: bool) -> String {
+    let normalized = if disable_blank_line_pauses {
+        remove_blank_line_pauses_for_tts(text)
+    } else {
+        text.to_string()
+    };
+    apply_voice_dictionary_to_text(&normalized)
 }
 
 fn voice_dictionary_entry_label(entry: &VoiceDictionaryEntry) -> String {
@@ -7802,7 +8077,312 @@ fn build_language_list(voices: &[edge_tts::VoiceInfo], ui_language: &str) -> Vec
     l_map.into_iter().collect()
 }
 
+fn normalized_voice_engine(value: &str) -> String {
+    if value == "system" {
+        "system".to_string()
+    } else {
+        default_voice_engine()
+    }
+}
+
+fn is_system_voice_engine(value: &str) -> bool {
+    normalized_voice_engine(value) == "system"
+}
+
+#[cfg(target_os = "macos")]
+fn load_system_voices() -> Vec<edge_tts::VoiceInfo> {
+    let output = match Command::new("/usr/bin/say").arg("-v").arg("?").output() {
+        Ok(output) if output.status.success() => output,
+        Ok(output) => {
+            append_podcast_log(&format!(
+                "system_tts.voices_failed code={:?} stderr={}",
+                output.status.code(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
+            return Vec::new();
+        }
+        Err(err) => {
+            append_podcast_log(&format!("system_tts.voices_spawn_failed err={err}"));
+            return Vec::new();
+        }
+    };
+    String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(parse_system_voice_line)
+        .collect()
+}
+
+#[cfg(not(target_os = "macos"))]
+fn load_system_voices() -> Vec<edge_tts::VoiceInfo> {
+    Vec::new()
+}
+
+fn parse_system_voice_line(line: &str) -> Option<edge_tts::VoiceInfo> {
+    let locale = line
+        .split_whitespace()
+        .find(|part| {
+            let bytes = part.as_bytes();
+            bytes.len() == 5
+                && bytes[2] == b'_'
+                && bytes[0].is_ascii_lowercase()
+                && bytes[1].is_ascii_lowercase()
+                && bytes[3].is_ascii_uppercase()
+                && bytes[4].is_ascii_uppercase()
+        })?
+        .to_string();
+    let locale_pos = line.find(&locale)?;
+    let name = line[..locale_pos].trim();
+    if name.is_empty() {
+        return None;
+    }
+    Some(edge_tts::VoiceInfo {
+        short_name: name.to_string(),
+        friendly_name: format!("{} ({})", name, locale.replace('_', "-")),
+        locale: locale.replace('_', "-"),
+        suggested_codec: String::new(),
+    })
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Clone, Copy)]
+struct VoiceOverSpeechSettings {
+    rate_percent: i32,
+    pitch_percent: i32,
+    volume_percent: i32,
+}
+
+#[cfg(target_os = "macos")]
+fn voiceover_default_percent(key_suffix: &str) -> Option<i32> {
+    let output = Command::new("/usr/bin/defaults")
+        .args(["read", "com.apple.VoiceOver4/default"])
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    let pattern = format!(
+        "SCRCategories_SCRCategorySystemWide_SCRSpeechLanguages_default_SCRSpeechComponentSettings_{key_suffix}"
+    );
+    for line in text.lines() {
+        if !line.contains(&pattern) {
+            continue;
+        }
+        let Some((_, value_part)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value_part
+            .trim()
+            .trim_end_matches(';')
+            .trim()
+            .parse::<i32>()
+            .ok()?;
+        if (0..=100).contains(&value) {
+            return Some(value);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn voiceover_speech_settings() -> VoiceOverSpeechSettings {
+    VoiceOverSpeechSettings {
+        rate_percent: voiceover_default_percent("SCRRateAsPercent").unwrap_or(40),
+        pitch_percent: voiceover_default_percent("SCRPitchAsPercent").unwrap_or(50),
+        volume_percent: voiceover_default_percent("SCRVolumeAsPercent").unwrap_or(100),
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn voiceover_percent_to_say_rate(percent: i32) -> i32 {
+    (80 + percent.clamp(0, 100) * 3).clamp(80, 600)
+}
+
+#[cfg(target_os = "macos")]
+fn system_say_rate(settings: VoiceOverSpeechSettings, rate_delta: i32) -> i32 {
+    voiceover_percent_to_say_rate((settings.rate_percent + rate_delta).clamp(0, 100))
+}
+
+#[cfg(target_os = "macos")]
+fn system_pitch_factor(settings: VoiceOverSpeechSettings, pitch_delta: i32) -> f32 {
+    let effective_pitch = (settings.pitch_percent + pitch_delta).clamp(0, 100);
+    (1.0 + ((effective_pitch - 50) as f32 / 200.0)).clamp(0.75, 1.25)
+}
+
+#[cfg(target_os = "macos")]
+fn system_volume_factor(settings: VoiceOverSpeechSettings, volume: i32) -> f32 {
+    ((settings.volume_percent as f32 / 100.0) * (volume as f32 / 100.0)).clamp(0.1, 3.0)
+}
+
+#[cfg(target_os = "macos")]
+fn aiff_sample_rate(path: &Path) -> Option<i32> {
+    let output = Command::new("/usr/bin/afinfo").arg(path).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    let text = String::from_utf8_lossy(&output.stdout);
+    for line in text.lines() {
+        let Some((_, after_channels)) = line.split_once(" ch,") else {
+            continue;
+        };
+        let before_hz = after_channels.split(" Hz").next()?.trim();
+        if let Ok(rate) = before_hz.parse::<i32>()
+            && (8_000..=192_000).contains(&rate)
+        {
+            return Some(rate);
+        }
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+fn synthesize_system_voice_to_mp3(
+    text: &str,
+    voice: &str,
+    rate: i32,
+    pitch: i32,
+    volume: i32,
+) -> Result<Vec<u8>, String> {
+    let ffmpeg = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
+    let stamp = chrono::Local::now().timestamp_millis();
+    let prefix = format!("sonarpad-system-tts-{}-{stamp}", std::process::id());
+    let temp_dir = std::env::temp_dir();
+    let text_path = temp_dir.join(format!("{prefix}.txt"));
+    let aiff_path = temp_dir.join(format!("{prefix}.aiff"));
+    let mp3_path = temp_dir.join(format!("{prefix}.mp3"));
+    let cleanup = |text_path: &Path, aiff_path: &Path, mp3_path: &Path| {
+        let _ = std::fs::remove_file(text_path);
+        let _ = std::fs::remove_file(aiff_path);
+        let _ = std::fs::remove_file(mp3_path);
+    };
+
+    std::fs::write(&text_path, text)
+        .map_err(|err| format!("scrittura testo temporaneo voce di sistema fallita: {err}"))?;
+
+    let voiceover_settings = voiceover_speech_settings();
+    let say_rate = system_say_rate(voiceover_settings, rate);
+    let mut say = Command::new("/usr/bin/say");
+    if !voice.trim().is_empty() {
+        say.arg("-v").arg(voice);
+    }
+    say.arg("-r")
+        .arg(say_rate.to_string())
+        .arg("-f")
+        .arg(&text_path)
+        .arg("-o")
+        .arg(&aiff_path);
+    append_podcast_log(&format!(
+        "system_tts.say_begin voice={} rate={} chars={}",
+        voice,
+        say_rate,
+        text.chars().count()
+    ));
+    let say_output = say.output().map_err(|err| {
+        cleanup(&text_path, &aiff_path, &mp3_path);
+        format!("avvio voce di sistema fallito: {err}")
+    })?;
+    if !say_output.status.success() {
+        let stderr = String::from_utf8_lossy(&say_output.stderr)
+            .trim()
+            .to_string();
+        cleanup(&text_path, &aiff_path, &mp3_path);
+        return Err(if stderr.is_empty() {
+            "voce di sistema non riuscita.".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let pitch_factor = system_pitch_factor(voiceover_settings, pitch);
+    let volume_factor = system_volume_factor(voiceover_settings, volume);
+    let mut filters = Vec::new();
+    if (pitch_factor - 1.0).abs() > f32::EPSILON {
+        let sample_rate = aiff_sample_rate(&aiff_path).unwrap_or(22_050);
+        filters.push(format!(
+            "asetrate={}*{pitch_factor:.4},aresample={}",
+            sample_rate, sample_rate
+        ));
+    }
+    if (volume_factor - 1.0).abs() > f32::EPSILON {
+        filters.push(format!("volume={volume_factor:.4}"));
+    }
+
+    let mut ffmpeg_command = Command::new(&ffmpeg);
+    ffmpeg_command
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("error")
+        .arg("-y")
+        .arg("-i")
+        .arg(&aiff_path)
+        .arg("-vn");
+    if !filters.is_empty() {
+        ffmpeg_command.arg("-filter:a").arg(filters.join(","));
+    }
+    let ffmpeg_output = ffmpeg_command
+        .arg("-c:a")
+        .arg("libmp3lame")
+        .arg("-b:a")
+        .arg("128k")
+        .arg(&mp3_path)
+        .output()
+        .map_err(|err| {
+            cleanup(&text_path, &aiff_path, &mp3_path);
+            format!("avvio FFmpeg per voce di sistema fallito: {err}")
+        })?;
+    if !ffmpeg_output.status.success() {
+        let stderr = String::from_utf8_lossy(&ffmpeg_output.stderr)
+            .trim()
+            .to_string();
+        cleanup(&text_path, &aiff_path, &mp3_path);
+        return Err(if stderr.is_empty() {
+            "conversione audio voce di sistema fallita.".to_string()
+        } else {
+            stderr
+        });
+    }
+
+    let audio = std::fs::read(&mp3_path).map_err(|err| {
+        cleanup(&text_path, &aiff_path, &mp3_path);
+        format!("lettura audio voce di sistema fallita: {err}")
+    })?;
+    cleanup(&text_path, &aiff_path, &mp3_path);
+    Ok(audio)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn synthesize_system_voice_to_mp3(
+    _text: &str,
+    _voice: &str,
+    _rate: i32,
+    _pitch: i32,
+    _volume: i32,
+) -> Result<Vec<u8>, String> {
+    Err("Le voci di sistema sono disponibili solo su macOS.".to_string())
+}
+
+fn synthesize_voice_chunk_blocking(
+    engine: &str,
+    text: &str,
+    voice: &str,
+    rate: i32,
+    pitch: i32,
+    volume: i32,
+    rt: &Runtime,
+) -> Result<Vec<u8>, String> {
+    if is_system_voice_engine(engine) {
+        synthesize_system_voice_to_mp3(text, voice, rate, pitch, volume)
+    } else {
+        rt.block_on(edge_tts::synthesize_text_with_retry(
+            text, voice, rate, pitch, volume, 3,
+        ))
+        .map_err(|err| err.to_string())
+    }
+}
+
 fn normalize_settings_data(settings: &mut Settings) {
+    settings.voice_engine = normalized_voice_engine(&settings.voice_engine);
+    settings.media_seek_seconds = normalize_media_seek_seconds(settings.media_seek_seconds);
     settings.news_language = normalize_news_language(&settings.news_language);
     if settings.article_sources.is_empty() {
         settings.article_sources =
@@ -7830,6 +8410,7 @@ fn normalize_settings_data(settings: &mut Settings) {
             source.title = source.url.clone();
         }
     }
+    settings.recent_text_files = normalize_recent_text_files(&settings.recent_text_files);
     for favorite in &mut settings.radio_favorites {
         favorite.language_code = parse_language_code(&favorite.language_code)
             .unwrap_or_else(|| favorite.language_code.trim().to_lowercase());
@@ -8385,6 +8966,7 @@ fn rebuild_articles_menu(
     articles_menu: &Menu,
     settings: &Arc<Mutex<Settings>>,
     loading_urls: &HashSet<String>,
+    current_article_state: Option<&Rc<RefCell<Option<CurrentArticleState>>>>,
 ) {
     let ui_language = settings.lock().unwrap().ui_language.clone();
     let ui = ui_strings(&ui_language);
@@ -8434,6 +9016,18 @@ fn rebuild_articles_menu(
         &ui.export_sources,
         ItemKind::Normal,
     );
+    if current_article_state
+        .and_then(|state| state.borrow().clone())
+        .or_else(last_article_state)
+        .is_some()
+    {
+        let _ = articles_menu.append(
+            ID_RECENT_ARTICLES,
+            &ui.menu_recent_articles,
+            &ui.menu_recent_articles,
+            ItemKind::Normal,
+        );
+    }
     articles_menu.append_separator();
 
     let (sources, folders) = {
@@ -10961,25 +11555,32 @@ fn sync_settings_with_loaded_voices(
     }
 }
 
-fn play_voice_preview(text: String, voice: String, rate: i32, pitch: i32, volume: i32) {
+fn play_voice_preview(
+    text: String,
+    engine: String,
+    voice: String,
+    rate: i32,
+    pitch: i32,
+    volume: i32,
+) {
     std::thread::spawn(move || {
         append_podcast_log(&format!(
-            "settings.voice_preview.begin voice={} rate={} pitch={} volume={}",
-            voice, rate, pitch, volume
+            "settings.voice_preview.begin engine={} voice={} rate={} pitch={} volume={}",
+            engine, voice, rate, pitch, volume
         ));
         let Ok(rt) = Runtime::new() else {
             append_podcast_log("settings.voice_preview.runtime_failed");
             return;
         };
-        let audio = match rt.block_on(edge_tts::synthesize_text_with_retry(
-            &text, &voice, rate, pitch, volume, 3,
-        )) {
-            Ok(audio) => audio,
-            Err(err) => {
-                append_podcast_log(&format!("settings.voice_preview.tts_failed err={err}"));
-                return;
-            }
-        };
+        let audio =
+            match synthesize_voice_chunk_blocking(&engine, &text, &voice, rate, pitch, volume, &rt)
+            {
+                Ok(audio) => audio,
+                Err(err) => {
+                    append_podcast_log(&format!("settings.voice_preview.tts_failed err={err}"));
+                    return;
+                }
+            };
         let Ok((_stream, handle)) = OutputStream::try_default() else {
             append_podcast_log("settings.voice_preview.audio_output_failed");
             return;
@@ -11011,6 +11612,7 @@ fn open_settings_dialog(
     let settings_before = settings.lock().unwrap().clone();
     let ui = ui_strings(&settings_before.ui_language);
     let voices_snapshot = voices_data.lock().unwrap().clone();
+    let system_voices_snapshot = load_system_voices();
     let languages_snapshot = if voices_snapshot.is_empty() {
         languages.lock().unwrap().clone()
     } else {
@@ -11029,7 +11631,7 @@ fn open_settings_dialog(
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, if cfg!(target_os = "macos") { 460 } else { 400 })
+        .with_size(560, if cfg!(target_os = "macos") { 520 } else { 460 })
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -11069,6 +11671,29 @@ fn open_settings_dialog(
     );
     news_lang_row.add(&choice_news_lang, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&news_lang_row, 0, SizerFlag::Expand, 0);
+
+    let engine_row = BoxSizer::builder(Orientation::Horizontal).build();
+    engine_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.voice_engine_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_voice_engine = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &choice_voice_engine,
+        &settings_before.ui_language,
+        &ui.voice_engine_label,
+    );
+    engine_row.add(
+        &choice_voice_engine,
+        1,
+        SizerFlag::Expand | SizerFlag::All,
+        5,
+    );
+    root.add_sizer(&engine_row, 0, SizerFlag::Expand, 0);
 
     let lang_row = BoxSizer::builder(Orientation::Horizontal).build();
     lang_row.add(
@@ -11180,12 +11805,56 @@ fn open_settings_dialog(
     voice_preview_row.add(&voice_preview_button, 0, SizerFlag::All, 5);
     root.add_sizer(&voice_preview_row, 0, SizerFlag::Expand, 0);
 
+    let media_seek_row = BoxSizer::builder(Orientation::Horizontal).build();
+    media_seek_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.media_seek_step_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_media_seek = Choice::builder(&panel).build();
+    set_italian_accessible_name(
+        &choice_media_seek,
+        &settings_before.ui_language,
+        &ui.media_seek_step_label,
+    );
+    for seconds in MEDIA_SEEK_PRESETS_SECONDS {
+        choice_media_seek.append(&media_seek_label(seconds, &settings_before.ui_language));
+    }
+    let selected_media_seek_seconds =
+        normalize_media_seek_seconds(settings_before.media_seek_seconds);
+    let media_seek_index = MEDIA_SEEK_PRESETS_SECONDS
+        .iter()
+        .position(|seconds| *seconds == selected_media_seek_seconds)
+        .unwrap_or_else(|| {
+            MEDIA_SEEK_PRESETS_SECONDS
+                .iter()
+                .position(|seconds| *seconds == default_media_seek_seconds())
+                .unwrap_or(0)
+        });
+    choice_media_seek.set_selection(media_seek_index as u32);
+    media_seek_row.add(&choice_media_seek, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&media_seek_row, 0, SizerFlag::Expand, 0);
+
     let auto_media_bookmark_checkbox = CheckBox::builder(&panel)
         .with_label(&ui.auto_media_bookmark_label)
         .build();
     auto_media_bookmark_checkbox.set_value(settings_before.auto_media_bookmark);
     root.add(
         &auto_media_bookmark_checkbox,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        5,
+    );
+
+    let disable_blank_line_pauses_checkbox = CheckBox::builder(&panel)
+        .with_label(&ui.disable_blank_line_pauses_label)
+        .build();
+    disable_blank_line_pauses_checkbox.set_value(settings_before.disable_blank_line_pauses);
+    root.add(
+        &disable_blank_line_pauses_checkbox,
         0,
         SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
         5,
@@ -11291,46 +11960,90 @@ fn open_settings_dialog(
         choice_news_lang.set_selection(0);
     }
 
-    for (name, _) in &languages_snapshot {
-        choice_lang.append(name);
-    }
-    if let Some(pos) = languages_snapshot
-        .iter()
-        .position(|(name, _)| name == &settings_before.language)
-    {
-        choice_lang.set_selection(pos as u32);
-    } else if let Some(locale) = voices_snapshot
-        .iter()
-        .find(|voice| voice.short_name == settings_before.voice)
-        .map(|voice| voice.locale.clone())
-        && let Some(pos) = languages_snapshot
-            .iter()
-            .position(|(_, item_locale)| *item_locale == locale)
-    {
-        choice_lang.set_selection(pos as u32);
-    } else if let Some(pos) = languages_snapshot
-        .iter()
-        .position(|(name, _)| name == "Italiano")
-    {
-        choice_lang.set_selection(pos as u32);
-    } else if !languages_snapshot.is_empty() {
-        choice_lang.set_selection(0);
+    choice_voice_engine.append(&ui.voice_engine_microsoft);
+    choice_voice_engine.append(&ui.voice_engine_system);
+    let initial_voice_engine = normalized_voice_engine(&settings_before.voice_engine);
+    if is_system_voice_engine(&initial_voice_engine) {
+        choice_voice_engine.set_selection(1);
+    } else {
+        choice_voice_engine.set_selection(0);
     }
 
     let selected_voice = Rc::new(RefCell::new(settings_before.voice.clone()));
+    let selected_system_voice = Rc::new(RefCell::new(settings_before.system_voice.clone()));
+    let selected_voice_engine = Rc::new(RefCell::new(initial_voice_engine));
+    let active_languages = Rc::new(RefCell::new(Vec::<(String, String)>::new()));
     let filtered_voices = Rc::new(RefCell::new(Vec::<edge_tts::VoiceInfo>::new()));
     let filtered_voices_init = Rc::clone(&filtered_voices);
     let selected_voice_init = Rc::clone(&selected_voice);
+    let selected_system_voice_init = Rc::clone(&selected_system_voice);
+    let active_languages_init = Rc::clone(&active_languages);
     let choice_voices_fill = choice_voices;
     let choice_voices_evt = choice_voices;
     let choice_lang_evt = choice_lang;
+    let choice_lang_fill = choice_lang;
+    let settings_language_for_voice = settings_before.language.clone();
+    let ui_language_for_voice = settings_before.ui_language.clone();
 
-    let populate_voices = Rc::new(move |lang_sel: u32| {
-        let locale = languages_snapshot
-            .get(lang_sel as usize)
+    let populate_voices = Rc::new(move |engine: &str, lang_sel: Option<u32>| {
+        let use_system = is_system_voice_engine(engine);
+        let active_voices = if use_system {
+            &system_voices_snapshot
+        } else {
+            &voices_snapshot
+        };
+        let language_list = if use_system {
+            build_language_list(active_voices, &ui_language_for_voice)
+        } else {
+            languages_snapshot.clone()
+        };
+
+        choice_lang_fill.clear();
+        for (name, _) in &language_list {
+            choice_lang_fill.append(name);
+        }
+        *active_languages_init.borrow_mut() = language_list.clone();
+
+        let preferred_voice = if use_system {
+            selected_system_voice_init.borrow().clone()
+        } else {
+            selected_voice_init.borrow().clone()
+        };
+        let selected_lang = lang_sel
+            .map(|sel| sel as usize)
+            .filter(|sel| *sel < language_list.len())
+            .or_else(|| {
+                active_voices
+                    .iter()
+                    .find(|voice| voice.short_name == preferred_voice)
+                    .and_then(|voice| {
+                        language_list
+                            .iter()
+                            .position(|(_, locale)| *locale == voice.locale)
+                    })
+            })
+            .or_else(|| {
+                language_list
+                    .iter()
+                    .position(|(name, _)| name == &settings_language_for_voice)
+            })
+            .or_else(|| {
+                language_list
+                    .iter()
+                    .position(|(name, _)| name == "Italiano")
+            })
+            .or_else(|| language_list.iter().position(|(name, _)| name == "Italian"))
+            .unwrap_or(0);
+
+        if !language_list.is_empty() {
+            choice_lang_fill.set_selection(selected_lang as u32);
+        }
+
+        let locale = language_list
+            .get(selected_lang)
             .map(|(_, locale)| locale.clone())
             .unwrap_or_default();
-        let voice_list: Vec<_> = voices_snapshot
+        let voice_list: Vec<_> = active_voices
             .iter()
             .filter(|voice| voice.locale == locale)
             .cloned()
@@ -11340,7 +12053,11 @@ fn open_settings_dialog(
             choice_voices_fill.append(&voice.friendly_name);
         }
 
-        let preferred = selected_voice_init.borrow().clone();
+        let preferred = if use_system {
+            selected_system_voice_init.borrow().clone()
+        } else {
+            selected_voice_init.borrow().clone()
+        };
         if let Some(pos) = voice_list
             .iter()
             .position(|voice| voice.short_name == preferred)
@@ -11348,35 +12065,63 @@ fn open_settings_dialog(
             choice_voices_fill.set_selection(pos as u32);
         } else if let Some(first) = voice_list.first() {
             choice_voices_fill.set_selection(0);
-            *selected_voice_init.borrow_mut() = first.short_name.clone();
+            if use_system {
+                *selected_system_voice_init.borrow_mut() = first.short_name.clone();
+            } else {
+                *selected_voice_init.borrow_mut() = first.short_name.clone();
+            }
         } else {
-            selected_voice_init.borrow_mut().clear();
+            if use_system {
+                selected_system_voice_init.borrow_mut().clear();
+            } else {
+                selected_voice_init.borrow_mut().clear();
+            }
         }
         *filtered_voices_init.borrow_mut() = voice_list;
     });
 
-    if let Some(sel) = choice_lang.get_selection() {
-        populate_voices(sel);
-    }
+    populate_voices(&selected_voice_engine.borrow(), choice_lang.get_selection());
+
+    let populate_voices_engine = Rc::clone(&populate_voices);
+    let selected_voice_engine_evt = Rc::clone(&selected_voice_engine);
+    let choice_voice_engine_evt = choice_voice_engine;
+    choice_voice_engine.on_selection_changed(move |_| {
+        let engine = if choice_voice_engine_evt.get_selection().unwrap_or(0) == 1 {
+            "system"
+        } else {
+            "microsoft"
+        };
+        *selected_voice_engine_evt.borrow_mut() = engine.to_string();
+        populate_voices_engine(engine, None);
+    });
 
     let populate_voices_evt = Rc::clone(&populate_voices);
+    let selected_voice_engine_lang = Rc::clone(&selected_voice_engine);
     choice_lang.on_selection_changed(move |_| {
         if let Some(sel) = choice_lang_evt.get_selection() {
-            populate_voices_evt(sel);
+            populate_voices_evt(&selected_voice_engine_lang.borrow(), Some(sel));
         }
     });
 
     let filtered_voices_choice = Rc::clone(&filtered_voices);
     let selected_voice_choice = Rc::clone(&selected_voice);
+    let selected_system_voice_choice = Rc::clone(&selected_system_voice);
+    let selected_voice_engine_choice = Rc::clone(&selected_voice_engine);
     choice_voices.on_selection_changed(move |_| {
         if let Some(sel) = choice_voices_evt.get_selection()
             && let Some(voice) = filtered_voices_choice.borrow().get(sel as usize)
         {
-            *selected_voice_choice.borrow_mut() = voice.short_name.clone();
+            if is_system_voice_engine(&selected_voice_engine_choice.borrow()) {
+                *selected_system_voice_choice.borrow_mut() = voice.short_name.clone();
+            } else {
+                *selected_voice_choice.borrow_mut() = voice.short_name.clone();
+            }
         }
     });
 
     let selected_voice_preview = Rc::clone(&selected_voice);
+    let selected_system_voice_preview = Rc::clone(&selected_system_voice);
+    let selected_voice_engine_preview = Rc::clone(&selected_voice_engine);
     let settings_title_preview = ui.settings_title.clone();
     let empty_voice_message = match settings_before.ui_language.as_str() {
         "it" => "Seleziona una voce prima di ascoltare l'anteprima.",
@@ -11398,7 +12143,12 @@ fn open_settings_dialog(
     .to_string();
     let dialog_voice_preview = dialog;
     voice_preview_button.on_click(move |_| {
-        let voice = selected_voice_preview.borrow().clone();
+        let engine = selected_voice_engine_preview.borrow().clone();
+        let voice = if is_system_voice_engine(&engine) {
+            selected_system_voice_preview.borrow().clone()
+        } else {
+            selected_voice_preview.borrow().clone()
+        };
         if voice.trim().is_empty() {
             show_message_subdialog(
                 &dialog_voice_preview,
@@ -11419,7 +12169,7 @@ fn open_settings_dialog(
             .get_selection()
             .and_then(|sel| VOLUME_PRESETS.get(sel as usize).map(|(_, value)| *value))
             .unwrap_or(100);
-        play_voice_preview(preview_text.clone(), voice, rate, pitch, volume);
+        play_voice_preview(preview_text.clone(), engine, voice, rate, pitch, volume);
     });
 
     dialog.set_affirmative_id(ID_OK);
@@ -11450,14 +12200,23 @@ fn open_settings_dialog(
                 &updated.article_sources,
             );
         }
+        updated.voice_engine = if choice_voice_engine.get_selection().unwrap_or(0) == 1 {
+            "system".to_string()
+        } else {
+            default_voice_engine()
+        };
         if let Some(sel) = choice_lang.get_selection()
-            && let Some((name, _)) = languages.lock().unwrap().get(sel as usize)
+            && let Some((name, _)) = active_languages.borrow().get(sel as usize)
         {
             updated.language = name.clone();
         }
         let chosen_voice = selected_voice.borrow().clone();
         if !chosen_voice.is_empty() {
             updated.voice = chosen_voice;
+        }
+        let chosen_system_voice = selected_system_voice.borrow().clone();
+        if !chosen_system_voice.is_empty() {
+            updated.system_voice = chosen_system_voice;
         }
         if let Some(sel) = choice_rate.get_selection() {
             updated.rate = RATE_PRESETS[sel as usize].1;
@@ -11468,13 +12227,21 @@ fn open_settings_dialog(
         if let Some(sel) = choice_volume.get_selection() {
             updated.volume = VOLUME_PRESETS[sel as usize].1;
         }
+        if let Some(sel) = choice_media_seek.get_selection()
+            && let Some(seconds) = MEDIA_SEEK_PRESETS_SECONDS.get(sel as usize)
+        {
+            updated.media_seek_seconds = *seconds;
+        }
         if settings_before.ui_language == "it" {
             updated.rai_luce_code = rai_code_ctrl.get_value().trim().to_string();
         }
         updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
+        updated.disable_blank_line_pauses = disable_blank_line_pauses_checkbox.get_value();
         updated.auto_check_updates = auto_check_updates_checkbox.get_value();
 
-        let refresh_needed = settings_before.voice != updated.voice
+        let refresh_needed = settings_before.voice_engine != updated.voice_engine
+            || settings_before.voice != updated.voice
+            || settings_before.system_voice != updated.system_voice
             || settings_before.rate != updated.rate
             || settings_before.pitch != updated.pitch
             || settings_before.volume != updated.volume;
@@ -11482,7 +12249,9 @@ fn open_settings_dialog(
             || settings_before.news_language != updated.news_language
             || settings_before.language != updated.language
             || settings_before.rai_luce_code != updated.rai_luce_code
+            || settings_before.media_seek_seconds != updated.media_seek_seconds
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
+            || settings_before.disable_blank_line_pauses != updated.disable_blank_line_pauses
             || settings_before.auto_check_updates != updated.auto_check_updates
             || refresh_needed;
 
@@ -19650,6 +20419,7 @@ fn write_mpv_accessibility_script(
     let say_pid_path = mpv_config_dir.join(format!("sonarpad-say-{script_id}.pid"));
     let language = Settings::load().ui_language;
     let messages = mpv_voice_messages(&language);
+    let seek_step_seconds = current_media_seek_seconds();
     let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
     let recordings_dir = default_recordings_dir();
     std::fs::create_dir_all(&recordings_dir).map_err(|err| {
@@ -19684,6 +20454,10 @@ fn write_mpv_accessibility_script(
     script.push_str(&format!(
         "local recording_enabled = {}\n",
         if recording_enabled { "true" } else { "false" }
+    ));
+    script.push_str(&format!(
+        "local seek_step_seconds = {}\n",
+        seek_step_seconds
     ));
     script.push_str(&format!(
         "local ffmpeg_path = {}\n",
@@ -20402,8 +21176,8 @@ local function stop_with_speech()
 end
 
 mp.add_forced_key_binding("SPACE", "sonarpad-pause-speech", toggle_pause_with_speech)
-mp.add_forced_key_binding("RIGHT", "sonarpad-seek-forward-speech", function() seek_with_speech(5) end, {repeatable = true})
-mp.add_forced_key_binding("LEFT", "sonarpad-seek-backward-speech", function() seek_with_speech(-5) end, {repeatable = true})
+mp.add_forced_key_binding("RIGHT", "sonarpad-seek-forward-speech", function() seek_with_speech(seek_step_seconds) end, {repeatable = true})
+mp.add_forced_key_binding("LEFT", "sonarpad-seek-backward-speech", function() seek_with_speech(-seek_step_seconds) end, {repeatable = true})
 mp.add_forced_key_binding("UP", "sonarpad-volume-up-speech", function() volume_with_speech(5) end, {repeatable = true})
 mp.add_forced_key_binding("DOWN", "sonarpad-volume-down-speech", function() volume_with_speech(-5) end, {repeatable = true})
 mp.add_forced_key_binding("+", "sonarpad-speed-up-speech", function() speed_with_speech(0.1) end, {repeatable = true})
@@ -21149,6 +21923,15 @@ fn main() {
 
         let file_menu = Menu::builder().build();
         file_menu.append(ID_OPEN, &ui.menu_open, &ui.menu_open_help, ItemKind::Normal);
+        let recent_text_files_menu_owned = Menu::builder().build();
+        rebuild_recent_text_files_menu(&recent_text_files_menu_owned, &settings, ui);
+        let recent_text_files_menu_ptr = recent_text_files_menu_owned.as_const_ptr();
+        file_menu.append_submenu(
+            recent_text_files_menu_owned,
+            &ui.menu_recent_text_files,
+            &ui.menu_recent_text_files,
+        );
+        let recent_text_files_menu = Rc::new(Menu::from(recent_text_files_menu_ptr));
         #[cfg(target_os = "macos")]
         let save_text_menu_item = file_menu.append(
             ID_SAVE_TEXT,
@@ -21235,7 +22018,12 @@ fn main() {
         );
 
         let articles_menu = Menu::builder().build();
-        rebuild_articles_menu(&articles_menu, &settings, &HashSet::new());
+        rebuild_articles_menu(
+            &articles_menu,
+            &settings,
+            &HashSet::new(),
+            Some(&current_article_state),
+        );
         let articles_menu_timer = Menu::from(articles_menu.as_const_ptr());
         let podcasts_menu = Menu::builder().build();
         rebuild_podcasts_menu(
@@ -21266,12 +22054,6 @@ fn main() {
         );
 
         let tools_menu = Menu::builder().build();
-        tools_menu.append(
-            ID_RECENT_ARTICLES,
-            &ui.menu_recent_articles,
-            &ui.menu_recent_articles,
-            ItemKind::Normal,
-        );
         tools_menu.append(
             ID_TOOLS_WIKIPEDIA,
             &ui.tools_wikipedia_label,
@@ -21362,6 +22144,17 @@ fn main() {
             .build();
         frame.set_menu_bar(menubar);
 
+        let settings_recent_menu_open = Arc::clone(&settings);
+        let recent_text_files_menu_open = Rc::clone(&recent_text_files_menu);
+        frame.on_menu_opened(move |_| {
+            let ui = current_ui_strings();
+            rebuild_recent_text_files_menu(
+                &recent_text_files_menu_open,
+                &settings_recent_menu_open,
+                ui,
+            );
+        });
+
         #[cfg(target_os = "macos")]
         frame.track_menu_lifecycle(|_, is_opening| {
             set_mac_menu_bar_active(is_opening);
@@ -21401,13 +22194,23 @@ fn main() {
         btn_sizer.add(&btn_recent_articles, 1, SizerFlag::All, 10);
         let btn_podcast_back = Button::builder(&panel)
             .with_id(ID_PODCAST_BACKWARD)
-            .with_label(&format!("{} ({}+Left)", ui.button_back_30, MOD_CMD))
+            .with_label(&format!(
+                "{} {} ({}+Left)",
+                ui.button_back_30,
+                media_seek_label(current_media_seek_seconds(), &initial_ui_language),
+                MOD_CMD
+            ))
             .build();
         btn_podcast_back.show(false);
         btn_sizer.add(&btn_podcast_back, 1, SizerFlag::All, 10);
         let btn_podcast_forward = Button::builder(&panel)
             .with_id(ID_PODCAST_FORWARD)
-            .with_label(&format!("{} ({}+Right)", ui.button_forward_30, MOD_CMD))
+            .with_label(&format!(
+                "{} {} ({}+Right)",
+                ui.button_forward_30,
+                media_seek_label(current_media_seek_seconds(), &initial_ui_language),
+                MOD_CMD
+            ))
             .build();
         btn_podcast_forward.show(false);
         btn_sizer.add(&btn_podcast_forward, 1, SizerFlag::All, 10);
@@ -21545,7 +22348,12 @@ fn main() {
                 (loading_urls, pending_dialog)
             };
             if let Some(loading_urls) = article_loading_urls {
-                rebuild_articles_menu(&articles_menu_timer, &settings_timer, &loading_urls);
+                rebuild_articles_menu(
+                    &articles_menu_timer,
+                    &settings_timer,
+                    &loading_urls,
+                    Some(&current_article_state_timer),
+                );
             }
             if let Some(pending_dialog) = pending_article_dialog {
                 append_podcast_log("article_menu.pending_dialog.open");
@@ -21601,6 +22409,7 @@ fn main() {
                         item_index,
                         &item,
                     );
+                    mark_articles_menu_dirty(&article_menu_state_timer);
                     show_article_item(
                         &item,
                         &rt_articles_timer,
@@ -21642,6 +22451,7 @@ fn main() {
                         item_index,
                         &item,
                     );
+                    mark_articles_menu_dirty(&article_menu_state_timer);
                     show_article_item(
                         &item,
                         &rt_articles_timer,
@@ -21763,25 +22573,17 @@ fn main() {
                     }
                     continue;
                 }
-                match load_file_for_display(&frame_timer, &path) {
-                    Ok(document) => {
-                        podcast_playback_timer.borrow_mut().selected_episode = None;
-                        tc_articles_timer.set_value(&document.text);
-                        let bookmark_restored =
-                            restore_text_bookmark(&settings_timer, &tc_articles_timer, &path);
-                        cursor_moved_timer.set(bookmark_restored);
-                        tc_articles_timer.set_modified(false);
-                        set_current_document_state_with_toc(
-                            &current_document_timer,
-                            Some(path.clone()),
-                            document.epub_toc,
-                        );
-                        append_podcast_log(&format!(
-                            "app.open_files_event.loaded path={} length={}",
-                            path.display(),
-                            document.text.len()
-                        ));
-                    }
+                match open_text_document_for_display(
+                    &frame_timer,
+                    &settings_timer,
+                    &tc_articles_timer,
+                    &current_document_timer,
+                    &podcast_playback_timer,
+                    &cursor_moved_timer,
+                    &path,
+                    "app.open_files_event",
+                ) {
+                    Ok(()) => {}
                     Err(err) => {
                         append_podcast_log(&format!(
                             "app.open_files_event.failed path={} err={}",
@@ -21869,7 +22671,37 @@ fn main() {
         let panel_menu = panel.clone();
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
-            if event.get_id() == ID_OPEN {
+            if let Some(recent_index) = recent_text_file_index(event.get_id()) {
+                let recent_files = recent_text_files_snapshot(&settings_menu);
+                if let Some(path) = recent_files.get(recent_index).map(PathBuf::from) {
+                    append_podcast_log(&format!(
+                        "recent_text_files.open index={} path={}",
+                        recent_index,
+                        path.display()
+                    ));
+                    remember_text_bookmark(&settings_menu, &tc_menu, &current_document_menu);
+                    match open_text_document_for_display(
+                        &f_menu,
+                        &settings_menu,
+                        &tc_menu,
+                        &current_document_menu,
+                        &podcast_selection_menu,
+                        &cursor_moved_menu,
+                        &path,
+                        "recent_text_files",
+                    ) {
+                        Ok(()) => {}
+                        Err(err) => {
+                            append_podcast_log(&format!(
+                                "recent_text_files.failed path={} err={}",
+                                path.display(),
+                                err
+                            ));
+                            show_message_dialog(&f_menu, &ui.open_document_title, &err);
+                        }
+                    }
+                }
+            } else if event.get_id() == ID_OPEN {
                 let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.webp;*.heic;*.mp3;*.m4a;*.m4b;*.aac;*.ogg;*.opus;*.flac;*.wav;*.mp4;*.m4v;*.mov;*.mkv;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*").build();
                 #[cfg(target_os = "macos")]
                 set_mac_native_file_dialog_open(true);
@@ -21893,19 +22725,25 @@ fn main() {
                         }
                         return;
                     }
-                    let document = load_file_for_display(&f_menu, path);
-                    if let Ok(document) = document {
-                        podcast_selection_menu.borrow_mut().selected_episode = None;
-                        tc_menu.set_value(&document.text);
-                        let bookmark_restored =
-                            restore_text_bookmark(&settings_menu, &tc_menu, path);
-                        cursor_moved_menu.set(bookmark_restored);
-                        tc_menu.set_modified(false);
-                        set_current_document_state_with_toc(
-                            &current_document_menu,
-                            Some(path.to_path_buf()),
-                            document.epub_toc,
-                        );
+                    match open_text_document_for_display(
+                        &f_menu,
+                        &settings_menu,
+                        &tc_menu,
+                        &current_document_menu,
+                        &podcast_selection_menu,
+                        &cursor_moved_menu,
+                        path,
+                        "file_menu.open",
+                    ) {
+                        Ok(()) => {}
+                        Err(err) => {
+                            append_podcast_log(&format!(
+                                "file_menu.open.failed path={} err={}",
+                                path.display(),
+                                err
+                            ));
+                            show_message_dialog(&f_menu, &ui.open_document_title, &err);
+                        }
                     }
                 }
             } else if event.get_id() == ID_SAVE_TEXT {
@@ -22012,6 +22850,7 @@ fn main() {
                             ));
                             let _ = pending_recent_article_open_menu.borrow_mut().take();
                             remember_current_article_state(&current_article_state_menu, source_index, item_index, &item);
+                            mark_articles_menu_dirty(&article_menu_state_menu);
                             show_article_item(
                                 &item,
                                 &rt_articles_menu,
@@ -22408,6 +23247,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                     .and_then(|source| source.items.get(item_index).map(|item| (item.clone(), source_index, item_index)));
                 if let Some((item, source_index, item_index)) = item {
                     remember_current_article_state(&current_article_state_menu, source_index, item_index, &item);
+                    mark_articles_menu_dirty(&article_menu_state_menu);
                     show_article_item(
                         &item,
                         &rt_articles_menu,
@@ -22624,6 +23464,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                             item_index,
                             &item,
                         );
+                        mark_articles_menu_dirty(&article_menu_state_ra);
                         show_article_item(
                             &item,
                             &rt_ra,
@@ -22739,18 +23580,34 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 stop_tts_playback(&pb_p_start);
             }
             let full_text = tc_p_start.get_value();
-            let text = apply_voice_dictionary_to_text(&text_from_user_reading_start(
-                &full_text,
-                tc_p_start.get_insertion_point(),
-                cursor_moved_start.get(),
+            let insertion_point = tc_p_start.get_insertion_point();
+            let cursor_moved = cursor_moved_start.get();
+            let disable_blank_line_pauses = s_play_start.lock().unwrap().disable_blank_line_pauses;
+            let text = prepare_text_for_tts(
+                &text_from_user_reading_start(&full_text, insertion_point, cursor_moved),
+                disable_blank_line_pauses,
+            );
+            append_podcast_log(&format!(
+                "start_action.text_source full_chars={} selected_chars={} insertion_point={} cursor_moved={} blank_line_pauses_disabled={}",
+                full_text.chars().count(),
+                text.chars().count(),
+                insertion_point,
+                cursor_moved,
+                disable_blank_line_pauses
             ));
             if text.trim().is_empty() {
                 append_podcast_log("start_action.text_empty");
                 return;
             }
-            let (voice, rate, pitch, volume) = {
+            let (engine, voice, rate, pitch, volume) = {
                 let s = s_play_start.lock().unwrap();
-                (s.voice.clone(), s.rate, s.pitch, s.volume)
+                let engine = normalized_voice_engine(&s.voice_engine);
+                let voice = if is_system_voice_engine(&engine) {
+                    s.system_voice.clone()
+                } else {
+                    s.voice.clone()
+                };
+                (engine, voice, s.rate, s.pitch, s.volume)
             };
             let mut pb = pb_p_start.lock().unwrap();
             let tts_started = Instant::now();
@@ -22771,6 +23628,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
             let pb_thread = Arc::clone(&pb_p_start);
             if let Some(cached) = cached_tts.filter(|cached| {
                 cached.text == text
+                    && cached.engine == engine
                     && cached.voice == voice
                     && cached.rate == rate
                     && cached.pitch == pitch
@@ -22877,7 +23735,11 @@ Non posso scaricare la pagina web al posto dell'audio.",
                     pb_lock.sink = Some(Arc::clone(&sink_arc));
                 }
 
-                let chunks: Vec<String> = edge_tts::split_text_realtime_lazy(&text).collect();
+                let chunks: Vec<String> = if is_system_voice_engine(&engine) {
+                    edge_tts::split_text_lazy(&text).collect()
+                } else {
+                    edge_tts::split_text_realtime_lazy(&text).collect()
+                };
                 let mut cached_chunks = Vec::with_capacity(chunks.len());
                 let (audio_tx, mut audio_rx) =
                     tokio::sync::mpsc::channel::<Result<(usize, Vec<u8>), String>>(10);
@@ -22886,6 +23748,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 rt_thread.spawn({
                     let pb_download = Arc::clone(&pb_thread);
                     let voice_download = voice.clone();
+                    let engine_download = engine.clone();
                     async move {
                         let mut edge_session = None;
                         for (chunk_index, chunk) in chunks.into_iter().enumerate() {
@@ -22900,25 +23763,38 @@ Non posso scaricare la pagina web al posto dell'audio.",
 
                             let chunk_started = Instant::now();
                             append_podcast_log(&format!(
-                                "start_action.tts_chunk_request index={} chars={} voice={} rate={} pitch={} volume={}",
+                                "start_action.tts_chunk_request index={} chars={} engine={} voice={} rate={} pitch={} volume={}",
                                 chunk_index,
                                 chunk.chars().count(),
+                                engine_download,
                                 voice_download,
                                 rate,
                                 pitch,
                                 volume
                             ));
-                            match edge_tts::synthesize_realtime_chunk_with_retry(
-                                edge_session,
-                                &chunk,
-                                &voice_download,
-                                rate,
-                                pitch,
-                                volume,
-                                40,
-                            )
-                            .await
-                            {
+                            let synth_result = if is_system_voice_engine(&engine_download) {
+                                synthesize_system_voice_to_mp3(
+                                    &chunk,
+                                    &voice_download,
+                                    rate,
+                                    pitch,
+                                    volume,
+                                )
+                                .map(|data| (data, None))
+                                .map_err(|err| anyhow::anyhow!(err))
+                            } else {
+                                edge_tts::synthesize_realtime_chunk_with_retry(
+                                    edge_session,
+                                    &chunk,
+                                    &voice_download,
+                                    rate,
+                                    pitch,
+                                    volume,
+                                    40,
+                                )
+                                .await
+                            };
+                            match synth_result {
                                 Ok((data, session)) => {
                                     edge_session = session;
                                     if data.is_empty() {
@@ -23020,6 +23896,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                         pb_lock.download_finished = true;
                         pb_lock.cached_tts = Some(TtsPlaybackCache {
                             text,
+                            engine,
                             voice,
                             rate,
                             pitch,
@@ -23078,7 +23955,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
 
         let podcast_seek_back = Rc::clone(&podcast_playback);
         btn_podcast_back.on_click(move |_| {
-            seek_podcast_playback(&podcast_seek_back, -PODCAST_SEEK_SECONDS);
+            seek_podcast_playback(&podcast_seek_back, -(current_media_seek_seconds() as f64));
         });
 
         let podcast_seek_choice_action = Rc::clone(&podcast_playback);
@@ -23094,7 +23971,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
 
         let podcast_seek_forward = Rc::clone(&podcast_playback);
         btn_podcast_forward.on_click(move |_| {
-            seek_podcast_playback(&podcast_seek_forward, PODCAST_SEEK_SECONDS);
+            seek_podcast_playback(&podcast_seek_forward, current_media_seek_seconds() as f64);
         });
 
         let pb_stop = Arc::clone(&playback);
@@ -23211,9 +24088,22 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 return;
             }
 
-            let (voice, rate, pitch, volume) = {
+            let (engine, voice, rate, pitch, volume, disable_blank_line_pauses) = {
                 let s = s_save.lock().unwrap();
-                (s.voice.clone(), s.rate, s.pitch, s.volume)
+                let engine = normalized_voice_engine(&s.voice_engine);
+                let voice = if is_system_voice_engine(&engine) {
+                    s.system_voice.clone()
+                } else {
+                    s.voice.clone()
+                };
+                (
+                    engine,
+                    voice,
+                    s.rate,
+                    s.pitch,
+                    s.volume,
+                    s.disable_blank_line_pauses,
+                )
             };
             let audiobook_file_not_saved = ui.audiobook_file_not_saved.clone();
             let audiobook_conversion_failed = ui.audiobook_conversion_failed.clone();
@@ -23225,10 +24115,12 @@ Non posso scaricare la pagina web al posto dell'audio.",
             if let Some(path_buf) = prompt_audiobook_save_path(&f_save, &s_save) {
                 let path = path_buf.to_string_lossy().into_owned();
                 append_podcast_log(&format!("audiobook_save.begin path={path}"));
-                let text = apply_voice_dictionary_to_text(&text);
+                let text = prepare_text_for_tts(&text, disable_blank_line_pauses);
                 let chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
                 let total = chunks.len();
-                append_podcast_log(&format!("audiobook_save.chunks total={total}"));
+                append_podcast_log(&format!(
+                    "audiobook_save.chunks total={total} blank_line_pauses_disabled={disable_blank_line_pauses}"
+                ));
 
                 let progress_dialog = Dialog::builder(&f_save, &ui.create_audiobook_title)
                     .with_style(
@@ -23290,7 +24182,11 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 std::thread::spawn(move || {
                     let next_index = Arc::new(Mutex::new(0usize));
                     let results = Arc::new(Mutex::new(vec![None; chunks.len()]));
-                    let worker_count = chunks.len().clamp(1, AUDIOBOOK_SAVE_THREADS);
+                    let worker_count = if is_system_voice_engine(&engine) {
+                        1
+                    } else {
+                        chunks.len().clamp(1, AUDIOBOOK_SAVE_THREADS)
+                    };
                     let mut workers = Vec::with_capacity(worker_count);
 
                     for _ in 0..worker_count {
@@ -23301,6 +24197,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                         let save_state_worker = Arc::clone(&save_state_thread);
                         let abort_worker = Arc::clone(&abort_requested_thread);
                         let voice_worker = voice.clone();
+                        let engine_worker = engine.clone();
                         let audiobook_conversion_failed_worker =
                             audiobook_conversion_failed.clone();
                         workers.push(std::thread::spawn(move || {
@@ -23320,14 +24217,15 @@ Non posso scaricare la pagina web al posto dell'audio.",
                                 };
 
                                 let chunk = chunks_worker[index].clone();
-                                match rt_worker.block_on(edge_tts::synthesize_text_with_retry(
+                                match synthesize_voice_chunk_blocking(
+                                    &engine_worker,
                                     &chunk,
                                     &voice_worker,
                                     rate,
                                     pitch,
                                     volume,
-                                    3,
-                                )) {
+                                    &rt_worker,
+                                ) {
                                     Ok(data) => {
                                         results_worker.lock().unwrap()[index] = Some(data);
                                         save_state_worker.lock().unwrap().completed_chunks += 1;
@@ -23964,23 +24862,17 @@ Non posso scaricare la pagina web al posto dell'audio.",
 
         if let Some(path) = initial_open_path.as_ref() {
             append_podcast_log(&format!("app.initial_open.begin path={}", path.display()));
-            match load_file_for_display(&frame, path) {
-                Ok(document) => {
-                    podcast_playback.borrow_mut().selected_episode = None;
-                    text_ctrl.set_value(&document.text);
-                    cursor_moved_by_user.set(false);
-                    text_ctrl.set_modified(false);
-                    set_current_document_state_with_toc(
-                        &current_document,
-                        Some(path.clone()),
-                        document.epub_toc,
-                    );
-                    append_podcast_log(&format!(
-                        "app.initial_open.loaded path={} length={}",
-                        path.display(),
-                        document.text.len()
-                    ));
-                }
+            match open_text_document_for_display(
+                &frame,
+                &settings,
+                &text_ctrl,
+                &current_document,
+                &podcast_playback,
+                &cursor_moved_by_user,
+                path,
+                "app.initial_open",
+            ) {
+                Ok(()) => {}
                 Err(err) => {
                     append_podcast_log(&format!(
                         "app.initial_open.failed path={} err={}",
