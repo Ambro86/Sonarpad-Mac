@@ -77,7 +77,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v12
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v13
 
       - name: Validate Sonarpad tokens
         shell: bash
@@ -179,12 +179,20 @@ jobs:
         run: |
           set -euxo pipefail
           mkdir -p dist/ffmpeg-src dist/ffmpeg-build dist/ffmpeg-install
+          ffmpeg_has_system_tts_support() {
+            local ffmpeg_bin="$1"
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]aiff[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]asetrate[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]volume[[:space:]]' >/dev/null
+          }
           if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
             otool -L "dist/ffmpeg-install/bin/ffmpeg"
             if ! otool -L "dist/ffmpeg-install/bin/ffmpeg" \
               | tail -n +2 \
               | awk '{print $1}' \
-              | grep -vE '^(/System/|/usr/lib/|@)'; then
+              | grep -vE '^(/System/|/usr/lib/|@)' \
+              && ffmpeg_has_system_tts_support "dist/ffmpeg-install/bin/ffmpeg"; then
               "dist/ffmpeg-install/bin/ffmpeg" -version
               exit 0
             fi
@@ -288,6 +296,17 @@ jobs:
           make -j"$(sysctl -n hw.ncpu)"
           make install
           "../../ffmpeg-install/bin/ffmpeg" -version
+          ffmpeg_has_system_tts_support "../../ffmpeg-install/bin/ffmpeg"
+          tmpdir="$(mktemp -d)"
+          printf 'test voce di sistema\n' > "${tmpdir}/tts.txt"
+          /usr/bin/say -f "${tmpdir}/tts.txt" -o "${tmpdir}/tts.aiff"
+          "../../ffmpeg-install/bin/ffmpeg" -hide_banner -loglevel error -y \
+            -i "${tmpdir}/tts.aiff" \
+            -c:a libmp3lame \
+            -b:a 128k \
+            "${tmpdir}/tts.mp3"
+          test -s "${tmpdir}/tts.mp3"
+          rm -rf "${tmpdir}"
           otool -L "../../ffmpeg-install/bin/ffmpeg"
 
       - name: Download curl-impersonate for macOS
