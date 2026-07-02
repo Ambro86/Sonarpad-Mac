@@ -8995,8 +8995,13 @@ fn open_article_source_items_dialog(
         .with_id(ID_OK)
         .with_label(&ui.ok)
         .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
     buttons.add_spacer(1);
     buttons.add(&ok_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
 
@@ -9036,6 +9041,13 @@ fn open_article_source_items_dialog(
             }
         }
         dialog_ok.end_modal(ID_OK);
+    });
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| {
+        append_podcast_log(&format!(
+            "article_dialog.cancel source_index={source_index}"
+        ));
+        dialog_cancel.end_modal(ID_CANCEL);
     });
 
     let result = if dialog.show_modal() == ID_OK {
