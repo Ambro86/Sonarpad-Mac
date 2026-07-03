@@ -23978,7 +23978,18 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 }
 
                 let chunks: Vec<String> = if is_system_voice_engine(&engine) {
-                    edge_tts::split_text_lazy(&text).collect()
+                    let raw_chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
+                    let merged_chunks = edge_tts::merge_short_tts_chunks(
+                        raw_chunks.clone(),
+                        240,
+                        edge_tts::EDGE_TTS_MAX_BYTES,
+                    );
+                    append_podcast_log(&format!(
+                        "start_action.system_tts_chunks_compacted raw={} merged={}",
+                        raw_chunks.len(),
+                        merged_chunks.len()
+                    ));
+                    merged_chunks
                 } else {
                     edge_tts::split_text_realtime_lazy(&text).collect()
                 };
@@ -24358,7 +24369,22 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 let path = path_buf.to_string_lossy().into_owned();
                 append_podcast_log(&format!("audiobook_save.begin path={path}"));
                 let text = prepare_text_for_tts(&text, disable_blank_line_pauses);
-                let chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
+                let chunks: Vec<String> = if is_system_voice_engine(&engine) {
+                    let raw_chunks: Vec<String> = edge_tts::split_text_lazy(&text).collect();
+                    let merged_chunks = edge_tts::merge_short_tts_chunks(
+                        raw_chunks.clone(),
+                        240,
+                        edge_tts::EDGE_TTS_MAX_BYTES,
+                    );
+                    append_podcast_log(&format!(
+                        "audiobook_save.system_tts_chunks_compacted raw={} merged={}",
+                        raw_chunks.len(),
+                        merged_chunks.len()
+                    ));
+                    merged_chunks
+                } else {
+                    edge_tts::split_text_lazy(&text).collect()
+                };
                 let total = chunks.len();
                 append_podcast_log(&format!(
                     "audiobook_save.chunks total={total} blank_line_pauses_disabled={disable_blank_line_pauses}"

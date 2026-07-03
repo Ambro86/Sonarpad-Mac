@@ -856,3 +856,58 @@ pub fn split_text_realtime_lazy<'a>(text: &'a str) -> impl Iterator<Item = Strin
         EDGE_TTS_REALTIME_MAX_BYTES,
     )
 }
+
+pub fn merge_short_tts_chunks(
+    chunks: impl IntoIterator<Item = String>,
+    min_chars: usize,
+    max_bytes: usize,
+) -> Vec<String> {
+    let mut merged: Vec<String> = Vec::new();
+
+    for chunk in chunks {
+        let chunk = chunk.trim().to_string();
+        if chunk.is_empty() {
+            continue;
+        }
+
+        if let Some(last) = merged.last_mut()
+            && last.chars().count() < min_chars
+            && last.len() + 1 + chunk.len() <= max_bytes
+        {
+            last.push(' ');
+            last.push_str(&chunk);
+            continue;
+        }
+
+        merged.push(chunk);
+    }
+
+    merged
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn merge_short_tts_chunks_combines_short_title_with_body() {
+        let chunks = vec![
+            "Titolo:".to_string(),
+            "Questo e' il corpo dell'articolo con abbastanza testo da non lasciare il titolo isolato.".to_string(),
+            "Secondo blocco.".to_string(),
+        ];
+
+        let merged = merge_short_tts_chunks(chunks, 120, 300);
+
+        assert_eq!(merged.len(), 1);
+        assert!(merged[0].starts_with("Titolo: Questo e' il corpo"));
+        assert!(merged[0].contains("Secondo blocco."));
+    }
+
+    #[test]
+    fn merge_short_tts_chunks_respects_max_bytes() {
+        let chunks = vec!["Breve:".to_string(), "x".repeat(20)];
+
+        assert_eq!(merge_short_tts_chunks(chunks, 120, 10).len(), 2);
+    }
+}
