@@ -1,11 +1,4 @@
 Google News Portugal | https://news.google.com/rss?hl=pt-PT&gl=PT&ceid=PT:pt-150
-Google News Portugal - Portugal | https://news.google.com/news/rss/headlines/section/topic/NATION?hl=pt-PT&gl=PT&ceid=PT:pt-150
-Google News Portugal - Mundo | https://news.google.com/news/rss/headlines/section/topic/WORLD?hl=pt-PT&gl=PT&ceid=PT:pt-150
-Google News Portugal - Negócios | https://news.google.com/news/rss/headlines/section/topic/BUSINESS?hl=pt-PT&gl=PT&ceid=PT:pt-150
-Google News Portugal - Ciência e tecnologia | https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY?hl=pt-PT&gl=PT&ceid=PT:pt-150
-Google News Portugal - Entretenimento | https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT?hl=pt-PT&gl=PT&ceid=PT:pt-150
-Google News Portugal - Desporto | https://news.google.com/news/rss/headlines/section/topic/SPORTS?hl=pt-PT&gl=PT&ceid=PT:pt-150
-Google News Portugal - Saúde | https://news.google.com/news/rss/headlines/section/topic/HEALTH?hl=pt-PT&gl=PT&ceid=PT:pt-150
 Público | https://feeds.feedburner.com/PublicoRSS
 Observador | https://observador.pt/feed/
 RTP Notícias | https://www.rtp.pt/noticias/rss

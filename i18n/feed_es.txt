@@ -1,11 +1,4 @@
 Google News España | https://news.google.com/rss?hl=es&gl=ES&ceid=ES:es
-Google News España - España | https://news.google.com/news/rss/headlines/section/topic/NATION?hl=es&gl=ES&ceid=ES:es
-Google News España - Mundo | https://news.google.com/news/rss/headlines/section/topic/WORLD?hl=es&gl=ES&ceid=ES:es
-Google News España - Negocios | https://news.google.com/news/rss/headlines/section/topic/BUSINESS?hl=es&gl=ES&ceid=ES:es
-Google News España - Ciencia y Tecnología | https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY?hl=es&gl=ES&ceid=ES:es
-Google News España - Entretenimiento | https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT?hl=es&gl=ES&ceid=ES:es
-Google News España - Deportes | https://news.google.com/news/rss/headlines/section/topic/SPORTS?hl=es&gl=ES&ceid=ES:es
-Google News España - Salud | https://news.google.com/news/rss/headlines/section/topic/HEALTH?hl=es&gl=ES&ceid=ES:es
 EL PAÍS – Portada | https://feeds.elpais.com/mrss-s/pages/ep/site/elpais.com/portada
 El Mundo – Portada | http://estaticos.elmundo.es/elmundo/rss/portada.xml
 RTVE Noticias – Temas noticias | https://www.rtve.es/rss/temas_noticias.xml

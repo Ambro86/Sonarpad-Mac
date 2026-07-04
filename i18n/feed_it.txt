@@ -1,4 +1,5 @@
 Google News Italia | https://news.google.com/rss?hl=it&gl=IT&ceid=IT:it
+Corriere della Sera | https://xml2.corriereobjects.it/feed-hp/homepage-restyle-2025.xml
 La Repubblica | https://www.repubblica.it/rss/homepage/rss2.0.xml
 ANSA | https://www.ansa.it/sito/ansait_rss.xml
 Il Sole 24 Ore | http://www.ilsole24ore.com/rss/primapagina.xml
@@ -8,11 +9,19 @@ Tgcom24 | https://www.tgcom24.mediaset.it/rss/homepage.xml
 Il Fatto Quotidiano | https://www.ilfattoquotidiano.it/feed/
 Fanpage | https://www.fanpage.it/feed/
 Open | https://www.open.online/feed/
+Avvenire | https://news.google.com/rss/search?q=site%3Aavvenire.it&hl=it&gl=IT&ceid=IT:it
+Il Post | https://news.google.com/rss/search?q=site%3Ailpost.it&hl=it&gl=IT&ceid=IT:it
+Internazionale | https://news.google.com/rss/search?q=site%3Ainternazionale.it%20-inurl%3Aultime-notizie-reuters&hl=it&gl=IT&ceid=IT:it
+Il Manifesto | https://ilmanifesto.it/feed
+Micromega | https://www.micromega.net/feed/
+L'Espresso | https://lespresso.it/feed
+Il Domani | https://www.editorialedomani.it/rss
 Affaritaliani | https://www.affaritaliani.it/feed
 HuffPost Italia | https://www.huffingtonpost.it/rss
 DDay | https://www.dday.it/rss
 HDblog | https://www.hdblog.it/feed/
 HWUpgrade | https://www.hwupgrade.it/rss/news.xml
+iPhone Italia | https://www.iphoneitalia.com/feed
 Tom's Hardware Italia | https://www.tomshw.it/feed
 Everyeye | https://www.everyeye.it/rss/news/
 GameSource | https://www.gamesource.it/feed/

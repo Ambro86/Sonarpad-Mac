@@ -17,6 +17,7 @@ const DEFAULT_CS_FEEDS: &str = include_str!("../i18n/feed_cs.txt");
 const DEFAULT_PL_FEEDS: &str = include_str!("../i18n/feed_pl.txt");
 pub const CORRIERE_HOME_FEED_URL: &str =
     "https://xml2.corriereobjects.it/feed-hp/homepage-restyle-2025.xml";
+pub const IL_GIORNALE_FEED_URL: &str = "https://www.ilgiornale.it/rss.xml";
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ArticleItem {
@@ -138,7 +139,7 @@ pub fn normalize_url(input: &str) -> String {
     } else {
         format!("https://{s}")
     };
-    normalize_corriere_home_feed_url(&normalized)
+    normalize_known_feed_url(&normalized)
 }
 
 pub fn is_corriere_home_feed_url(url: &str) -> bool {
@@ -164,6 +165,109 @@ fn normalize_corriere_home_feed_url(url: &str) -> String {
         CORRIERE_HOME_FEED_URL.to_string()
     } else {
         url.to_string()
+    }
+}
+
+pub fn is_il_giornale_feed_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return false;
+    };
+    let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let path = parsed.path().trim_end_matches('/').to_ascii_lowercase();
+
+    matches!(host.as_str(), "ilgiornale.it" | "www.ilgiornale.it")
+        && matches!(path.as_str(), "/rss.xml" | "/feed.xml")
+}
+
+pub fn is_google_news_topic_feed_url(url: &str) -> bool {
+    let Ok(parsed) = Url::parse(url.trim()) else {
+        return false;
+    };
+    let host = parsed.host_str().unwrap_or("").to_ascii_lowercase();
+    let path = parsed.path().trim_end_matches('/').to_ascii_lowercase();
+
+    host == "news.google.com" && path.starts_with("/news/rss/headlines/section/topic/")
+}
+
+pub fn is_google_news_url(url: &str) -> bool {
+    Url::parse(url.trim())
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_ascii_lowercase))
+        .is_some_and(|host| host == "news.google.com")
+}
+
+pub fn clean_google_news_source_title(url: &str, title: &str) -> Option<String> {
+    if !is_google_news_url(url) {
+        return None;
+    }
+    let trimmed = title.trim();
+    if !trimmed.is_empty() && !is_google_news_site_title(trimmed) {
+        return Some(trimmed.to_string());
+    }
+    google_news_site_display_title(url)
+}
+
+fn is_google_news_site_title(title: &str) -> bool {
+    let normalized = title.trim().trim_matches('"').to_ascii_lowercase();
+    normalized.starts_with("site:")
+        || normalized.contains("\"site:")
+        || normalized.contains(" site:")
+}
+
+fn google_news_site_display_title(url: &str) -> Option<String> {
+    let parsed = Url::parse(url.trim()).ok()?;
+    if parsed.path().trim_end_matches('/') != "/rss/search" {
+        return None;
+    }
+    let query = parsed.query_pairs().find_map(|(key, value)| {
+        if key == "q" {
+            Some(value.into_owned())
+        } else {
+            None
+        }
+    })?;
+    let site = query
+        .split_whitespace()
+        .find_map(|part| part.strip_prefix("site:"))?
+        .trim_matches('"')
+        .trim_start_matches("www.")
+        .trim_end_matches('/');
+    if site.is_empty() {
+        return None;
+    }
+
+    Some(format_site_title(site))
+}
+
+fn format_site_title(site: &str) -> String {
+    let label = site.split('/').next().unwrap_or(site);
+    let label = label.split('.').next().unwrap_or(label);
+    label
+        .split(['-', '_'])
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            let Some(first) = chars.next() else {
+                return String::new();
+            };
+            let mut out = String::new();
+            out.extend(first.to_uppercase());
+            for ch in chars {
+                out.extend(ch.to_lowercase());
+            }
+            out
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn normalize_known_feed_url(url: &str) -> String {
+    if is_corriere_home_feed_url(url) {
+        CORRIERE_HOME_FEED_URL.to_string()
+    } else if is_il_giornale_feed_url(url) {
+        IL_GIORNALE_FEED_URL.to_string()
+    } else {
+        normalize_corriere_home_feed_url(url)
     }
 }
 
@@ -216,17 +320,41 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
     if url.is_empty() {
         return Err("URL fonte vuoto".to_string());
     }
+    let should_log_google_news = is_google_news_url(&url);
 
     let reqwest_bytes = fetch_feed_bytes_via_reqwest(&url).await;
-    if let Ok(bytes) = reqwest_bytes.as_ref()
-        && let Ok((title, items)) = parse_feed_bytes(bytes.clone(), &source.title)
-    {
-        return Ok(ArticleSource {
-            title,
-            url,
-            folder_path: source.folder_path.clone(),
-            items,
-        });
+    match reqwest_bytes.as_ref() {
+        Ok(bytes) => match parse_feed_bytes(bytes.clone(), &source.title) {
+            Ok((title, items)) => {
+                if should_log_google_news {
+                    crate::append_podcast_log(&format!(
+                        "article_source.fetch_google.reqwest_ok url={} bytes={} items={}",
+                        url,
+                        bytes.len(),
+                        items.len()
+                    ));
+                }
+                return Ok(fetched_article_source(source, &url, title, items));
+            }
+            Err(err) => {
+                if should_log_google_news {
+                    crate::append_podcast_log(&format!(
+                        "article_source.fetch_google.reqwest_parse_failed url={} bytes={} err={}",
+                        url,
+                        bytes.len(),
+                        err
+                    ));
+                }
+            }
+        },
+        Err(err) => {
+            if should_log_google_news {
+                crate::append_podcast_log(&format!(
+                    "article_source.fetch_google.reqwest_failed url={} err={}",
+                    url, err
+                ));
+            }
+        }
     }
 
     if let Ok(bytes) = reqwest_bytes {
@@ -235,12 +363,7 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
                 && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
                 && !items.is_empty()
             {
-                return Ok(ArticleSource {
-                    title,
-                    url,
-                    folder_path: source.folder_path.clone(),
-                    items,
-                });
+                return Ok(fetched_article_source(source, &url, title, items));
             }
         }
     }
@@ -251,13 +374,28 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
     })
     .await
     .map_err(|err| err.to_string())??;
-    if let Ok((title, items)) = parse_feed_bytes(curl_bytes.clone(), &source.title) {
-        return Ok(ArticleSource {
-            title,
-            url,
-            folder_path: source.folder_path.clone(),
-            items,
-        });
+    match parse_feed_bytes(curl_bytes.clone(), &source.title) {
+        Ok((title, items)) => {
+            if should_log_google_news {
+                crate::append_podcast_log(&format!(
+                    "article_source.fetch_google.curl_ok url={} bytes={} items={}",
+                    url,
+                    curl_bytes.len(),
+                    items.len()
+                ));
+            }
+            return Ok(fetched_article_source(source, &url, title, items));
+        }
+        Err(err) => {
+            if should_log_google_news {
+                crate::append_podcast_log(&format!(
+                    "article_source.fetch_google.curl_parse_failed url={} bytes={} err={}",
+                    url,
+                    curl_bytes.len(),
+                    err
+                ));
+            }
+        }
     }
 
     for feed_link in extract_feed_links(&decode_html_bytes(&curl_bytes), &url) {
@@ -265,12 +403,7 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
             && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
             && !items.is_empty()
         {
-            return Ok(ArticleSource {
-                title,
-                url,
-                folder_path: source.folder_path.clone(),
-                items,
-            });
+            return Ok(fetched_article_source(source, &url, title, items));
         }
 
         let feed_link_curl = feed_link.clone();
@@ -283,16 +416,30 @@ pub async fn fetch_source(source: &ArticleSource) -> Result<ArticleSource, Strin
             && let Ok((title, items)) = parse_feed_bytes(feed_bytes, &source.title)
             && !items.is_empty()
         {
-            return Ok(ArticleSource {
-                title,
-                url,
-                folder_path: source.folder_path.clone(),
-                items,
-            });
+            return Ok(fetched_article_source(source, &url, title, items));
         }
     }
 
     Err("Parsing feed fallito".to_string())
+}
+
+fn fetched_article_source(
+    source: &ArticleSource,
+    url: &str,
+    fetched_title: String,
+    items: Vec<ArticleItem>,
+) -> ArticleSource {
+    let title = if let Some(title) = clean_google_news_source_title(url, &source.title) {
+        title
+    } else {
+        fetched_title
+    };
+    ArticleSource {
+        title,
+        url: url.to_string(),
+        folder_path: source.folder_path.clone(),
+        items,
+    }
 }
 
 async fn fetch_feed_bytes_via_reqwest(url: &str) -> Result<Vec<u8>, String> {
@@ -784,7 +931,7 @@ fn parse_feed_bytes(
         .map(|title| decode_basic_html_entities(&title.content))
         .unwrap_or_else(|| fallback_title.to_string());
 
-    let mut items = Vec::new();
+    let mut dated_items = Vec::new();
     for entry in feed.entries {
         let title_value = entry
             .title
@@ -813,14 +960,25 @@ fn parse_feed_bytes(
             .as_ref()
             .map(|value| decode_basic_html_entities(&value.content))
             .unwrap_or_default();
+        let sort_date = entry.published.or(entry.updated);
 
-        items.push(ArticleItem {
-            title: title_value,
-            link,
-            description,
-        });
+        dated_items.push((
+            sort_date,
+            ArticleItem {
+                title: title_value,
+                link,
+                description,
+            },
+        ));
     }
 
+    dated_items.sort_by(|left, right| match (&left.0, &right.0) {
+        (Some(left_date), Some(right_date)) => right_date.cmp(left_date),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    let mut items: Vec<ArticleItem> = dated_items.into_iter().map(|(_, item)| item).collect();
     dedup_items(&mut items);
     Ok((title, items))
 }
@@ -1051,6 +1209,55 @@ mod tests {
         );
     }
 
+    #[tokio::test]
+    async fn fetch_source_reads_google_news_italia() {
+        let source = ArticleSource {
+            title: "Google News Italia".to_string(),
+            url: "https://news.google.com/rss?hl=it&gl=IT&ceid=IT:it".to_string(),
+            folder_path: String::new(),
+            items: Vec::new(),
+        };
+
+        let fetched = fetch_source(&source)
+            .await
+            .unwrap_or_else(|err| panic!("fetch_source failed: {err}"));
+
+        assert!(
+            !fetched.items.is_empty(),
+            "expected Google News Italia feed items"
+        );
+    }
+
+    #[test]
+    fn fetched_article_source_preserves_google_news_configured_title() {
+        let source = ArticleSource {
+            title: "Il Post".to_string(),
+            url: "https://news.google.com/rss/search?q=site%3Ailpost.it&hl=it&gl=IT&ceid=IT:it"
+                .to_string(),
+            folder_path: String::new(),
+            items: Vec::new(),
+        };
+
+        let fetched = fetched_article_source(
+            &source,
+            &source.url,
+            "\"site:ilpost.it\" - Google News".to_string(),
+            Vec::new(),
+        );
+
+        assert_eq!(fetched.title, "Il Post");
+    }
+
+    #[test]
+    fn google_news_search_site_title_is_cleaned_generically() {
+        let title = clean_google_news_source_title(
+            "https://news.google.com/rss/search?q=site%3Atheguardian.com&hl=en&gl=US&ceid=US:en",
+            "\"site:theguardian.com\" - Google News",
+        );
+
+        assert_eq!(title.as_deref(), Some("Theguardian"));
+    }
+
     #[test]
     fn normalize_url_updates_old_corriere_home_feeds() {
         assert_eq!(
@@ -1065,6 +1272,32 @@ mod tests {
             normalize_url(CORRIERE_HOME_FEED_URL),
             CORRIERE_HOME_FEED_URL
         );
+    }
+
+    #[test]
+    fn normalize_url_updates_old_il_giornale_feeds() {
+        assert_eq!(
+            normalize_url("http://www.ilgiornale.it/feed.xml"),
+            IL_GIORNALE_FEED_URL
+        );
+        assert_eq!(
+            normalize_url("https://www.ilgiornale.it/feed.xml"),
+            IL_GIORNALE_FEED_URL
+        );
+        assert_eq!(normalize_url(IL_GIORNALE_FEED_URL), IL_GIORNALE_FEED_URL);
+    }
+
+    #[test]
+    fn google_news_topic_feed_detection_only_matches_topic_feeds() {
+        assert!(is_google_news_topic_feed_url(
+            "https://news.google.com/news/rss/headlines/section/topic/NATION?hl=it&gl=IT&ceid=IT:it"
+        ));
+        assert!(!is_google_news_topic_feed_url(
+            "https://news.google.com/rss?hl=it&gl=IT&ceid=IT:it"
+        ));
+        assert!(!is_google_news_topic_feed_url(
+            "https://news.google.com/rss/search?q=site%3Ailpost.it&hl=it&gl=IT&ceid=IT:it"
+        ));
     }
 
     #[test]
@@ -1083,5 +1316,29 @@ mod tests {
         assert!(!is_corriere_home_feed_url(
             "https://www.corriere.it/cronache/"
         ));
+    }
+
+    #[test]
+    fn parse_feed_bytes_orders_entries_by_newest_date() {
+        let feed = br#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0">
+  <channel>
+    <title>Testata</title>
+    <item>
+      <title>Vecchio</title>
+      <link>https://example.com/old</link>
+      <pubDate>Mon, 06 Jan 2025 10:00:00 GMT</pubDate>
+    </item>
+    <item>
+      <title>Nuovo</title>
+      <link>https://example.com/new</link>
+      <pubDate>Fri, 03 Jul 2026 21:10:40 GMT</pubDate>
+    </item>
+  </channel>
+</rss>"#;
+
+        let (_, items) = parse_feed_bytes(feed.to_vec(), "Fallback").unwrap();
+
+        assert_eq!(items.first().map(|item| item.title.as_str()), Some("Nuovo"));
     }
 }

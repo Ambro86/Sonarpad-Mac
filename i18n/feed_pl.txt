@@ -1,11 +1,4 @@
 Google News Polska | https://news.google.com/rss?hl=pl&gl=PL&ceid=PL:pl
-Google News Polska - Polska | https://news.google.com/news/rss/headlines/section/topic/NATION?hl=pl&gl=PL&ceid=PL:pl
-Google News Polska - Świat | https://news.google.com/news/rss/headlines/section/topic/WORLD?hl=pl&gl=PL&ceid=PL:pl
-Google News Polska - Biznes | https://news.google.com/news/rss/headlines/section/topic/BUSINESS?hl=pl&gl=PL&ceid=PL:pl
-Google News Polska - Nauka i technologia | https://news.google.com/news/rss/headlines/section/topic/TECHNOLOGY?hl=pl&gl=PL&ceid=PL:pl
-Google News Polska - Rozrywka | https://news.google.com/news/rss/headlines/section/topic/ENTERTAINMENT?hl=pl&gl=PL&ceid=PL:pl
-Google News Polska - Sport | https://news.google.com/news/rss/headlines/section/topic/SPORTS?hl=pl&gl=PL&ceid=PL:pl
-Google News Polska - Zdrowie | https://news.google.com/news/rss/headlines/section/topic/HEALTH?hl=pl&gl=PL&ceid=PL:pl
 Polsat News | https://www.polsatnews.pl/rss/wszystkie.xml
 TVN24 | https://www.tvn24.pl/najnowsze.xml
 Interia Wiadomości | https://wydarzenia.interia.pl/feed

@@ -81,6 +81,7 @@ const ID_ARTICLES_REORDER_SOURCES: i32 = 2103;
 const ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY: i32 = 2104;
 const ID_ARTICLES_IMPORT_SOURCES: i32 = 2105;
 const ID_ARTICLES_EXPORT_SOURCES: i32 = 2106;
+const ID_ARTICLES_RESTORE_DEFAULT_SOURCES: i32 = 2107;
 const ID_PODCASTS_ADD: i32 = 2300;
 const ID_PODCASTS_DELETE: i32 = 2301;
 const ID_PODCASTS_REORDER_SOURCES: i32 = 2302;
@@ -804,6 +805,10 @@ struct UiStrings {
     edit_source: String,
     delete_source: String,
     reorder_sources: String,
+    restore_default_sources: String,
+    restore_default_sources_title: String,
+    restore_default_sources_message: String,
+    restore_default_sources_done: String,
     import_sources: String,
     export_sources: String,
     add_podcast: String,
@@ -812,6 +817,7 @@ struct UiStrings {
     keyword: String,
     podcast_label: String,
     source_label: String,
+    article_publication_label: String,
     folder_label: String,
     root_folder_name: String,
     open_folder: String,
@@ -2093,6 +2099,69 @@ fn ask_unsaved_changes_dialog(parent: &Frame) -> i32 {
     let response = dialog.show_modal();
     dialog.destroy();
     response
+}
+
+fn cancel_window_close(event: &WindowEventData) {
+    if let WindowEventData::General(general_event) = event
+        && general_event.can_veto()
+    {
+        general_event.veto();
+        append_podcast_log("window_close.vetoed");
+    } else {
+        append_podcast_log("window_close.veto_unavailable");
+    }
+    event.skip(false);
+}
+
+fn unsaved_close_response_label(response: i32) -> &'static str {
+    match response {
+        ID_YES => "save",
+        ID_NO => "dont_save",
+        ID_CANCEL => "cancel",
+        _ => "other",
+    }
+}
+
+fn confirm_unsaved_changes_before_close(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    text_ctrl: &TextCtrl,
+    document_state: &Arc<Mutex<CurrentDocumentState>>,
+    log_prefix: &str,
+) -> bool {
+    if !text_ctrl.is_modified() {
+        append_podcast_log(&format!("{log_prefix}.no_unsaved_changes"));
+        return true;
+    }
+
+    let response = ask_unsaved_changes_dialog(parent);
+    append_podcast_log(&format!(
+        "{log_prefix}.unsaved_response id={} action={}",
+        response,
+        unsaved_close_response_label(response)
+    ));
+    match response {
+        ID_YES => {
+            if save_current_document(parent, settings, text_ctrl, document_state) {
+                append_podcast_log(&format!("{log_prefix}.unsaved_saved"));
+                true
+            } else {
+                append_podcast_log(&format!("{log_prefix}.cancelled save_failed_or_cancelled"));
+                text_ctrl.set_focus();
+                false
+            }
+        }
+        ID_NO => {
+            append_podcast_log(&format!("{log_prefix}.unsaved_discarded"));
+            text_ctrl.set_modified(false);
+            true
+        }
+        _ => {
+            append_podcast_log(&format!("{log_prefix}.cancelled unsaved_cancel"));
+            text_ctrl.set_focus();
+            false
+        }
+    }
 }
 
 fn show_message_subdialog(parent: &Dialog, title: &str, message: &str) {
@@ -6618,7 +6687,7 @@ fn handle_update_check_result(
                                     )
                                 };
                                 show_message_dialog(parent, &ui.updates_title, &install_message);
-                                parent.close(true);
+                                parent.close(false);
                             }
                             Err(err) => {
                                 show_message_dialog(
@@ -8602,12 +8671,21 @@ fn normalize_settings_data(settings: &mut Settings) {
         if source.title.trim().is_empty() {
             source.title = source.url.clone();
         }
+        if let Some(clean_title) =
+            articles::clean_google_news_source_title(&source.url, &source.title)
+        {
+            source.title = clean_title;
+        }
     }
     settings.article_folders =
         normalized_article_folders(&settings.article_folders, &settings.article_sources);
     settings
         .article_sources
         .retain(|source| !is_removed_default_article_source(&source.url));
+    deduplicate_article_sources_by_url(&mut settings.article_sources);
+    merge_current_default_article_sources(settings);
+    settings.article_folders =
+        normalized_article_folders(&settings.article_folders, &settings.article_sources);
     for source in &mut settings.podcast_sources {
         source.url = podcasts::normalize_url(&source.url);
         if source.title.trim().is_empty() {
@@ -8646,12 +8724,70 @@ fn is_removed_default_article_source(url: &str) -> bool {
     matches!(
         articles::normalize_url(url).as_str(),
         "https://www.ilpost.it/feed/"
-            | "https://www.fanpage.it/feed/"
             | "https://www.internazionale.it/rss"
             | "https://www.affaritaliani.it/static/rss/rssGadget.aspx?idchannel=1"
-            | "https://www.hwupgrade.it/rss/news.xml"
-            | "https://www.startmag.it/feed/"
-    )
+    ) || articles::is_google_news_topic_feed_url(url)
+}
+
+fn merge_current_default_article_sources(settings: &mut Settings) {
+    let defaults = articles::default_sources_for_news_language(&settings.news_language);
+    if defaults.is_empty() {
+        return;
+    }
+
+    let has_default_sources = settings.article_sources.iter().any(|source| {
+        articles::is_default_source_url_any_news_language(&source.url)
+            || defaults.iter().any(|default_source| {
+                normalized_sort_key(&source.title) == normalized_sort_key(&default_source.title)
+            })
+    });
+    if !has_default_sources {
+        return;
+    }
+
+    for mut default_source in defaults {
+        default_source.url = articles::normalize_url(&default_source.url);
+        if let Some(existing) = settings
+            .article_sources
+            .iter_mut()
+            .find(|source| articles::normalize_url(&source.url) == default_source.url)
+        {
+            if should_restore_default_article_source_title(existing, &default_source) {
+                existing.title = default_source.title.clone();
+            }
+            continue;
+        }
+
+        if let Some(existing) = settings.article_sources.iter_mut().find(|source| {
+            normalized_sort_key(&source.title) == normalized_sort_key(&default_source.title)
+        }) {
+            existing.url = default_source.url;
+            existing.items.clear();
+            continue;
+        }
+
+        settings.article_sources.push(default_source);
+    }
+}
+
+fn should_restore_default_article_source_title(
+    existing: &articles::ArticleSource,
+    default_source: &articles::ArticleSource,
+) -> bool {
+    if !articles::is_google_news_url(&default_source.url) {
+        return false;
+    }
+    let title = existing.title.trim();
+    title.is_empty()
+        || title.ends_with(" - Google News")
+        || title.ends_with("- Google News")
+        || title.contains("\"site:")
+        || title.starts_with("site:")
+}
+
+fn deduplicate_article_sources_by_url(sources: &mut Vec<articles::ArticleSource>) {
+    let mut seen_urls = std::collections::HashSet::new();
+    sources.retain(|source| seen_urls.insert(articles::normalize_url(&source.url)));
 }
 
 fn normalize_article_folder_path(folder_path: &str) -> String {
@@ -8911,6 +9047,7 @@ fn open_article_source_items_dialog(
     parent: &Frame,
     source: &articles::ArticleSource,
     source_index: usize,
+    sources: &[articles::ArticleSource],
     loading_urls: &HashSet<String>,
     initial_selection: usize,
     current_article_state: Option<&Rc<RefCell<Option<CurrentArticleState>>>>,
@@ -8927,9 +9064,27 @@ fn open_article_source_items_dialog(
         return None;
     }
 
-    let dialog = Dialog::builder(parent, &article_source_label(source))
+    let mut available_sources: Vec<(usize, articles::ArticleSource)> = sources
+        .iter()
+        .enumerate()
+        .filter(|(_, source)| !source.items.is_empty())
+        .map(|(index, source)| (index, source.clone()))
+        .collect();
+    if !available_sources
+        .iter()
+        .any(|(index, _)| *index == source_index)
+    {
+        available_sources.push((source_index, source.clone()));
+    }
+    let available_sources = Rc::new(available_sources);
+    let initial_source_selection = available_sources
+        .iter()
+        .position(|(index, _)| *index == source_index)
+        .unwrap_or(0);
+
+    let dialog = Dialog::builder(parent, &ui.button_recent_articles)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(620, 180)
+        .with_size(620, 230)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -8944,44 +9099,76 @@ fn open_article_source_items_dialog(
         5,
     );
     let choice = Choice::builder(&panel).build();
-    let visible_count = source.items.len().min(MAX_MENU_ARTICLES_PER_SOURCE);
-    let initial_selection = initial_selection.min(visible_count.saturating_sub(1));
-    let dialog_items: Rc<Vec<articles::ArticleItem>> = Rc::new(
-        source
-            .items
-            .iter()
-            .take(MAX_MENU_ARTICLES_PER_SOURCE)
-            .cloned()
-            .collect(),
-    );
-    for item in dialog_items.iter() {
-        let label = sanitize_dynamic_menu_label(&item.title, &item.link);
-        choice.append(&label);
-    }
-    choice.set_selection(initial_selection as u32);
-    if let Some(item) = dialog_items.get(initial_selection) {
-        append_podcast_log(&format!(
-            "article_dialog.open source_index={} initial_selection={} title={} link={}",
-            source_index, initial_selection, item.title, item.link
-        ));
-    }
     choice.set_focus();
 
     // wxChoice, especially with VoiceOver, can visually move to a different item
     // before the modal result is read. Keep an explicit selected index updated by
     // the control event, then use this value when the user presses Apri/OK.
     let selected_index = Rc::new(Cell::new(initial_selection));
+    let active_source_index = Rc::new(Cell::new(source_index));
+    let dialog_items: Rc<RefCell<Vec<articles::ArticleItem>>> = Rc::new(RefCell::new(Vec::new()));
+    let refresh_article_choice = Rc::new({
+        let available_sources = Rc::clone(&available_sources);
+        let dialog_items = Rc::clone(&dialog_items);
+        let selected_index = Rc::clone(&selected_index);
+        let active_source_index = Rc::clone(&active_source_index);
+        move |choice: &Choice, new_source_index: usize, requested_selection: usize| {
+            let Some((_, source)) = available_sources
+                .iter()
+                .find(|(index, _)| *index == new_source_index)
+            else {
+                return;
+            };
+            let items: Vec<articles::ArticleItem> = source
+                .items
+                .iter()
+                .take(MAX_MENU_ARTICLES_PER_SOURCE)
+                .cloned()
+                .collect();
+            choice.clear();
+            for item in &items {
+                let label = sanitize_dynamic_menu_label(&item.title, &item.link);
+                choice.append(&label);
+            }
+            let selection = requested_selection.min(items.len().saturating_sub(1));
+            if !items.is_empty() {
+                choice.set_selection(selection as u32);
+            }
+            *dialog_items.borrow_mut() = items;
+            active_source_index.set(new_source_index);
+            selected_index.set(selection);
+            if let Some(item) = dialog_items.borrow().get(selection) {
+                append_podcast_log(&format!(
+                    "article_dialog.source_loaded source_index={} item_index={} title={} link={}",
+                    new_source_index, selection, item.title, item.link
+                ));
+            }
+        }
+    });
+    refresh_article_choice(&choice, source_index, initial_selection);
+    if let Some(item) = dialog_items.borrow().get(selected_index.get()) {
+        append_podcast_log(&format!(
+            "article_dialog.open source_index={} initial_selection={} title={} link={}",
+            source_index,
+            selected_index.get(),
+            item.title,
+            item.link
+        ));
+    }
+
     let choice_selection = choice;
     let selected_index_selection = Rc::clone(&selected_index);
     let dialog_items_selection = Rc::clone(&dialog_items);
+    let active_source_index_selection = Rc::clone(&active_source_index);
     choice.on_selection_changed(move |_| {
         if let Some(selection) = choice_selection.get_selection() {
-            let selection = (selection as usize).min(dialog_items_selection.len().saturating_sub(1));
+            let items = dialog_items_selection.borrow();
+            let selection = (selection as usize).min(items.len().saturating_sub(1));
             selected_index_selection.set(selection);
-            if let Some(item) = dialog_items_selection.get(selection) {
+            if let Some(item) = items.get(selection) {
                 append_podcast_log(&format!(
                     "article_dialog.selection_changed source_index={} item_index={} title={} link={}",
-                    source_index, selection, item.title, item.link
+                    active_source_index_selection.get(), selection, item.title, item.link
                 ));
             }
         }
@@ -8989,6 +9176,24 @@ fn open_article_source_items_dialog(
 
     row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let source_row = BoxSizer::builder(Orientation::Horizontal).build();
+    source_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.article_publication_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice_source = Choice::builder(&panel).build();
+    for (_, source) in available_sources.iter() {
+        let label = sanitize_dynamic_menu_label(&article_source_label(source), &source.url);
+        choice_source.append(&label);
+    }
+    choice_source.set_selection(initial_source_selection as u32);
+    source_row.add(&choice_source, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&source_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
@@ -9014,21 +9219,41 @@ fn open_article_source_items_dialog(
     });
     focus_timer.start(80, true);
 
+    let choice_source_evt = choice_source;
+    let choice_for_source_evt = choice;
+    let available_sources_evt = Rc::clone(&available_sources);
+    let refresh_article_choice_evt = Rc::clone(&refresh_article_choice);
+    choice_source.on_selection_changed(move |_| {
+        if let Some(selection) = choice_source_evt.get_selection()
+            && let Some((new_source_index, source)) = available_sources_evt.get(selection as usize)
+        {
+            append_podcast_log(&format!(
+                "article_dialog.source_changed source_index={} title={}",
+                new_source_index,
+                article_source_label(source)
+            ));
+            refresh_article_choice_evt(&choice_for_source_evt, *new_source_index, 0);
+            choice_for_source_evt.set_focus();
+        }
+    });
+
     dialog.set_affirmative_id(ID_OK);
     dialog.set_escape_id(ID_CANCEL);
     let dialog_ok = dialog;
     let choice_ok = choice;
     let selected_index_ok = Rc::clone(&selected_index);
     let dialog_items_ok = Rc::clone(&dialog_items);
+    let active_source_index_ok = Rc::clone(&active_source_index);
     let current_article_state_ok = current_article_state.cloned();
     let pending_article_open_ok = pending_article_open.cloned();
     ok_button.on_click(move |_| {
         if let Some(selection) = choice_ok.get_selection() {
             selected_index_ok
-                .set((selection as usize).min(dialog_items_ok.len().saturating_sub(1)));
+                .set((selection as usize).min(dialog_items_ok.borrow().len().saturating_sub(1)));
         }
         let selection = selected_index_ok.get();
-        if let Some(item) = dialog_items_ok.get(selection) {
+        let source_index = active_source_index_ok.get();
+        if let Some(item) = dialog_items_ok.borrow().get(selection) {
             append_podcast_log(&format!(
                 "article_dialog.ok source_index={} item_index={} title={} link={}",
                 source_index, selection, item.title, item.link
@@ -9052,10 +9277,12 @@ fn open_article_source_items_dialog(
 
     let result = if dialog.show_modal() == ID_OK {
         if let Some(selection) = choice.get_selection() {
-            selected_index.set((selection as usize).min(dialog_items.len().saturating_sub(1)));
+            selected_index
+                .set((selection as usize).min(dialog_items.borrow().len().saturating_sub(1)));
         }
         let selection = selected_index.get();
-        dialog_items.get(selection).cloned().map(|item| {
+        let source_index = active_source_index.get();
+        dialog_items.borrow().get(selection).cloned().map(|item| {
             append_podcast_log(&format!(
                 "article_dialog.result source_index={} item_index={} title={} link={}",
                 source_index, selection, item.title, item.link
@@ -9162,6 +9389,7 @@ fn open_article_folder_contents_dialog(
                             parent,
                             source,
                             *source_index,
+                            &sources,
                             loading_urls,
                             0,
                             current_article_state,
@@ -9218,6 +9446,12 @@ fn rebuild_articles_menu(
         ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY,
         &ui.sorted_articles_title,
         &ui.sorted_articles_message,
+        ItemKind::Normal,
+    );
+    let _ = articles_menu.append(
+        ID_ARTICLES_RESTORE_DEFAULT_SOURCES,
+        &ui.restore_default_sources,
+        &ui.restore_default_sources,
         ItemKind::Normal,
     );
     let _ = articles_menu.append(
@@ -9501,6 +9735,7 @@ fn refresh_all_article_sources(
     let menu_state_refresh = Arc::clone(article_menu_state);
     std::thread::spawn(move || {
         let sources = settings_refresh.lock().unwrap().article_sources.clone();
+        append_podcast_log(&format!("articles_refresh.start sources={}", sources.len()));
         let mut updated_sources = Vec::with_capacity(sources.len());
         let mut changed = false;
         for source in sources {
@@ -9523,6 +9758,21 @@ fn refresh_all_article_sources(
                     {
                         changed = true;
                     }
+                    if let Some(first_item) = effective_source.items.first() {
+                        append_podcast_log(&format!(
+                            "articles_refresh.updated title={} url={} items={} first_title={} first_link={}",
+                            effective_source.title,
+                            effective_source.url,
+                            effective_source.items.len(),
+                            first_item.title,
+                            first_item.link
+                        ));
+                    } else {
+                        append_podcast_log(&format!(
+                            "articles_refresh.updated title={} url={} items=0",
+                            effective_source.title, effective_source.url
+                        ));
+                    }
                     updated_sources.push(effective_source);
                 }
                 Err(err) => {
@@ -9540,6 +9790,9 @@ fn refresh_all_article_sources(
             locked.article_sources = updated_sources;
             locked.save();
             menu_state_refresh.lock().unwrap().dirty = true;
+            append_podcast_log("articles_refresh.saved changed=true");
+        } else {
+            append_podcast_log("articles_refresh.saved changed=false");
         }
     });
 }
@@ -9586,6 +9839,21 @@ fn refresh_single_article_source(
                                 existing.items.len()
                             ));
                         } else {
+                            if let Some(first_item) = updated.items.first() {
+                                append_podcast_log(&format!(
+                                    "article_refresh.updated title={} url={} items={} first_title={} first_link={}",
+                                    updated.title,
+                                    updated.url,
+                                    updated.items.len(),
+                                    first_item.title,
+                                    first_item.link
+                                ));
+                            } else {
+                                append_podcast_log(&format!(
+                                    "article_refresh.updated title={} url={} items=0",
+                                    updated.title, updated.url
+                                ));
+                            }
                             *existing = updated;
                             locked.save();
                         }
@@ -10279,6 +10547,22 @@ fn sort_article_sources_alphabetically(
     });
     locked.save();
     article_menu_state.lock().unwrap().dirty = true;
+}
+
+fn restore_default_article_sources(
+    settings: &Arc<Mutex<Settings>>,
+    article_menu_state: &Arc<Mutex<ArticleMenuState>>,
+    rt: &Arc<Runtime>,
+) {
+    {
+        let mut locked = settings.lock().unwrap();
+        locked.article_sources = articles::default_sources_for_news_language(&locked.news_language);
+        locked.article_folders.clear();
+        normalize_settings_data(&mut locked);
+        locked.save();
+    }
+    article_menu_state.lock().unwrap().dirty = true;
+    refresh_all_article_sources(rt, settings, article_menu_state);
 }
 
 fn article_source_label(source: &articles::ArticleSource) -> String {
@@ -22100,12 +22384,11 @@ fn main() {
                 }
             },
         );
-
-        refresh_all_article_sources(&rt, &settings, &article_menu_state);
         refresh_all_podcast_sources(&rt, &settings, &podcast_menu_state);
         refresh_all_podcast_categories(&rt, &podcast_menu_state);
         refresh_all_radio_languages(&radio_menu_state);
     }
+    refresh_all_article_sources(&rt, &settings, &article_menu_state);
     let initial_open_path = initial_open_path_from_args();
     let pending_open_files = Arc::new(Mutex::new(Vec::<PathBuf>::new()));
     let pending_auto_update_result =
@@ -22599,13 +22882,9 @@ fn main() {
                             Some(&current_article_state_timer),
                         )
                     }
-                    PendingArticleMenuDialog::Source(source_index) => settings_timer
-                        .lock()
-                        .unwrap()
-                        .article_sources
-                        .get(source_index)
-                        .cloned()
-                        .and_then(|source| {
+                    PendingArticleMenuDialog::Source(source_index) => {
+                        let sources = settings_timer.lock().unwrap().article_sources.clone();
+                        sources.get(source_index).cloned().and_then(|source| {
                             append_podcast_log(&format!(
                                 "article_menu.pending_dialog.source index={} title={}",
                                 source_index,
@@ -22615,12 +22894,14 @@ fn main() {
                                 &frame_timer,
                                 &source,
                                 source_index,
+                                &sources,
                                 &loading_urls,
                                 0,
                                 Some(&current_article_state_timer),
                                 None,
                             )
-                        }),
+                        })
+                    }
                 };
                 if let Some((item, source_index, item_index)) = selected_item {
                     append_podcast_log(&format!(
@@ -22839,37 +23120,40 @@ fn main() {
         let pending_mac_update_close = Arc::clone(&pending_mac_update);
         let frame_close = frame;
         frame.on_close(move |event| {
-            if tc_close.is_modified() {
-                match ask_unsaved_changes_dialog(&frame_close) {
-                    ID_YES
-                        if !save_current_document(
-                            &frame_close,
-                            &settings_close,
-                            &tc_close,
-                            &current_document_close,
-                        ) =>
-                    {
-                        event.skip(false);
-                        return;
-                    }
-                    ID_YES | ID_NO => {}
-                    _ => {
-                        event.skip(false);
-                        return;
-                    }
-                }
+            let can_veto = matches!(
+                &event,
+                WindowEventData::General(general_event) if general_event.can_veto()
+            );
+            append_podcast_log(&format!(
+                "window_close.request modified={} can_veto={}",
+                tc_close.is_modified(),
+                can_veto
+            ));
+            if !confirm_unsaved_changes_before_close(
+                &frame_close,
+                &settings_close,
+                &tc_close,
+                &current_document_close,
+                "window_close",
+            ) {
+                cancel_window_close(&event);
+                return;
             }
             remember_text_bookmark(&settings_close, &tc_close, &current_document_close);
             #[cfg(target_os = "macos")]
             if let Err(err) = launch_pending_macos_update_install(&pending_mac_update_close) {
                 let ui = current_ui_strings();
                 show_message_dialog(&frame_close, &ui.updates_title, &err);
+                append_podcast_log(&format!(
+                    "window_close.cancelled update_launch_failed err={err}"
+                ));
                 event.skip(false);
                 return;
             }
             #[cfg(target_os = "macos")]
             stop_all_active_mac_radio_sessions();
             timer_close.stop();
+            append_podcast_log("window_close.accepted");
             event.skip(true);
         });
 
@@ -23001,7 +23285,22 @@ fn main() {
                     cursor_moved_menu.set(true);
                 }
             } else if event.get_id() == ID_EXIT {
-                f_menu.close(true);
+                event.skip(false);
+                append_podcast_log("file_menu.exit.request");
+                if confirm_unsaved_changes_before_close(
+                    &f_menu,
+                    &settings_menu,
+                    &tc_menu,
+                    &current_document_menu,
+                    "file_menu.exit",
+                ) {
+                    append_podcast_log("file_menu.exit.close");
+                    f_menu.close(false);
+                } else {
+                    append_podcast_log("file_menu.exit.cancelled_before_close");
+                    f_menu.raise();
+                    tc_menu.set_focus();
+                }
             } else if event.get_id() == ID_ABOUT {
                 let dialog = MessageDialog::builder(&f_menu, &about_message(), about_title())
                     .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
@@ -23054,7 +23353,8 @@ fn main() {
                     .or_else(|| current_article_state_menu.borrow().clone());
                 if let Some(article_state) = remembered_article_state {
                     let source_index = article_state.source_index;
-                    let source_opt = settings_menu.lock().unwrap().article_sources.get(source_index).cloned();
+                    let sources = settings_menu.lock().unwrap().article_sources.clone();
+                    let source_opt = sources.get(source_index).cloned();
                     if let Some(source) = source_opt {
                         let loading_urls = article_menu_state_menu.lock().unwrap().loading_urls.clone();
                         let initial_selection = article_initial_selection_from_state(&source, &article_state);
@@ -23062,10 +23362,11 @@ fn main() {
                             "recent_articles.menu.current_state source_index={} state_item_index={} computed_initial={} title={} link={}",
                             source_index, article_state.item_index, initial_selection, article_state.title, article_state.link
                         ));
-                        if let Some((item, _, item_index)) = open_article_source_items_dialog(
+                        if let Some((item, selected_source_index, item_index)) = open_article_source_items_dialog(
                             &f_menu,
                             &source,
                             source_index,
+                            &sources,
                             &loading_urls,
                             initial_selection,
                             Some(&current_article_state_menu),
@@ -23073,10 +23374,10 @@ fn main() {
                         ) {
                             append_podcast_log(&format!(
                                 "recent_articles.menu.open_now source_index={} item_index={} title={}",
-                                source_index, item_index, item.title
+                                selected_source_index, item_index, item.title
                             ));
                             let _ = pending_recent_article_open_menu.borrow_mut().take();
-                            remember_current_article_state(&current_article_state_menu, source_index, item_index, &item);
+                            remember_current_article_state(&current_article_state_menu, selected_source_index, item_index, &item);
                             mark_articles_menu_dirty(&article_menu_state_menu);
                             show_article_item(
                                 &item,
@@ -23145,6 +23446,23 @@ fn main() {
                     &ui.sorted_articles_title,
                     &ui.sorted_articles_message,
                 );
+            } else if event.get_id() == ID_ARTICLES_RESTORE_DEFAULT_SOURCES {
+                if confirm_delete_dialog(
+                    &f_menu,
+                    &ui.restore_default_sources_title,
+                    &ui.restore_default_sources_message,
+                ) {
+                    restore_default_article_sources(
+                        &settings_menu,
+                        &article_menu_state_menu,
+                        &rt_articles_menu,
+                    );
+                    show_message_dialog(
+                        &f_menu,
+                        &ui.restore_default_sources_title,
+                        &ui.restore_default_sources_done,
+                    );
+                }
             } else if event.get_id() == ID_ARTICLES_IMPORT_SOURCES {
                 if let Some(path) = open_article_sources_import_dialog(&f_menu) {
                     match import_article_sources_from_file(
@@ -23653,12 +23971,8 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 last_article_state().or_else(|| current_article_state_ra.borrow().clone());
             if let Some(article_state) = remembered_article_state {
                 let source_index = article_state.source_index;
-                let source_opt = settings_ra
-                    .lock()
-                    .unwrap()
-                    .article_sources
-                    .get(source_index)
-                    .cloned();
+                let sources = settings_ra.lock().unwrap().article_sources.clone();
+                let source_opt = sources.get(source_index).cloned();
                 if let Some(source) = source_opt {
                     let loading_urls = article_menu_state_ra.lock().unwrap().loading_urls.clone();
                     let initial_selection =
@@ -23671,23 +23985,26 @@ Non posso scaricare la pagina web al posto dell'audio.",
                         article_state.title,
                         article_state.link
                     ));
-                    if let Some((item, _, item_index)) = open_article_source_items_dialog(
-                        &f_ra,
-                        &source,
-                        source_index,
-                        &loading_urls,
-                        initial_selection,
-                        Some(&current_article_state_ra),
-                        Some(&pending_recent_article_open_ra),
-                    ) {
+                    if let Some((item, selected_source_index, item_index)) =
+                        open_article_source_items_dialog(
+                            &f_ra,
+                            &source,
+                            source_index,
+                            &sources,
+                            &loading_urls,
+                            initial_selection,
+                            Some(&current_article_state_ra),
+                            Some(&pending_recent_article_open_ra),
+                        )
+                    {
                         append_podcast_log(&format!(
                             "recent_articles.shortcut.open_now source_index={} item_index={} title={}",
-                            source_index, item_index, item.title
+                            selected_source_index, item_index, item.title
                         ));
                         let _ = pending_recent_article_open_ra.borrow_mut().take();
                         remember_current_article_state(
                             &current_article_state_ra,
-                            source_index,
+                            selected_source_index,
                             item_index,
                             &item,
                         );
@@ -24838,7 +25155,7 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 };
                 if ask_yes_no_dialog(&frame_settings, &ui.settings_title, message) {
                     match restart_sonarpad() {
-                        Ok(()) => frame_settings.close(true),
+                        Ok(()) => frame_settings.close(false),
                         Err(err) => show_message_dialog(&frame_settings, &ui.settings_title, &err),
                     }
                 }
