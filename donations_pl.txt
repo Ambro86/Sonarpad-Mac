@@ -1,0 +1,15 @@
+Darowizny
+Sonarpad to program stworzony początkowo z myślą o osobistych potrzebach, ale z czasem coraz bardziej się rozwinął. Jego rozwój wymaga stałej pracy nad ulepszaniem funkcji, poprawianiem błędów, szukaniem nowych pomysłów i dokładnym testowaniem każdej części programu.
+Jeśli ten program jest dla Ciebie przydatny i chcesz wesprzeć jego rozwój, możesz przekazać darowiznę.
+
+PayPal
+Możesz przekazać darowiznę przez PayPal pod tym linkiem:
+https://www.paypal.me/ambrogio86
+Jeśli to możliwe, wpisz w opisie „Sonarpad”.
+
+Przelew bankowy
+Możesz również wesprzeć projekt przelewem bankowym na konto należące do Ambrogio Riili.
+IBAN: IT77W0306901020100000064149
+Jeśli to możliwe, użyj jasnego opisu, na przykład „Sonarpad”.
+
+Każda osoba wspierająca projekt otrzyma podziękowanie w programie oraz w repozytorium GitHub, w sekcji wspierających, chyba że poprosi o anonimowość albo użycie pseudonimu.

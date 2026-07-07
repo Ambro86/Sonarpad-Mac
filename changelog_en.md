@@ -1,3 +1,6 @@
+- Articles menu: added entries to submit a news source to the Sonarpad community and import community sources filtered by news language.
+- Donations: added full translations in French, Spanish, Portuguese, Czech and Polish.
+- Technical fixes: avoided unlocalized OK buttons in article dialogs and removed unused compilation warnings.
 - Mac: removed the fixed TV token from source code; the TV catalog now uses the `SONARPAD_TV_CLIENT_TOKEN` workflow secret.
 - Updated the Recent articles shortcut on Mac to Command+hyphen.
 - Replaced standard Yes/No prompts with localized custom dialogs.

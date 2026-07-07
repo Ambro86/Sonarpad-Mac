@@ -364,5 +364,20 @@
   "routes_choose_from": "Choisir le point de départ",
   "routes_choose_to": "Choisir la destination",
   "routes_cancel": "Annuler",
-  "routes_route_name": "Itinéraire"
+  "routes_route_name": "Itinéraire",
+  "add_article_community": "Ajouter un média à la communauté Sonarpad",
+  "add_article_community_title": "Ajouter un média à la communauté",
+  "add_article_community_name": "Nom du média :",
+  "add_article_community_url": "URL du flux RSS ou du site web :",
+  "add_article_community_submit": "Envoyer",
+  "add_article_community_success": "Média envoyé à la communauté avec succès.",
+  "add_article_community_error": "Erreur lors de l’ajout du média : {err}",
+  "add_article_community_missing_fields": "Saisissez le nom du média et l’URL.",
+  "article_community_sources": "Médias de la communauté Sonarpad",
+  "article_community_sources_title": "Médias de la communauté",
+  "article_community_sources_source": "Média :",
+  "article_community_sources_import": "Importer",
+  "article_community_sources_added": "Média importé : {title}",
+  "article_community_sources_empty": "Aucun nouveau média communautaire n’est disponible pour cette langue, ou vous les avez déjà importés.",
+  "article_community_sources_error": "Erreur lors du chargement des médias communautaires : {err}"
 }

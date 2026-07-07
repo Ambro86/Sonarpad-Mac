@@ -1,3 +1,6 @@
+- Menu Articles : ajout des entrées pour envoyer un média à la communauté Sonarpad et importer des médias communautaires filtrés par langue des actualités.
+- Dons : ajout des traductions complètes en français, espagnol, portugais, tchèque et polonais.
+- Corrections techniques : suppression des boutons OK non localisés dans les dialogues des articles et des avertissements de compilation inutiles.
 - Mac : suppression du jeton TV fixe dans le code ; le catalogue TV utilise maintenant le secret de workflow `SONARPAD_TV_CLIENT_TOKEN`.
 - Raccourci Articles récents sur Mac mis à jour en Command+tiret.
 - Remplacement des alertes Oui/Non standard par des dialogues personnalisés localisés.

@@ -1,3 +1,6 @@
+- Menu Articoli: aggiunte le voci per inviare una testata alla comunità Sonarpad e importare testate della comunità filtrate per lingua notizie.
+- Donazioni: aggiunte le traduzioni complete anche in francese, spagnolo, portoghese, ceco e polacco.
+- Correzioni tecniche: evitati pulsanti OK non localizzati nei dialoghi degli articoli e rimossi warning inutili di compilazione.
 - Mac: rimosso il token TV fisso dal codice; il catalogo TV usa il secret workflow `SONARPAD_TV_CLIENT_TOKEN`.
 - Scorciatoia Articoli recenti su Mac aggiornata a Command+trattino.
 - Convertiti i dialoghi Sì/No standard in finestre personalizzate localizzate.

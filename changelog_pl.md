@@ -1,3 +1,6 @@
+- Menu Artykuły: dodano pozycje do wysyłania źródła wiadomości do społeczności Sonarpad oraz importowania źródeł społeczności filtrowanych według języka wiadomości.
+- Darowizny: dodano pełne tłumaczenia także po francusku, hiszpańsku, portugalsku, czesku i polsku.
+- Poprawki techniczne: uniknięto nieprzetłumaczonych przycisków OK w oknach artykułów i usunięto zbędne ostrzeżenia kompilacji.
 - Mac: usunięto stały token TV z kodu; katalog TV używa teraz secretu workflow `SONARPAD_TV_CLIENT_TOKEN`.
 - Skrót Ostatnie artykuły na Macu zmieniono na Command+myślnik.
 - Standardowe okna Tak/Nie zastąpiono lokalizowanymi oknami niestandardowymi.

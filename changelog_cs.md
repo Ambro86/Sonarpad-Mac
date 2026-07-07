@@ -1,3 +1,6 @@
+- Nabídka Články: přidány položky pro odeslání zdroje do komunity Sonarpad a import komunitních zdrojů filtrovaných podle jazyka zpráv.
+- Dary: přidány úplné překlady také do francouzštiny, španělštiny, portugalštiny, češtiny a polštiny.
+- Technické opravy: odstraněna nelokalizovaná tlačítka OK v dialozích článků a zbytečná varování při kompilaci.
 - Mac: pevný TV token byl odebrán ze zdrojového kódu; katalog TV nyní používá workflow secret `SONARPAD_TV_CLIENT_TOKEN`.
 - Zkratka Nedávné články na Macu změněna na Command+spojovník.
 - Standardní dialogy Ano/Ne nahrazeny lokalizovanými vlastními dialogy.

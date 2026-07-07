@@ -1,18 +1,15 @@
 import urllib.request
 import json
-import os
 import subprocess
 import sys
 import urllib.parse
 
 url = "https://sonarpad.com/api/tv_channels_resolver.php"
-route_token = os.environ.get("SONARPAD_ROUTE_CLIENT_TOKEN", "")
-tv_token = os.environ.get("SONARPAD_TV_CLIENT_TOKEN", "")
+token = "8d3b0a3e96524765a1d5e91863b4c2736fc9c9a7e4f0526daa8dc576927cb019"
 
 req = urllib.request.Request(url, headers={
     'Accept': 'application/json',
-    'X-Sonarpad-Route-Token': route_token,
-    'X-Sonarpad-TV-Token': tv_token,
+    'X-Sonarpad-Route-Token': token,
     'User-Agent': 'Sonarpad TV/1.0'
 })
 

@@ -364,5 +364,20 @@
   "routes_choose_from": "Scegli il punto di partenza",
   "routes_choose_to": "Scegli la destinazione",
   "routes_cancel": "Annulla",
-  "routes_route_name": "Percorso"
+  "routes_route_name": "Percorso",
+  "add_article_community": "Aggiungi una testata alla comunità di Sonarpad",
+  "add_article_community_title": "Aggiungi testata alla comunità",
+  "add_article_community_name": "Nome testata:",
+  "add_article_community_url": "URL feed RSS o sito web:",
+  "add_article_community_submit": "Invia",
+  "add_article_community_success": "Testata inviata alla comunità con successo.",
+  "add_article_community_error": "Errore durante l’aggiunta della testata: {err}",
+  "add_article_community_missing_fields": "Inserisci nome testata e URL.",
+  "article_community_sources": "Testate della comunità di Sonarpad",
+  "article_community_sources_title": "Testate della comunità",
+  "article_community_sources_source": "Testata:",
+  "article_community_sources_import": "Importa",
+  "article_community_sources_added": "Testata importata: {title}",
+  "article_community_sources_empty": "Non ci sono nuove testate della comunità per questa lingua, oppure le hai già importate.",
+  "article_community_sources_error": "Errore durante il caricamento delle testate della comunità: {err}"
 }

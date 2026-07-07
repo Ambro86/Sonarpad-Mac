@@ -1,3 +1,6 @@
+- Menu Artigos: adicionadas opções para enviar uma fonte de notícias à comunidade Sonarpad e importar fontes da comunidade filtradas pelo idioma das notícias.
+- Donativos: adicionadas traduções completas em francês, espanhol, português, checo e polaco.
+- Correções técnicas: evitados botões OK sem tradução nos diálogos de artigos e removidos avisos de compilação desnecessários.
 - Mac: removido o token TV fixo do código; o catálogo TV agora usa o secret de workflow `SONARPAD_TV_CLIENT_TOKEN`.
 - Atalho de Artigos recentes no Mac atualizado para Command+hífen.
 - Substituídas as janelas padrão Sim/Não por diálogos personalizados localizados.

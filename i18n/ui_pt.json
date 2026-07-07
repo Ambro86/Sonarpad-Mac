@@ -364,5 +364,20 @@
   "routes_choose_from": "Escolher ponto de partida",
   "routes_choose_to": "Escolher destino",
   "routes_cancel": "Cancelar",
-  "routes_route_name": "Percurso"
+  "routes_route_name": "Percurso",
+  "add_article_community": "Adicionar uma fonte de notícias à comunidade Sonarpad",
+  "add_article_community_title": "Adicionar fonte de notícias à comunidade",
+  "add_article_community_name": "Nome da fonte:",
+  "add_article_community_url": "URL do feed RSS ou do site:",
+  "add_article_community_submit": "Enviar",
+  "add_article_community_success": "Fonte enviada para a comunidade com sucesso.",
+  "add_article_community_error": "Erro ao adicionar a fonte: {err}",
+  "add_article_community_missing_fields": "Introduz o nome da fonte e o URL.",
+  "article_community_sources": "Fontes da comunidade Sonarpad",
+  "article_community_sources_title": "Fontes da comunidade",
+  "article_community_sources_source": "Fonte:",
+  "article_community_sources_import": "Importar",
+  "article_community_sources_added": "Fonte importada: {title}",
+  "article_community_sources_empty": "Não há novas fontes da comunidade para este idioma, ou já as importaste.",
+  "article_community_sources_error": "Erro ao carregar as fontes da comunidade: {err}"
 }

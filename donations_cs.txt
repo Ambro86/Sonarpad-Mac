@@ -1,0 +1,15 @@
+Dary
+Sonarpad je program, který vznikl původně pro osobní potřeby, ale postupem času se stále rozrůstá. Jeho vývoj vyžaduje stálou práci na zlepšování funkcí, opravách chyb, hledání nových nápadů a důkladném testování všech částí programu.
+Pokud je pro vás tento program užitečný a chcete podpořit jeho vývoj, můžete přispět darem.
+
+PayPal
+Přispět můžete přes PayPal na tomto odkazu:
+https://www.paypal.me/ambrogio86
+Pokud je to možné, uveďte jako poznámku „Sonarpad“.
+
+Bankovní převod
+Přispět můžete také bankovním převodem na účet vedený na jméno Ambrogio Riili.
+IBAN: IT77W0306901020100000064149
+Pokud je to možné, použijte jasný účel platby, například „Sonarpad“.
+
+Každý, kdo projekt podpoří, bude uveden s poděkováním v programu a v repozitáři GitHub v sekci podporovatelů, pokud nepožádá o anonymitu nebo použití přezdívky.

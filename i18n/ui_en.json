@@ -364,5 +364,20 @@
   "routes_choose_from": "Choose starting point",
   "routes_choose_to": "Choose destination",
   "routes_cancel": "Cancel",
-  "routes_route_name": "Route"
+  "routes_route_name": "Route",
+  "add_article_community": "Add a news source to the Sonarpad community",
+  "add_article_community_title": "Add news source to community",
+  "add_article_community_name": "News source name:",
+  "add_article_community_url": "RSS feed or website URL:",
+  "add_article_community_submit": "Submit",
+  "add_article_community_success": "News source successfully submitted to the community.",
+  "add_article_community_error": "Error while adding the news source: {err}",
+  "add_article_community_missing_fields": "Enter the news source name and URL.",
+  "article_community_sources": "Sonarpad community news sources",
+  "article_community_sources_title": "Community news sources",
+  "article_community_sources_source": "News source:",
+  "article_community_sources_import": "Import",
+  "article_community_sources_added": "News source imported: {title}",
+  "article_community_sources_empty": "There are no new community news sources for this language, or you have already imported them.",
+  "article_community_sources_error": "Error while loading community news sources: {err}"
 }

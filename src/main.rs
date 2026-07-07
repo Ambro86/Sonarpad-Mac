@@ -82,6 +82,8 @@ const ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY: i32 = 2104;
 const ID_ARTICLES_IMPORT_SOURCES: i32 = 2105;
 const ID_ARTICLES_EXPORT_SOURCES: i32 = 2106;
 const ID_ARTICLES_RESTORE_DEFAULT_SOURCES: i32 = 2107;
+const ID_ARTICLES_ADD_COMMUNITY_SOURCE: i32 = 2108;
+const ID_ARTICLES_COMMUNITY_SOURCES: i32 = 2109;
 const ID_PODCASTS_ADD: i32 = 2300;
 const ID_PODCASTS_DELETE: i32 = 2301;
 const ID_PODCASTS_REORDER_SOURCES: i32 = 2302;
@@ -665,6 +667,7 @@ struct UiStrings {
     book_toc_open: String,
     book_toc_unavailable: String,
     share_article_title: String,
+    #[cfg(target_os = "macos")]
     share_article_choose_service: String,
     share_article_no_article: String,
     share_article_no_services: String,
@@ -843,6 +846,21 @@ struct UiStrings {
     exported_articles_message: String,
     import_articles_error_title: String,
     export_articles_error_title: String,
+    add_article_community: String,
+    add_article_community_title: String,
+    add_article_community_name: String,
+    add_article_community_url: String,
+    add_article_community_submit: String,
+    add_article_community_success: String,
+    add_article_community_error: String,
+    add_article_community_missing_fields: String,
+    article_community_sources: String,
+    article_community_sources_title: String,
+    article_community_sources_source: String,
+    article_community_sources_import: String,
+    article_community_sources_added: String,
+    article_community_sources_empty: String,
+    article_community_sources_error: String,
     sorted_podcasts_title: String,
     sorted_podcasts_message: String,
     loading_articles: String,
@@ -1875,10 +1893,14 @@ fn donations_title() -> &'static str {
 }
 
 fn donations_message() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        include_str!("../donations_it.txt")
-    } else {
-        include_str!("../donations_en.txt")
+    match normalize_ui_language(&Settings::load().ui_language).as_str() {
+        "it" => include_str!("../donations_it.txt"),
+        "fr" => include_str!("../donations_fr.txt"),
+        "es" => include_str!("../donations_es.txt"),
+        "pt" => include_str!("../donations_pt.txt"),
+        "cs" => include_str!("../donations_cs.txt"),
+        "pl" => include_str!("../donations_pl.txt"),
+        _ => include_str!("../donations_en.txt"),
     }
 }
 
@@ -7095,6 +7117,7 @@ fn request_current_article_open(
     ));
 }
 
+#[cfg(target_os = "macos")]
 fn article_share_text(state: &CurrentArticleState) -> String {
     if state.link.trim().is_empty() {
         state.title.clone()
@@ -8346,6 +8369,7 @@ fn load_system_voices() -> Vec<edge_tts::VoiceInfo> {
     Vec::new()
 }
 
+#[cfg(target_os = "macos")]
 fn parse_system_voice_line(line: &str) -> Option<edge_tts::VoiceInfo> {
     let locale = line
         .split_whitespace()
@@ -9425,6 +9449,18 @@ fn rebuild_articles_menu(
         ItemKind::Normal,
     );
     let _ = articles_menu.append(
+        ID_ARTICLES_ADD_COMMUNITY_SOURCE,
+        &format!("{}...", ui.add_article_community),
+        &ui.add_article_community,
+        ItemKind::Normal,
+    );
+    let _ = articles_menu.append(
+        ID_ARTICLES_COMMUNITY_SOURCES,
+        &format!("{}...", ui.article_community_sources),
+        &ui.article_community_sources,
+        ItemKind::Normal,
+    );
+    let _ = articles_menu.append(
         ID_ARTICLES_EDIT_SOURCE,
         &format!("{}...", ui.edit_source),
         &ui.edit_source,
@@ -10023,6 +10059,319 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
             state.dirty = true;
         });
     }
+}
+
+
+#[derive(Debug, Clone, Deserialize)]
+struct CommunityArticleSourceItem {
+    #[serde(default, alias = "name")]
+    title: String,
+    #[serde(default, alias = "feed_url", alias = "rss_url", alias = "feedUrl", alias = "rssUrl")]
+    url: String,
+    #[serde(default, alias = "lang", alias = "language_code", alias = "languageCode")]
+    language: String,
+}
+
+fn community_news_language_code(news_language: &str) -> String {
+    articles::normalize_news_language(news_language)
+}
+
+fn fetch_community_article_sources(
+    news_language: &str,
+) -> Result<Vec<CommunityArticleSourceItem>, String> {
+    let language = community_news_language_code(news_language);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(12))
+        .user_agent("SonarpadMinimal/1.0 (https://sonarpad.com)")
+        .build()
+        .map_err(|err| err.to_string())?;
+    let value = client
+        .get("https://sonarpad.com/api/get_community_news_sources.php")
+        .header("Accept", "application/json")
+        .query(&[("language", language.as_str())])
+        .send()
+        .map_err(|err| err.to_string())?
+        .error_for_status()
+        .map_err(|err| err.to_string())?
+        .json::<serde_json::Value>()
+        .map_err(|err| err.to_string())?;
+
+    let items_value = if value.is_array() {
+        value
+    } else if let Some(items) = value.get("sources") {
+        items.clone()
+    } else if let Some(items) = value.get("items") {
+        items.clone()
+    } else {
+        serde_json::Value::Array(Vec::new())
+    };
+
+    serde_json::from_value::<Vec<CommunityArticleSourceItem>>(items_value)
+        .map_err(|err| err.to_string())
+}
+
+fn add_community_article_source_request(
+    title: &str,
+    url: &str,
+    news_language: &str,
+) -> Result<String, String> {
+    let language = community_news_language_code(news_language);
+    let ui_language = normalize_ui_language(&Settings::load().ui_language);
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .user_agent("SonarpadMinimal/1.0 (https://sonarpad.com)")
+        .build()
+        .map_err(|err| err.to_string())?;
+    let params = [
+        ("title", title.trim()),
+        ("name", title.trim()),
+        ("url", url.trim()),
+        ("language", language.as_str()),
+        ("ui_language", ui_language.as_str()),
+    ];
+    let response = client
+        .post("https://sonarpad.com/api/add_community_news_source.php")
+        .header("Accept", "application/json")
+        .form(&params)
+        .send()
+        .map_err(|err| err.to_string())?
+        .error_for_status()
+        .map_err(|err| err.to_string())?
+        .json::<serde_json::Value>()
+        .map_err(|err| err.to_string())?;
+    let ok = response
+        .get("ok")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let message = response
+        .get("message")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    let error = response
+        .get("error")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .trim()
+        .to_string();
+    if ok {
+        Ok(message)
+    } else {
+        Err(if error.is_empty() {
+            "Richiesta rifiutata dal server.".to_string()
+        } else {
+            error
+        })
+    }
+}
+
+fn open_add_community_article_source_dialog(parent: &Frame) -> Option<(String, String)> {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.add_article_community_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 210)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let title_row = BoxSizer::builder(Orientation::Horizontal).build();
+    title_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.add_article_community_name)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let title_ctrl = TextCtrl::builder(&panel).build();
+    title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
+
+    let url_row = BoxSizer::builder(Orientation::Horizontal).build();
+    url_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.add_article_community_url)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let url_ctrl = TextCtrl::builder(&panel).build();
+    url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let submit_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.add_article_community_submit)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&submit_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let dialog_submit = dialog;
+    let title_ctrl_submit = title_ctrl;
+    let url_ctrl_submit = url_ctrl;
+    submit_button.on_click(move |_| {
+        if title_ctrl_submit.get_value().trim().is_empty()
+            || url_ctrl_submit.get_value().trim().is_empty()
+        {
+            let ui_now = current_ui_strings();
+            show_message_subdialog(
+                &dialog_submit,
+                &ui_now.add_article_community_title,
+                &ui_now.add_article_community_missing_fields,
+            );
+            return;
+        }
+        dialog_submit.end_modal(ID_OK);
+    });
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| dialog_cancel.end_modal(ID_CANCEL));
+
+    let result = if dialog.show_modal() == ID_OK {
+        let title = title_ctrl.get_value();
+        let url = url_ctrl.get_value();
+        if title.trim().is_empty() || url.trim().is_empty() {
+            None
+        } else {
+            Some((title, url))
+        }
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
+}
+
+fn open_community_article_sources_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+) -> Option<articles::ArticleSource> {
+    let ui = current_ui_strings();
+    let (news_language, existing_urls) = {
+        let locked = settings.lock().unwrap();
+        let existing_urls = locked
+            .article_sources
+            .iter()
+            .map(|source| articles::normalize_url(&source.url).to_ascii_lowercase())
+            .collect::<HashSet<_>>();
+        (locked.news_language.clone(), existing_urls)
+    };
+
+    let community_items = match fetch_community_article_sources(&news_language) {
+        Ok(items) => items,
+        Err(err) => {
+            show_message_dialog(
+                parent,
+                &ui.article_community_sources_title,
+                &ui.article_community_sources_error.replace("{err}", &err),
+            );
+            return None;
+        }
+    };
+
+    let wanted_language = community_news_language_code(&news_language);
+    let mut sources = Vec::<articles::ArticleSource>::new();
+    let mut seen_urls = existing_urls;
+    for item in community_items {
+        if !item.language.trim().is_empty()
+            && community_news_language_code(&item.language) != wanted_language
+        {
+            continue;
+        }
+        let Some((url, title)) = resolve_article_source_input(&item.title, &item.url) else {
+            continue;
+        };
+        let key = articles::normalize_url(&url).to_ascii_lowercase();
+        if key.is_empty() || seen_urls.contains(&key) {
+            continue;
+        }
+        seen_urls.insert(key);
+        sources.push(articles::ArticleSource {
+            title,
+            url,
+            folder_path: String::new(),
+            items: Vec::new(),
+        });
+    }
+
+    if sources.is_empty() {
+        show_message_dialog(
+            parent,
+            &ui.article_community_sources_title,
+            &ui.article_community_sources_empty,
+        );
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, &ui.article_community_sources_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(700, 180)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.article_community_sources_source)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice = Choice::builder(&panel).build();
+    for source in &sources {
+        choice.append(&format!("{} - {}", article_source_label(source), source.url));
+    }
+    choice.set_selection(0);
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let import_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.article_community_sources_import)
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&import_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let dialog_import = dialog;
+    import_button.on_click(move |_| dialog_import.end_modal(ID_OK));
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| dialog_cancel.end_modal(ID_CANCEL));
+
+    let result = if dialog.show_modal() == ID_OK {
+        choice
+            .get_selection()
+            .and_then(|selection| sources.get(selection as usize))
+            .cloned()
+    } else {
+        None
+    };
+
+    dialog.destroy();
+    result
 }
 
 fn add_article_source(
@@ -11053,7 +11402,7 @@ fn open_edit_article_source_dialog(
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
         .with_id(ID_OK)
-        .with_label("OK")
+        .with_label(&ui.ok)
         .build();
     buttons.add_spacer(1);
     buttons.add(&ok_button, 0, SizerFlag::All, 10);
@@ -11728,7 +12077,7 @@ fn open_reorder_podcast_sources_dialog(
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
         .with_id(ID_OK)
-        .with_label("OK")
+        .with_label(&ui.ok)
         .build();
     buttons.add_spacer(1);
     buttons.add(&ok_button, 0, SizerFlag::All, 10);
@@ -23399,6 +23748,43 @@ fn main() {
                         &settings_menu,
                         &article_menu_state_menu,
                         &rt_articles_menu,
+                    );
+                }
+            } else if event.get_id() == ID_ARTICLES_ADD_COMMUNITY_SOURCE {
+                if let Some((title, url)) = open_add_community_article_source_dialog(&f_menu) {
+                    let news_language = settings_menu.lock().unwrap().news_language.clone();
+                    match add_community_article_source_request(&title, &url, &news_language) {
+                        Ok(message) => {
+                            let message = if message.trim().is_empty() {
+                                ui.add_article_community_success.clone()
+                            } else {
+                                message
+                            };
+                            show_message_dialog(&f_menu, &ui.add_article_community_title, &message);
+                        }
+                        Err(err) => {
+                            show_message_dialog(
+                                &f_menu,
+                                &ui.add_article_community_title,
+                                &ui.add_article_community_error.replace("{err}", &err),
+                            );
+                        }
+                    }
+                }
+            } else if event.get_id() == ID_ARTICLES_COMMUNITY_SOURCES {
+                if let Some(source) = open_community_article_sources_dialog(&f_menu, &settings_menu) {
+                    let source_title = article_source_label(&source);
+                    add_article_source(
+                        source.title,
+                        source.url,
+                        &settings_menu,
+                        &article_menu_state_menu,
+                        &rt_articles_menu,
+                    );
+                    show_message_dialog(
+                        &f_menu,
+                        &ui.article_community_sources_title,
+                        &ui.article_community_sources_added.replace("{title}", &source_title),
                     );
                 }
             } else if event.get_id() == ID_ARTICLES_EDIT_SOURCE {

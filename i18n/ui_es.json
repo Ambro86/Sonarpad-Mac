@@ -364,5 +364,20 @@
   "routes_choose_from": "Elegir punto de partida",
   "routes_choose_to": "Elegir destino",
   "routes_cancel": "Cancelar",
-  "routes_route_name": "Ruta"
+  "routes_route_name": "Ruta",
+  "add_article_community": "Añadir un medio a la comunidad de Sonarpad",
+  "add_article_community_title": "Añadir medio a la comunidad",
+  "add_article_community_name": "Nombre del medio:",
+  "add_article_community_url": "URL del feed RSS o del sitio web:",
+  "add_article_community_submit": "Enviar",
+  "add_article_community_success": "Medio enviado correctamente a la comunidad.",
+  "add_article_community_error": "Error al añadir el medio: {err}",
+  "add_article_community_missing_fields": "Introduce el nombre del medio y la URL.",
+  "article_community_sources": "Medios de la comunidad de Sonarpad",
+  "article_community_sources_title": "Medios de la comunidad",
+  "article_community_sources_source": "Medio:",
+  "article_community_sources_import": "Importar",
+  "article_community_sources_added": "Medio importado: {title}",
+  "article_community_sources_empty": "No hay nuevos medios de la comunidad para este idioma, o ya los has importado.",
+  "article_community_sources_error": "Error al cargar los medios de la comunidad: {err}"
 }

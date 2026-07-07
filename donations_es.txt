@@ -1,0 +1,15 @@
+Donaciones
+Sonarpad es un programa creado al principio para cubrir necesidades personales, pero con el tiempo ha crecido cada vez más. Su desarrollo requiere un trabajo constante para mejorar funciones, corregir errores, buscar nuevas ideas y probar cuidadosamente cada parte del programa.
+Si este programa te resulta útil y quieres apoyar su desarrollo, puedes hacer una donación.
+
+PayPal
+Puedes donar mediante PayPal con este enlace:
+https://www.paypal.me/ambrogio86
+Si es posible, indica « Sonarpad » como concepto.
+
+Transferencia bancaria
+También puedes contribuir mediante transferencia bancaria a la cuenta a nombre de Ambrogio Riili.
+IBAN: IT77W0306901020100000064149
+Si es posible, usa un concepto claro, por ejemplo « Sonarpad ».
+
+Quien decida apoyar el proyecto recibirá un agradecimiento en el programa y en el repositorio de GitHub, en la sección de patrocinadores, salvo que prefiera permanecer en el anonimato o usar un alias.

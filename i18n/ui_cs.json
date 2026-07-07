@@ -364,5 +364,20 @@
   "routes_choose_from": "Vyberte výchozí bod",
   "routes_choose_to": "Vyberte cíl",
   "routes_cancel": "Zrušit",
-  "routes_route_name": "Trasa"
+  "routes_route_name": "Trasa",
+  "add_article_community": "Přidat zpravodajský zdroj do komunity Sonarpad",
+  "add_article_community_title": "Přidat zdroj do komunity",
+  "add_article_community_name": "Název zdroje:",
+  "add_article_community_url": "Adresa RSS kanálu nebo webu:",
+  "add_article_community_submit": "Odeslat",
+  "add_article_community_success": "Zdroj byl úspěšně odeslán do komunity.",
+  "add_article_community_error": "Chyba při přidávání zdroje: {err}",
+  "add_article_community_missing_fields": "Zadejte název zdroje a adresu URL.",
+  "article_community_sources": "Komunitní zdroje Sonarpadu",
+  "article_community_sources_title": "Komunitní zdroje",
+  "article_community_sources_source": "Zdroj:",
+  "article_community_sources_import": "Importovat",
+  "article_community_sources_added": "Zdroj importován: {title}",
+  "article_community_sources_empty": "Pro tento jazyk nejsou dostupné žádné nové komunitní zdroje, nebo už byly importovány.",
+  "article_community_sources_error": "Chyba při načítání komunitních zdrojů: {err}"
 }
