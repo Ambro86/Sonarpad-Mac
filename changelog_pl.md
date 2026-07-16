@@ -1,6 +1,8 @@
 Lista zmian
 
-Wersja 0.3.0 - 16 lipca 2026
+Wersja 0.3.1 - 16 lipca 2026
+
+- Naprawiono problem uniemożliwiający uruchomienie Sonarpada, gdy menu Radio zawierało ulubione stacje, spowodowany nieprawidłowymi identyfikatorami menu wxWidgets.
 
 - Sonarpad jest teraz dostępny także w języku francuskim, hiszpańskim, portugalskim, czeskim i polskim, oprócz włoskiego i angielskiego.
 

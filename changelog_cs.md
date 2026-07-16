@@ -1,6 +1,8 @@
 Seznam změn
 
-Verze 0.3.0 - 16. července 2026
+Verze 0.3.1 - 16. července 2026
+
+- Byl opraven problém, který bránil spuštění Sonarpadu, pokud nabídka Rádio obsahovala oblíbené stanice, kvůli neplatným identifikátorům nabídek wxWidgets.
 
 - Sonarpad je nyní kromě italštiny a angličtiny dostupný také ve francouzštině, španělštině, portugalštině, češtině a polštině.
 

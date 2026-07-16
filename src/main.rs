@@ -122,10 +122,16 @@ const ID_TOOLS_ROUTES: i32 = 2372;
 const ID_TOOLS_VOICE_DICTIONARY: i32 = 2373;
 const ID_TOOLS_CALENDAR: i32 = 2374;
 const ID_TOOLS_TRECCANI: i32 = 2375;
-const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 40000;
-const ID_RADIO_FAVORITE_RECORD_BASE: i32 = 41000;
-const ID_RADIO_FAVORITE_SCHEDULE_BASE: i32 = 42000;
+// wxWidgets only accepts custom menu IDs below 32767. Keep the three
+// favorite-action ranges contiguous and below the podcast ranges at 27000.
+const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 24000;
+const ID_RADIO_FAVORITE_RECORD_BASE: i32 = 25000;
+const ID_RADIO_FAVORITE_SCHEDULE_BASE: i32 = 26000;
 const MAX_RADIO_MENU_FAVORITES: usize = 1000;
+const _: () = assert!(
+    ID_RADIO_FAVORITE_SCHEDULE_BASE + MAX_RADIO_MENU_FAVORITES as i32
+        <= ID_PODCASTS_CATEGORY_PODCAST_BASE
+);
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
 const ID_ARTICLES_SOURCE_BASE: i32 = 2200;
@@ -10244,7 +10250,7 @@ const COMMUNITY_NEWS_SOURCES_URL: &str =
     "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.3.0 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.3.1 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {

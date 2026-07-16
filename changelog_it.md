@@ -1,6 +1,8 @@
 Changelog
 
-Versione 0.3.0 - 16 luglio 2026
+Versione 0.3.1 - 16 luglio 2026
+
+- Corretto un problema che impediva l’avvio di Sonarpad quando il menu Radio conteneva preferiti, a causa di identificatori di menu non validi in wxWidgets.
 
 - Sonarpad è ora disponibile anche in francese, spagnolo, portoghese, ceco e polacco, oltre che in italiano e inglese.
 
