@@ -71,8 +71,6 @@ struct ScheduledTvJob {
     start: String,
     duration_minutes: u32,
     launch_agent_path: String,
-    #[serde(default)]
-    status: crate::ScheduledRecordingStatus,
 }
 
 pub(crate) fn handle_command_line() -> bool {
@@ -128,9 +126,11 @@ pub(crate) fn schedule(
         start: start.format("%Y-%m-%d %H:%M:%S").to_string(),
         duration_minutes,
         launch_agent_path: plist_path.to_string_lossy().to_string(),
-        status: crate::ScheduledRecordingStatus::Scheduled,
     };
-    write_job(&job_path, &job)?;
+    let json = serde_json::to_string_pretty(&job)
+        .map_err(|error| format!("serializzazione registrazione programmata fallita: {error}"))?;
+    std::fs::write(&job_path, json)
+        .map_err(|error| format!("salvataggio registrazione programmata fallito: {error}"))?;
 
     let executable = std::env::current_exe()
         .map_err(|error| format!("percorso eseguibile Sonarpad non disponibile: {error}"))?;
@@ -220,96 +220,12 @@ fn launch_agent_plist(
 fn run_job_file(job_path: &Path) -> Result<(), String> {
     let data = std::fs::read_to_string(job_path)
         .map_err(|error| format!("lettura job {} fallita: {error}", job_path.display()))?;
-    let mut job = serde_json::from_str::<ScheduledTvJob>(&data)
+    let job = serde_json::from_str::<ScheduledTvJob>(&data)
         .map_err(|error| format!("job non valido: {error}"))?;
     let launch_agent_path = PathBuf::from(&job.launch_agent_path);
-    job.status = crate::ScheduledRecordingStatus::Recording;
-    write_job(job_path, &job)?;
     let result = run_job(&job);
-    if result.is_ok() {
-        remove_file_logged(job_path, "tv.schedule.remove_job_failed");
-    } else {
-        job.status = crate::ScheduledRecordingStatus::Failed;
-        if let Err(error) = write_job(job_path, &job) {
-            crate::append_podcast_log(&format!(
-                "tv.schedule.write_failed_status_failed job={} err={error}",
-                job_path.display()
-            ));
-        }
-    }
-    remove_file_logged(&launch_agent_path, "tv.schedule.remove_plist_failed");
+    cleanup_job(job_path, &launch_agent_path);
     result
-}
-
-fn write_job(path: &Path, job: &ScheduledTvJob) -> Result<(), String> {
-    let json = serde_json::to_string_pretty(job)
-        .map_err(|error| format!("serializzazione registrazione programmata fallita: {error}"))?;
-    let temporary_path = path.with_extension("json.tmp");
-    std::fs::write(&temporary_path, json)
-        .map_err(|error| format!("salvataggio registrazione programmata fallita: {error}"))?;
-    std::fs::rename(&temporary_path, path)
-        .map_err(|error| format!("aggiornamento registrazione programmata fallita: {error}"))
-}
-
-pub(crate) fn entries() -> Vec<crate::ScheduledRecordingEntry> {
-    let jobs_dir = crate::app_storage_path("scheduled-tv");
-    let Ok(read_dir) = std::fs::read_dir(jobs_dir) else {
-        return Vec::new();
-    };
-    read_dir
-        .flatten()
-        .filter_map(|item| {
-            let path = item.path();
-            if path.extension().and_then(|value| value.to_str()) != Some("json") {
-                return None;
-            }
-            let data = std::fs::read_to_string(&path).ok()?;
-            let job = serde_json::from_str::<ScheduledTvJob>(&data).ok()?;
-            let status = effective_status(job.status, &job.start, job.duration_minutes);
-            Some(crate::ScheduledRecordingEntry {
-                title: job.channel.name,
-                kind: "tv".to_string(),
-                start: job.start,
-                duration_minutes: job.duration_minutes,
-                status,
-                job_path: path,
-            })
-        })
-        .collect()
-}
-
-fn effective_status(
-    status: crate::ScheduledRecordingStatus,
-    start: &str,
-    duration_minutes: u32,
-) -> crate::ScheduledRecordingStatus {
-    let Ok(start) = NaiveDateTime::parse_from_str(start, "%Y-%m-%d %H:%M:%S") else {
-        return crate::ScheduledRecordingStatus::Failed;
-    };
-    let deadline = start + chrono::Duration::minutes(i64::from(duration_minutes) + 1);
-    if status != crate::ScheduledRecordingStatus::Failed && Local::now().naive_local() > deadline {
-        crate::ScheduledRecordingStatus::Failed
-    } else {
-        status
-    }
-}
-
-pub(crate) fn cancel(job_path: &Path) -> Result<(), String> {
-    let data = std::fs::read_to_string(job_path)
-        .map_err(|error| format!("lettura registrazione programmata fallita: {error}"))?;
-    let job = serde_json::from_str::<ScheduledTvJob>(&data)
-        .map_err(|error| format!("registrazione programmata non valida: {error}"))?;
-    let plist_path = PathBuf::from(job.launch_agent_path);
-    let _ = Command::new("/bin/launchctl")
-        .arg("unload")
-        .arg(&plist_path)
-        .status();
-    if plist_path.is_file() {
-        std::fs::remove_file(&plist_path)
-            .map_err(|error| format!("rimozione LaunchAgent fallita: {error}"))?;
-    }
-    std::fs::remove_file(job_path)
-        .map_err(|error| format!("rimozione registrazione programmata fallita: {error}"))
 }
 
 fn scheduled_mpv_executable_path() -> Option<PathBuf> {
@@ -467,9 +383,28 @@ fn append_manifest(path: &Path, title: &str) -> Result<(), String> {
     .map_err(|error| format!("scrittura manifest registrazioni fallita: {error}"))
 }
 
-fn remove_file_logged(path: &Path, context: &str) {
-    if let Err(error) = std::fs::remove_file(path) {
-        crate::append_podcast_log(&format!("{context} path={} err={error}", path.display()));
+fn cleanup_job(job_path: &Path, plist_path: &Path) {
+    let status = Command::new("/bin/launchctl")
+        .arg("unload")
+        .arg(plist_path)
+        .status();
+    if let Err(error) = status {
+        crate::append_podcast_log(&format!(
+            "tv.schedule.unload_failed plist={} err={error}",
+            plist_path.display()
+        ));
+    }
+    if let Err(error) = std::fs::remove_file(job_path) {
+        crate::append_podcast_log(&format!(
+            "tv.schedule.remove_job_failed path={} err={error}",
+            job_path.display()
+        ));
+    }
+    if let Err(error) = std::fs::remove_file(plist_path) {
+        crate::append_podcast_log(&format!(
+            "tv.schedule.remove_plist_failed path={} err={error}",
+            plist_path.display()
+        ));
     }
 }
 

@@ -1,13 +1,52 @@
-- Rádio: přidány akce Přehrát a nahrávat a Naplánovat nahrávání ve výsledcích vyhledávání i v oblíbených; každá oblíbená stanice nyní nabízí Otevřít, Přehrát a nahrávat a Naplánovat nahrávání.
-- V okně plánování rádia posouvají šipky vlevo a vpravo čas o pět minut s automatickým přechodem mezi hodinami; plánovaná rádiová nahrávání se ukládají jako skutečné soubory MP3.
-- Nabídka Články: přidány položky pro odeslání zdroje do komunity Sonarpad a import komunitních zdrojů filtrovaných podle jazyka zpráv.
-- Dary: přidány úplné překlady také do francouzštiny, španělštiny, portugalštiny, češtiny a polštiny.
-- Technické opravy: odstraněna nelokalizovaná tlačítka OK v dialozích článků a zbytečná varování při kompilaci.
-- Mac: pevný TV token byl odebrán ze zdrojového kódu; katalog TV nyní používá workflow secret `SONARPAD_TV_CLIENT_TOKEN`.
-- Zkratka Nedávné články na Macu změněna na Command+spojovník.
-- Standardní dialogy Ano/Ne nahrazeny lokalizovanými vlastními dialogy.
-- V Digitální knihovně klávesa Enter ve vyhledávacím poli spustí hledání.
-- Vyhledávání rádií: přidán filtr podle země s úplnými názvy zemí.
+Verze 0.3.0 - 16. července 2026
+
+- Sonarpad je nyní kromě italštiny a angličtiny dostupný také ve francouzštině, španělštině, portugalštině, češtině a polštině.
+
+- Bylo přidáno samostatné nastavení Jazyka zpráv. Toto nastavení je nezávislé na jazyku rozhraní a umožňuje Sonarpadu používat zdroje a služby přizpůsobené vybranému jazyku.
+
+- Byla přidána funkce Počasí, která umožňuje vyhledat město a zjistit aktuální podmínky, teplotu, srážky, vítr a vlhkost, stejně jako předpověď na dnešek, zítřek nebo jiný den.
+
+- Byla přidána sekce Filmy v kinech s aktuálně promítanými filmy, připravovanými premiérami, popisy děje, daty uvedení a, pokud jsou k dispozici, odkazy na upoutávky.
+
+- Do nabídky Nástroje byl přidán přístupný kalendář. Je možné vybrat libovolné datum, zjistit svátky, světce a citát dne, vytvářet připomenutí a přidávat události přímo do Kalendáře macOS.
+
+- Byla přidána funkce Vyhledávání tras, která umožňuje vypočítat pěší, cyklistické, automobilové nebo bezbariérové trasy. Lze zvolit nejrychlejší nebo nejkratší trasu a zobrazit vzdálenost, odhadovanou dobu a podrobné pokyny.
+
+- Byla přidána funkce Převod médií, která podporuje převod zvukových a obrazových souborů do několika formátů, včetně MP3, M4A, M4B, MP4, AVI, MOV, Opus, OGG, FLAC, WAV a AIFF. Je také možné vytvořit video ze zvukového souboru a obrázku.
+
+- Byl přidán Slovník řeči. Je možné určit slova nebo výrazy, které má hlasový syntetizér při čtení nahrazovat, a tím opravit výslovnost, zkratky a specifická jména.
+
+- Sekce Články byla rozšířena o příkazy Nedávné články a Sdílet, které umožňují rychle se vrátit k naposledy čtenému obsahu a sdílet články prostřednictvím služeb dostupných v macOS.
+
+- Do nabídky Články byly přidány položky Přidat zdroj zpráv do komunity Sonarpad a Zdroje zpráv komunity Sonarpad. Je možné odeslat kanál RSS nebo zpravodajský web a importovat zdroje sdílené ostatními uživateli. Zdroje se přidávají a zobrazují podle vybraného Jazyka zpráv.
+
+- Byla vylepšena správa zdrojů zpráv. Změna Jazyka zpráv nyní načte odpovídající výchozí zdroje, aniž by odstranila zdroje přidané samotným uživatelem.
+
+- Vyhledávání rádií bylo rozšířeno o procházení podle jazyka, země a města, včetně úplných a lokalizovaných názvů zemí.
+
+- Byla přidána možnost odeslat rozhlasovou stanici do komunity Sonarpad zadáním jejího názvu, adresy streamu, jazyka a žánru.
+
+- Bylo přidáno nahrávání rádia a plánované nahrávání rádia. Tyto akce jsou dostupné ve výsledcích vyhledávání i v oblíbených a nahrávky se ukládají přímo jako soubory MP3.
+
+- Do nabídky Soubor byl přidán seznam nedávno otevřených textových dokumentů, aby je bylo možné rychleji znovu otevřít.
+
+- Byl přidán režim Pouze pro čtení, který je užitečný pro čtení dokumentu bez rizika nechtěných úprav.
+
+- Byl přidán Obsah knihy pro soubory EPUB, které obsahují obsah. Je možné vybrat kapitolu a přejít přímo na ni.
+
+- Byla přidána možnost volby mezi vysoce kvalitními hlasy Microsoft a systémovými hlasy macOS.
+
+- Byla přidána možnost ignorovat při čtení pauzy způsobené prázdnými řádky.
+
+- Bylo přidáno nastavení pro volbu počtu sekund, o které se má při přehrávání médií posunout vpřed nebo zpět.
+
+- Byla vylepšena přístupnost oken, nabídek a ovládacích prvků, včetně konzistentnější práce s fokusem, klávesami Enter a Escape a klávesovými zkratkami.
+
+- Byla vylepšena lokalizace zpráv, tlačítek a potvrzovacích dialogů ve všech podporovaných jazycích.
+
+- Byla opravena řada problémů ovlivňujících stabilitu, přehrávání médií, plánovaná nahrávání rádia, správu zdrojů a kompilaci v macOS.
+
+- Zvláštní poděkování za trvalou podporu a pravidelné beta testování získávají Leonardo Graziano, Luca Maianti a italská skupina Tecnologia Accessibile.
 
 Seznam změn
 
@@ -94,9 +133,3 @@ Verze 0.2.0
 - Podpora čtení textu, článků a podcastů se syntézou řeči.
 - Podpora OCR PDF v macOS, stahování aktualizací a vyhrazené balíčky DMG.
 - Hierarchické kategorie podcastů a první globální/macOS zkratky.
-- Bezpečnější nahrávání TV na Macu: živý stream se nahrává jako TS a po zastavení se jej Sonarpad pokusí automaticky převést do MP4; pokud převod selže, soubor TS zůstane zachován.
-- Vyhledávání rádií podle země: názvy zemí se nyní lokalizují pomocí i18n-country-translations/CLDR místo ruční tabulky.
-- Diagnostika TV na Macu: přidány rozšířené logy mpv, stav okna/videa, možnosti výstupu, výpisy logu mpv a diagnostické snímky pro zjištění příčiny prázdného okna videa.
-
-- TV na Macu: katalog kanálů nyní používá pouze vzdálený katalog Sonarpad se stejnými hlavičkami a opravami La7/La7D jako mobilní verze. Přidán test spuštění mpv přes LaunchServices pro diagnostiku/opravu prázdného bílého okna videa.
-- Diagnostika TV: Mac nyní zapisuje, zda je token tras přítomen, stav HTTP a krátký úryvek chyby TV katalogu, bez vypsání hodnoty tokenu.

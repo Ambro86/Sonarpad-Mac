@@ -1,18 +1,56 @@
-- Radio: added Play and record and Schedule recording both to search results and favorites; each favorite now offers Open, Play and record, and Schedule recording actions.
-- In the radio scheduling window, Left and Right Arrow move the time by five minutes with automatic hour rollover; scheduled radio recordings are saved as genuine MP3 files.
-- Articles menu: added entries to submit a news source to the Sonarpad community and import community sources filtered by news language.
-- Donations: added full translations in French, Spanish, Portuguese, Czech and Polish.
-- Technical fixes: avoided unlocalized OK buttons in article dialogs and removed unused compilation warnings.
-- Mac: removed the fixed TV token from source code; the TV catalog now uses the `SONARPAD_TV_CLIENT_TOKEN` workflow secret.
-- Updated the Recent articles shortcut on Mac to Command+hyphen.
-- Replaced standard Yes/No prompts with localized custom dialogs.
-- In Digital Library, pressing Enter in the search field now starts Search.
-- Radio search: added a country filter with full country names.
+Version 0.3.0 - July 16, 2026
+
+- Sonarpad is now also available in French, Spanish, Portuguese, Czech and Polish, in addition to Italian and English.
+
+- Added a separate News language setting. This setting is independent of the interface language and allows Sonarpad to use news sources and services tailored to the selected language.
+
+- Added the Weather feature, which lets you search for a city and check current conditions, temperature, precipitation, wind and humidity, as well as forecasts for today, tomorrow or another day.
+
+- Added the Movies in theaters section, with films currently showing, upcoming releases, plot summaries, release dates and, when available, links to trailers.
+
+- Added an accessible calendar to the Tools menu. You can select any date, check holidays, the saint and quote of the day, create reminders and add appointments directly to macOS Calendar.
+
+- Added the Route search feature, which can calculate walking, cycling, driving or wheelchair-accessible routes. You can choose the fastest or shortest route and view the distance, estimated duration and detailed directions.
+
+- Added the Convert media feature, which supports converting audio and video files to several formats, including MP3, M4A, M4B, MP4, AVI, MOV, Opus, OGG, FLAC, WAV and AIFF. You can also create a video from an audio file and an image.
+
+- Added the Speech dictionary. You can define words or expressions that the speech synthesizer should replace while reading, making it possible to correct pronunciations, abbreviations and particular names.
+
+- Expanded the Articles section with Recent articles and Share commands, allowing you to quickly return to recently read content and share articles through the services available on macOS.
+
+- Added Add a news source to the Sonarpad community and Sonarpad community news sources to the Articles menu. You can submit an RSS feed or news website and import sources shared by other users. Sources are added and displayed according to the selected News language.
+
+- Improved news source management. Changing the News language now loads the appropriate default sources without removing sources added personally by the user.
+
+- Expanded radio search with browsing by language, country and city, including complete and localized country names.
+
+- Added the ability to submit a radio station to the Sonarpad community by specifying its name, stream address, language and genre.
+
+- Added radio recording and scheduled radio recording. These actions are available both in search results and favorites, and recordings are saved directly as MP3 files.
+
+- Added a list of recently opened text documents to the File menu, making it easier to reopen them quickly.
+
+- Added Read-only mode, which is useful for reading a document without accidentally modifying it.
+
+- Added Book contents for EPUB files that include a table of contents. You can select a chapter and move directly to it.
+
+- Added the option to choose between high-quality Microsoft voices and macOS system voices.
+
+- Added an option to ignore pauses caused by empty lines while reading.
+
+- Added a setting for choosing how many seconds to move forward or backward during media playback.
+
+- Improved the accessibility of windows, menus and controls, with more consistent handling of focus, Enter, Escape and keyboard shortcuts.
+
+- Improved the localization of messages, buttons and confirmation dialogs in all supported languages.
+
+- Fixed numerous issues affecting stability, media playback, scheduled radio recordings, source management and compilation on macOS.
+
+- Special thanks to Leonardo Graziano, Luca Maianti and the Italian Tecnologia Accessibile group for their continued support and ongoing beta testing.
 
 Changelog
 
 Version 0.2.9 - May 1, 2026
-- Safer TV recording on Mac: live streams are recorded as TS and, when stopped, Sonarpad automatically tries to convert them to MP4; if conversion fails, the TS file is kept.
 - Extended YouTube features to Intel Macs and Catalina.
 - Greatly improved YouTube search speed.
 - Improved YouTube results handling, placing channels and playlists at the top.
@@ -82,9 +120,3 @@ Version 0.2.0
 - Text reading, articles, and podcast support with speech synthesis.
 - macOS PDF OCR support, update downloads, and dedicated DMG packages.
 - Hierarchical podcast categories and the first macOS shortcut work.
-- Radio country search: country names are now localized through i18n-country-translations/CLDR instead of a manual table.
-- Fixed Recent articles on macOS: it now really uses Command+hyphen, matching the other Command shortcuts.
-- Mac TV diagnostics: added extended mpv logs, window/video state, output options, mpv log snapshots, and diagnostic screenshots to identify the cause of the blank video window.
-
-- Mac TV: the channel catalog now uses only the remote Sonarpad catalog, with the same headers and La7/La7D fixes used by the mobile version. Added a LaunchServices mpv launch test to diagnose/fix the blank video window.
-- TV diagnostics: Mac now logs whether the route token is present, the HTTP status, and a short catalog error snippet without printing the token value.

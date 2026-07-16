@@ -122,6 +122,9 @@ const ID_TOOLS_ROUTES: i32 = 2372;
 const ID_TOOLS_VOICE_DICTIONARY: i32 = 2373;
 const ID_TOOLS_CALENDAR: i32 = 2374;
 const ID_TOOLS_TRECCANI: i32 = 2375;
+const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 40000;
+const ID_RADIO_FAVORITE_RECORD_BASE: i32 = 41000;
+const ID_RADIO_FAVORITE_SCHEDULE_BASE: i32 = 42000;
 const MAX_RADIO_MENU_FAVORITES: usize = 1000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
@@ -866,6 +869,8 @@ struct UiStrings {
     export_articles_error_title: String,
     add_article_community: String,
     add_article_community_title: String,
+    add_article_community_instructions: String,
+    add_article_community_selected_language: String,
     add_article_community_name: String,
     add_article_community_url: String,
     add_article_community_submit: String,
@@ -1739,6 +1744,7 @@ fn handle_shortcut_event(
                 return;
             }
             event.skip(true);
+            return;
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -2435,7 +2441,7 @@ fn restart_sonarpad() -> Result<(), String> {
             .arg(&app_bundle)
             .spawn()
             .map_err(|err| format!("riavvio Sonarpad non riuscito: {err}"))?;
-        Ok(())
+        return Ok(());
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -5135,6 +5141,15 @@ fn embedded_radio_stations() -> HashMap<String, Vec<RadioStation>> {
         .into_iter()
         .map(|(language_code, entries)| (language_code, normalize_radio_stations(entries)))
         .collect()
+}
+
+fn radio_favorite_menu_id(index: usize, action: RadioMenuAction) -> i32 {
+    let base = match action {
+        RadioMenuAction::Open => ID_RADIO_FAVORITE_OPEN_BASE,
+        RadioMenuAction::PlayAndRecord => ID_RADIO_FAVORITE_RECORD_BASE,
+        RadioMenuAction::ScheduleRecording => ID_RADIO_FAVORITE_SCHEDULE_BASE,
+    };
+    base + index as i32
 }
 
 fn favorite_from_station(language_code: &str, station: &RadioStation) -> RadioFavorite {
@@ -7873,7 +7888,7 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
 fn primary_podcast_log_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        app_storage_dir().map(|dir| dir.join("log.txt"))
+        return app_storage_dir().map(|dir| dir.join("log.txt"));
     }
 
     #[cfg(windows)]
@@ -9820,12 +9835,15 @@ fn rebuild_radio_menu(
     let favorites_menu = Menu::builder().build();
     let mut station_commands = HashMap::new();
     if favorites.is_empty() {
-        if let Some(item) = favorites_menu.append(
-            wxdragon::ffi::WXD_ID_ANY as i32,
-            &ui.no_radios_available,
-            &ui.no_radios_available,
-            ItemKind::Normal,
-        ) && !favorites_menu.enable_item(item.get_item_id(), false)
+        if favorites_menu
+            .append(
+                ID_RADIO_FAVORITE_OPEN_BASE,
+                &ui.no_radios_available,
+                &ui.no_radios_available,
+                ItemKind::Normal,
+            )
+            .is_some()
+            && !favorites_menu.enable_item(ID_RADIO_FAVORITE_OPEN_BASE, false)
         {
             append_podcast_log("radio.menu.disable_empty_favorites_failed");
         }
@@ -9833,42 +9851,39 @@ fn rebuild_radio_menu(
         let labels = radio_schedule_labels(&ui_language);
         for (index, favorite) in favorites.iter().take(MAX_RADIO_MENU_FAVORITES).enumerate() {
             let station_menu = Menu::builder().build();
-            let open_id = station_menu
-                .append(
-                    wxdragon::ffi::WXD_ID_ANY as i32,
-                    labels.open,
-                    labels.open,
-                    ItemKind::Normal,
-                )
-                .map(|item| item.get_item_id());
-            let record_id = station_menu
-                .append(
-                    wxdragon::ffi::WXD_ID_ANY as i32,
-                    labels.play_record,
-                    labels.play_record,
-                    ItemKind::Normal,
-                )
-                .map(|item| item.get_item_id());
-            let schedule_id = station_menu
-                .append(
-                    wxdragon::ffi::WXD_ID_ANY as i32,
-                    labels.schedule_recording,
-                    labels.schedule_recording,
-                    ItemKind::Normal,
-                )
-                .map(|item| item.get_item_id());
-
-            if open_id.is_none() {
+            let open_id = radio_favorite_menu_id(index, RadioMenuAction::Open);
+            let record_id = radio_favorite_menu_id(index, RadioMenuAction::PlayAndRecord);
+            let schedule_id = radio_favorite_menu_id(index, RadioMenuAction::ScheduleRecording);
+            if station_menu
+                .append(open_id, labels.open, labels.open, ItemKind::Normal)
+                .is_none()
+            {
                 append_podcast_log(&format!(
                     "radio.menu.favorite_open_append_failed index={index}"
                 ));
             }
-            if record_id.is_none() {
+            if station_menu
+                .append(
+                    record_id,
+                    labels.play_record,
+                    labels.play_record,
+                    ItemKind::Normal,
+                )
+                .is_none()
+            {
                 append_podcast_log(&format!(
                     "radio.menu.favorite_record_append_failed index={index}"
                 ));
             }
-            if schedule_id.is_none() {
+            if station_menu
+                .append(
+                    schedule_id,
+                    labels.schedule_recording,
+                    labels.schedule_recording,
+                    ItemKind::Normal,
+                )
+                .is_none()
+            {
                 append_podcast_log(&format!(
                     "radio.menu.favorite_schedule_append_failed index={index}"
                 ));
@@ -9883,33 +9898,27 @@ fn rebuild_radio_menu(
                     favorite.name
                 ));
             }
-            if let Some(open_id) = open_id {
-                station_commands.insert(
-                    open_id,
-                    RadioMenuCommand {
-                        station: favorite.clone(),
-                        action: RadioMenuAction::Open,
-                    },
-                );
-            }
-            if let Some(record_id) = record_id {
-                station_commands.insert(
-                    record_id,
-                    RadioMenuCommand {
-                        station: favorite.clone(),
-                        action: RadioMenuAction::PlayAndRecord,
-                    },
-                );
-            }
-            if let Some(schedule_id) = schedule_id {
-                station_commands.insert(
-                    schedule_id,
-                    RadioMenuCommand {
-                        station: favorite.clone(),
-                        action: RadioMenuAction::ScheduleRecording,
-                    },
-                );
-            }
+            station_commands.insert(
+                open_id,
+                RadioMenuCommand {
+                    station: favorite.clone(),
+                    action: RadioMenuAction::Open,
+                },
+            );
+            station_commands.insert(
+                record_id,
+                RadioMenuCommand {
+                    station: favorite.clone(),
+                    action: RadioMenuAction::PlayAndRecord,
+                },
+            );
+            station_commands.insert(
+                schedule_id,
+                RadioMenuCommand {
+                    station: favorite.clone(),
+                    action: RadioMenuAction::ScheduleRecording,
+                },
+            );
         }
         if favorites.len() > MAX_RADIO_MENU_FAVORITES {
             append_podcast_log(&format!(
@@ -10231,129 +10240,343 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
     }
 }
 
-#[derive(Debug, Clone, Deserialize)]
-struct CommunityArticleSourceItem {
-    #[serde(default, alias = "name")]
-    title: String,
-    #[serde(
-        default,
-        alias = "feed_url",
-        alias = "rss_url",
-        alias = "feedUrl",
-        alias = "rssUrl"
-    )]
+const COMMUNITY_NEWS_SOURCES_URL: &str =
+    "https://sonarpad.com/api/get_community_news_sources.php";
+const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
+    "https://sonarpad.com/api/add_community_news_source.php";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.3.0 (https://sonarpad.com)";
+
+#[derive(Debug, Clone)]
+struct CommunityArticleSource {
+    name: String,
     url: String,
-    #[serde(
-        default,
-        alias = "lang",
-        alias = "language_code",
-        alias = "languageCode"
-    )]
-    language: String,
 }
 
-fn community_news_language_code(news_language: &str) -> String {
-    articles::normalize_news_language(news_language)
+fn normalize_community_news_language_code(value: &str) -> &'static str {
+    let normalized = value.trim().to_lowercase().replace('_', "-");
+    let primary = normalized.split('-').next().unwrap_or_default();
+    match normalized.as_str() {
+        "it" | "italian" | "italiano" => "it",
+        "en" | "english" | "inglese" => "en",
+        "fr" | "french" | "francese" | "français" | "francais" => "fr",
+        "es" | "spanish" | "spagnolo" | "español" | "espanol" => "es",
+        "pt" | "portuguese" | "portoghese" | "português" | "portugues" => "pt",
+        "pl" | "polish" | "polacco" | "polski" => "pl",
+        "cs" | "cz" | "czech" | "ceco" | "čeština" | "cestina" => "cs",
+        _ => match primary {
+            "en" => "en",
+            "fr" => "fr",
+            "es" => "es",
+            "pt" => "pt",
+            "pl" => "pl",
+            "cs" | "cz" => "cs",
+            _ => "it",
+        },
+    }
+}
+
+fn community_news_language_key(value: &str) -> &'static str {
+    match normalize_community_news_language_code(value) {
+        "en" => "english",
+        "fr" => "french",
+        "es" => "spanish",
+        "pt" => "portuguese",
+        "pl" => "polish",
+        "cs" => "czech",
+        _ => "italian",
+    }
+}
+
+fn normalize_community_language_key(value: &str) -> Option<&'static str> {
+    let normalized = value.trim().to_lowercase().replace('_', "-");
+    let primary = normalized.split('-').next().unwrap_or_default();
+    match normalized.as_str() {
+        "italian" | "italiano" => Some("italian"),
+        "english" | "inglese" => Some("english"),
+        "french" | "francese" | "français" | "francais" => Some("french"),
+        "spanish" | "spagnolo" | "español" | "espanol" => Some("spanish"),
+        "portuguese" | "portoghese" | "português" | "portugues" => Some("portuguese"),
+        "polish" | "polacco" | "polski" => Some("polish"),
+        "czech" | "ceco" | "čeština" | "cestina" => Some("czech"),
+        _ => match primary {
+            "it" => Some("italian"),
+            "en" => Some("english"),
+            "fr" => Some("french"),
+            "es" => Some("spanish"),
+            "pt" => Some("portuguese"),
+            "pl" => Some("polish"),
+            "cs" | "cz" => Some("czech"),
+            _ => None,
+        },
+    }
+}
+
+// Deliberately keep the same comparison used by the Windows and mobile
+// versions: http/https and trailing-slash variants are not merged because
+// they can point to different feeds on some sites.
+fn community_article_source_url_key(url: &str) -> String {
+    url.trim().to_lowercase()
+}
+
+fn unique_community_article_source_name(
+    base_name: &str,
+    known_names: &mut HashSet<String>,
+) -> String {
+    let base_name = base_name.trim();
+    let mut candidate = base_name.to_string();
+    let mut suffix = 2usize;
+    while known_names.contains(&candidate.to_lowercase()) {
+        candidate = format!("{} ({})", base_name, suffix);
+        suffix += 1;
+    }
+    known_names.insert(candidate.to_lowercase());
+    candidate
+}
+
+fn selected_news_language_label(ui_language: &str, news_language: &str) -> String {
+    let code = normalize_community_news_language_code(news_language);
+    news_language_options(ui_language)
+        .into_iter()
+        .find(|(_, candidate)| *candidate == code)
+        .map(|(label, _)| label.to_string())
+        .unwrap_or_else(|| match code {
+            "en" => "English".to_string(),
+            _ => code.to_uppercase(),
+        })
+}
+
+fn add_community_article_source_request(
+    name: &str,
+    url: &str,
+    news_language: &str,
+    ui_language: &str,
+) -> Result<String, String> {
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(15))
+        .user_agent(COMMUNITY_NEWS_USER_AGENT)
+        .build()
+        .map_err(|error| error.to_string())?;
+    let normalized_ui_language = normalize_ui_language(ui_language);
+    let response = client
+        .post(ADD_COMMUNITY_NEWS_SOURCE_URL)
+        .header("Accept", "application/json")
+        .form(&[
+            ("name", name.trim()),
+            ("url", url.trim()),
+            ("language", community_news_language_key(news_language)),
+            ("ui_language", normalized_ui_language.as_str()),
+        ])
+        .send()
+        .map_err(|error| error.to_string())?;
+    let status = response.status();
+    let body = response.text().map_err(|error| error.to_string())?;
+    let json: serde_json::Value = serde_json::from_str(&body).map_err(|error| {
+        if body.trim().is_empty() {
+            format!("HTTP {}: {}", status, error)
+        } else {
+            format!("HTTP {}: {}", status, body.trim())
+        }
+    })?;
+    let ok = json
+        .get("ok")
+        .and_then(serde_json::Value::as_bool)
+        .unwrap_or(false);
+    let message = json
+        .get("message")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    let error = json
+        .get("error")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !status.is_success() || !ok {
+        Err(if error.is_empty() {
+            format!("HTTP {}", status)
+        } else {
+            error
+        })
+    } else {
+        Ok(message)
+    }
 }
 
 fn fetch_community_article_sources(
     news_language: &str,
-) -> Result<Vec<CommunityArticleSourceItem>, String> {
-    let language = community_news_language_code(news_language);
+    known_urls: HashSet<String>,
+    mut known_names: HashSet<String>,
+) -> Result<Vec<CommunityArticleSource>, String> {
+    let expected_language = community_news_language_key(news_language);
     let client = reqwest::blocking::Client::builder()
         .timeout(Duration::from_secs(12))
-        .user_agent("SonarpadMinimal/1.0 (https://sonarpad.com)")
+        .user_agent(COMMUNITY_NEWS_USER_AGENT)
         .build()
-        .map_err(|err| err.to_string())?;
-    let value = client
-        .get("https://sonarpad.com/api/get_community_news_sources.php")
-        .header("Accept", "application/json")
-        .query(&[("language", language.as_str())])
-        .send()
-        .map_err(|err| err.to_string())?
-        .error_for_status()
-        .map_err(|err| err.to_string())?
-        .json::<serde_json::Value>()
-        .map_err(|err| err.to_string())?;
+        .map_err(|error| error.to_string())?;
+    let request_bases = [
+        COMMUNITY_NEWS_SOURCES_URL,
+        "https://www.sonarpad.com/api/get_community_news_sources.php",
+    ];
+    let mut selected_json = None;
+    let mut last_empty_json = None;
+    let mut last_error = None;
 
-    let items_value = if value.is_array() {
-        value
-    } else if let Some(items) = value.get("sources") {
-        items.clone()
-    } else if let Some(items) = value.get("items") {
-        items.clone()
+    for (attempt, base_url) in request_bases.iter().enumerate() {
+        let mut request_url = Url::parse(base_url).map_err(|error| error.to_string())?;
+        let cache_buster = format!(
+            "{}-{}",
+            chrono::Local::now().timestamp_millis(),
+            attempt
+        );
+        request_url
+            .query_pairs_mut()
+            .append_pair("language", expected_language)
+            .append_pair("lang", normalize_community_news_language_code(news_language))
+            .append_pair("_ts", &cache_buster);
+
+        let response = match client
+            .get(request_url)
+            .header("Accept", "application/json")
+            .header(
+                reqwest::header::CACHE_CONTROL,
+                "no-cache, no-store, max-age=0",
+            )
+            .header(reqwest::header::PRAGMA, "no-cache")
+            .send()
+        {
+            Ok(response) => response,
+            Err(error) => {
+                last_error = Some(error.to_string());
+                continue;
+            }
+        };
+        let status = response.status();
+        let body = match response.text() {
+            Ok(body) => body,
+            Err(error) => {
+                last_error = Some(error.to_string());
+                continue;
+            }
+        };
+        if !status.is_success() {
+            last_error = Some(format!("HTTP {}", status));
+            continue;
+        }
+        let json: serde_json::Value = match serde_json::from_str(&body) {
+            Ok(json) => json,
+            Err(error) => {
+                last_error = Some(error.to_string());
+                continue;
+            }
+        };
+        let item_count = if let Some(array) = json.as_array() {
+            Some(array.len())
+        } else {
+            ["items", "sources", "data"]
+                .iter()
+                .find_map(|key| json.get(*key).and_then(serde_json::Value::as_array))
+                .map(Vec::len)
+        };
+        let Some(item_count) = item_count else {
+            last_error = Some("Invalid community source response".to_string());
+            continue;
+        };
+        if item_count > 0 {
+            selected_json = Some(json);
+            break;
+        }
+        last_empty_json = Some(json);
+    }
+
+    let json = selected_json.or(last_empty_json).ok_or_else(|| {
+        last_error.unwrap_or_else(|| "Unable to load community sources".to_string())
+    })?;
+    let items = if let Some(array) = json.as_array() {
+        array
     } else {
-        serde_json::Value::Array(Vec::new())
+        ["items", "sources", "data"]
+            .iter()
+            .find_map(|key| json.get(*key).and_then(serde_json::Value::as_array))
+            .ok_or_else(|| "Invalid community source response".to_string())?
     };
 
-    serde_json::from_value::<Vec<CommunityArticleSourceItem>>(items_value)
-        .map_err(|err| err.to_string())
-}
-
-fn add_community_article_source_request(
-    title: &str,
-    url: &str,
-    news_language: &str,
-) -> Result<String, String> {
-    let language = community_news_language_code(news_language);
-    let ui_language = normalize_ui_language(&Settings::load().ui_language);
-    let client = reqwest::blocking::Client::builder()
-        .timeout(Duration::from_secs(15))
-        .user_agent("SonarpadMinimal/1.0 (https://sonarpad.com)")
-        .build()
-        .map_err(|err| err.to_string())?;
-    let params = [
-        ("title", title.trim()),
-        ("name", title.trim()),
-        ("url", url.trim()),
-        ("language", language.as_str()),
-        ("ui_language", ui_language.as_str()),
-    ];
-    let response = client
-        .post("https://sonarpad.com/api/add_community_news_source.php")
-        .header("Accept", "application/json")
-        .form(&params)
-        .send()
-        .map_err(|err| err.to_string())?
-        .error_for_status()
-        .map_err(|err| err.to_string())?
-        .json::<serde_json::Value>()
-        .map_err(|err| err.to_string())?;
-    let ok = response
-        .get("ok")
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
-    let message = response
-        .get("message")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    let error = response
-        .get("error")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .trim()
-        .to_string();
-    if ok {
-        Ok(message)
-    } else {
-        Err(if error.is_empty() {
-            "Richiesta rifiutata dal server.".to_string()
-        } else {
-            error
-        })
+    let mut results = Vec::new();
+    let mut result_urls = HashSet::new();
+    for item in items {
+        let name = item
+            .get("name")
+            .or_else(|| item.get("title"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        let url = item
+            .get("url")
+            .or_else(|| item.get("feed_url"))
+            .or_else(|| item.get("rss_url"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        let language = item
+            .get("language")
+            .or_else(|| item.get("lang"))
+            .and_then(serde_json::Value::as_str)
+            .unwrap_or_default()
+            .trim();
+        if name.is_empty() || url.is_empty() {
+            continue;
+        }
+        if !language.is_empty()
+            && normalize_community_language_key(language) != Some(expected_language)
+        {
+            continue;
+        }
+        let valid_url = matches!(
+            Url::parse(url),
+            Ok(parsed) if matches!(parsed.scheme(), "http" | "https") && parsed.host().is_some()
+        );
+        if !valid_url {
+            continue;
+        }
+        let key = community_article_source_url_key(url);
+        if known_urls.contains(&key) || !result_urls.insert(key) {
+            continue;
+        }
+        results.push(CommunityArticleSource {
+            name: unique_community_article_source_name(name, &mut known_names),
+            url: url.to_string(),
+        });
     }
+    results.sort_by_key(|source| source.name.to_lowercase());
+    Ok(results)
 }
 
-fn open_add_community_article_source_dialog(parent: &Frame) -> Option<(String, String)> {
+fn open_add_community_article_source_dialog(
+    parent: &Frame,
+    news_language: &str,
+    ui_language: &str,
+) -> Option<(String, String)> {
     let ui = current_ui_strings();
+    let selected_language = selected_news_language_label(ui_language, news_language);
+    let selected_language_text = ui
+        .add_article_community_selected_language
+        .replace("{language}", &selected_language);
     let dialog = Dialog::builder(parent, &ui.add_article_community_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, 210)
+        .with_size(650, 300)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.add_article_community_instructions)
+            .build(),
+        0,
+        SizerFlag::Expand | SizerFlag::All,
+        8,
+    );
 
     let title_row = BoxSizer::builder(Orientation::Horizontal).build();
     title_row.add(
@@ -10380,6 +10603,15 @@ fn open_add_community_article_source_dialog(parent: &Frame) -> Option<(String, S
     let url_ctrl = TextCtrl::builder(&panel).build();
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&selected_language_text)
+            .build(),
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
+        8,
+    );
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let submit_button = Button::builder(&panel)
@@ -10418,6 +10650,7 @@ fn open_add_community_article_source_dialog(parent: &Frame) -> Option<(String, S
     let dialog_cancel = dialog;
     cancel_button.on_click(move |_| dialog_cancel.end_modal(ID_CANCEL));
 
+    title_ctrl.set_focus();
     let result = if dialog.show_modal() == ID_OK {
         let title = title_ctrl.get_value();
         let url = url_ctrl.get_value();
@@ -10437,19 +10670,30 @@ fn open_add_community_article_source_dialog(parent: &Frame) -> Option<(String, S
 fn open_community_article_sources_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
-) -> Option<articles::ArticleSource> {
+) -> Option<CommunityArticleSource> {
     let ui = current_ui_strings();
-    let (news_language, existing_urls) = {
+    let (news_language, existing_urls, existing_names) = {
         let locked = settings.lock().unwrap();
         let existing_urls = locked
             .article_sources
             .iter()
-            .map(|source| articles::normalize_url(&source.url).to_ascii_lowercase())
+            .map(|source| community_article_source_url_key(&source.url))
+            .filter(|url| !url.is_empty())
             .collect::<HashSet<_>>();
-        (locked.news_language.clone(), existing_urls)
+        let existing_names = locked
+            .article_sources
+            .iter()
+            .map(|source| source.title.trim().to_lowercase())
+            .filter(|name| !name.is_empty())
+            .collect::<HashSet<_>>();
+        (locked.news_language.clone(), existing_urls, existing_names)
     };
 
-    let community_items = match fetch_community_article_sources(&news_language) {
+    let sources = match fetch_community_article_sources(
+        &news_language,
+        existing_urls,
+        existing_names,
+    ) {
         Ok(items) => items,
         Err(err) => {
             show_message_dialog(
@@ -10460,31 +10704,6 @@ fn open_community_article_sources_dialog(
             return None;
         }
     };
-
-    let wanted_language = community_news_language_code(&news_language);
-    let mut sources = Vec::<articles::ArticleSource>::new();
-    let mut seen_urls = existing_urls;
-    for item in community_items {
-        if !item.language.trim().is_empty()
-            && community_news_language_code(&item.language) != wanted_language
-        {
-            continue;
-        }
-        let Some((url, title)) = resolve_article_source_input(&item.title, &item.url) else {
-            continue;
-        };
-        let key = articles::normalize_url(&url).to_ascii_lowercase();
-        if key.is_empty() || seen_urls.contains(&key) {
-            continue;
-        }
-        seen_urls.insert(key);
-        sources.push(articles::ArticleSource {
-            title,
-            url,
-            folder_path: String::new(),
-            items: Vec::new(),
-        });
-    }
 
     if sources.is_empty() {
         show_message_dialog(
@@ -10497,7 +10716,7 @@ fn open_community_article_sources_dialog(
 
     let dialog = Dialog::builder(parent, &ui.article_community_sources_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(700, 180)
+        .with_size(650, 180)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -10513,11 +10732,7 @@ fn open_community_article_sources_dialog(
     );
     let choice = Choice::builder(&panel).build();
     for source in &sources {
-        choice.append(&format!(
-            "{} - {}",
-            article_source_label(source),
-            source.url
-        ));
+        choice.append(&source.name);
     }
     choice.set_selection(0);
     row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -10545,6 +10760,7 @@ fn open_community_article_sources_dialog(
     let dialog_cancel = dialog;
     cancel_button.on_click(move |_| dialog_cancel.end_modal(ID_CANCEL));
 
+    choice.set_focus();
     let result = if dialog.show_modal() == ID_OK {
         choice
             .get_selection()
@@ -10556,6 +10772,38 @@ fn open_community_article_sources_dialog(
 
     dialog.destroy();
     result
+}
+
+fn import_community_article_source(
+    source: CommunityArticleSource,
+    settings: &Arc<Mutex<Settings>>,
+    article_menu_state: &Arc<Mutex<ArticleMenuState>>,
+    rt: &Arc<Runtime>,
+) -> bool {
+    let source_key = community_article_source_url_key(&source.url);
+    if source_key.is_empty() {
+        return false;
+    }
+    let source_url = source.url.clone();
+    {
+        let mut locked = settings.lock().unwrap();
+        if locked
+            .article_sources
+            .iter()
+            .any(|existing| community_article_source_url_key(&existing.url) == source_key)
+        {
+            return false;
+        }
+        locked.article_sources.push(articles::ArticleSource {
+            title: source.name,
+            url: source.url,
+            folder_path: String::new(),
+            items: Vec::new(),
+        });
+        locked.save();
+    }
+    refresh_single_article_source(source_url, rt, settings, article_menu_state);
+    true
 }
 
 fn add_article_source(
@@ -15663,11 +15911,6 @@ fn load_selected_treccani_extract(
 
     match fetch_treccani_extract_with_progress(dialog, result.url) {
         Ok(extract) => {
-            append_podcast_log(&format!(
-                "treccani.article.loaded url={} section_count={}",
-                extract.url,
-                extract.sections.len()
-            ));
             section_choice.clear();
             section_choice.append("Intera voce");
             for section in &extract.sections {
@@ -15797,27 +16040,16 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
                         result_choice_timer.append(&treccani_result_display_label(item));
                     }
                     if found.is_empty() {
-                        *results_timer.borrow_mut() = found;
                         show_message_subdialog(
                             &dialog_timer,
                             "Treccani",
                             "Nessuna voce Treccani trovata.",
                         );
                     } else {
-                        *results_timer.borrow_mut() = found;
                         result_choice_timer.set_selection(0);
-                        if load_selected_treccani_extract(
-                            &dialog_timer,
-                            result_choice_timer,
-                            section_choice_timer,
-                            &results_timer,
-                            &current_extract_timer,
-                        )
-                        .is_some()
-                        {
-                            section_choice_timer.set_focus();
-                        }
+                        result_choice_timer.set_focus();
                     }
+                    *results_timer.borrow_mut() = found;
                 }
                 Err(error) => show_message_subdialog(
                     &dialog_timer,
@@ -15864,27 +16096,13 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
     let perform_search_enter = Rc::clone(&perform_search);
     query_ctrl.on_text_enter(move |_| perform_search_enter());
 
-    let results_selection = Rc::clone(&results);
     let current_extract_selection = Rc::clone(&current_extract);
-    let dialog_selection = dialog;
-    let result_choice_selection = result_choice;
     let section_choice_selection = section_choice;
     result_choice.on_selection_changed(move |_| {
         *current_extract_selection.borrow_mut() = None;
         section_choice_selection.clear();
         section_choice_selection.append("Intera voce");
         section_choice_selection.set_selection(0);
-        if load_selected_treccani_extract(
-            &dialog_selection,
-            result_choice_selection,
-            section_choice_selection,
-            &results_selection,
-            &current_extract_selection,
-        )
-        .is_some()
-        {
-            section_choice_selection.set_focus();
-        }
     });
 
     let results_load = Rc::clone(&results);
@@ -18990,138 +19208,6 @@ fn bind_five_minute_time_navigation(hour_choice: Choice, minute_choice: Choice) 
     });
 }
 
-fn show_calendar_reminder_alert(parent: &Frame, reminder: &calendar::CalendarReminder) {
-    let language = Settings::load().ui_language;
-    let italian = language == "it";
-    let title = if italian { "Promemoria" } else { "Reminder" };
-    let dialog = Dialog::builder(parent, title)
-        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(600, 330)
-        .build();
-    let panel = Panel::builder(&dialog).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
-
-    let event_time = format!(
-        "{} - {:02}:{:02}",
-        reminder.date, reminder.hour, reminder.minute
-    );
-    root.add(
-        &StaticText::builder(&panel).with_label(&event_time).build(),
-        0,
-        SizerFlag::Expand | SizerFlag::All,
-        10,
-    );
-    let reminder_text = TextCtrl::builder(&panel)
-        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
-        .build();
-    reminder_text.set_value(&reminder.text);
-    root.add(
-        &reminder_text,
-        1,
-        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
-        10,
-    );
-
-    let snooze_row = BoxSizer::builder(Orientation::Horizontal).build();
-    snooze_row.add(
-        &StaticText::builder(&panel)
-            .with_label(if italian {
-                "Posticipa di"
-            } else {
-                "Snooze for"
-            })
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
-    let snooze_choice = Choice::builder(&panel).build();
-    for label in if italian {
-        [
-            "5 minuti",
-            "10 minuti",
-            "30 minuti",
-            "1 ora",
-            "Domani alle 09:00",
-        ]
-    } else {
-        [
-            "5 minutes",
-            "10 minutes",
-            "30 minutes",
-            "1 hour",
-            "Tomorrow at 09:00",
-        ]
-    } {
-        snooze_choice.append(label);
-    }
-    snooze_choice.set_selection(0);
-    snooze_row.add(&snooze_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&snooze_row, 0, SizerFlag::Expand, 0);
-
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let completed_button = Button::builder(&panel)
-        .with_id(ID_OK)
-        .with_label(if italian { "Completato" } else { "Completed" })
-        .build();
-    let snooze_button = Button::builder(&panel)
-        .with_id(ID_YES)
-        .with_label(if italian { "Posticipa" } else { "Snooze" })
-        .build();
-    let close_button = Button::builder(&panel)
-        .with_id(ID_CANCEL)
-        .with_label(if italian { "Chiudi" } else { "Close" })
-        .build();
-    buttons.add(&completed_button, 0, SizerFlag::All, 5);
-    buttons.add(&snooze_button, 0, SizerFlag::All, 5);
-    buttons.add(&close_button, 0, SizerFlag::All, 5);
-    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
-    panel.set_sizer(root, true);
-    dialog.set_affirmative_id(ID_OK);
-    dialog.set_escape_id(ID_CANCEL);
-
-    let completed_dialog = dialog;
-    completed_button.on_click(move |_| completed_dialog.end_modal(ID_OK));
-    let snooze_dialog = dialog;
-    snooze_button.on_click(move |_| snooze_dialog.end_modal(ID_YES));
-    let close_dialog = dialog;
-    close_button.on_click(move |_| close_dialog.end_modal(ID_CANCEL));
-    reminder_text.set_focus();
-
-    let response = dialog.show_modal();
-    let result = match response {
-        ID_OK => calendar::complete_reminder(&reminder.id),
-        ID_YES => {
-            let selection = snooze_choice.get_selection().unwrap_or(0);
-            let minutes = match selection {
-                1 => 10,
-                2 => 30,
-                3 => 60,
-                4 => {
-                    let now = chrono::Local::now().naive_local();
-                    let tomorrow = (now.date() + chrono::Duration::days(1))
-                        .and_hms_opt(9, 0, 0)
-                        .unwrap_or(now + chrono::Duration::days(1));
-                    (tomorrow - now).num_minutes().max(1)
-                }
-                _ => 5,
-            };
-            calendar::snooze_reminder(&reminder.id, minutes)
-        }
-        _ => Ok(()),
-    };
-    dialog.destroy();
-    if let Err(error) = result {
-        show_message_dialog(parent, title, &error);
-    }
-}
-
-fn show_due_calendar_reminders(parent: &Frame) {
-    for reminder in calendar::take_due_reminders() {
-        show_calendar_reminder_alert(parent, &reminder);
-    }
-}
-
 fn open_calendar_dialog(parent: &Frame) {
     let language = Settings::load().ui_language;
     let labels = calendar::labels(&language);
@@ -19471,58 +19557,6 @@ struct RadioScheduleLabels {
     success: &'static str,
 }
 
-const SCHEDULE_DURATION_VALUES: [u32; 14] =
-    [1, 5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 240, 360, 480];
-
-fn scheduled_duration_texts(language: &str) -> (&'static str, &'static str, &'static str) {
-    match language {
-        "it" => (
-            "Personalizzata",
-            "Durata personalizzata in minuti",
-            "Inserisci una durata da 1 a 1440 minuti.",
-        ),
-        "fr" => (
-            "Personnalisée",
-            "Durée personnalisée en minutes",
-            "Saisissez une durée de 1 à 1440 minutes.",
-        ),
-        "es" => (
-            "Personalizada",
-            "Duración personalizada en minutos",
-            "Introduce una duración de 1 a 1440 minutos.",
-        ),
-        "pt" => (
-            "Personalizada",
-            "Duração personalizada em minutos",
-            "Introduza uma duração de 1 a 1440 minutos.",
-        ),
-        "cs" => (
-            "Vlastní",
-            "Vlastní délka v minutách",
-            "Zadejte délku od 1 do 1440 minut.",
-        ),
-        "pl" => (
-            "Niestandardowy",
-            "Niestandardowy czas w minutach",
-            "Wprowadź czas od 1 do 1440 minut.",
-        ),
-        _ => (
-            "Custom",
-            "Custom duration in minutes",
-            "Enter a duration from 1 to 1440 minutes.",
-        ),
-    }
-}
-
-fn selected_scheduled_duration(duration_choice: Choice, custom_duration: TextCtrl) -> Option<u32> {
-    let selection = duration_choice.get_selection()? as usize;
-    let duration = SCHEDULE_DURATION_VALUES
-        .get(selection)
-        .copied()
-        .or_else(|| custom_duration.get_value().trim().parse::<u32>().ok())?;
-    (1..=1440).contains(&duration).then_some(duration)
-}
-
 fn radio_schedule_labels(language: &str) -> RadioScheduleLabels {
     match language {
         "it" => RadioScheduleLabels {
@@ -19643,7 +19677,7 @@ fn open_radio_schedule_dialog(parent: &impl WxWidget, station: &RadioFavorite) {
 
     let dialog = Dialog::builder(parent, labels.title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(600, 390)
+        .with_size(600, 330)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -19712,29 +19746,13 @@ fn open_radio_schedule_dialog(parent: &impl WxWidget, station: &RadioFavorite) {
         5,
     );
     let duration_choice = Choice::builder(&panel).build();
-    for duration in SCHEDULE_DURATION_VALUES {
+    let durations = [1_u32, 5, 10, 20, 30, 60, 90, 120];
+    for duration in durations {
         duration_choice.append(&format!("{duration} min"));
     }
-    let (custom_label, custom_duration_label, invalid_duration) =
-        scheduled_duration_texts(&language);
-    duration_choice.append(custom_label);
-    duration_choice.set_selection(7);
+    duration_choice.set_selection(4);
     duration_row.add(&duration_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&duration_row, 0, SizerFlag::Expand, 0);
-
-    let custom_duration_row = BoxSizer::builder(Orientation::Horizontal).build();
-    custom_duration_row.add(
-        &StaticText::builder(&panel)
-            .with_label(custom_duration_label)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
-    let custom_duration = TextCtrl::builder(&panel).with_value("60").build();
-    custom_duration.enable(false);
-    custom_duration_row.add(&custom_duration, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&custom_duration_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let schedule_button = Button::builder(&panel).with_label(labels.schedule).build();
@@ -19748,15 +19766,6 @@ fn open_radio_schedule_dialog(parent: &impl WxWidget, station: &RadioFavorite) {
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
-
-    let custom_duration_mode = custom_duration;
-    duration_choice.on_selection_changed(move |_| {
-        custom_duration_mode
-            .enable(duration_choice.get_selection() == Some(SCHEDULE_DURATION_VALUES.len() as u32));
-        if custom_duration_mode.is_enabled() {
-            custom_duration_mode.set_focus();
-        }
-    });
 
     let station_schedule = station.clone();
     let days_schedule = Rc::clone(&days);
@@ -19782,10 +19791,10 @@ fn open_radio_schedule_dialog(parent: &impl WxWidget, station: &RadioFavorite) {
             show_message_subdialog(&dialog_schedule, labels.title, labels.past_time);
             return;
         }
-        let Some(duration) = selected_scheduled_duration(duration_choice, custom_duration) else {
-            show_message_subdialog(&dialog_schedule, labels.title, invalid_duration);
-            return;
-        };
+        let duration = duration_choice
+            .get_selection()
+            .and_then(|selection| durations.get(selection as usize).copied())
+            .unwrap_or(30);
         match scheduled_radio::schedule(
             &station_schedule.name,
             &station_schedule.stream_url,
@@ -19941,7 +19950,7 @@ fn open_tv_schedule_dialog(parent: &Dialog, channel: &tv::TvChannel) {
 
     let dialog = Dialog::builder(parent, labels.title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(600, 390)
+        .with_size(600, 330)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -20009,29 +20018,13 @@ fn open_tv_schedule_dialog(parent: &Dialog, channel: &tv::TvChannel) {
         5,
     );
     let duration_choice = Choice::builder(&panel).build();
-    for duration in SCHEDULE_DURATION_VALUES {
+    let durations = [1_u32, 5, 10, 20, 30, 60, 90, 120];
+    for duration in durations {
         duration_choice.append(&format!("{duration} min"));
     }
-    let (custom_label, custom_duration_label, invalid_duration) =
-        scheduled_duration_texts(&language);
-    duration_choice.append(custom_label);
-    duration_choice.set_selection(7);
+    duration_choice.set_selection(4);
     duration_row.add(&duration_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&duration_row, 0, SizerFlag::Expand, 0);
-
-    let custom_duration_row = BoxSizer::builder(Orientation::Horizontal).build();
-    custom_duration_row.add(
-        &StaticText::builder(&panel)
-            .with_label(custom_duration_label)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
-    let custom_duration = TextCtrl::builder(&panel).with_value("60").build();
-    custom_duration.enable(false);
-    custom_duration_row.add(&custom_duration, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&custom_duration_row, 0, SizerFlag::Expand, 0);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let schedule_button = Button::builder(&panel).with_label(labels.schedule).build();
@@ -20045,15 +20038,6 @@ fn open_tv_schedule_dialog(parent: &Dialog, channel: &tv::TvChannel) {
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
-
-    let custom_duration_mode = custom_duration;
-    duration_choice.on_selection_changed(move |_| {
-        custom_duration_mode
-            .enable(duration_choice.get_selection() == Some(SCHEDULE_DURATION_VALUES.len() as u32));
-        if custom_duration_mode.is_enabled() {
-            custom_duration_mode.set_focus();
-        }
-    });
 
     let channel_schedule = channel.clone();
     let days_schedule = Rc::clone(&days);
@@ -20078,10 +20062,10 @@ fn open_tv_schedule_dialog(parent: &Dialog, channel: &tv::TvChannel) {
             show_message_subdialog(&dialog_schedule, labels.title, labels.past_time);
             return;
         }
-        let Some(duration) = selected_scheduled_duration(duration_choice, custom_duration) else {
-            show_message_subdialog(&dialog_schedule, labels.title, invalid_duration);
-            return;
-        };
+        let duration = duration_choice
+            .get_selection()
+            .and_then(|selection| durations.get(selection as usize).copied())
+            .unwrap_or(30);
         match scheduled_tv::schedule(&channel_schedule, start, duration) {
             Ok(_) => {
                 let message = labels
@@ -22545,31 +22529,6 @@ struct RecordingEntry {
     saved_at: String,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum ScheduledRecordingStatus {
-    #[default]
-    Scheduled,
-    Recording,
-    Failed,
-}
-
-#[derive(Clone, Debug)]
-struct ScheduledRecordingEntry {
-    title: String,
-    kind: String,
-    start: String,
-    duration_minutes: u32,
-    status: ScheduledRecordingStatus,
-    job_path: PathBuf,
-}
-
-#[derive(Clone, Debug)]
-enum RecordingListEntry {
-    Completed(RecordingEntry),
-    Scheduled(ScheduledRecordingEntry),
-}
-
 fn is_recording_media_file(path: &Path) -> bool {
     let Some(extension) = path.extension().and_then(|value| value.to_str()) else {
         return false;
@@ -22759,77 +22718,14 @@ fn share_recording_with_system(path: &Path) -> Result<(), String> {
     }
 }
 
-fn scheduled_recording_status_label(
-    status: ScheduledRecordingStatus,
-    language: &str,
-) -> &'static str {
-    match (status, language) {
-        (ScheduledRecordingStatus::Scheduled, "it") => "Programmata",
-        (ScheduledRecordingStatus::Recording, "it") => "In registrazione",
-        (ScheduledRecordingStatus::Failed, "it") => "Non riuscita",
-        (ScheduledRecordingStatus::Scheduled, "es") => "Programada",
-        (ScheduledRecordingStatus::Recording, "es") => "Grabando",
-        (ScheduledRecordingStatus::Failed, "es") => "Fallida",
-        (ScheduledRecordingStatus::Scheduled, "pt") => "Programada",
-        (ScheduledRecordingStatus::Recording, "pt") => "A gravar",
-        (ScheduledRecordingStatus::Failed, "pt") => "Falhou",
-        (ScheduledRecordingStatus::Scheduled, _) => "Scheduled",
-        (ScheduledRecordingStatus::Recording, _) => "Recording",
-        (ScheduledRecordingStatus::Failed, _) => "Failed",
-    }
-}
-
-fn recording_list_entry_label(entry: &RecordingListEntry, language: &str) -> String {
-    match entry {
-        RecordingListEntry::Completed(entry) => recording_entry_label(entry),
-        RecordingListEntry::Scheduled(entry) => format!(
-            "{} - {} - {} - {} - {} min",
-            recording_kind_label(&entry.kind),
-            entry.title,
-            scheduled_recording_status_label(entry.status, language),
-            entry.start,
-            entry.duration_minutes
-        ),
-    }
-}
-
-fn recording_list_entry_key(entry: &RecordingListEntry) -> String {
-    match entry {
-        RecordingListEntry::Completed(entry) => format!("file:{}", entry.path.display()),
-        RecordingListEntry::Scheduled(entry) => format!("job:{}", entry.job_path.display()),
-    }
-}
-
-fn read_recordings_list() -> Vec<RecordingListEntry> {
-    let mut scheduled = scheduled_radio::entries();
-    scheduled.extend(scheduled_tv::entries());
-    scheduled.sort_by(|left, right| {
-        left.start
-            .cmp(&right.start)
-            .then_with(|| left.title.cmp(&right.title))
-    });
-
-    let mut entries = scheduled
-        .into_iter()
-        .map(RecordingListEntry::Scheduled)
-        .collect::<Vec<_>>();
-    entries.extend(
-        read_recordings_index()
-            .into_iter()
-            .map(RecordingListEntry::Completed),
-    );
-    entries
-}
-
 fn refresh_recordings_choice(
     choice: &Choice,
-    entries: &[RecordingListEntry],
+    entries: &[RecordingEntry],
     selected_index: Option<usize>,
-    language: &str,
 ) {
     choice.clear();
     for entry in entries {
-        choice.append(&recording_list_entry_label(entry, language));
+        choice.append(&recording_entry_label(entry));
     }
     if !entries.is_empty() {
         choice.set_selection(
@@ -22838,23 +22734,6 @@ fn refresh_recordings_choice(
                 .min(entries.len().saturating_sub(1)) as u32,
         );
     }
-}
-
-fn update_recording_action_buttons(
-    choice: &Choice,
-    entries: &[RecordingListEntry],
-    open_button: &Button,
-    delete_button: &Button,
-    share_button: &Button,
-) {
-    let selected = choice
-        .get_selection()
-        .and_then(|selection| entries.get(selection as usize));
-    let is_completed = matches!(selected, Some(RecordingListEntry::Completed(_)));
-    choice.enable(!entries.is_empty());
-    open_button.enable(is_completed);
-    share_button.enable(is_completed);
-    delete_button.enable(selected.is_some());
 }
 
 fn open_recordings_dialog(parent: &impl WxWidget) {
@@ -22867,7 +22746,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
         "pl" => "Nagrania",
         _ => "Recordings",
     };
-    let initial_entries = read_recordings_list();
+    let mut initial_entries = read_recordings_index();
     if initial_entries.is_empty() {
         let dialog = MessageDialog::builder(
             parent,
@@ -22903,7 +22782,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
         5,
     );
     let choice = Choice::builder(&panel).build();
-    refresh_recordings_choice(&choice, &initial_entries, Some(0), &ui_language);
+    refresh_recordings_choice(&choice, &initial_entries, Some(0));
     row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
 
@@ -22958,29 +22837,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
 
-    let entries = Rc::new(RefCell::new(initial_entries));
-    update_recording_action_buttons(
-        &choice,
-        &entries.borrow(),
-        &open_button,
-        &delete_button,
-        &share_button,
-    );
-
-    let entries_selection = Rc::clone(&entries);
-    let choice_selection = choice;
-    let open_button_selection = open_button;
-    let delete_button_selection = delete_button;
-    let share_button_selection = share_button;
-    choice.on_selection_changed(move |_| {
-        update_recording_action_buttons(
-            &choice_selection,
-            &entries_selection.borrow(),
-            &open_button_selection,
-            &delete_button_selection,
-            &share_button_selection,
-        );
-    });
+    let entries = Rc::new(RefCell::new(std::mem::take(&mut initial_entries)));
 
     let entries_open = Rc::clone(&entries);
     let choice_open = choice;
@@ -22990,7 +22847,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
             return;
         };
         let entries = entries_open.borrow();
-        let Some(RecordingListEntry::Completed(entry)) = entries.get(selection as usize) else {
+        let Some(entry) = entries.get(selection as usize) else {
             return;
         };
         if let Err(err) = open_path_with_system(&entry.path) {
@@ -23005,9 +22862,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
     share_button.on_click(move |_| {
         let Some(selection) = choice_share.get_selection() else { return };
         let entries = entries_share.borrow();
-        let Some(RecordingListEntry::Completed(entry)) = entries.get(selection as usize) else {
-            return;
-        };
+        let Some(entry) = entries.get(selection as usize) else { return };
         match share_recording_with_system(&entry.path) {
             Ok(()) => {
                 show_message_subdialog(
@@ -23043,12 +22898,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
         };
         let Some(entry) = entry else { return };
         let delete_message = match ui_language_delete.as_str() {
-            "it" => match entry {
-                RecordingListEntry::Completed(_) => "Vuoi eliminare questa registrazione?",
-                RecordingListEntry::Scheduled(_) => {
-                    "Vuoi annullare questa registrazione programmata?"
-                }
-            },
+            "it" => "Vuoi eliminare questa registrazione?",
             "es" => "¿Quieres eliminar esta grabación?",
             "pt" => "Queres eliminar esta gravação?",
             "cs" => "Chcete tuto nahrávku smazat?",
@@ -23058,16 +22908,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
         if !ask_yes_no_dialog(&dialog_delete, title, delete_message) {
             return;
         }
-        let delete_result = match &entry {
-            RecordingListEntry::Completed(entry) => {
-                std::fs::remove_file(&entry.path).map_err(|error| error.to_string())
-            }
-            RecordingListEntry::Scheduled(entry) if entry.kind == "tv" => {
-                scheduled_tv::cancel(&entry.job_path)
-            }
-            RecordingListEntry::Scheduled(entry) => scheduled_radio::cancel(&entry.job_path),
-        };
-        if let Err(err) = delete_result {
+        if let Err(err) = std::fs::remove_file(&entry.path) {
             show_message_subdialog(
                 &dialog_delete,
                 title,
@@ -23087,29 +22928,14 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
         }
         {
             let mut entries = entries_delete.borrow_mut();
-            let deleted_key = recording_list_entry_key(&entry);
-            entries.retain(|item| recording_list_entry_key(item) != deleted_key);
-            let completed_entries = entries
-                .iter()
-                .filter_map(|item| match item {
-                    RecordingListEntry::Completed(entry) => Some(entry.clone()),
-                    RecordingListEntry::Scheduled(_) => None,
-                })
-                .collect::<Vec<_>>();
-            let _ = rewrite_recordings_manifest(&completed_entries);
-            refresh_recordings_choice(
-                &choice_delete,
-                &entries,
-                Some(index.saturating_sub(1)),
-                &ui_language_delete,
-            );
-            update_recording_action_buttons(
-                &choice_delete,
-                &entries,
-                &open_button,
-                &delete_button,
-                &share_button,
-            );
+            entries.retain(|item| item.path != entry.path);
+            let _ = rewrite_recordings_manifest(&entries);
+            refresh_recordings_choice(&choice_delete, &entries, Some(index.saturating_sub(1)));
+            let has_entries = !entries.is_empty();
+            choice_delete.enable(has_entries);
+            open_button.enable(has_entries);
+            delete_button.enable(has_entries);
+            share_button.enable(has_entries);
         }
         panel_delete.layout();
         dialog_delete.layout();
@@ -23126,57 +22952,7 @@ fn open_recordings_dialog(parent: &impl WxWidget) {
 
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
-
-    let refresh_timer = Rc::new(Timer::new(&dialog));
-    let refresh_timer_tick = Rc::clone(&refresh_timer);
-    let entries_timer = Rc::clone(&entries);
-    let choice_timer = choice;
-    let open_button_timer = open_button;
-    let delete_button_timer = delete_button;
-    let share_button_timer = share_button;
-    let ui_language_timer = ui_language.clone();
-    refresh_timer_tick.on_tick(move |_| {
-        let refreshed = read_recordings_list();
-        let old_labels = entries_timer
-            .borrow()
-            .iter()
-            .map(|entry| recording_list_entry_label(entry, &ui_language_timer))
-            .collect::<Vec<_>>();
-        let new_labels = refreshed
-            .iter()
-            .map(|entry| recording_list_entry_label(entry, &ui_language_timer))
-            .collect::<Vec<_>>();
-        if old_labels != new_labels {
-            let selected_key = choice_timer.get_selection().and_then(|selection| {
-                entries_timer
-                    .borrow()
-                    .get(selection as usize)
-                    .map(recording_list_entry_key)
-            });
-            let selected_index = selected_key.and_then(|key| {
-                refreshed
-                    .iter()
-                    .position(|entry| recording_list_entry_key(entry) == key)
-            });
-            *entries_timer.borrow_mut() = refreshed;
-            refresh_recordings_choice(
-                &choice_timer,
-                &entries_timer.borrow(),
-                selected_index,
-                &ui_language_timer,
-            );
-        }
-        update_recording_action_buttons(
-            &choice_timer,
-            &entries_timer.borrow(),
-            &open_button_timer,
-            &delete_button_timer,
-            &share_button_timer,
-        );
-    });
-    refresh_timer.start(1000, false);
     dialog.show_modal();
-    refresh_timer.stop();
     dialog.destroy();
 }
 
@@ -24742,7 +24518,6 @@ fn main() {
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
 
     append_podcast_log("app.start");
-    calendar::initialize_internal_alerts();
     #[cfg(target_os = "macos")]
     disable_macos_automatic_text_substitutions();
 
@@ -25242,14 +25017,8 @@ fn main() {
         let pending_recent_article_open_timer = Rc::clone(&pending_recent_article_open);
         let btn_recent_articles_timer = btn_recent_articles;
         let btn_share_article_timer = btn_share_article;
-        let last_calendar_check = Rc::new(Cell::new(Instant::now() - Duration::from_secs(5)));
-        let last_calendar_check_timer = Rc::clone(&last_calendar_check);
 
         timer_tick.on_tick(move |_| {
-            if last_calendar_check_timer.get().elapsed() >= Duration::from_secs(5) {
-                last_calendar_check_timer.set(Instant::now());
-                show_due_calendar_reminders(&frame_timer);
-            }
             let tts_status = pb_timer.lock().unwrap().status;
             let (podcast_status, podcast_mode) = {
                 let podcast_state = podcast_playback_timer.borrow();
@@ -25886,9 +25655,21 @@ fn main() {
                     );
                 }
             } else if event.get_id() == ID_ARTICLES_ADD_COMMUNITY_SOURCE {
-                if let Some((title, url)) = open_add_community_article_source_dialog(&f_menu) {
-                    let news_language = settings_menu.lock().unwrap().news_language.clone();
-                    match add_community_article_source_request(&title, &url, &news_language) {
+                let (news_language, ui_language) = {
+                    let locked = settings_menu.lock().unwrap();
+                    (locked.news_language.clone(), locked.ui_language.clone())
+                };
+                if let Some((title, url)) = open_add_community_article_source_dialog(
+                    &f_menu,
+                    &news_language,
+                    &ui_language,
+                ) {
+                    match add_community_article_source_request(
+                        &title,
+                        &url,
+                        &news_language,
+                        &ui_language,
+                    ) {
                         Ok(message) => {
                             let message = if message.trim().is_empty() {
                                 ui.add_article_community_success.clone()
@@ -25908,19 +25689,19 @@ fn main() {
                 }
             } else if event.get_id() == ID_ARTICLES_COMMUNITY_SOURCES {
                 if let Some(source) = open_community_article_sources_dialog(&f_menu, &settings_menu) {
-                    let source_title = article_source_label(&source);
-                    add_article_source(
-                        source.title,
-                        source.url,
+                    let source_title = source.name.clone();
+                    if import_community_article_source(
+                        source,
                         &settings_menu,
                         &article_menu_state_menu,
                         &rt_articles_menu,
-                    );
-                    show_message_dialog(
-                        &f_menu,
-                        &ui.article_community_sources_title,
-                        &ui.article_community_sources_added.replace("{title}", &source_title),
-                    );
+                    ) {
+                        show_message_dialog(
+                            &f_menu,
+                            &ui.article_community_sources_title,
+                            &ui.article_community_sources_added.replace("{title}", &source_title),
+                        );
+                    }
                 }
             } else if event.get_id() == ID_ARTICLES_EDIT_SOURCE {
                 if let Some((source_index, title, url)) =

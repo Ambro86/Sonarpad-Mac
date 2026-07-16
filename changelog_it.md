@@ -1,21 +1,68 @@
-- Aggiunto un calendario accessibile nel menu Strumenti, con scelta del giorno, santo e frase del giorno, promemoria e integrazione con Calendario di macOS.
-- TV: aggiunti i pulsanti Riproduci e registra e Programma registrazione; le registrazioni programmate usano un LaunchAgent di macOS e possono avviarsi anche con Sonarpad chiuso.
-- Treccani: aggiunte la ricerca, l’anteprima e l’importazione di intere voci o singole sezioni, disponibili soltanto quando l’interfaccia è in italiano.
-- Radio: aggiunti Riproduci e registra e Programma registrazione sia nei risultati della ricerca sia nei preferiti; ogni preferito offre ora le azioni Apri, Riproduci e registra e Programma registrazione.
-- Nelle finestre di programmazione di calendario, TV e radio, le frecce sinistra e destra spostano l’orario di cinque minuti, con passaggio automatico tra le ore; le registrazioni radio programmate vengono salvate come veri file MP3.
-- Menu Articoli: aggiunte le voci per inviare una testata alla comunità Sonarpad e importare testate della comunità filtrate per lingua notizie.
-- Donazioni: aggiunte le traduzioni complete anche in francese, spagnolo, portoghese, ceco e polacco.
-- Correzioni tecniche: evitati pulsanti OK non localizzati nei dialoghi degli articoli e rimossi warning inutili di compilazione.
-- Mac: rimosso il token TV fisso dal codice; il catalogo TV usa il secret workflow `SONARPAD_TV_CLIENT_TOKEN`.
-- Scorciatoia Articoli recenti su Mac aggiornata a Command+trattino.
-- Convertiti i dialoghi Sì/No standard in finestre personalizzate localizzate.
-- In Biblioteca digitale, Invio nel campo ricerca ora avvia Cerca.
-- Ricerca radio: aggiunto filtro per nazione con nomi estesi.
+Versione 0.3.0 - 16 luglio 2026
+
+- Sonarpad è ora disponibile anche in francese, spagnolo, portoghese, ceco e polacco, oltre che in italiano e inglese.
+
+- Aggiunta un’impostazione separata per la Lingua notizie. Questa impostazione è indipendente dalla lingua dell’interfaccia e permette di utilizzare fonti e servizi dedicati alla lingua scelta.
+
+- Aggiunta la Biblioteca digitale di BDCiechi. Gli utenti iscritti possono accedere con le proprie credenziali, consultare le ultime novità o il catalogo completo, cercare un libro, leggere un testo d’assaggio e salvarlo sul Mac per aprirlo con Sonarpad.
+
+- Aggiunta la funzione Meteo, che permette di cercare una città e conoscere la situazione attuale, le temperature, le precipitazioni, il vento e l’umidità, oltre alle previsioni per oggi, domani o un altro giorno.
+
+- Aggiunta la sezione Film al cinema, con i film attualmente nelle sale, le prossime uscite, la trama, la data di uscita e, quando disponibile, il collegamento al trailer.
+
+- Aggiunto un calendario accessibile nel menu Strumenti. È possibile scegliere qualsiasi giorno, consultarne festività, santo e frase del giorno, creare promemoria e aggiungere appuntamenti direttamente al Calendario di macOS.
+
+- Aggiunta la funzione Ricerca percorsi, che permette di calcolare un itinerario a piedi, in bicicletta, in automobile o in sedia a rotelle, scegliendo il percorso più veloce o quello più corto. Sonarpad mostra distanza, durata e indicazioni dettagliate.
+
+- Aggiunta la funzione Converti media, per convertire file audio e video in numerosi formati, tra cui MP3, M4A, M4B, MP4, AVI, MOV, Opus, OGG, FLAC, WAV e AIFF. È inoltre possibile creare un video partendo da un file audio e da un’immagine.
+
+- Aggiunto il Dizionario vocale. È possibile indicare parole o espressioni che la sintesi vocale deve sostituire durante la lettura, così da correggere pronunce errate, abbreviazioni o nomi particolari.
+
+- Aggiunta la ricerca nel vocabolario e nell’enciclopedia Treccani. È possibile cercare una voce, leggerne l’anteprima e importare nell’editor l’intero contenuto oppure soltanto una delle sue sezioni. La funzione è disponibile con l’interfaccia italiana.
+
+- Aggiunta la ricerca accessibile nelle Pagine Bianche e nelle Pagine Gialle. La funzione è disponibile con l’interfaccia italiana.
+
+- Ampliata la sezione Articoli con i pulsanti Articoli recenti e Condividi, per ritrovare rapidamente gli ultimi contenuti letti e condividerli tramite i servizi disponibili su macOS.
+
+- Aggiunte nel menu Articoli le funzioni Aggiungi testata alla comunità di Sonarpad e Testate della comunità di Sonarpad. È possibile proporre un feed RSS o il sito di una testata e importare le fonti condivise dagli altri utenti. Le testate vengono aggiunte e mostrate in base alla Lingua notizie selezionata.
+
+- Migliorata la gestione delle fonti notizie: cambiando la Lingua notizie vengono caricate le fonti predefinite appropriate, senza eliminare le fonti personali aggiunte dall’utente.
+
+- Ampliata la ricerca delle radio con la consultazione per lingua, nazione e città e con i nomi completi e localizzati dei paesi.
+
+- Aggiunta la possibilità di inviare una radio alla comunità Sonarpad, specificandone nome, indirizzo, lingua e genere.
+
+- Aggiunte la registrazione e la programmazione delle radio. Le nuove azioni sono disponibili sia nei risultati della ricerca sia nei preferiti, e le registrazioni vengono salvate direttamente in formato MP3.
+
+- Ampliata la sezione TV con le funzioni Riproduci e registra e Programma registrazione. Le registrazioni programmate utilizzano un LaunchAgent di macOS e possono quindi avviarsi automaticamente anche quando Sonarpad è chiuso.
+
+- Migliorata la sicurezza delle registrazioni TV: il flusso viene prima conservato nel formato originale e, al termine, Sonarpad prova a convertirlo automaticamente in MP4. Se la conversione non riesce, la registrazione originale non viene perduta.
+
+- Migliorate la guida TV, l’indicazione del programma ora in onda, il catalogo dei canali e la compatibilità della riproduzione su macOS.
+
+- Aggiunto nel menu File l’elenco dei documenti di testo aperti recentemente, per riaprirli più velocemente.
+
+- Aggiunta la Modalità sola lettura, utile per consultare un documento evitando modifiche accidentali.
+
+- Aggiunto il Sommario del libro per i file EPUB che contengono un indice. È possibile scegliere un capitolo e raggiungerlo direttamente.
+
+- Aggiunta la possibilità di scegliere tra le voci Microsoft ad alta qualità e le voci di sistema di macOS.
+
+- Aggiunta l’opzione per ignorare durante la lettura le pause causate dalle righe vuote.
+
+- Aggiunta nelle impostazioni la possibilità di scegliere di quanti secondi avanzare o tornare indietro durante la riproduzione dei contenuti multimediali.
+
+- Migliorata l’accessibilità delle finestre, dei menu e dei controlli, con una gestione più coerente del focus, del tasto Invio, del tasto Esc e delle scorciatoie da tastiera.
+
+- Migliorata la localizzazione dei messaggi, dei pulsanti e delle finestre di conferma in tutte le lingue supportate.
+
+- Risolti numerosi problemi relativi alla stabilità, alla riproduzione dei contenuti, alle registrazioni programmate, alla gestione delle fonti e alla compilazione su macOS.
+
+- Si ringraziano Leonardo Graziano, Luca Maianti e il gruppo italiano Tecnologia Accessibile per il supporto continuo e il costante beta testing.
 
 Changelog
 
 Versione 0.2.9 - 1 maggio 2026
-- Registrazione TV più sicura su Mac: il flusso live viene registrato in TS e, alla chiusura, Sonarpad prova a convertirlo automaticamente in MP4; se la conversione fallisce, conserva comunque il file TS.
 - Estese le funzionalità YouTube anche per i Mac Intel e Catalina.
 - Velocizzata enormemente la ricerca YouTube.
 - Migliore gestione dei risultati YouTube, con canali e playlist inseriti all'inizio.
@@ -98,9 +145,3 @@ Versione 0.2.0
 - Supporto lettura testo, articoli e podcast con sintesi vocale.
 - Supporto PDF OCR su macOS, download aggiornamenti e pacchetti DMG dedicati.
 - Categorie podcast gerarchiche e primi shortcut globali/macOS.
-- Ricerca radio per nazione: i nomi dei paesi ora vengono localizzati tramite i18n-country-translations/CLDR invece di una tabella manuale.
-- Corretto il comando Articoli recenti su macOS: ora usa davvero Command+trattino, come gli altri comandi Command.
-- Diagnostica TV Mac: aggiunti log estesi di mpv, stato finestra/video, opzioni di output, snapshot del log mpv e screenshot diagnostici per capire la causa della finestra video vuota.
-
-- TV Mac: il catalogo canali ora usa solo il catalogo remoto Sonarpad, con gli stessi header e correzioni La7/La7D della versione mobile. Aggiunta prova di avvio mpv via LaunchServices per diagnosticare/fissare la finestra video bianca.
-- Diagnostica TV: il Mac ora registra se il token percorsi è presente, lo stato HTTP e un estratto dell’errore del catalogo TV, senza stampare il valore del token.

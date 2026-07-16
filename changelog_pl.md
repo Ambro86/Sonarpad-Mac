@@ -1,13 +1,52 @@
-- Radio: dodano Odtwarzaj i nagrywaj oraz Zaplanuj nagrywanie zarówno w wynikach wyszukiwania, jak i w ulubionych; każda ulubiona stacja oferuje teraz Otwórz, Odtwarzaj i nagrywaj oraz Zaplanuj nagrywanie.
-- W oknie planowania radia strzałki w lewo i w prawo przesuwają czas o pięć minut z automatycznym przejściem między godzinami; zaplanowane nagrania radiowe są zapisywane jako prawdziwe pliki MP3.
-- Menu Artykuły: dodano pozycje do wysyłania źródła wiadomości do społeczności Sonarpad oraz importowania źródeł społeczności filtrowanych według języka wiadomości.
-- Darowizny: dodano pełne tłumaczenia także po francusku, hiszpańsku, portugalsku, czesku i polsku.
-- Poprawki techniczne: uniknięto nieprzetłumaczonych przycisków OK w oknach artykułów i usunięto zbędne ostrzeżenia kompilacji.
-- Mac: usunięto stały token TV z kodu; katalog TV używa teraz secretu workflow `SONARPAD_TV_CLIENT_TOKEN`.
-- Skrót Ostatnie artykuły na Macu zmieniono na Command+myślnik.
-- Standardowe okna Tak/Nie zastąpiono lokalizowanymi oknami niestandardowymi.
-- W Bibliotece cyfrowej klawisz Enter w polu wyszukiwania uruchamia wyszukiwanie.
-- Wyszukiwanie radia: dodano filtr kraju z pełnymi nazwami państw.
+Wersja 0.3.0 - 16 lipca 2026
+
+- Sonarpad jest teraz dostępny także w języku francuskim, hiszpańskim, portugalskim, czeskim i polskim, oprócz włoskiego i angielskiego.
+
+- Dodano osobne ustawienie Język wiadomości. Jest ono niezależne od języka interfejsu i pozwala Sonarpadowi korzystać ze źródeł i usług dostosowanych do wybranego języka.
+
+- Dodano funkcję Pogoda, która umożliwia wyszukanie miasta i sprawdzenie bieżących warunków, temperatury, opadów, wiatru i wilgotności, a także prognozy na dziś, jutro lub inny dzień.
+
+- Dodano sekcję Filmy w kinach, zawierającą filmy aktualnie wyświetlane, nadchodzące premiery, opisy fabuły, daty premier oraz, gdy są dostępne, odnośniki do zwiastunów.
+
+- Do menu Narzędzia dodano dostępny kalendarz. Można wybrać dowolną datę, sprawdzić święta, patrona i cytat dnia, tworzyć przypomnienia oraz dodawać wydarzenia bezpośrednio do Kalendarza macOS.
+
+- Dodano funkcję Wyszukiwanie tras, która pozwala obliczać trasy piesze, rowerowe, samochodowe oraz dostępne dla osób poruszających się na wózkach. Można wybrać trasę najszybszą lub najkrótszą oraz sprawdzić odległość, przewidywany czas i szczegółowe wskazówki.
+
+- Dodano funkcję Konwertuj multimedia, obsługującą konwersję plików audio i wideo do wielu formatów, w tym MP3, M4A, M4B, MP4, AVI, MOV, Opus, OGG, FLAC, WAV i AIFF. Można także utworzyć film z pliku audio i obrazu.
+
+- Dodano Słownik mowy. Można określić słowa lub wyrażenia, które syntezator mowy ma zastępować podczas czytania, aby poprawić wymowę, skróty i szczególne nazwy.
+
+- Rozszerzono sekcję Artykuły o polecenia Ostatnie artykuły i Udostępnij, które pozwalają szybko wrócić do ostatnio czytanych treści i udostępniać artykuły za pomocą usług dostępnych w macOS.
+
+- Do menu Artykuły dodano polecenia Dodaj źródło wiadomości do społeczności Sonarpad oraz Źródła wiadomości społeczności Sonarpad. Można przesłać kanał RSS lub witrynę informacyjną i importować źródła udostępnione przez innych użytkowników. Źródła są dodawane i wyświetlane zgodnie z wybranym Językiem wiadomości.
+
+- Ulepszono zarządzanie źródłami wiadomości. Zmiana Języka wiadomości wczytuje teraz odpowiednie źródła domyślne bez usuwania źródeł dodanych osobiście przez użytkownika.
+
+- Rozszerzono wyszukiwanie radia o przeglądanie według języka, kraju i miasta, wraz z pełnymi i zlokalizowanymi nazwami państw.
+
+- Dodano możliwość przesłania stacji radiowej do społeczności Sonarpad z podaniem jej nazwy, adresu strumienia, języka i gatunku.
+
+- Dodano nagrywanie radia oraz planowanie nagrań radiowych. Funkcje te są dostępne zarówno w wynikach wyszukiwania, jak i w ulubionych, a nagrania są zapisywane bezpośrednio jako pliki MP3.
+
+- Do menu Plik dodano listę ostatnio otwieranych dokumentów tekstowych, aby można je było szybciej ponownie otworzyć.
+
+- Dodano tryb Tylko do odczytu, przydatny do czytania dokumentu bez ryzyka przypadkowej modyfikacji.
+
+- Dodano Spis treści książki dla plików EPUB zawierających spis treści. Można wybrać rozdział i przejść bezpośrednio do niego.
+
+- Dodano możliwość wyboru między wysokiej jakości głosami Microsoft a głosami systemowymi macOS.
+
+- Dodano opcję ignorowania podczas czytania pauz powodowanych przez puste wiersze.
+
+- Dodano ustawienie pozwalające wybrać, o ile sekund przewijać multimedia do przodu lub do tyłu.
+
+- Ulepszono dostępność okien, menu i elementów sterujących, zapewniając bardziej spójną obsługę fokusu, klawiszy Enter i Escape oraz skrótów klawiaturowych.
+
+- Ulepszono lokalizację komunikatów, przycisków i okien potwierdzeń we wszystkich obsługiwanych językach.
+
+- Naprawiono liczne problemy wpływające na stabilność, odtwarzanie multimediów, zaplanowane nagrania radiowe, zarządzanie źródłami i kompilację w macOS.
+
+- Szczególne podziękowania kierujemy do Leonardo Graziano, Luca Maianti oraz włoskiej grupy Tecnologia Accessibile za stałe wsparcie i regularne testy beta.
 
 Lista zmian
 
@@ -94,9 +133,3 @@ Wersja 0.2.0
 - Obsługa czytania tekstu, artykułów i podcastów z syntezą mowy.
 - Obsługa OCR PDF na macOS, pobierania aktualizacji i dedykowanych pakietów DMG.
 - Hierarchiczne kategorie podcastów i pierwsze globalne skróty/macOS.
-- Bezpieczniejsze nagrywanie TV na Macu: transmisja na żywo jest nagrywana jako TS, a po zatrzymaniu Sonarpad próbuje automatycznie przekonwertować ją do MP4; jeśli konwersja się nie powiedzie, plik TS zostaje zachowany.
-- Wyszukiwanie radia według kraju: nazwy krajów są teraz lokalizowane przez i18n-country-translations/CLDR zamiast ręcznej tabeli.
-- Diagnostyka TV na Macu: dodano rozszerzone logi mpv, stan okna/wideo, opcje wyjścia, zrzuty logu mpv i zrzuty diagnostyczne, aby ustalić przyczynę pustego okna wideo.
-
-- TV na Macu: katalog kanałów korzysta teraz wyłącznie ze zdalnego katalogu Sonarpad, z tymi samymi nagłówkami i poprawkami La7/La7D co wersja mobilna. Dodano uruchamianie mpv przez LaunchServices do diagnozy/naprawy białego okna wideo.
-- Diagnostyka TV: Mac zapisuje teraz, czy token tras jest obecny, status HTTP i krótki fragment błędu katalogu TV, bez ujawniania wartości tokenu.

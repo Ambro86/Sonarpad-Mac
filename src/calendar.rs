@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, Local, NaiveDate, NaiveDateTime, Timelike, Weekday};
+use chrono::{Datelike, NaiveDate, Weekday};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 #[cfg(target_os = "macos")]
@@ -23,12 +23,6 @@ pub(crate) struct CalendarReminder {
     pub(crate) alert_minutes: u32,
     #[serde(default)]
     pub(crate) mac_calendar_uid: Option<String>,
-    #[serde(default)]
-    pub(crate) completed: bool,
-    #[serde(default)]
-    pub(crate) alerted: bool,
-    #[serde(default)]
-    pub(crate) snoozed_until: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -370,16 +364,12 @@ pub(crate) fn add_reminder(
         minute,
         alert_minutes,
         mac_calendar_uid: None,
-        completed: false,
-        alerted: false,
-        snoozed_until: None,
     };
 
     let mut reminders = load_reminders();
     reminders.push(reminder.clone());
     save_reminders(&reminders)?;
 
-    let internal_warning = schedule_internal_alert(&reminder).err();
     match add_to_macos_calendar(&reminder) {
         Ok(uid) => {
             reminder.mac_calendar_uid = uid;
@@ -387,240 +377,10 @@ pub(crate) fn add_reminder(
                 saved.mac_calendar_uid = reminder.mac_calendar_uid.clone();
             }
             save_reminders(&reminders)?;
-            Ok((reminder, internal_warning))
+            Ok((reminder, None))
         }
-        Err(error) => Ok((
-            reminder,
-            Some(match internal_warning {
-                Some(internal) => format!("{error}; avviso Sonarpad: {internal}"),
-                None => error,
-            }),
-        )),
+        Err(error) => Ok((reminder, Some(error))),
     }
-}
-
-pub(crate) fn take_due_reminders() -> Vec<CalendarReminder> {
-    let now = Local::now().naive_local();
-    let grace_start = now - Duration::hours(24);
-    let mut reminders = load_reminders();
-    let mut due = Vec::new();
-
-    for reminder in &mut reminders {
-        if reminder.completed || reminder.alerted || !reminder.has_time {
-            continue;
-        }
-        let Some(alert_at) = reminder_alert_datetime(reminder) else {
-            continue;
-        };
-        if alert_at <= now && alert_at >= grace_start {
-            reminder.alerted = true;
-            reminder.snoozed_until = None;
-            due.push(reminder.clone());
-        }
-    }
-
-    if !due.is_empty() {
-        if let Err(error) = save_reminders(&reminders) {
-            crate::append_podcast_log(&format!(
-                "calendar.reminder.save_alerted_failed err={error}"
-            ));
-        }
-        for reminder in &due {
-            remove_internal_alert(&reminder.id);
-            crate::append_podcast_log(&format!(
-                "calendar.reminder.due id={} text={} date={} time={:02}:{:02}",
-                reminder.id, reminder.text, reminder.date, reminder.hour, reminder.minute
-            ));
-        }
-    }
-    due
-}
-
-pub(crate) fn initialize_internal_alerts() {
-    let now = Local::now().naive_local();
-    for reminder in load_reminders() {
-        if reminder.completed || reminder.alerted || !reminder.has_time {
-            continue;
-        }
-        if reminder_alert_datetime(&reminder).is_some_and(|alert_at| alert_at > now)
-            && let Err(error) = schedule_internal_alert(&reminder)
-        {
-            crate::append_podcast_log(&format!(
-                "calendar.reminder.initialize_failed id={} err={error}",
-                reminder.id
-            ));
-        }
-    }
-}
-
-pub(crate) fn complete_reminder(id: &str) -> Result<(), String> {
-    let mut reminders = load_reminders();
-    let reminder = reminders
-        .iter_mut()
-        .find(|reminder| reminder.id == id)
-        .ok_or_else(|| "Promemoria non trovato.".to_string())?;
-    reminder.completed = true;
-    reminder.alerted = true;
-    reminder.snoozed_until = None;
-    save_reminders(&reminders)?;
-    remove_internal_alert(id);
-    crate::append_podcast_log(&format!("calendar.reminder.completed id={id}"));
-    Ok(())
-}
-
-pub(crate) fn snooze_reminder(id: &str, minutes: i64) -> Result<(), String> {
-    if minutes <= 0 {
-        return Err("La durata del posticipo non è valida.".to_string());
-    }
-    let mut reminders = load_reminders();
-    let reminder = reminders
-        .iter_mut()
-        .find(|reminder| reminder.id == id)
-        .ok_or_else(|| "Promemoria non trovato.".to_string())?;
-    let snoozed_until = Local::now().naive_local() + Duration::minutes(minutes);
-    reminder.completed = false;
-    reminder.alerted = false;
-    reminder.snoozed_until = Some(snoozed_until.format("%Y-%m-%d %H:%M:%S").to_string());
-    let reminder_to_schedule = reminder.clone();
-    save_reminders(&reminders)?;
-    schedule_internal_alert(&reminder_to_schedule)?;
-    crate::append_podcast_log(&format!(
-        "calendar.reminder.snoozed id={id} until={snoozed_until}"
-    ));
-    Ok(())
-}
-
-fn reminder_event_datetime(reminder: &CalendarReminder) -> Option<NaiveDateTime> {
-    if !reminder.has_time {
-        return None;
-    }
-    let date = NaiveDate::parse_from_str(&reminder.date, "%Y-%m-%d").ok()?;
-    date.and_hms_opt(reminder.hour, reminder.minute, 0)
-}
-
-fn reminder_alert_datetime(reminder: &CalendarReminder) -> Option<NaiveDateTime> {
-    if let Some(value) = reminder.snoozed_until.as_deref()
-        && let Ok(value) = NaiveDateTime::parse_from_str(value, "%Y-%m-%d %H:%M:%S")
-    {
-        return Some(value);
-    }
-    reminder_event_datetime(reminder)
-        .map(|event_at| event_at - Duration::minutes(i64::from(reminder.alert_minutes)))
-}
-
-#[cfg(target_os = "macos")]
-fn schedule_internal_alert(reminder: &CalendarReminder) -> Result<(), String> {
-    if reminder.completed || reminder.alerted || !reminder.has_time {
-        remove_internal_alert(&reminder.id);
-        return Ok(());
-    }
-    let Some(alert_at) = reminder_alert_datetime(reminder) else {
-        return Err("Scadenza del promemoria non valida.".to_string());
-    };
-    if alert_at <= Local::now().naive_local() {
-        return Ok(());
-    }
-    let executable = std::env::current_exe()
-        .map_err(|error| format!("eseguibile Sonarpad non disponibile: {error}"))?;
-    let app_bundle = executable
-        .parent()
-        .and_then(|macos| macos.parent())
-        .and_then(|contents| contents.parent())
-        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("app"))
-        .ok_or_else(|| "bundle Sonarpad.app non disponibile".to_string())?;
-    let plist_path = internal_alert_plist_path(&reminder.id)?;
-    if plist_path.is_file() {
-        let _ = Command::new("/bin/launchctl")
-            .arg("unload")
-            .arg(&plist_path)
-            .status();
-    }
-    let plist = format!(
-        r#"<?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict>
-<key>Label</key><string>com.sonarpad.calendar.{id}</string>
-<key>ProgramArguments</key><array><string>/usr/bin/open</string><string>-a</string><string>{app}</string></array>
-<key>StartCalendarInterval</key><dict>
-<key>Year</key><integer>{year}</integer><key>Month</key><integer>{month}</integer>
-<key>Day</key><integer>{day}</integer><key>Hour</key><integer>{hour}</integer>
-<key>Minute</key><integer>{minute}</integer>
-</dict><key>ProcessType</key><string>Background</string>
-</dict></plist>
-"#,
-        id = xml_escape(&reminder.id),
-        app = xml_escape(&app_bundle.to_string_lossy()),
-        year = alert_at.year(),
-        month = alert_at.month(),
-        day = alert_at.day(),
-        hour = alert_at.hour(),
-        minute = alert_at.minute(),
-    );
-    std::fs::write(&plist_path, plist)
-        .map_err(|error| format!("scrittura avviso programmato fallita: {error}"))?;
-    let status = Command::new("/bin/launchctl")
-        .arg("load")
-        .arg(&plist_path)
-        .status()
-        .map_err(|error| format!("attivazione avviso programmato fallita: {error}"))?;
-    if !status.success() {
-        return Err(format!("launchctl ha restituito lo stato {status}"));
-    }
-    crate::append_podcast_log(&format!(
-        "calendar.reminder.scheduled id={} alert_at={} plist={}",
-        reminder.id,
-        alert_at,
-        plist_path.display()
-    ));
-    Ok(())
-}
-
-#[cfg(not(target_os = "macos"))]
-fn schedule_internal_alert(_reminder: &CalendarReminder) -> Result<(), String> {
-    Ok(())
-}
-
-#[cfg(target_os = "macos")]
-fn internal_alert_plist_path(id: &str) -> Result<std::path::PathBuf, String> {
-    let home =
-        std::env::var_os("HOME").ok_or_else(|| "Cartella Home non disponibile".to_string())?;
-    let directory = std::path::PathBuf::from(home)
-        .join("Library")
-        .join("LaunchAgents");
-    std::fs::create_dir_all(&directory)
-        .map_err(|error| format!("creazione cartella LaunchAgents fallita: {error}"))?;
-    Ok(directory.join(format!("com.sonarpad.calendar.{id}.plist")))
-}
-
-#[cfg(target_os = "macos")]
-fn remove_internal_alert(id: &str) {
-    let Ok(path) = internal_alert_plist_path(id) else {
-        return;
-    };
-    if path.is_file() {
-        let _ = Command::new("/bin/launchctl")
-            .arg("unload")
-            .arg(&path)
-            .status();
-        if let Err(error) = std::fs::remove_file(&path) {
-            crate::append_podcast_log(&format!(
-                "calendar.reminder.remove_plist_failed id={id} path={} err={error}",
-                path.display()
-            ));
-        }
-    }
-}
-
-#[cfg(not(target_os = "macos"))]
-fn remove_internal_alert(_id: &str) {}
-
-fn xml_escape(value: &str) -> String {
-    value
-        .replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-        .replace('\'', "&apos;")
 }
 
 pub(crate) fn reminders_for_date(
@@ -630,7 +390,7 @@ pub(crate) fn reminders_for_date(
     let key = date.format("%Y-%m-%d").to_string();
     let mut result = reminders
         .iter()
-        .filter(|reminder| reminder.date == key && !reminder.completed)
+        .filter(|reminder| reminder.date == key)
         .cloned()
         .collect::<Vec<_>>();
     result.sort_by_key(|reminder| {
