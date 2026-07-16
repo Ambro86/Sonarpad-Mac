@@ -67,38 +67,6 @@ fn show_bdciechi_message(
     dialog.destroy();
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn bdciechi_catalog_search_ignores_word_order() {
-        let catalog = vec![
-            "I promessi sposi - Alessandro Manzoni".to_string(),
-            "Le avventure di Pinocchio - Carlo Collodi".to_string(),
-        ];
-
-        assert_eq!(
-            bdciechi_filter_catalog(&catalog, "alessandro manzoni"),
-            vec!["I promessi sposi - Alessandro Manzoni".to_string()]
-        );
-        assert_eq!(
-            bdciechi_filter_catalog(&catalog, "manzoni alessandro"),
-            vec!["I promessi sposi - Alessandro Manzoni".to_string()]
-        );
-    }
-
-    #[test]
-    fn bdciechi_catalog_search_normalizes_punctuation_and_accents() {
-        let catalog = vec!["Citta e poesia - Autore".to_string()];
-
-        assert_eq!(
-            bdciechi_filter_catalog(&catalog, "città poesia"),
-            vec!["Citta e poesia - Autore".to_string()]
-        );
-    }
-}
-
 fn ask_bdciechi_open_saved_book(parent: &impl WxWidget, message: &str) -> bool {
     let dialog = Dialog::builder(parent, bdciechi_info_title())
         .with_style(DialogStyle::Caption | DialogStyle::SystemMenu | DialogStyle::CloseBox)
@@ -1172,4 +1140,36 @@ fn show_bdciechi_dashboard(
 
     dialog.show_modal();
     dialog.destroy();
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bdciechi_catalog_search_ignores_word_order() {
+        let catalog = vec![
+            "I promessi sposi - Alessandro Manzoni".to_string(),
+            "Le avventure di Pinocchio - Carlo Collodi".to_string(),
+        ];
+
+        assert_eq!(
+            bdciechi_filter_catalog(&catalog, "alessandro manzoni"),
+            vec!["I promessi sposi - Alessandro Manzoni".to_string()]
+        );
+        assert_eq!(
+            bdciechi_filter_catalog(&catalog, "manzoni alessandro"),
+            vec!["I promessi sposi - Alessandro Manzoni".to_string()]
+        );
+    }
+
+    #[test]
+    fn bdciechi_catalog_search_normalizes_punctuation_and_accents() {
+        let catalog = vec!["Citta e poesia - Autore".to_string()];
+
+        assert_eq!(
+            bdciechi_filter_catalog(&catalog, "città poesia"),
+            vec!["Citta e poesia - Autore".to_string()]
+        );
+    }
 }

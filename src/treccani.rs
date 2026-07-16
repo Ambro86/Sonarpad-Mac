@@ -830,6 +830,37 @@ mod tests {
 
     #[test]
     #[ignore = "requires the live Treccani website"]
+    fn treccani_live_filosofia_reads_body_and_sections() {
+        let articles = search_articles("filosofia", 20).expect("live Filosofia search");
+        eprintln!(
+            "Filosofia results: {}",
+            articles
+                .iter()
+                .map(|article| format!("{} | {}", article.title, article.url))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+        let article = articles
+            .into_iter()
+            .find(|item| item.url.contains("/enciclopedia/filosofia"))
+            .expect("Filosofia in live search results");
+        let result = fetch_extract(&article.url).expect("live Filosofia entry");
+        eprintln!(
+            "Filosofia: {} characters, {} sections: {:?}",
+            result.extract.chars().count(),
+            result.sections.len(),
+            result
+                .sections
+                .iter()
+                .map(|section| section.title.as_str())
+                .collect::<Vec<_>>()
+        );
+        assert!(result.extract.chars().count() > 1000);
+        assert!(!result.sections.is_empty());
+    }
+
+    #[test]
+    #[ignore = "requires the live Treccani website"]
     fn treccani_live_autorita_del_noce_reads_legacy_index() {
         let results = search_articles("del noce", 20).expect("live Del Noce search");
         let (position, article) = results

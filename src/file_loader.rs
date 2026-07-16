@@ -1050,23 +1050,6 @@ fn looks_like_list_item(line: &str) -> bool {
     false
 }
 
-#[cfg(test)]
-mod tests {
-    use super::is_probably_meaningful_pdf_text;
-
-    #[test]
-    fn pdf_text_heuristic_accepts_normal_text() {
-        let text = "Modulo compilato da Mario Rossi.\nCodice fiscale RSSMRA80A01H501U.\nFirma del richiedente.";
-        assert!(is_probably_meaningful_pdf_text(text));
-    }
-
-    #[test]
-    fn pdf_text_heuristic_rejects_scan_garbage() {
-        let text = "x\u{0003}?\u{0010}&?\u{0007}??\\\\???\n.?\\?\\\0?\u{000B}\t?\nendstream";
-        assert!(!is_probably_meaningful_pdf_text(text));
-    }
-}
-
 fn looks_like_rtf(bytes: &[u8]) -> bool {
     let mut start = 0usize;
     if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
@@ -1906,4 +1889,21 @@ fn html_to_text(html: &str) -> String {
         .replace("&amp;", "&")
         .replace("&quot;", "\"")
         .replace("&apos;", "'")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_probably_meaningful_pdf_text;
+
+    #[test]
+    fn pdf_text_heuristic_accepts_normal_text() {
+        let text = "Modulo compilato da Mario Rossi.\nCodice fiscale RSSMRA80A01H501U.\nFirma del richiedente.";
+        assert!(is_probably_meaningful_pdf_text(text));
+    }
+
+    #[test]
+    fn pdf_text_heuristic_rejects_scan_garbage() {
+        let text = "x\u{0003}?\u{0010}&?\u{0007}??\\\\???\n.?\\?\\\0?\u{000B}\t?\nendstream";
+        assert!(!is_probably_meaningful_pdf_text(text));
+    }
 }
