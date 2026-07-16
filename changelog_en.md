@@ -1,3 +1,5 @@
+Changelog
+
 Version 0.3.0 - July 16, 2026
 
 - Sonarpad is now also available in French, Spanish, Portuguese, Czech and Polish, in addition to Italian and English.
@@ -26,7 +28,7 @@ Version 0.3.0 - July 16, 2026
 
 - Added the ability to submit a radio station to the Sonarpad community by specifying its name, stream address, language and genre.
 
-- Added radio recording and scheduled radio recording. These actions are available both in search results and favorites, and recordings are saved directly as MP3 files.
+- Added radio recording and scheduled radio recording. These actions are available both in search results and favorites, and recordings are saved directly as MP3 files. After opening a radio station, recording can also be started by pressing the letter R.
 
 - Added a list of recently opened text documents to the File menu, making it easier to reopen them quickly.
 
@@ -44,11 +46,11 @@ Version 0.3.0 - July 16, 2026
 
 - Improved the localization of messages, buttons and confirmation dialogs in all supported languages.
 
+- Fixed an issue that prevented media files from being displayed in the player’s video window.
+
 - Fixed numerous issues affecting stability, media playback, scheduled radio recordings, source management and compilation on macOS.
 
 - Special thanks to Leonardo Graziano, Luca Maianti and the Italian Tecnologia Accessibile group for their continued support and ongoing beta testing.
-
-Changelog
 
 Version 0.2.9 - May 1, 2026
 - Extended YouTube features to Intel Macs and Catalina.

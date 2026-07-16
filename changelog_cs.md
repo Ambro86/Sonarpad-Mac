@@ -1,3 +1,5 @@
+Seznam změn
+
 Verze 0.3.0 - 16. července 2026
 
 - Sonarpad je nyní kromě italštiny a angličtiny dostupný také ve francouzštině, španělštině, portugalštině, češtině a polštině.
@@ -26,7 +28,7 @@ Verze 0.3.0 - 16. července 2026
 
 - Byla přidána možnost odeslat rozhlasovou stanici do komunity Sonarpad zadáním jejího názvu, adresy streamu, jazyka a žánru.
 
-- Bylo přidáno nahrávání rádia a plánované nahrávání rádia. Tyto akce jsou dostupné ve výsledcích vyhledávání i v oblíbených a nahrávky se ukládají přímo jako soubory MP3.
+- Bylo přidáno nahrávání rádia a plánované nahrávání rádia. Tyto akce jsou dostupné ve výsledcích vyhledávání i v oblíbených a nahrávky se ukládají přímo jako soubory MP3. Po otevření rozhlasové stanice lze nahrávání spustit také stisknutím klávesy R.
 
 - Do nabídky Soubor byl přidán seznam nedávno otevřených textových dokumentů, aby je bylo možné rychleji znovu otevřít.
 
@@ -44,11 +46,11 @@ Verze 0.3.0 - 16. července 2026
 
 - Byla vylepšena lokalizace zpráv, tlačítek a potvrzovacích dialogů ve všech podporovaných jazycích.
 
+- Byl opraven problém, kvůli kterému se multimediální soubory nezobrazovaly v okně videa přehrávače.
+
 - Byla opravena řada problémů ovlivňujících stabilitu, přehrávání médií, plánovaná nahrávání rádia, správu zdrojů a kompilaci v macOS.
 
 - Zvláštní poděkování za trvalou podporu a pravidelné beta testování získávají Leonardo Graziano, Luca Maianti a italská skupina Tecnologia Accessibile.
-
-Seznam změn
 
 Verze 0.2.9 - 1. května 2026
 - Funkce YouTube byly rozšířeny také na Macy Intel a Catalina.

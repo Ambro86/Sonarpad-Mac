@@ -1,3 +1,5 @@
+Changelog
+
 Versione 0.3.0 - 16 luglio 2026
 
 - Sonarpad è ora disponibile anche in francese, spagnolo, portoghese, ceco e polacco, oltre che in italiano e inglese.
@@ -32,9 +34,9 @@ Versione 0.3.0 - 16 luglio 2026
 
 - Aggiunta la possibilità di inviare una radio alla comunità Sonarpad, specificandone nome, indirizzo, lingua e genere.
 
-- Aggiunte la registrazione e la programmazione delle radio. Le nuove azioni sono disponibili sia nei risultati della ricerca sia nei preferiti, e le registrazioni vengono salvate direttamente in formato MP3.
+- Aggiunte la registrazione e la programmazione delle radio. Le nuove azioni sono disponibili sia nei risultati della ricerca sia nei preferiti, e le registrazioni vengono salvate direttamente in formato MP3. Dopo aver aperto una radio, è possibile avviare la registrazione anche premendo la lettera R.
 
-- Ampliata la sezione TV con le funzioni Riproduci e registra e Programma registrazione. Le registrazioni programmate utilizzano un LaunchAgent di macOS e possono quindi avviarsi automaticamente anche quando Sonarpad è chiuso.
+- Ampliata la sezione TV con le funzioni Riproduci e registra e Programma registrazione. Le registrazioni programmate utilizzano un LaunchAgent di macOS e possono quindi avviarsi automaticamente anche quando Sonarpad è chiuso. Dopo aver aperto un canale TV, è possibile avviare la registrazione anche premendo la lettera R.
 
 - Migliorata la sicurezza delle registrazioni TV: il flusso viene prima conservato nel formato originale e, al termine, Sonarpad prova a convertirlo automaticamente in MP4. Se la conversione non riesce, la registrazione originale non viene perduta.
 
@@ -56,11 +58,12 @@ Versione 0.3.0 - 16 luglio 2026
 
 - Migliorata la localizzazione dei messaggi, dei pulsanti e delle finestre di conferma in tutte le lingue supportate.
 
+- Corretto un problema per cui i file multimediali non venivano visualizzati nella finestra video del player.
+
 - Risolti numerosi problemi relativi alla stabilità, alla riproduzione dei contenuti, alle registrazioni programmate, alla gestione delle fonti e alla compilazione su macOS.
 
 - Si ringraziano Leonardo Graziano, Luca Maianti e il gruppo italiano Tecnologia Accessibile per il supporto continuo e il costante beta testing.
 
-Changelog
 
 Versione 0.2.9 - 1 maggio 2026
 - Estese le funzionalità YouTube anche per i Mac Intel e Catalina.

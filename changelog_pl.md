@@ -1,3 +1,5 @@
+Lista zmian
+
 Wersja 0.3.0 - 16 lipca 2026
 
 - Sonarpad jest teraz dostępny także w języku francuskim, hiszpańskim, portugalskim, czeskim i polskim, oprócz włoskiego i angielskiego.
@@ -26,7 +28,7 @@ Wersja 0.3.0 - 16 lipca 2026
 
 - Dodano możliwość przesłania stacji radiowej do społeczności Sonarpad z podaniem jej nazwy, adresu strumienia, języka i gatunku.
 
-- Dodano nagrywanie radia oraz planowanie nagrań radiowych. Funkcje te są dostępne zarówno w wynikach wyszukiwania, jak i w ulubionych, a nagrania są zapisywane bezpośrednio jako pliki MP3.
+- Dodano nagrywanie radia oraz planowanie nagrań radiowych. Funkcje te są dostępne zarówno w wynikach wyszukiwania, jak i w ulubionych, a nagrania są zapisywane bezpośrednio jako pliki MP3. Po otwarciu stacji radiowej nagrywanie można również rozpocząć, naciskając literę R.
 
 - Do menu Plik dodano listę ostatnio otwieranych dokumentów tekstowych, aby można je było szybciej ponownie otworzyć.
 
@@ -44,11 +46,12 @@ Wersja 0.3.0 - 16 lipca 2026
 
 - Ulepszono lokalizację komunikatów, przycisków i okien potwierdzeń we wszystkich obsługiwanych językach.
 
+- Naprawiono problem, przez który pliki multimedialne nie były wyświetlane w oknie wideo odtwarzacza.
+
 - Naprawiono liczne problemy wpływające na stabilność, odtwarzanie multimediów, zaplanowane nagrania radiowe, zarządzanie źródłami i kompilację w macOS.
 
 - Szczególne podziękowania kierujemy do Leonardo Graziano, Luca Maianti oraz włoskiej grupy Tecnologia Accessibile za stałe wsparcie i regularne testy beta.
 
-Lista zmian
 
 Wersja 0.2.9 - 1 maja 2026
 - Rozszerzono funkcje YouTube także na komputery Mac Intel i Catalina.
