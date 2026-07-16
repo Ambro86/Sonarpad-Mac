@@ -1,3 +1,8 @@
+- Aggiunto un calendario accessibile nel menu Strumenti, con scelta del giorno, santo e frase del giorno, promemoria e integrazione con Calendario di macOS.
+- TV: aggiunti i pulsanti Riproduci e registra e Programma registrazione; le registrazioni programmate usano un LaunchAgent di macOS e possono avviarsi anche con Sonarpad chiuso.
+- Treccani: aggiunte la ricerca, l’anteprima e l’importazione di intere voci o singole sezioni, disponibili soltanto quando l’interfaccia è in italiano.
+- Radio: aggiunti Riproduci e registra e Programma registrazione sia nei risultati della ricerca sia nei preferiti; ogni preferito offre ora le azioni Apri, Riproduci e registra e Programma registrazione.
+- Nelle finestre di programmazione di calendario, TV e radio, le frecce sinistra e destra spostano l’orario di cinque minuti, con passaggio automatico tra le ore; le registrazioni radio programmate vengono salvate come veri file MP3.
 - Menu Articoli: aggiunte le voci per inviare una testata alla comunità Sonarpad e importare testate della comunità filtrate per lingua notizie.
 - Donazioni: aggiunte le traduzioni complete anche in francese, spagnolo, portoghese, ceco e polacco.
 - Correzioni tecniche: evitati pulsanti OK non localizzati nei dialoghi degli articoli e rimossi warning inutili di compilazione.

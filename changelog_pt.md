@@ -1,3 +1,5 @@
+- Rádio: foram adicionadas as ações Reproduzir e gravar e Agendar gravação nos resultados da pesquisa e nos favoritos; cada favorito oferece agora Abrir, Reproduzir e gravar e Agendar gravação.
+- Na janela de agendamento da rádio, as setas esquerda e direita deslocam a hora em cinco minutos com mudança automática de hora; as gravações de rádio agendadas são guardadas como ficheiros MP3 reais.
 - Menu Artigos: adicionadas opções para enviar uma fonte de notícias à comunidade Sonarpad e importar fontes da comunidade filtradas pelo idioma das notícias.
 - Donativos: adicionadas traduções completas em francês, espanhol, português, checo e polaco.
 - Correções técnicas: evitados botões OK sem tradução nos diálogos de artigos e removidos avisos de compilação desnecessários.

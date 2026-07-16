@@ -301,9 +301,7 @@ pub fn load_scheduled_catalog() -> Result<Vec<ScheduledDay>, String> {
                     })
                 })
                 .collect::<Vec<_>>();
-            if label.is_empty() && programs.is_empty() {
-                None
-            } else if programs.is_empty() {
+            if programs.is_empty() {
                 None
             } else {
                 Some(ScheduledDay { programs })

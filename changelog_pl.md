@@ -1,3 +1,5 @@
+- Radio: dodano Odtwarzaj i nagrywaj oraz Zaplanuj nagrywanie zarówno w wynikach wyszukiwania, jak i w ulubionych; każda ulubiona stacja oferuje teraz Otwórz, Odtwarzaj i nagrywaj oraz Zaplanuj nagrywanie.
+- W oknie planowania radia strzałki w lewo i w prawo przesuwają czas o pięć minut z automatycznym przejściem między godzinami; zaplanowane nagrania radiowe są zapisywane jako prawdziwe pliki MP3.
 - Menu Artykuły: dodano pozycje do wysyłania źródła wiadomości do społeczności Sonarpad oraz importowania źródeł społeczności filtrowanych według języka wiadomości.
 - Darowizny: dodano pełne tłumaczenia także po francusku, hiszpańsku, portugalsku, czesku i polsku.
 - Poprawki techniczne: uniknięto nieprzetłumaczonych przycisków OK w oknach artykułów i usunięto zbędne ostrzeżenia kompilacji.

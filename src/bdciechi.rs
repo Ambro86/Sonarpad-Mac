@@ -7,6 +7,8 @@ use wxdragon::*;
 
 const ID_BDCIECHI_OPEN_WITH_SONARPAD: i32 = 4201;
 
+type BdciechiSearchResultState = Arc<Mutex<Option<Result<Vec<String>, String>>>>;
+
 fn bdciechi_is_italian_ui() -> bool {
     Settings::load().ui_language == "it"
 }
@@ -913,8 +915,7 @@ fn show_bdciechi_dashboard(
             .with_style(ProgressDialogStyle::Smooth)
             .build();
 
-        let result_state: Arc<Mutex<Option<Result<Vec<String>, String>>>> =
-            Arc::new(Mutex::new(None));
+        let result_state: BdciechiSearchResultState = Arc::new(Mutex::new(None));
         let result_thread = Arc::clone(&result_state);
         let cat_thread = Arc::clone(&cat_ref_s);
         let nprov_thread = nprov_search.clone();

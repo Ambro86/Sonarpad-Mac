@@ -1,3 +1,5 @@
+- Rádio: přidány akce Přehrát a nahrávat a Naplánovat nahrávání ve výsledcích vyhledávání i v oblíbených; každá oblíbená stanice nyní nabízí Otevřít, Přehrát a nahrávat a Naplánovat nahrávání.
+- V okně plánování rádia posouvají šipky vlevo a vpravo čas o pět minut s automatickým přechodem mezi hodinami; plánovaná rádiová nahrávání se ukládají jako skutečné soubory MP3.
 - Nabídka Články: přidány položky pro odeslání zdroje do komunity Sonarpad a import komunitních zdrojů filtrovaných podle jazyka zpráv.
 - Dary: přidány úplné překlady také do francouzštiny, španělštiny, portugalštiny, češtiny a polštiny.
 - Technické opravy: odstraněna nelokalizovaná tlačítka OK v dialozích článků a zbytečná varování při kompilaci.

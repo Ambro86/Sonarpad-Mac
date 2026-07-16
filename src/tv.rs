@@ -217,7 +217,7 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
         append_podcast_log(&format!(
             "tv.remote.response_error status={} body_snippet={}",
             status,
-            snippet.replace('\n', " ").replace('\r', " ")
+            snippet.replace(['\n', '\r'], " ")
         ));
         return Err(format!("HTTP {} dal catalogo TV Sonarpad", status));
     }
@@ -227,7 +227,7 @@ fn fetch_remote_channels() -> Result<Vec<TvChannel>, String> {
         append_podcast_log(&format!(
             "tv.remote.json_error err={} body_snippet={}",
             err,
-            snippet.replace('\n', " ").replace('\r', " ")
+            snippet.replace(['\n', '\r'], " ")
         ));
         err.to_string()
     })?;

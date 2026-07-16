@@ -1,3 +1,5 @@
+- Radio: added Play and record and Schedule recording both to search results and favorites; each favorite now offers Open, Play and record, and Schedule recording actions.
+- In the radio scheduling window, Left and Right Arrow move the time by five minutes with automatic hour rollover; scheduled radio recordings are saved as genuine MP3 files.
 - Articles menu: added entries to submit a news source to the Sonarpad community and import community sources filtered by news language.
 - Donations: added full translations in French, Spanish, Portuguese, Czech and Polish.
 - Technical fixes: avoided unlocalized OK buttons in article dialogs and removed unused compilation warnings.

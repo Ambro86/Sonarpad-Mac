@@ -1,3 +1,5 @@
+- Radio: se han añadido Reproducir y grabar y Programar grabación tanto en los resultados de búsqueda como en los favoritos; cada favorito ofrece ahora las acciones Abrir, Reproducir y grabar y Programar grabación.
+- En la ventana de programación de radio, las flechas izquierda y derecha desplazan la hora cinco minutos con cambio automático de hora; las grabaciones de radio programadas se guardan como archivos MP3 reales.
 - Menú Artículos: añadidas las opciones para enviar un medio a la comunidad de Sonarpad e importar medios de la comunidad filtrados por idioma de noticias.
 - Donaciones: añadidas traducciones completas también en francés, español, portugués, checo y polaco.
 - Correcciones técnicas: evitados botones OK sin localizar en los diálogos de artículos y eliminadas advertencias de compilación innecesarias.

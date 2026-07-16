@@ -1,3 +1,5 @@
+- Radio : ajout de Lire et enregistrer et Programmer l’enregistrement dans les résultats de recherche et les favoris ; chaque favori propose maintenant les actions Ouvrir, Lire et enregistrer et Programmer l’enregistrement.
+- Dans la fenêtre de programmation de la radio, les flèches gauche et droite déplacent l’heure de cinq minutes avec changement automatique d’heure ; les enregistrements radio programmés sont sauvegardés en véritables fichiers MP3.
 - Menu Articles : ajout des entrées pour envoyer un média à la communauté Sonarpad et importer des médias communautaires filtrés par langue des actualités.
 - Dons : ajout des traductions complètes en français, espagnol, portugais, tchèque et polonais.
 - Corrections techniques : suppression des boutons OK non localisés dans les dialogues des articles et des avertissements de compilation inutiles.

@@ -2,6 +2,7 @@
 
 mod articles;
 mod bdciechi;
+mod calendar;
 mod curl_client;
 mod directories;
 mod edge_tts;
@@ -13,9 +14,12 @@ mod raiplay;
 mod raiplaysound;
 mod reader;
 mod routes;
+mod scheduled_radio;
+mod scheduled_tv;
+mod treccani;
 mod tv;
 
-use chrono::Datelike;
+use chrono::{Datelike, Timelike};
 use docx_rs::{Docx, Paragraph, Run};
 use i18n_country_translations::Registry;
 use printpdf::{BuiltinFont, Mm, Op, PdfDocument, PdfPage, PdfSaveOptions, Point, Pt, TextItem};
@@ -116,7 +120,12 @@ const ID_TOOLS_CONVERT_MEDIA: i32 = 2370;
 const ID_TOOLS_BDCIECHI: i32 = 2371;
 const ID_TOOLS_ROUTES: i32 = 2372;
 const ID_TOOLS_VOICE_DICTIONARY: i32 = 2373;
-const ID_RADIO_FAVORITE_BASE: i32 = 6000;
+const ID_TOOLS_CALENDAR: i32 = 2374;
+const ID_TOOLS_TRECCANI: i32 = 2375;
+const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 40000;
+const ID_RADIO_FAVORITE_RECORD_BASE: i32 = 41000;
+const ID_RADIO_FAVORITE_SCHEDULE_BASE: i32 = 42000;
+const MAX_RADIO_MENU_FAVORITES: usize = 1000;
 const RADIO_BROWSER_LIMIT: &str = "100000";
 const RADIO_RESULTS_PAGE_SIZE: usize = 25;
 const ID_ARTICLES_SOURCE_BASE: i32 = 2200;
@@ -209,12 +218,25 @@ struct RadioFavorite {
     stream_url: String,
 }
 
+#[derive(Clone, Copy)]
+enum RadioMenuAction {
+    Open,
+    PlayAndRecord,
+    ScheduleRecording,
+}
+
+#[derive(Clone)]
+struct RadioMenuCommand {
+    station: RadioFavorite,
+    action: RadioMenuAction,
+}
+
 struct RadioMenuState {
     dirty: bool,
     loading_languages: HashSet<String>,
     failed_languages: HashSet<String>,
     stations_by_language: HashMap<String, Vec<RadioStation>>,
-    station_ids: HashMap<i32, RadioFavorite>,
+    station_commands: HashMap<i32, RadioMenuCommand>,
     open_search_requested: bool,
     search_ever_opened: bool,
 }
@@ -235,7 +257,7 @@ struct CurrentArticleState {
 }
 
 thread_local! {
-    static LAST_ARTICLE_STATE: RefCell<Option<CurrentArticleState>> = RefCell::new(None);
+    static LAST_ARTICLE_STATE: RefCell<Option<CurrentArticleState>> = const { RefCell::new(None) };
 }
 
 struct LoadedDocument {
@@ -607,13 +629,12 @@ fn radio_menu_languages() -> Vec<(String, String)> {
 }
 
 fn radio_menu_entry_label(code: &str) -> String {
-    if let Some(country_code) = code.strip_prefix("country:") {
-        if let Some((_, label, _)) = radio_country_options()
+    if let Some(country_code) = code.strip_prefix("country:")
+        && let Some((_, label, _)) = radio_country_options()
             .into_iter()
             .find(|(candidate, _, _)| candidate.as_str() == country_code)
-        {
-            return label;
-        }
+    {
+        return label;
     }
     get_language_name(code)
 }
@@ -1760,10 +1781,9 @@ fn handle_shortcut_event(
         } else if command_shortcut_down(key_event)
             && !key_event.alt_down()
             && !key_event.shift_down()
+            && (key_code == 45 || unicode_key == 45)
         {
-            if key_code == 45 || unicode_key == 45 {
-                (actions.recent_articles)();
-            }
+            (actions.recent_articles)();
         }
     }
 }
@@ -2977,14 +2997,14 @@ fn prompt_text_save_path(
         };
         let path = folder.join(format!("{filename}.{extension}"));
 
-        if path.exists() {
-            if !ask_yes_no_dialog(
+        if path.exists()
+            && !ask_yes_no_dialog(
                 &dialog_save,
                 &ui.save_text_title,
                 &ui.overwrite_existing_file,
-            ) {
-                return;
-            }
+            )
+        {
+            return;
         }
 
         {
@@ -3263,6 +3283,11 @@ fn set_current_document_state_with_toc(
     };
 }
 
+struct TextDocumentOpenRequest<'a> {
+    path: &'a Path,
+    log_prefix: &'a str,
+}
+
 fn open_text_document_for_display(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
@@ -3270,9 +3295,9 @@ fn open_text_document_for_display(
     document_state: &Arc<Mutex<CurrentDocumentState>>,
     podcast_playback: &Rc<RefCell<PodcastPlaybackState>>,
     cursor_moved: &Rc<Cell<bool>>,
-    path: &Path,
-    log_prefix: &str,
+    request: TextDocumentOpenRequest<'_>,
 ) -> Result<(), String> {
+    let TextDocumentOpenRequest { path, log_prefix } = request;
     let document = load_file_for_display(parent, path)?;
     let text_len = document.text.len();
     podcast_playback.borrow_mut().selected_episode = None;
@@ -3612,14 +3637,14 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
         };
         let path = folder.join(format!("{filename}.{extension}"));
 
-        if path.exists() {
-            if !ask_yes_no_dialog(
+        if path.exists()
+            && !ask_yes_no_dialog(
                 &dialog_save,
                 &ui.save_audiobook_title,
                 &ui.overwrite_existing_file,
-            ) {
-                return;
-            }
+            )
+        {
+            return;
         }
 
         {
@@ -4030,19 +4055,39 @@ fn bundled_mpv_executable_path() -> Option<PathBuf> {
 #[cfg(target_os = "macos")]
 fn stop_all_active_mac_radio_sessions() {}
 
-fn open_radio_station(
+fn open_radio_station_mode(
     _parent: &impl WxWidget,
     station_name: &str,
     stream_url: &str,
+    auto_start_recording: bool,
 ) -> Result<(), String> {
     open_stream_with_mpv_recordable(
         stream_url,
         station_name,
         None,
         false,
-        Some(MpvRecordingConfig::radio(stream_url, station_name)),
+        Some(
+            MpvRecordingConfig::radio(stream_url, station_name)
+                .with_auto_start(auto_start_recording),
+        ),
         None,
     )
+}
+
+fn open_radio_station(
+    parent: &impl WxWidget,
+    station_name: &str,
+    stream_url: &str,
+) -> Result<(), String> {
+    open_radio_station_mode(parent, station_name, stream_url, false)
+}
+
+fn open_radio_station_and_record(
+    parent: &impl WxWidget,
+    station_name: &str,
+    stream_url: &str,
+) -> Result<(), String> {
+    open_radio_station_mode(parent, station_name, stream_url, true)
 }
 
 #[derive(Deserialize)]
@@ -4176,7 +4221,7 @@ fn fallback_radio_country_options(ui_language: &str) -> Vec<(String, String, Str
             )
         })
         .collect::<Vec<_>>();
-    items.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+    items.sort_by_key(|item| item.1.to_lowercase());
     rotate_country_options_to_default(items, ui_language)
 }
 
@@ -4238,7 +4283,7 @@ fn fetch_radio_browser_country_options(
                             Some((code, label, english))
                         })
                         .collect::<Vec<_>>();
-                    items.sort_by(|a, b| a.1.to_lowercase().cmp(&b.1.to_lowercase()));
+                    items.sort_by_key(|item| item.1.to_lowercase());
                     return Ok(rotate_country_options_to_default(items, ui_language));
                 }
                 Err(err) => last_error = Some(err.to_string()),
@@ -5096,8 +5141,13 @@ fn embedded_radio_stations() -> HashMap<String, Vec<RadioStation>> {
         .collect()
 }
 
-fn radio_favorite_menu_id(index: usize) -> i32 {
-    ID_RADIO_FAVORITE_BASE + index as i32
+fn radio_favorite_menu_id(index: usize, action: RadioMenuAction) -> i32 {
+    let base = match action {
+        RadioMenuAction::Open => ID_RADIO_FAVORITE_OPEN_BASE,
+        RadioMenuAction::PlayAndRecord => ID_RADIO_FAVORITE_RECORD_BASE,
+        RadioMenuAction::ScheduleRecording => ID_RADIO_FAVORITE_SCHEDULE_BASE,
+    };
+    base + index as i32
 }
 
 fn favorite_from_station(language_code: &str, station: &RadioStation) -> RadioFavorite {
@@ -6215,7 +6265,7 @@ fn open_radio_results_dialog(
     };
     let dialog = Dialog::builder(parent, radio_results_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(700, 190)
+        .with_size(850, 260)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -6276,17 +6326,24 @@ fn open_radio_results_dialog(
     page_row.add(&next_button, 0, SizerFlag::All, 5);
     root.add_sizer(&page_row, 0, SizerFlag::Expand, 0);
 
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let action_labels = radio_schedule_labels(&ui_language);
+    let primary_buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel)
-        .with_label(match ui_language.as_str() {
-            "it" => "Apri",
-            "es" => "Abrir",
-            "pt" => "Abrir",
-            "cs" => "Otevřít",
-            "pl" => "Otwórz",
-            _ => "Open",
-        })
+        .with_label(action_labels.open)
         .build();
+    let play_record_button = Button::builder(&panel)
+        .with_label(action_labels.play_record)
+        .build();
+    let schedule_button = Button::builder(&panel)
+        .with_label(action_labels.schedule_recording)
+        .build();
+    primary_buttons.add_spacer(1);
+    primary_buttons.add(&open_button, 0, SizerFlag::All, 8);
+    primary_buttons.add(&play_record_button, 0, SizerFlag::All, 8);
+    primary_buttons.add(&schedule_button, 0, SizerFlag::All, 8);
+    root.add_sizer(&primary_buttons, 0, SizerFlag::Expand, 0);
+
+    let secondary_buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let favorite_button = Button::builder(&panel)
         .with_label(match ui_language.as_str() {
             "it" => "Aggiungi ai preferiti",
@@ -6294,6 +6351,7 @@ fn open_radio_results_dialog(
             "pt" => "Adicionar aos favoritos",
             "cs" => "Přidat do oblíbených",
             "pl" => "Dodaj do ulubionych",
+            "fr" => "Ajouter aux favoris",
             _ => "Add to favorites",
         })
         .build();
@@ -6304,6 +6362,7 @@ fn open_radio_results_dialog(
             "pt" => "Gravações",
             "cs" => "Nahrávky",
             "pl" => "Nagrania",
+            "fr" => "Enregistrements",
             _ => "Recordings",
         })
         .build();
@@ -6315,15 +6374,15 @@ fn open_radio_results_dialog(
             "pt" => "Fechar",
             "cs" => "Zavřít",
             "pl" => "Zamknij",
+            "fr" => "Fermer",
             _ => "Close",
         })
         .build();
-    buttons.add_spacer(1);
-    buttons.add(&open_button, 0, SizerFlag::All, 10);
-    buttons.add(&favorite_button, 0, SizerFlag::All, 10);
-    buttons.add(&recordings_button, 0, SizerFlag::All, 10);
-    buttons.add(&close_button, 0, SizerFlag::All, 10);
-    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    secondary_buttons.add_spacer(1);
+    secondary_buttons.add(&favorite_button, 0, SizerFlag::All, 8);
+    secondary_buttons.add(&recordings_button, 0, SizerFlag::All, 8);
+    secondary_buttons.add(&close_button, 0, SizerFlag::All, 8);
+    root.add_sizer(&secondary_buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
 
     let all_results = Rc::new(results);
@@ -6408,6 +6467,38 @@ fn open_radio_results_dialog(
         if let Err(err) = open_radio_station(&dialog_open, &station.name, &station.stream_url) {
             show_message_subdialog(&dialog_open, "Radio", &err);
         }
+    });
+
+    let visible_results_record = Rc::clone(&visible_results);
+    let choice_result_record = choice_result;
+    let dialog_record = dialog;
+    play_record_button.on_click(move |_| {
+        let Some(selection) = choice_result_record.get_selection() else {
+            return;
+        };
+        let visible_results = visible_results_record.borrow();
+        let Some(station) = visible_results.get(selection as usize).cloned() else {
+            return;
+        };
+        if let Err(err) =
+            open_radio_station_and_record(&dialog_record, &station.name, &station.stream_url)
+        {
+            show_message_subdialog(&dialog_record, "Radio", &err);
+        }
+    });
+
+    let visible_results_schedule = Rc::clone(&visible_results);
+    let choice_result_schedule = choice_result;
+    let dialog_schedule = dialog;
+    schedule_button.on_click(move |_| {
+        let Some(selection) = choice_result_schedule.get_selection() else {
+            return;
+        };
+        let visible_results = visible_results_schedule.borrow();
+        let Some(station) = visible_results.get(selection as usize).cloned() else {
+            return;
+        };
+        open_radio_schedule_dialog(&dialog_schedule, &station);
     });
 
     let visible_results_favorite = Rc::clone(&visible_results);
@@ -7282,26 +7373,24 @@ fn article_initial_selection_from_state(
         return 0;
     }
 
-    if !state.link.trim().is_empty() {
-        if let Some(index) = source
+    if !state.link.trim().is_empty()
+        && let Some(index) = source
             .items
             .iter()
             .take(visible_count)
             .position(|item| item.link == state.link)
-        {
-            return index;
-        }
+    {
+        return index;
     }
 
-    if !state.title.trim().is_empty() {
-        if let Some(index) = source
+    if !state.title.trim().is_empty()
+        && let Some(index) = source
             .items
             .iter()
             .take(visible_count)
             .position(|item| item.title == state.title)
-        {
-            return index;
-        }
+    {
+        return index;
     }
 
     state.item_index.min(visible_count.saturating_sub(1))
@@ -9067,6 +9156,11 @@ fn build_article_folder_submenu(
     submenu
 }
 
+struct ArticleDialogStateRefs<'a> {
+    current_article_state: Option<&'a Rc<RefCell<Option<CurrentArticleState>>>>,
+    pending_article_open: Option<&'a Rc<RefCell<Option<CurrentArticleState>>>>,
+}
+
 fn open_article_source_items_dialog(
     parent: &Frame,
     source: &articles::ArticleSource,
@@ -9074,9 +9168,12 @@ fn open_article_source_items_dialog(
     sources: &[articles::ArticleSource],
     loading_urls: &HashSet<String>,
     initial_selection: usize,
-    current_article_state: Option<&Rc<RefCell<Option<CurrentArticleState>>>>,
-    pending_article_open: Option<&Rc<RefCell<Option<CurrentArticleState>>>>,
+    state_refs: ArticleDialogStateRefs<'_>,
 ) -> Option<(articles::ArticleItem, usize, usize)> {
+    let ArticleDialogStateRefs {
+        current_article_state,
+        pending_article_open,
+    } = state_refs;
     let ui = current_ui_strings();
     if source.items.is_empty() {
         let message = if loading_urls.contains(&source.url) {
@@ -9416,8 +9513,10 @@ fn open_article_folder_contents_dialog(
                             &sources,
                             loading_urls,
                             0,
-                            current_article_state,
-                            None,
+                            ArticleDialogStateRefs {
+                                current_article_state,
+                                pending_article_open: None,
+                            },
                         )
                     })
                 }
@@ -9732,21 +9831,99 @@ fn rebuild_radio_menu(
     );
 
     let favorites_menu = Menu::builder().build();
-    let mut station_ids = HashMap::new();
+    let mut station_commands = HashMap::new();
     if favorites.is_empty() {
-        let _ = favorites_menu.append(
-            ID_RADIO_FAVORITE_BASE,
-            &ui.no_radios_available,
-            &ui.no_radios_available,
-            ItemKind::Normal,
-        );
-        let _ = favorites_menu.enable_item(ID_RADIO_FAVORITE_BASE, false);
+        if favorites_menu
+            .append(
+                ID_RADIO_FAVORITE_OPEN_BASE,
+                &ui.no_radios_available,
+                &ui.no_radios_available,
+                ItemKind::Normal,
+            )
+            .is_some()
+            && !favorites_menu.enable_item(ID_RADIO_FAVORITE_OPEN_BASE, false)
+        {
+            append_podcast_log("radio.menu.disable_empty_favorites_failed");
+        }
     } else {
-        for (index, favorite) in favorites.iter().enumerate() {
-            let menu_id = radio_favorite_menu_id(index);
+        let labels = radio_schedule_labels(&ui_language);
+        for (index, favorite) in favorites.iter().take(MAX_RADIO_MENU_FAVORITES).enumerate() {
+            let station_menu = Menu::builder().build();
+            let open_id = radio_favorite_menu_id(index, RadioMenuAction::Open);
+            let record_id = radio_favorite_menu_id(index, RadioMenuAction::PlayAndRecord);
+            let schedule_id = radio_favorite_menu_id(index, RadioMenuAction::ScheduleRecording);
+            if station_menu
+                .append(open_id, labels.open, labels.open, ItemKind::Normal)
+                .is_none()
+            {
+                append_podcast_log(&format!(
+                    "radio.menu.favorite_open_append_failed index={index}"
+                ));
+            }
+            if station_menu
+                .append(
+                    record_id,
+                    labels.play_record,
+                    labels.play_record,
+                    ItemKind::Normal,
+                )
+                .is_none()
+            {
+                append_podcast_log(&format!(
+                    "radio.menu.favorite_record_append_failed index={index}"
+                ));
+            }
+            if station_menu
+                .append(
+                    schedule_id,
+                    labels.schedule_recording,
+                    labels.schedule_recording,
+                    ItemKind::Normal,
+                )
+                .is_none()
+            {
+                append_podcast_log(&format!(
+                    "radio.menu.favorite_schedule_append_failed index={index}"
+                ));
+            }
             let label = radio_label(favorite);
-            let _ = favorites_menu.append(menu_id, &label, &favorite.stream_url, ItemKind::Normal);
-            station_ids.insert(menu_id, favorite.clone());
+            if favorites_menu
+                .append_submenu(station_menu, &label, &favorite.stream_url)
+                .is_none()
+            {
+                append_podcast_log(&format!(
+                    "radio.menu.favorite_submenu_append_failed index={index} name={}",
+                    favorite.name
+                ));
+            }
+            station_commands.insert(
+                open_id,
+                RadioMenuCommand {
+                    station: favorite.clone(),
+                    action: RadioMenuAction::Open,
+                },
+            );
+            station_commands.insert(
+                record_id,
+                RadioMenuCommand {
+                    station: favorite.clone(),
+                    action: RadioMenuAction::PlayAndRecord,
+                },
+            );
+            station_commands.insert(
+                schedule_id,
+                RadioMenuCommand {
+                    station: favorite.clone(),
+                    action: RadioMenuAction::ScheduleRecording,
+                },
+            );
+        }
+        if favorites.len() > MAX_RADIO_MENU_FAVORITES {
+            append_podcast_log(&format!(
+                "radio.menu.favorites_truncated total={} shown={}",
+                favorites.len(),
+                MAX_RADIO_MENU_FAVORITES
+            ));
         }
     }
     let _ = radio_menu.append_submenu(favorites_menu, &ui.radio_favorites, &ui.radio_favorites);
@@ -9758,7 +9935,7 @@ fn rebuild_radio_menu(
     );
 
     let mut state = radio_menu_state.lock().unwrap();
-    state.station_ids = station_ids;
+    state.station_commands = station_commands;
 }
 
 fn refresh_all_article_sources(
@@ -10061,14 +10238,24 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
     }
 }
 
-
 #[derive(Debug, Clone, Deserialize)]
 struct CommunityArticleSourceItem {
     #[serde(default, alias = "name")]
     title: String,
-    #[serde(default, alias = "feed_url", alias = "rss_url", alias = "feedUrl", alias = "rssUrl")]
+    #[serde(
+        default,
+        alias = "feed_url",
+        alias = "rss_url",
+        alias = "feedUrl",
+        alias = "rssUrl"
+    )]
     url: String,
-    #[serde(default, alias = "lang", alias = "language_code", alias = "languageCode")]
+    #[serde(
+        default,
+        alias = "lang",
+        alias = "language_code",
+        alias = "languageCode"
+    )]
     language: String,
 }
 
@@ -10333,7 +10520,11 @@ fn open_community_article_sources_dialog(
     );
     let choice = Choice::builder(&panel).build();
     for source in &sources {
-        choice.append(&format!("{} - {}", article_source_label(source), source.url));
+        choice.append(&format!(
+            "{} - {}",
+            article_source_label(source),
+            source.url
+        ));
     }
     choice.set_selection(0);
     row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -15388,6 +15579,381 @@ fn open_rai_audio_descriptions_dialog(parent: &Frame) {
     }
 }
 
+fn treccani_result_display_label(result: &treccani::SearchResult) -> String {
+    let description = result.description.trim();
+    if description.is_empty() {
+        result.title.clone()
+    } else {
+        format!("{} — {}", result.title, description)
+    }
+}
+
+fn treccani_section_display_label(section: &treccani::ArticleSection) -> String {
+    if section.level <= 2 {
+        section.title.clone()
+    } else {
+        format!("{}{}", "  ".repeat(section.level - 2), section.title)
+    }
+}
+
+fn treccani_selected_text(extract: &treccani::ExtractResult, section_choice: Choice) -> String {
+    let body = match section_choice.get_selection() {
+        Some(selection) if selection > 0 => extract
+            .sections
+            .get(selection as usize - 1)
+            .map(|section| section.text.as_str())
+            .unwrap_or(extract.extract.as_str()),
+        _ => extract.extract.as_str(),
+    };
+    let mut text = body.trim_end().to_string();
+    text.push_str("\n\nFonte: Enciclopedia Treccani\n");
+    text.push_str(&extract.url);
+    text
+}
+
+fn fetch_treccani_extract_with_progress(
+    parent: &Dialog,
+    article_url: String,
+) -> Result<treccani::ExtractResult, String> {
+    let progress = ProgressDialog::builder(parent, "Treccani", "Caricamento voce in corso...", 100)
+        .with_style(ProgressDialogStyle::Smooth)
+        .build();
+    let result_state = Arc::new(Mutex::new(None::<Result<treccani::ExtractResult, String>>));
+    let result_thread = Arc::clone(&result_state);
+    std::thread::spawn(move || {
+        let result = treccani::fetch_extract(&article_url).map_err(|error| error.to_string());
+        *result_thread.lock().unwrap() = Some(result);
+    });
+
+    let mut progress_value = 8i32;
+    loop {
+        std::thread::sleep(Duration::from_millis(120));
+        if let Some(result) = result_state.lock().unwrap().take() {
+            progress.destroy();
+            return result;
+        }
+        progress_value = progress_value.saturating_add(7);
+        if progress_value >= 95 {
+            progress_value = 8;
+        }
+        progress.update(progress_value, Some("Caricamento voce in corso..."));
+    }
+}
+
+fn load_selected_treccani_extract(
+    dialog: &Dialog,
+    result_choice: Choice,
+    section_choice: Choice,
+    results: &Rc<RefCell<Vec<treccani::SearchResult>>>,
+    current_extract: &Rc<RefCell<Option<treccani::ExtractResult>>>,
+) -> Option<treccani::ExtractResult> {
+    if let Some(extract) = current_extract.borrow().clone() {
+        return Some(extract);
+    }
+
+    let Some(selection) = result_choice.get_selection() else {
+        show_message_subdialog(
+            dialog,
+            "Treccani",
+            "Seleziona prima una voce dai risultati.",
+        );
+        return None;
+    };
+    let Some(result) = results.borrow().get(selection as usize).cloned() else {
+        show_message_subdialog(
+            dialog,
+            "Treccani",
+            "Seleziona prima una voce dai risultati.",
+        );
+        return None;
+    };
+
+    match fetch_treccani_extract_with_progress(dialog, result.url) {
+        Ok(extract) => {
+            section_choice.clear();
+            section_choice.append("Intera voce");
+            for section in &extract.sections {
+                section_choice.append(&treccani_section_display_label(section));
+            }
+            section_choice.set_selection(0);
+            *current_extract.borrow_mut() = Some(extract.clone());
+            Some(extract)
+        }
+        Err(error) => {
+            show_message_subdialog(
+                dialog,
+                "Treccani",
+                &format!("Impossibile caricare la voce Treccani: {error}"),
+            );
+            None
+        }
+    }
+}
+
+fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: Rc<Cell<bool>>) {
+    if Settings::load().ui_language != "it" {
+        return;
+    }
+
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, "Treccani")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 330)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label("Cerca:").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let query_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_button.set_default();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+
+    let results_row = BoxSizer::builder(Orientation::Horizontal).build();
+    results_row.add(
+        &StaticText::builder(&panel).with_label("Risultati:").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let result_choice = Choice::builder(&panel).build();
+    results_row.add(&result_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&results_row, 0, SizerFlag::Expand, 0);
+
+    let sections_row = BoxSizer::builder(Orientation::Horizontal).build();
+    sections_row.add(
+        &StaticText::builder(&panel).with_label("Sezione:").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let section_choice = Choice::builder(&panel).build();
+    section_choice.append("Intera voce");
+    section_choice.set_selection(0);
+    sections_row.add(&section_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&sections_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let load_button = Button::builder(&panel).with_label("Carica voce").build();
+    let preview_button = Button::builder(&panel).with_label("Apri anteprima").build();
+    let import_button = Button::builder(&panel)
+        .with_label("Importa nell’editor")
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&load_button, 0, SizerFlag::All, 10);
+    buttons.add(&preview_button, 0, SizerFlag::All, 10);
+    buttons.add(&import_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let results = Rc::new(RefCell::new(Vec::<treccani::SearchResult>::new()));
+    let current_extract = Rc::new(RefCell::new(None::<treccani::ExtractResult>));
+    let pending_result = Arc::new(Mutex::new(
+        None::<Result<Vec<treccani::SearchResult>, String>>,
+    ));
+    let busy = Arc::new(AtomicBool::new(false));
+    let search_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
+    let result_timer = Rc::new(Timer::new(&dialog));
+
+    let result_timer_tick = Rc::clone(&result_timer);
+    let pending_result_timer = Arc::clone(&pending_result);
+    let busy_timer = Arc::clone(&busy);
+    let search_progress_timer = Rc::clone(&search_progress);
+    let results_timer = Rc::clone(&results);
+    let current_extract_timer = Rc::clone(&current_extract);
+    let result_choice_timer = result_choice;
+    let section_choice_timer = section_choice;
+    let dialog_timer = dialog;
+    result_timer_tick.on_tick(move |_| {
+        let result = pending_result_timer.lock().unwrap().take();
+        if let Some(result) = result {
+            if let Some(progress_dialog) = search_progress_timer.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
+            busy_timer.store(false, Ordering::SeqCst);
+            result_choice_timer.clear();
+            section_choice_timer.clear();
+            section_choice_timer.append("Intera voce");
+            section_choice_timer.set_selection(0);
+            *current_extract_timer.borrow_mut() = None;
+            match result {
+                Ok(found) => {
+                    for item in &found {
+                        result_choice_timer.append(&treccani_result_display_label(item));
+                    }
+                    if found.is_empty() {
+                        show_message_subdialog(
+                            &dialog_timer,
+                            "Treccani",
+                            "Nessuna voce Treccani trovata.",
+                        );
+                    } else {
+                        result_choice_timer.set_selection(0);
+                        result_choice_timer.set_focus();
+                    }
+                    *results_timer.borrow_mut() = found;
+                }
+                Err(error) => show_message_subdialog(
+                    &dialog_timer,
+                    "Treccani",
+                    &format!("Ricerca Treccani non riuscita: {error}"),
+                ),
+            }
+        }
+    });
+    result_timer.start(100, false);
+
+    let perform_search = Rc::new({
+        let pending_result = Arc::clone(&pending_result);
+        let busy = Arc::clone(&busy);
+        let search_progress = Rc::clone(&search_progress);
+        let dialog_search_progress = dialog;
+        move || {
+            let query = query_ctrl.get_value().trim().to_string();
+            if query.is_empty() {
+                show_message_subdialog(
+                    &dialog_search_progress,
+                    "Treccani",
+                    "Inserisci una parola da cercare.",
+                );
+                return;
+            }
+            if busy.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            if search_progress.borrow().is_none() {
+                *search_progress.borrow_mut() =
+                    Some(open_youtube_search_progress_dialog(&dialog_search_progress));
+            }
+            let pending = Arc::clone(&pending_result);
+            std::thread::spawn(move || {
+                let result =
+                    treccani::search_articles(&query, 20).map_err(|error| error.to_string());
+                *pending.lock().unwrap() = Some(result);
+            });
+        }
+    });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    query_ctrl.on_text_enter(move |_| perform_search_enter());
+
+    let current_extract_selection = Rc::clone(&current_extract);
+    let section_choice_selection = section_choice;
+    result_choice.on_selection_changed(move |_| {
+        *current_extract_selection.borrow_mut() = None;
+        section_choice_selection.clear();
+        section_choice_selection.append("Intera voce");
+        section_choice_selection.set_selection(0);
+    });
+
+    let results_load = Rc::clone(&results);
+    let current_extract_load = Rc::clone(&current_extract);
+    let dialog_load = dialog;
+    let result_choice_load = result_choice;
+    let section_choice_load = section_choice;
+    load_button.on_click(move |_| {
+        if load_selected_treccani_extract(
+            &dialog_load,
+            result_choice_load,
+            section_choice_load,
+            &results_load,
+            &current_extract_load,
+        )
+        .is_some()
+        {
+            section_choice_load.set_focus();
+        }
+    });
+
+    let results_preview = Rc::clone(&results);
+    let current_extract_preview = Rc::clone(&current_extract);
+    let dialog_preview = dialog;
+    let result_choice_preview = result_choice;
+    let section_choice_preview = section_choice;
+    preview_button.on_click(move |_| {
+        let Some(extract) = load_selected_treccani_extract(
+            &dialog_preview,
+            result_choice_preview,
+            section_choice_preview,
+            &results_preview,
+            &current_extract_preview,
+        ) else {
+            return;
+        };
+        let title = result_choice_preview
+            .get_selection()
+            .and_then(|selection| results_preview.borrow().get(selection as usize).cloned())
+            .map(|result| result.title)
+            .unwrap_or_else(|| "Treccani".to_string());
+        let text = treccani_selected_text(&extract, section_choice_preview);
+        show_text_preview_dialog(&dialog_preview, &title, &text);
+    });
+
+    let results_import = Rc::clone(&results);
+    let current_extract_import = Rc::clone(&current_extract);
+    let dialog_import = dialog;
+    let result_choice_import = result_choice;
+    let section_choice_import = section_choice;
+    let editor_import = editor;
+    let cursor_moved_import = cursor_moved_by_user;
+    import_button.on_click(move |_| {
+        let Some(extract) = load_selected_treccani_extract(
+            &dialog_import,
+            result_choice_import,
+            section_choice_import,
+            &results_import,
+            &current_extract_import,
+        ) else {
+            return;
+        };
+        let text = treccani_selected_text(&extract, section_choice_import);
+        let existing = editor_import.get_value();
+        let new_text = if existing.trim().is_empty() {
+            text
+        } else {
+            format!("{}\n\n{}", existing, text)
+        };
+        editor_import.set_value(&new_text);
+        editor_import.set_modified(true);
+        cursor_moved_import.set(false);
+        dialog_import.end_modal(ID_OK);
+        editor_import.set_focus();
+    });
+
+    let result_timer_destroy = Rc::clone(&result_timer);
+    let search_progress_destroy = Rc::clone(&search_progress);
+    dialog.on_destroy(move |event| {
+        if let Some(progress_dialog) = search_progress_destroy.borrow_mut().take() {
+            progress_dialog.destroy();
+        }
+        result_timer_destroy.stop();
+        event.skip(true);
+    });
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
 #[derive(Clone, Debug)]
 struct WikipediaSearchResult {
     pageid: i64,
@@ -18355,6 +18921,929 @@ fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     dialog.destroy();
 }
 
+#[derive(Clone)]
+struct NewCalendarReminder {
+    text: String,
+    has_time: bool,
+    hour: u32,
+    minute: u32,
+    alert_minutes: u32,
+}
+
+fn selected_choice_number(choice: &Choice) -> Option<u32> {
+    choice.get_selection()
+}
+
+fn adjust_time_choices(event: WindowEventData, hour_choice: Choice, minute_choice: Choice) {
+    if let WindowEventData::Keyboard(key_event) = &event {
+        let delta = match key_event.get_key_code().unwrap_or_default() {
+            WXK_LEFT => -5,
+            WXK_RIGHT => 5,
+            _ => {
+                event.skip(true);
+                return;
+            }
+        };
+        let hour = selected_choice_number(&hour_choice).unwrap_or(0) as i32;
+        let minute = selected_choice_number(&minute_choice).unwrap_or(0) as i32;
+        let total = (hour * 60 + minute + delta).rem_euclid(24 * 60);
+        hour_choice.set_selection((total / 60) as u32);
+        minute_choice.set_selection((total % 60) as u32);
+        return;
+    }
+    event.skip(true);
+}
+
+fn bind_five_minute_time_navigation(hour_choice: Choice, minute_choice: Choice) {
+    let hour_from_hour = hour_choice;
+    let minute_from_hour = minute_choice;
+    hour_choice.on_key_down(move |event| {
+        adjust_time_choices(event, hour_from_hour, minute_from_hour);
+    });
+    let hour_from_minute = hour_choice;
+    let minute_from_minute = minute_choice;
+    minute_choice.on_key_down(move |event| {
+        adjust_time_choices(event, hour_from_minute, minute_from_minute);
+    });
+}
+
+fn open_calendar_dialog(parent: &Frame) {
+    let language = Settings::load().ui_language;
+    let labels = calendar::labels(&language);
+    let today = chrono::Local::now().date_naive();
+    let dates = Rc::new(
+        (-365_i64..=730)
+            .map(|offset| today + chrono::Duration::days(offset))
+            .collect::<Vec<_>>(),
+    );
+    let today_index = 365_u32;
+
+    let dialog = Dialog::builder(parent, labels.title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 520)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let day_row = BoxSizer::builder(Orientation::Horizontal).build();
+    day_row.add(
+        &StaticText::builder(&panel).with_label(labels.day).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let day_choice = Choice::builder(&panel).build();
+    for date in dates.iter() {
+        day_choice.append(&calendar::localized_date(&language, *date));
+    }
+    day_choice.set_selection(today_index);
+    day_row.add(&day_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&day_row, 0, SizerFlag::Expand, 0);
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.details)
+            .build(),
+        0,
+        SizerFlag::All,
+        5,
+    );
+    let details = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
+        .build();
+    details.set_value(&calendar::build_day_details(&language, today));
+    root.add(&details, 1, SizerFlag::Expand | SizerFlag::All, 5);
+
+    let first_buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let today_button = Button::builder(&panel).with_label(labels.today).build();
+    let reminder_button = Button::builder(&panel)
+        .with_label(labels.add_reminder)
+        .build();
+    let system_calendar_button = Button::builder(&panel)
+        .with_label(labels.open_system_calendar)
+        .build();
+    first_buttons.add(&today_button, 0, SizerFlag::All, 5);
+    first_buttons.add(&reminder_button, 0, SizerFlag::All, 5);
+    first_buttons.add(&system_calendar_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&first_buttons, 0, SizerFlag::Expand, 0);
+
+    let close_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(labels.close)
+        .build();
+    close_row.add_spacer(1);
+    close_row.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&close_row, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let refresh_details = Rc::new({
+        let dates = Rc::clone(&dates);
+        let language = language.clone();
+        move |choice: Choice, target: TextCtrl| {
+            if let Some(selection) = choice.get_selection()
+                && let Some(date) = dates.get(selection as usize)
+            {
+                target.set_value(&calendar::build_day_details(&language, *date));
+            }
+        }
+    });
+
+    let refresh_day_change = Rc::clone(&refresh_details);
+    let details_day_change = details;
+    day_choice.on_selection_changed(move |_| {
+        refresh_day_change(day_choice, details_day_change);
+    });
+
+    let refresh_today = Rc::clone(&refresh_details);
+    let details_today = details;
+    today_button.on_click(move |_| {
+        day_choice.set_selection(today_index);
+        refresh_today(day_choice, details_today);
+    });
+
+    let dates_reminder = Rc::clone(&dates);
+    let refresh_reminder = Rc::clone(&refresh_details);
+    let details_reminder = details;
+    let dialog_reminder = dialog;
+    let language_reminder = language.clone();
+    reminder_button.on_click(move |_| {
+        let Some(selection) = day_choice.get_selection() else {
+            return;
+        };
+        let Some(date) = dates_reminder.get(selection as usize).copied() else {
+            return;
+        };
+        let Some(new_reminder) = open_calendar_reminder_dialog(&dialog_reminder, date) else {
+            return;
+        };
+        match calendar::add_reminder(
+            date,
+            new_reminder.text,
+            new_reminder.has_time,
+            new_reminder.hour,
+            new_reminder.minute,
+            new_reminder.alert_minutes,
+        ) {
+            Ok((_, None)) => show_message_subdialog(
+                &dialog_reminder,
+                calendar::labels(&language_reminder).title,
+                calendar::labels(&language_reminder).saved,
+            ),
+            Ok((_, Some(error))) => show_message_subdialog(
+                &dialog_reminder,
+                calendar::labels(&language_reminder).title,
+                &calendar::labels(&language_reminder)
+                    .saved_local_only
+                    .replace("{err}", &error),
+            ),
+            Err(error) => show_message_subdialog(
+                &dialog_reminder,
+                calendar::labels(&language_reminder).title,
+                &error,
+            ),
+        }
+        refresh_reminder(day_choice, details_reminder);
+    });
+
+    let dialog_system_calendar = dialog;
+    let language_system_calendar = language;
+    system_calendar_button.on_click(move |_| {
+        if let Err(error) = calendar::open_system_calendar() {
+            let labels = calendar::labels(&language_system_calendar);
+            show_message_subdialog(
+                &dialog_system_calendar,
+                labels.title,
+                &labels.system_calendar_error.replace("{err}", &error),
+            );
+        }
+    });
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn open_calendar_reminder_dialog(
+    parent: &Dialog,
+    date: chrono::NaiveDate,
+) -> Option<NewCalendarReminder> {
+    let language = Settings::load().ui_language;
+    let labels = calendar::labels(&language);
+    let dialog = Dialog::builder(parent, labels.reminder_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(560, 330)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&calendar::localized_date(&language, date))
+            .build(),
+        0,
+        SizerFlag::All,
+        5,
+    );
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.reminder_text)
+            .build(),
+        0,
+        SizerFlag::All,
+        5,
+    );
+    let text_ctrl = TextCtrl::builder(&panel).build();
+    root.add(&text_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 5);
+
+    let mode_row = BoxSizer::builder(Orientation::Horizontal).build();
+    mode_row.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.time_mode)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let mode_choice = Choice::builder(&panel).build();
+    mode_choice.append(labels.no_time);
+    mode_choice.append(labels.with_time);
+    mode_choice.set_selection(0);
+    mode_row.add(&mode_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&mode_row, 0, SizerFlag::Expand, 0);
+
+    let time_row = BoxSizer::builder(Orientation::Horizontal).build();
+    time_row.add(
+        &StaticText::builder(&panel).with_label(labels.hour).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let hour_choice = Choice::builder(&panel).build();
+    for hour in 0..24 {
+        hour_choice.append(&format!("{hour:02}"));
+    }
+    time_row.add(&hour_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    time_row.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.minute)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let minute_choice = Choice::builder(&panel).build();
+    for minute in 0..60 {
+        minute_choice.append(&format!("{minute:02}"));
+    }
+    time_row.add(&minute_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&time_row, 0, SizerFlag::Expand, 0);
+
+    let alert_row = BoxSizer::builder(Orientation::Horizontal).build();
+    alert_row.add(
+        &StaticText::builder(&panel).with_label(labels.alert).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let alert_choice = Choice::builder(&panel).build();
+    for label in [
+        labels.alert_at_time,
+        labels.alert_5_minutes,
+        labels.alert_15_minutes,
+        labels.alert_30_minutes,
+        labels.alert_1_hour,
+        labels.alert_1_day,
+    ] {
+        alert_choice.append(label);
+    }
+    alert_choice.set_selection(2);
+    alert_row.add(&alert_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&alert_row, 0, SizerFlag::Expand, 0);
+
+    let default_time = chrono::Local::now() + chrono::Duration::minutes(5);
+    hour_choice.set_selection(default_time.hour());
+    minute_choice.set_selection(default_time.minute());
+    hour_choice.enable(false);
+    minute_choice.enable(false);
+    alert_choice.enable(false);
+    bind_five_minute_time_navigation(hour_choice, minute_choice);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let save_button = Button::builder(&panel).with_label(labels.save).build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(labels.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let hour_mode = hour_choice;
+    let minute_mode = minute_choice;
+    let alert_mode = alert_choice;
+    mode_choice.on_selection_changed(move |_| {
+        let timed = mode_choice.get_selection() == Some(1);
+        hour_mode.enable(timed);
+        minute_mode.enable(timed);
+        alert_mode.enable(timed);
+    });
+
+    let result = Rc::new(RefCell::new(None::<NewCalendarReminder>));
+    let result_save = Rc::clone(&result);
+    let dialog_save = dialog;
+    save_button.on_click(move |_| {
+        let text = text_ctrl.get_value().trim().to_string();
+        if text.is_empty() {
+            show_message_subdialog(&dialog_save, labels.reminder_title, labels.empty_text);
+            return;
+        }
+        let has_time = mode_choice.get_selection() == Some(1);
+        let Some(hour) = selected_choice_number(&hour_choice) else {
+            show_message_subdialog(&dialog_save, labels.reminder_title, labels.invalid_time);
+            return;
+        };
+        let Some(minute) = selected_choice_number(&minute_choice) else {
+            show_message_subdialog(&dialog_save, labels.reminder_title, labels.invalid_time);
+            return;
+        };
+        let alert_values = [0_u32, 5, 15, 30, 60, 1440];
+        let alert_minutes = alert_choice
+            .get_selection()
+            .and_then(|selection| alert_values.get(selection as usize).copied())
+            .unwrap_or(15);
+        *result_save.borrow_mut() = Some(NewCalendarReminder {
+            text,
+            has_time,
+            hour,
+            minute,
+            alert_minutes,
+        });
+        dialog_save.end_modal(ID_OK);
+    });
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| dialog_cancel.end_modal(ID_CANCEL));
+
+    let modal_result = dialog.show_modal();
+    dialog.destroy();
+    if modal_result == ID_OK {
+        result.borrow_mut().take()
+    } else {
+        None
+    }
+}
+
+#[derive(Clone, Copy)]
+struct RadioScheduleLabels {
+    title: &'static str,
+    day: &'static str,
+    hour: &'static str,
+    minute: &'static str,
+    duration: &'static str,
+    open: &'static str,
+    play_record: &'static str,
+    schedule_recording: &'static str,
+    schedule: &'static str,
+    cancel: &'static str,
+    past_time: &'static str,
+    success: &'static str,
+}
+
+fn radio_schedule_labels(language: &str) -> RadioScheduleLabels {
+    match language {
+        "it" => RadioScheduleLabels {
+            title: "Programma registrazione radio",
+            day: "Giorno",
+            hour: "Ora",
+            minute: "Minuti",
+            duration: "Durata",
+            open: "Apri",
+            play_record: "Riproduci e registra",
+            schedule_recording: "Programma registrazione",
+            schedule: "Programma",
+            cancel: "Annulla",
+            past_time: "Scegli un orario futuro.",
+            success: "Registrazione programmata per {date} alle {time}, durata {duration} minuti.",
+        },
+        "fr" => RadioScheduleLabels {
+            title: "Programmer un enregistrement radio",
+            day: "Jour",
+            hour: "Heure",
+            minute: "Minutes",
+            duration: "Durée",
+            open: "Ouvrir",
+            play_record: "Lire et enregistrer",
+            schedule_recording: "Programmer l’enregistrement",
+            schedule: "Programmer",
+            cancel: "Annuler",
+            past_time: "Choisissez une heure future.",
+            success: "Enregistrement programmé le {date} à {time}, durée {duration} minutes.",
+        },
+        "es" => RadioScheduleLabels {
+            title: "Programar grabación de radio",
+            day: "Día",
+            hour: "Hora",
+            minute: "Minutos",
+            duration: "Duración",
+            open: "Abrir",
+            play_record: "Reproducir y grabar",
+            schedule_recording: "Programar grabación",
+            schedule: "Programar",
+            cancel: "Cancelar",
+            past_time: "Elige una hora futura.",
+            success: "Grabación programada para {date} a las {time}, duración {duration} minutos.",
+        },
+        "pt" => RadioScheduleLabels {
+            title: "Agendar gravação de rádio",
+            day: "Dia",
+            hour: "Hora",
+            minute: "Minutos",
+            duration: "Duração",
+            open: "Abrir",
+            play_record: "Reproduzir e gravar",
+            schedule_recording: "Agendar gravação",
+            schedule: "Agendar",
+            cancel: "Cancelar",
+            past_time: "Escolha uma hora futura.",
+            success: "Gravação agendada para {date} às {time}, duração {duration} minutos.",
+        },
+        "cs" => RadioScheduleLabels {
+            title: "Naplánovat nahrávání rádia",
+            day: "Den",
+            hour: "Hodina",
+            minute: "Minuty",
+            duration: "Délka",
+            open: "Otevřít",
+            play_record: "Přehrát a nahrávat",
+            schedule_recording: "Naplánovat nahrávání",
+            schedule: "Naplánovat",
+            cancel: "Zrušit",
+            past_time: "Zvolte budoucí čas.",
+            success: "Nahrávání naplánováno na {date} v {time}, délka {duration} minut.",
+        },
+        "pl" => RadioScheduleLabels {
+            title: "Zaplanuj nagrywanie radia",
+            day: "Dzień",
+            hour: "Godzina",
+            minute: "Minuty",
+            duration: "Czas trwania",
+            open: "Otwórz",
+            play_record: "Odtwarzaj i nagrywaj",
+            schedule_recording: "Zaplanuj nagrywanie",
+            schedule: "Zaplanuj",
+            cancel: "Anuluj",
+            past_time: "Wybierz przyszłą godzinę.",
+            success: "Nagrywanie zaplanowano na {date} o {time}, czas trwania {duration} minut.",
+        },
+        _ => RadioScheduleLabels {
+            title: "Schedule radio recording",
+            day: "Day",
+            hour: "Hour",
+            minute: "Minutes",
+            duration: "Duration",
+            open: "Open",
+            play_record: "Play and record",
+            schedule_recording: "Schedule recording",
+            schedule: "Schedule",
+            cancel: "Cancel",
+            past_time: "Choose a future time.",
+            success: "Recording scheduled for {date} at {time}, duration {duration} minutes.",
+        },
+    }
+}
+
+fn open_radio_schedule_dialog(parent: &impl WxWidget, station: &RadioFavorite) {
+    let language = Settings::load().ui_language;
+    let labels = radio_schedule_labels(&language);
+    let now = chrono::Local::now();
+    let default_time = now + chrono::Duration::minutes(5);
+    let days = Rc::new(
+        (0_i64..=30)
+            .map(|offset| now.date_naive() + chrono::Duration::days(offset))
+            .collect::<Vec<_>>(),
+    );
+    let default_day_index = days
+        .iter()
+        .position(|date| *date == default_time.date_naive())
+        .unwrap_or(0) as u32;
+
+    let dialog = Dialog::builder(parent, labels.title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(600, 330)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&station.name)
+            .build(),
+        0,
+        SizerFlag::All,
+        5,
+    );
+
+    let day_row = BoxSizer::builder(Orientation::Horizontal).build();
+    day_row.add(
+        &StaticText::builder(&panel).with_label(labels.day).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let day_choice = Choice::builder(&panel).build();
+    for date in days.iter() {
+        day_choice.append(&calendar::localized_date(&language, *date));
+    }
+    day_choice.set_selection(default_day_index);
+    day_row.add(&day_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&day_row, 0, SizerFlag::Expand, 0);
+
+    let time_row = BoxSizer::builder(Orientation::Horizontal).build();
+    time_row.add(
+        &StaticText::builder(&panel).with_label(labels.hour).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let hour_choice = Choice::builder(&panel).build();
+    for hour in 0..24 {
+        hour_choice.append(&format!("{hour:02}"));
+    }
+    hour_choice.set_selection(default_time.hour());
+    time_row.add(&hour_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    time_row.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.minute)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let minute_choice = Choice::builder(&panel).build();
+    for minute in 0..60 {
+        minute_choice.append(&format!("{minute:02}"));
+    }
+    minute_choice.set_selection(default_time.minute());
+    time_row.add(&minute_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&time_row, 0, SizerFlag::Expand, 0);
+    bind_five_minute_time_navigation(hour_choice, minute_choice);
+
+    let duration_row = BoxSizer::builder(Orientation::Horizontal).build();
+    duration_row.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.duration)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let duration_choice = Choice::builder(&panel).build();
+    let durations = [1_u32, 5, 10, 20, 30, 60, 90, 120];
+    for duration in durations {
+        duration_choice.append(&format!("{duration} min"));
+    }
+    duration_choice.set_selection(4);
+    duration_row.add(&duration_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&duration_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let schedule_button = Button::builder(&panel).with_label(labels.schedule).build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(labels.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&schedule_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let station_schedule = station.clone();
+    let days_schedule = Rc::clone(&days);
+    let language_schedule = language.clone();
+    let dialog_schedule = dialog;
+    schedule_button.on_click(move |_| {
+        let Some(day_index) = day_choice.get_selection() else {
+            return;
+        };
+        let Some(date) = days_schedule.get(day_index as usize).copied() else {
+            return;
+        };
+        let Some(hour) = selected_choice_number(&hour_choice) else {
+            return;
+        };
+        let Some(minute) = selected_choice_number(&minute_choice) else {
+            return;
+        };
+        let Some(start) = date.and_hms_opt(hour, minute, 0) else {
+            return;
+        };
+        if start <= chrono::Local::now().naive_local() {
+            show_message_subdialog(&dialog_schedule, labels.title, labels.past_time);
+            return;
+        }
+        let duration = duration_choice
+            .get_selection()
+            .and_then(|selection| durations.get(selection as usize).copied())
+            .unwrap_or(30);
+        match scheduled_radio::schedule(
+            &station_schedule.name,
+            &station_schedule.stream_url,
+            start,
+            duration,
+        ) {
+            Ok(_) => {
+                let message = labels
+                    .success
+                    .replace(
+                        "{date}",
+                        &calendar::localized_date(&language_schedule, date),
+                    )
+                    .replace("{time}", &format!("{hour:02}:{minute:02}"))
+                    .replace("{duration}", &duration.to_string());
+                show_message_subdialog(&dialog_schedule, labels.title, &message);
+                dialog_schedule.end_modal(ID_OK);
+            }
+            Err(error) => show_message_subdialog(&dialog_schedule, labels.title, &error),
+        }
+    });
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| dialog_cancel.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+#[derive(Clone, Copy)]
+struct TvScheduleLabels {
+    title: &'static str,
+    day: &'static str,
+    hour: &'static str,
+    minute: &'static str,
+    duration: &'static str,
+    schedule: &'static str,
+    cancel: &'static str,
+    play_record: &'static str,
+    schedule_recording: &'static str,
+    past_time: &'static str,
+    success: &'static str,
+}
+
+fn tv_schedule_labels(language: &str) -> TvScheduleLabels {
+    match language {
+        "it" => TvScheduleLabels {
+            title: "Programma registrazione TV",
+            day: "Giorno",
+            hour: "Ora",
+            minute: "Minuti",
+            duration: "Durata",
+            schedule: "Programma",
+            cancel: "Annulla",
+            play_record: "Riproduci e registra",
+            schedule_recording: "Programma registrazione",
+            past_time: "Scegli un orario futuro.",
+            success: "Registrazione programmata per {date} alle {time}, durata {duration} minuti.",
+        },
+        "fr" => TvScheduleLabels {
+            title: "Programmer un enregistrement TV",
+            day: "Jour",
+            hour: "Heure",
+            minute: "Minutes",
+            duration: "Durée",
+            schedule: "Programmer",
+            cancel: "Annuler",
+            play_record: "Lire et enregistrer",
+            schedule_recording: "Programmer l’enregistrement",
+            past_time: "Choisissez une heure future.",
+            success: "Enregistrement programmé le {date} à {time}, durée {duration} minutes.",
+        },
+        "es" => TvScheduleLabels {
+            title: "Programar grabación de TV",
+            day: "Día",
+            hour: "Hora",
+            minute: "Minutos",
+            duration: "Duración",
+            schedule: "Programar",
+            cancel: "Cancelar",
+            play_record: "Reproducir y grabar",
+            schedule_recording: "Programar grabación",
+            past_time: "Elige una hora futura.",
+            success: "Grabación programada para {date} a las {time}, duración {duration} minutos.",
+        },
+        "pt" => TvScheduleLabels {
+            title: "Agendar gravação de TV",
+            day: "Dia",
+            hour: "Hora",
+            minute: "Minutos",
+            duration: "Duração",
+            schedule: "Agendar",
+            cancel: "Cancelar",
+            play_record: "Reproduzir e gravar",
+            schedule_recording: "Agendar gravação",
+            past_time: "Escolha uma hora futura.",
+            success: "Gravação agendada para {date} às {time}, duração {duration} minutos.",
+        },
+        "cs" => TvScheduleLabels {
+            title: "Naplánovat nahrávání TV",
+            day: "Den",
+            hour: "Hodina",
+            minute: "Minuty",
+            duration: "Délka",
+            schedule: "Naplánovat",
+            cancel: "Zrušit",
+            play_record: "Přehrát a nahrávat",
+            schedule_recording: "Naplánovat nahrávání",
+            past_time: "Zvolte budoucí čas.",
+            success: "Nahrávání naplánováno na {date} v {time}, délka {duration} minut.",
+        },
+        "pl" => TvScheduleLabels {
+            title: "Zaplanuj nagrywanie TV",
+            day: "Dzień",
+            hour: "Godzina",
+            minute: "Minuty",
+            duration: "Czas trwania",
+            schedule: "Zaplanuj",
+            cancel: "Anuluj",
+            play_record: "Odtwarzaj i nagrywaj",
+            schedule_recording: "Zaplanuj nagrywanie",
+            past_time: "Wybierz przyszłą godzinę.",
+            success: "Nagrywanie zaplanowano na {date} o {time}, czas trwania {duration} minut.",
+        },
+        _ => TvScheduleLabels {
+            title: "Schedule TV recording",
+            day: "Day",
+            hour: "Hour",
+            minute: "Minutes",
+            duration: "Duration",
+            schedule: "Schedule",
+            cancel: "Cancel",
+            play_record: "Play and record",
+            schedule_recording: "Schedule recording",
+            past_time: "Choose a future time.",
+            success: "Recording scheduled for {date} at {time}, duration {duration} minutes.",
+        },
+    }
+}
+
+fn open_tv_schedule_dialog(parent: &Dialog, channel: &tv::TvChannel) {
+    let language = Settings::load().ui_language;
+    let labels = tv_schedule_labels(&language);
+    let now = chrono::Local::now();
+    let default_time = now + chrono::Duration::minutes(5);
+    let days = Rc::new(
+        (0_i64..=30)
+            .map(|offset| now.date_naive() + chrono::Duration::days(offset))
+            .collect::<Vec<_>>(),
+    );
+    let default_day_index = days
+        .iter()
+        .position(|date| *date == default_time.date_naive())
+        .unwrap_or(0) as u32;
+
+    let dialog = Dialog::builder(parent, labels.title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(600, 330)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&channel.name)
+            .build(),
+        0,
+        SizerFlag::All,
+        5,
+    );
+    let day_row = BoxSizer::builder(Orientation::Horizontal).build();
+    day_row.add(
+        &StaticText::builder(&panel).with_label(labels.day).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let day_choice = Choice::builder(&panel).build();
+    for date in days.iter() {
+        day_choice.append(&calendar::localized_date(&language, *date));
+    }
+    day_choice.set_selection(default_day_index);
+    day_row.add(&day_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&day_row, 0, SizerFlag::Expand, 0);
+
+    let time_row = BoxSizer::builder(Orientation::Horizontal).build();
+    time_row.add(
+        &StaticText::builder(&panel).with_label(labels.hour).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let hour_choice = Choice::builder(&panel).build();
+    for hour in 0..24 {
+        hour_choice.append(&format!("{hour:02}"));
+    }
+    hour_choice.set_selection(default_time.hour());
+    time_row.add(&hour_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    time_row.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.minute)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let minute_choice = Choice::builder(&panel).build();
+    for minute in 0..60 {
+        minute_choice.append(&format!("{minute:02}"));
+    }
+    minute_choice.set_selection(default_time.minute());
+    time_row.add(&minute_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&time_row, 0, SizerFlag::Expand, 0);
+    bind_five_minute_time_navigation(hour_choice, minute_choice);
+
+    let duration_row = BoxSizer::builder(Orientation::Horizontal).build();
+    duration_row.add(
+        &StaticText::builder(&panel)
+            .with_label(labels.duration)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let duration_choice = Choice::builder(&panel).build();
+    let durations = [1_u32, 5, 10, 20, 30, 60, 90, 120];
+    for duration in durations {
+        duration_choice.append(&format!("{duration} min"));
+    }
+    duration_choice.set_selection(4);
+    duration_row.add(&duration_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&duration_row, 0, SizerFlag::Expand, 0);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let schedule_button = Button::builder(&panel).with_label(labels.schedule).build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(labels.cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&schedule_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let channel_schedule = channel.clone();
+    let days_schedule = Rc::clone(&days);
+    let dialog_schedule = dialog;
+    schedule_button.on_click(move |_| {
+        let Some(day_index) = day_choice.get_selection() else {
+            return;
+        };
+        let Some(date) = days_schedule.get(day_index as usize).copied() else {
+            return;
+        };
+        let Some(hour) = selected_choice_number(&hour_choice) else {
+            return;
+        };
+        let Some(minute) = selected_choice_number(&minute_choice) else {
+            return;
+        };
+        let Some(start) = date.and_hms_opt(hour, minute, 0) else {
+            return;
+        };
+        if start <= chrono::Local::now().naive_local() {
+            show_message_subdialog(&dialog_schedule, labels.title, labels.past_time);
+            return;
+        }
+        let duration = duration_choice
+            .get_selection()
+            .and_then(|selection| durations.get(selection as usize).copied())
+            .unwrap_or(30);
+        match scheduled_tv::schedule(&channel_schedule, start, duration) {
+            Ok(_) => {
+                let message = labels
+                    .success
+                    .replace("{date}", &calendar::localized_date(&language, date))
+                    .replace("{time}", &format!("{hour:02}:{minute:02}"))
+                    .replace("{duration}", &duration.to_string());
+                show_message_subdialog(&dialog_schedule, labels.title, &message);
+                dialog_schedule.end_modal(ID_OK);
+            }
+            Err(error) => show_message_subdialog(&dialog_schedule, labels.title, &error),
+        }
+    });
+    let dialog_cancel = dialog;
+    cancel_button.on_click(move |_| dialog_cancel.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
 fn open_tv_dialog(parent: &Frame) {
     match tv::load_channels() {
         Ok(channels) => open_tv_channels_dialog(parent, channels),
@@ -18501,15 +19990,29 @@ fn tv_search_found_message(count: usize) -> String {
     }
 }
 
+struct TvChannelChoiceControls<'a> {
+    choice: &'a Choice,
+    open_button: &'a Button,
+    record_button: &'a Button,
+    schedule_button: &'a Button,
+    guide_button: &'a Button,
+    favorite_button: &'a Button,
+}
+
 fn refresh_tv_channel_choice(
-    choice: &Choice,
-    open_button: &Button,
-    guide_button: &Button,
-    favorite_button: &Button,
+    controls: TvChannelChoiceControls<'_>,
     channels: &[tv::TvChannel],
     visible_indices: &RefCell<Vec<usize>>,
     candidate_indices: Vec<usize>,
 ) {
+    let TvChannelChoiceControls {
+        choice,
+        open_button,
+        record_button,
+        schedule_button,
+        guide_button,
+        favorite_button,
+    } = controls;
     choice.clear();
     let mut indices = visible_indices.borrow_mut();
     indices.clear();
@@ -18522,6 +20025,8 @@ fn refresh_tv_channel_choice(
     if let Some(first_index) = indices.first().copied() {
         choice.show(true);
         open_button.enable(true);
+        record_button.enable(true);
+        schedule_button.enable(true);
         favorite_button.enable(true);
         choice.set_selection(0);
         guide_button.enable(
@@ -18532,6 +20037,8 @@ fn refresh_tv_channel_choice(
     } else {
         choice.show(false);
         open_button.enable(false);
+        record_button.enable(false);
+        schedule_button.enable(false);
         favorite_button.enable(false);
         guide_button.enable(false);
     }
@@ -18658,7 +20165,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     }
     let dialog = Dialog::builder(parent, &ui.tv_label)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(720, 260)
+        .with_size(760, 360)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -18873,13 +20380,21 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let choice = Choice::builder(&panel).build();
     channel_row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&channel_row, 1, SizerFlag::Expand, 0);
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let playback_buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let management_buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel)
         .with_label(if Settings::load().ui_language == "it" {
             "Apri canale"
         } else {
             "Open channel"
         })
+        .build();
+    let schedule_labels = tv_schedule_labels(&Settings::load().ui_language);
+    let record_button = Button::builder(&panel)
+        .with_label(schedule_labels.play_record)
+        .build();
+    let schedule_button = Button::builder(&panel)
+        .with_label(schedule_labels.schedule_recording)
         .build();
     let guide_button = Button::builder(&panel)
         .with_label(tv_guide_button_label())
@@ -18889,10 +20404,14 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         .with_label(&ui.tv_add_favorite)
         .build();
     refresh_tv_channel_choice(
-        &choice,
-        &open_button,
-        &guide_button,
-        &favorite_button,
+        TvChannelChoiceControls {
+            choice: &choice,
+            open_button: &open_button,
+            record_button: &record_button,
+            schedule_button: &schedule_button,
+            guide_button: &guide_button,
+            favorite_button: &favorite_button,
+        },
         &channels,
         &visible_channel_indices,
         tv_channel_indices_for_category(
@@ -18917,18 +20436,24 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
-    buttons.add_spacer(1);
-    buttons.add(&open_button, 0, SizerFlag::All, 10);
-    buttons.add(&guide_button, 0, SizerFlag::All, 10);
-    buttons.add(&favorite_button, 0, SizerFlag::All, 10);
-    buttons.add(&add_channel_button, 0, SizerFlag::All, 10);
-    buttons.add(&recordings_button, 0, SizerFlag::All, 10);
-    buttons.add(&close_button, 0, SizerFlag::All, 10);
-    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    playback_buttons.add(&open_button, 0, SizerFlag::All, 5);
+    playback_buttons.add(&record_button, 0, SizerFlag::All, 5);
+    playback_buttons.add(&schedule_button, 0, SizerFlag::All, 5);
+    playback_buttons.add(&guide_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&playback_buttons, 0, SizerFlag::Expand, 0);
+    management_buttons.add(&favorite_button, 0, SizerFlag::All, 5);
+    management_buttons.add(&add_channel_button, 0, SizerFlag::All, 5);
+    management_buttons.add(&recordings_button, 0, SizerFlag::All, 5);
+    management_buttons.add_spacer(1);
+    management_buttons.add(&close_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&management_buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
     open_button.show(true);
-    open_button.enable(!visible_channel_indices.borrow().is_empty());
+    let has_visible_channels = !visible_channel_indices.borrow().is_empty();
+    open_button.enable(has_visible_channels);
+    record_button.enable(has_visible_channels);
+    schedule_button.enable(has_visible_channels);
     panel.layout();
     dialog.layout();
     append_podcast_log(&format!(
@@ -18941,6 +20466,8 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let category_choice_change = category_choice;
     let choice_category_change = choice;
     let open_button_category_change = open_button;
+    let record_button_category_change = record_button;
+    let schedule_button_category_change = schedule_button;
     let guide_button_category_change = guide_button;
     let favorite_button_category_change = favorite_button;
     let channels_category_change = Rc::clone(&channels);
@@ -18962,10 +20489,14 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             .map(String::as_str)
             .unwrap_or("");
         refresh_tv_channel_choice(
-            &choice_category_change,
-            &open_button_category_change,
-            &guide_button_category_change,
-            &favorite_button_category_change,
+            TvChannelChoiceControls {
+                choice: &choice_category_change,
+                open_button: &open_button_category_change,
+                record_button: &record_button_category_change,
+                schedule_button: &schedule_button_category_change,
+                guide_button: &guide_button_category_change,
+                favorite_button: &favorite_button_category_change,
+            },
             &channels_category_change,
             &visible_indices_category_change,
             tv_channel_indices_for_category(&channels_category_change, category),
@@ -18994,6 +20525,8 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             let category_choice_timer = category_choice;
             let choice_timer = choice;
             let open_button_timer = open_button;
+            let record_button_timer = record_button;
+            let schedule_button_timer = schedule_button;
             let guide_button_timer = guide_button;
             let favorite_button_timer = favorite_button;
             let channels_timer = Rc::clone(&channels);
@@ -19037,10 +20570,14 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     programmatic_category_change_timer.set(false);
                 }
                 refresh_tv_channel_choice(
-                    &choice_timer,
-                    &open_button_timer,
-                    &guide_button_timer,
-                    &favorite_button_timer,
+                    TvChannelChoiceControls {
+                        choice: &choice_timer,
+                        open_button: &open_button_timer,
+                        record_button: &record_button_timer,
+                        schedule_button: &schedule_button_timer,
+                        guide_button: &guide_button_timer,
+                        favorite_button: &favorite_button_timer,
+                    },
                     &channels_timer,
                     &visible_indices_timer,
                     candidate_indices,
@@ -19133,6 +20670,37 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                     "No TV channel selected."
                 },
             );
+        }
+    });
+    let choice_record = choice;
+    let channels_record = Rc::clone(&channels);
+    let visible_indices_record = Rc::clone(&visible_channel_indices);
+    let parent_record = dialog;
+    record_button.on_click(move |_| {
+        if let Some(selection) = choice_record.get_selection()
+            && let Some(index) = visible_indices_record
+                .borrow()
+                .get(selection as usize)
+                .copied()
+            && let Some(channel) = channels_record.get(index)
+            && let Err(error) = open_tv_stream_with_mpv_mode(channel, true)
+        {
+            show_message_subdialog(&parent_record, &current_ui_strings().tv_label, &error);
+        }
+    });
+    let choice_schedule = choice;
+    let channels_schedule = Rc::clone(&channels);
+    let visible_indices_schedule = Rc::clone(&visible_channel_indices);
+    let parent_schedule = dialog;
+    schedule_button.on_click(move |_| {
+        if let Some(selection) = choice_schedule.get_selection()
+            && let Some(index) = visible_indices_schedule
+                .borrow()
+                .get(selection as usize)
+                .copied()
+            && let Some(channel) = channels_schedule.get(index)
+        {
+            open_tv_schedule_dialog(&parent_schedule, channel);
         }
     });
     let choice_guide = choice;
@@ -20282,6 +21850,13 @@ fn open_rai_stream_with_mpv(url: &str, title: &str) -> Result<(), String> {
 }
 
 fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
+    open_tv_stream_with_mpv_mode(channel, false)
+}
+
+fn open_tv_stream_with_mpv_mode(
+    channel: &tv::TvChannel,
+    auto_start_recording: bool,
+) -> Result<(), String> {
     append_podcast_log(&format!(
         "tv.open.begin name={} category={} original_url={} has_guide={} resolver={:?} endpoint={:?} realm={:?} channel_id={:?} user_agent={}",
         channel.name,
@@ -20335,6 +21910,7 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
             &channel.name,
             Some(channel.playback_user_agent()),
         )
+        .with_auto_start(auto_start_recording)
     } else {
         append_podcast_log(&format!(
             "tv.open.recording_config name={} mode=standard_tv",
@@ -20342,6 +21918,7 @@ fn open_tv_stream_with_mpv(channel: &tv::TvChannel) -> Result<(), String> {
         ));
         MpvRecordingConfig::tv(&resolved_url, &channel.name)
             .with_input_user_agent(Some(channel.playback_user_agent()))
+            .with_auto_start(auto_start_recording)
     };
 
     let result = open_stream_with_mpv_recordable(
@@ -20386,6 +21963,7 @@ struct MpvRecordingConfig {
     kind: &'static str,
     extension: &'static str,
     ffmpeg_args: Vec<String>,
+    auto_start: bool,
 }
 
 impl MpvRecordingConfig {
@@ -20393,7 +21971,7 @@ impl MpvRecordingConfig {
         Self {
             title: title.to_string(),
             kind: "radio",
-            extension: ".mp3",
+            extension: ".mka",
             ffmpeg_args: vec![
                 "-nostdin".to_string(),
                 "-hide_banner".to_string(),
@@ -20404,12 +21982,13 @@ impl MpvRecordingConfig {
                 url.to_string(),
                 "-vn".to_string(),
                 "-c:a".to_string(),
-                "aac".to_string(),
+                "libmp3lame".to_string(),
                 "-b:a".to_string(),
                 "160k".to_string(),
                 "-f".to_string(),
-                "ipod".to_string(),
+                "mp3".to_string(),
             ],
+            auto_start: false,
         }
     }
 
@@ -20435,6 +22014,7 @@ impl MpvRecordingConfig {
                 "-f".to_string(),
                 "mp4".to_string(),
             ],
+            auto_start: false,
         }
     }
 
@@ -20464,6 +22044,7 @@ impl MpvRecordingConfig {
                 "-f".to_string(),
                 "mp4".to_string(),
             ],
+            auto_start: false,
         }
         .with_input_user_agent(user_agent)
     }
@@ -20492,7 +22073,13 @@ impl MpvRecordingConfig {
                 "-f".to_string(),
                 "mp4".to_string(),
             ],
+            auto_start: false,
         }
+    }
+
+    fn with_auto_start(mut self, auto_start: bool) -> Self {
+        self.auto_start = auto_start;
+        self
     }
 
     fn with_input_user_agent(mut self, user_agent: Option<&str>) -> Self {
@@ -21249,7 +22836,7 @@ fn log_mpv_debug_log_snapshot(context: &str, path: &Path) {
         source.len()
     ));
     for line in source.into_iter().rev() {
-        let clean = line.replace('\n', " ").replace('\r', " ");
+        let clean = line.replace(['\n', '\r'], " ");
         append_podcast_log(&format!(
             "mpv.recordable.debug_snapshot.line context={} {}",
             context, clean
@@ -21290,6 +22877,7 @@ fn write_mpv_accessibility_script(
     })?;
 
     let recording_enabled = recording.is_some();
+    let recording_auto_start = recording.is_some_and(|config| config.auto_start);
     let recording_title = recording
         .map(|config| sanitize_filename(&config.title))
         .unwrap_or_else(|| sanitize_filename(title));
@@ -21303,6 +22891,14 @@ fn write_mpv_accessibility_script(
     script.push_str(&format!(
         "local recording_enabled = {}\n",
         if recording_enabled { "true" } else { "false" }
+    ));
+    script.push_str(&format!(
+        "local recording_auto_start = {}\n",
+        if recording_auto_start {
+            "true"
+        } else {
+            "false"
+        }
     ));
     script.push_str(&format!(
         "local seek_step_seconds = {}\n",
@@ -21796,6 +23392,14 @@ local function mp4_path_for_recording(path)
     return mp4_path
 end
 
+local function mp3_path_for_recording(path)
+    local mp3_path = tostring(path or ""):gsub("%.mka$", ".mp3")
+    if mp3_path == path then
+        mp3_path = tostring(path or "") .. ".mp3"
+    end
+    return mp3_path
+end
+
 local function append_recording_manifest_command_for(path, title, kind)
     local saved_at = os.date("%Y-%m-%d %H:%M:%S")
     return "if [ -s " .. shell_quote(path) .. " ]; then /bin/mkdir -p " .. shell_quote(recordings_dir) .. "; /usr/bin/printf '%s\t%s\t%s\t%s\n' "
@@ -21811,6 +23415,23 @@ local function append_recording_manifest_command(path)
 end
 
 local function finalize_recording_command(path)
+    if recording_kind == "radio" then
+        local mp3_path = mp3_path_for_recording(path)
+        local convert_log = tostring(path or "") .. ".ffmpeg.log"
+        local convert_command = ffmpeg_available_command()
+            .. " && " .. shell_quote(ffmpeg_path)
+            .. " -nostdin -hide_banner -loglevel warning -y -i " .. shell_quote(path)
+            .. " -vn -c:a libmp3lame -b:a 160k -f mp3 " .. shell_quote(mp3_path)
+            .. " > " .. shell_quote(convert_log) .. " 2>&1"
+        return "if [ ! -s " .. shell_quote(path) .. " ]; then echo sonarpad_recording_missing_or_empty path=" .. shell_quote(path) .. "; exit 4; fi; "
+            .. "echo sonarpad_radio_recording_convert_begin src=" .. shell_quote(path) .. " dst=" .. shell_quote(mp3_path) .. "; "
+            .. "if " .. convert_command .. " && [ -s " .. shell_quote(mp3_path) .. " ]; then "
+            .. "rm -f " .. shell_quote(path) .. "; echo sonarpad_recording_converted_to_mp3 path=" .. shell_quote(mp3_path) .. "; "
+            .. append_recording_manifest_command_for(mp3_path, recording_title, recording_kind)
+            .. "; else echo sonarpad_radio_recording_convert_failed keeping_source=" .. shell_quote(path) .. " log=" .. shell_quote(convert_log) .. "; "
+            .. append_recording_manifest_command(path)
+            .. "; fi"
+    end
     if recording_kind ~= "tv" then
         return append_recording_manifest_command(path)
     end
@@ -21943,6 +23564,15 @@ local function toggle_recording()
         start_recording()
     end
 end
+
+local automatic_recording_requested = false
+mp.register_event("file-loaded", function()
+    if recording_auto_start and not automatic_recording_requested then
+        automatic_recording_requested = true
+        log_line("recording.auto_start_requested")
+        mp.add_timeout(0.5, start_recording)
+    end
+end)
 
 local function readable_position()
     local seekable = mp.get_property_bool("seekable", false)
@@ -22639,6 +24269,10 @@ fn run_ffmpeg_save_blocking(args: &[String], output_path: &Path) -> Result<(), S
 }
 
 fn main() {
+    if scheduled_radio::handle_command_line() || scheduled_tv::handle_command_line() {
+        return;
+    }
+
     #[cfg(windows)]
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
 
@@ -22684,7 +24318,7 @@ fn main() {
         loading_languages: HashSet::new(),
         failed_languages: HashSet::new(),
         stations_by_language: initial_radio_stations,
-        station_ids: HashMap::new(),
+        station_commands: HashMap::new(),
         open_search_requested: false,
         search_ever_opened: false,
     }));
@@ -22928,6 +24562,13 @@ fn main() {
             &ui.cinema_title,
             ItemKind::Normal,
         );
+        let calendar_labels = calendar::labels(&Settings::load().ui_language);
+        tools_menu.append(
+            ID_TOOLS_CALENDAR,
+            calendar_labels.menu,
+            calendar_labels.menu,
+            ItemKind::Normal,
+        );
         tools_menu.append(
             ID_TOOLS_CONVERT_MEDIA,
             &ui.convert_media_title,
@@ -22948,6 +24589,12 @@ fn main() {
         );
         if Settings::load().ui_language == "it" {
             tools_menu.append_separator();
+            tools_menu.append(
+                ID_TOOLS_TRECCANI,
+                "Cerca e importa da Treccani",
+                "Cerca e importa voci dall’Enciclopedia Treccani",
+                ItemKind::Normal,
+            );
             tools_menu.append(
                 ID_TOOLS_BDCIECHI,
                 &ui.bdciechi_title,
@@ -23127,8 +24774,8 @@ fn main() {
         let pending_mac_update_timer = Arc::clone(&pending_mac_update);
         let current_article_state_timer = Rc::clone(&current_article_state);
         let pending_recent_article_open_timer = Rc::clone(&pending_recent_article_open);
-        let btn_recent_articles_timer = btn_recent_articles.clone();
-        let btn_share_article_timer = btn_share_article.clone();
+        let btn_recent_articles_timer = btn_recent_articles;
+        let btn_share_article_timer = btn_share_article;
 
         timer_tick.on_tick(move |_| {
             let tts_status = pb_timer.lock().unwrap().status;
@@ -23246,8 +24893,10 @@ fn main() {
                                 &sources,
                                 &loading_urls,
                                 0,
-                                Some(&current_article_state_timer),
-                                None,
+                                ArticleDialogStateRefs {
+                                    current_article_state: Some(&current_article_state_timer),
+                                    pending_article_open: None,
+                                },
                             )
                         })
                     }
@@ -23435,8 +25084,10 @@ fn main() {
                     &current_document_timer,
                     &podcast_playback_timer,
                     &cursor_moved_timer,
-                    &path,
-                    "app.open_files_event",
+                    TextDocumentOpenRequest {
+                        path: &path,
+                        log_prefix: "app.open_files_event",
+                    },
                 ) {
                     Ok(()) => {}
                     Err(err) => {
@@ -23525,8 +25176,8 @@ fn main() {
         let cursor_moved_menu = Rc::clone(&cursor_moved_by_user);
         let current_article_state_menu = Rc::clone(&current_article_state);
         let pending_recent_article_open_menu = Rc::clone(&pending_recent_article_open);
-        let btn_recent_articles_menu = btn_recent_articles.clone();
-        let panel_menu = panel.clone();
+        let btn_recent_articles_menu = btn_recent_articles;
+        let panel_menu = panel;
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
             if let Some(recent_index) = recent_text_file_index(event.get_id()) {
@@ -23546,8 +25197,10 @@ fn main() {
                         &current_document_menu,
                         &podcast_selection_menu,
                         &cursor_moved_menu,
-                        &path,
-                        "recent_text_files",
+                        TextDocumentOpenRequest {
+                            path: &path,
+                            log_prefix: "recent_text_files",
+                        },
                     ) {
                         Ok(()) => {}
                         Err(err) => {
@@ -23592,8 +25245,10 @@ fn main() {
                         &current_document_menu,
                         &podcast_selection_menu,
                         &cursor_moved_menu,
-                        path,
-                        "file_menu.open",
+                        TextDocumentOpenRequest {
+                            path,
+                            log_prefix: "file_menu.open",
+                        },
                     ) {
                         Ok(()) => {}
                         Err(err) => {
@@ -23670,12 +25325,18 @@ fn main() {
                 open_wikipedia_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
             } else if event.get_id() == ID_TOOLS_YOUTUBE {
                 open_youtube_dialog(&f_menu, &settings_menu);
+            } else if event.get_id() == ID_TOOLS_TRECCANI {
+                if Settings::load().ui_language == "it" {
+                    open_treccani_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
+                }
             } else if event.get_id() == ID_TOOLS_BDCIECHI {
                 bdciechi::open_bdciechi_dialog(&f_menu, &settings_menu, tc_menu);
             } else if event.get_id() == ID_TOOLS_WEATHER {
                 open_weather_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CINEMA {
                 open_cinema_dialog(&f_menu);
+            } else if event.get_id() == ID_TOOLS_CALENDAR {
+                open_calendar_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CONVERT_MEDIA {
                 open_convert_media_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_ROUTES {
@@ -23718,8 +25379,10 @@ fn main() {
                             &sources,
                             &loading_urls,
                             initial_selection,
-                            Some(&current_article_state_menu),
-                            Some(&pending_recent_article_open_menu),
+                            ArticleDialogStateRefs {
+                                current_article_state: Some(&current_article_state_menu),
+                                pending_article_open: Some(&pending_recent_article_open_menu),
+                            },
                         ) {
                             append_podcast_log(&format!(
                                 "recent_articles.menu.open_now source_index={} item_index={} title={}",
@@ -24154,20 +25817,49 @@ Non posso scaricare la pagina web al posto dell'audio.",
                         podcast_selection_menu.borrow_mut().selected_episode = Some(episode.clone());
                     }
                 }
-            } else if let Some(station) = {
+            } else if let Some(command) = {
                 let state = radio_menu_state_menu.lock().unwrap();
-                state.station_ids.get(&event.get_id()).cloned()
+                state.station_commands.get(&event.get_id()).cloned()
             } {
+                let action_name = match command.action {
+                    RadioMenuAction::Open => "open",
+                    RadioMenuAction::PlayAndRecord => "play_and_record",
+                    RadioMenuAction::ScheduleRecording => "schedule_recording",
+                };
                 append_podcast_log(&format!(
-                    "menu.radio.favorite.open name={} url={}",
-                    station.name, station.stream_url
+                    "menu.radio.favorite.action action={} name={} url={}",
+                    action_name, command.station.name, command.station.stream_url
                 ));
-                if let Err(err) = open_radio_station(&f_menu, &station.name, &station.stream_url) {
-                    show_message_dialog(
-                        &f_menu,
-                        &ui.menu_radio,
-                        &ui.radio_open_failed.replace("{err}", &err),
-                    );
+                match command.action {
+                    RadioMenuAction::Open => {
+                        if let Err(err) = open_radio_station(
+                            &f_menu,
+                            &command.station.name,
+                            &command.station.stream_url,
+                        ) {
+                            show_message_dialog(
+                                &f_menu,
+                                &ui.menu_radio,
+                                &ui.radio_open_failed.replace("{err}", &err),
+                            );
+                        }
+                    }
+                    RadioMenuAction::PlayAndRecord => {
+                        if let Err(err) = open_radio_station_and_record(
+                            &f_menu,
+                            &command.station.name,
+                            &command.station.stream_url,
+                        ) {
+                            show_message_dialog(
+                                &f_menu,
+                                &ui.menu_radio,
+                                &ui.radio_open_failed.replace("{err}", &err),
+                            );
+                        }
+                    }
+                    RadioMenuAction::ScheduleRecording => {
+                        open_radio_schedule_dialog(&f_menu, &command.station);
+                    }
                 }
             } else if let Some((source_index, item_index)) = decode_article_menu_id(event.get_id()) {
                 let item = settings_menu
@@ -24349,8 +26041,8 @@ Non posso scaricare la pagina web al posto dell'audio.",
         let tc_ra = text_ctrl;
         let podcast_selection_ra = Rc::clone(&podcast_playback);
         let cursor_moved_ra = Rc::clone(&cursor_moved_by_user);
-        let btn_recent_articles_ra = btn_recent_articles.clone();
-        let panel_ra = panel.clone();
+        let btn_recent_articles_ra = btn_recent_articles;
+        let panel_ra = panel;
         let recent_articles_action: Rc<dyn Fn()> = Rc::new(move || {
             append_podcast_log("recent_articles.shortcut.open");
             let remembered_article_state =
@@ -24379,8 +26071,10 @@ Non posso scaricare la pagina web al posto dell'audio.",
                             &sources,
                             &loading_urls,
                             initial_selection,
-                            Some(&current_article_state_ra),
-                            Some(&pending_recent_article_open_ra),
+                            ArticleDialogStateRefs {
+                                current_article_state: Some(&current_article_state_ra),
+                                pending_article_open: Some(&pending_recent_article_open_ra),
+                            },
                         )
                     {
                         append_podcast_log(&format!(
@@ -25840,8 +27534,10 @@ Non posso scaricare la pagina web al posto dell'audio.",
                 &current_document,
                 &podcast_playback,
                 &cursor_moved_by_user,
-                path,
-                "app.initial_open",
+                TextDocumentOpenRequest {
+                    path,
+                    log_prefix: "app.initial_open",
+                },
             ) {
                 Ok(()) => {}
                 Err(err) => {
