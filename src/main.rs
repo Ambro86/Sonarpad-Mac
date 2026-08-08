@@ -1,6 +1,9 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod articles;
+mod audio_description;
+mod audio_description_bridge;
+mod gemini_web;
 mod bdciechi;
 mod calendar;
 mod curl_client;
@@ -122,6 +125,7 @@ const ID_TOOLS_ROUTES: i32 = 2372;
 const ID_TOOLS_VOICE_DICTIONARY: i32 = 2373;
 const ID_TOOLS_CALENDAR: i32 = 2374;
 const ID_TOOLS_TRECCANI: i32 = 2375;
+const ID_TOOLS_AUDIO_DESCRIPTION: i32 = 2376;
 // wxWidgets only accepts custom menu IDs below 32767. Keep the three
 // favorite-action ranges contiguous and below the podcast ranges at 27000.
 const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 24000;
@@ -390,6 +394,32 @@ struct Settings {
     bdciechi_username: String,
     #[serde(default)]
     bdciechi_password: String,
+    #[serde(default)]
+    audio_description_gemini_api_key: String,
+    #[serde(default = "default_audio_description_gemini_model")]
+    audio_description_gemini_model: String,
+    #[serde(default)]
+    audio_description_gemini_web: bool,
+    #[serde(default = "default_audio_description_language")]
+    audio_description_language: String,
+    #[serde(default = "default_audio_description_tts_engine")]
+    audio_description_tts_engine: String,
+    #[serde(default)]
+    audio_description_tts_voice: String,
+    #[serde(default = "default_audio_description_verbosity")]
+    audio_description_verbosity: String,
+    #[serde(default = "default_true")]
+    audio_description_extended_pauses: bool,
+    #[serde(default = "default_true")]
+    audio_description_recognize_characters: bool,
+    #[serde(default)]
+    audio_description_save_project: bool,
+    #[serde(default)]
+    audio_description_keep_character_catalog: bool,
+    #[serde(default)]
+    audio_description_character_catalog: String,
+    #[serde(default = "default_audio_description_save_folder")]
+    audio_description_save_folder: String,
 }
 
 impl Settings {
@@ -431,6 +461,19 @@ impl Settings {
             recent_text_files: Vec::new(),
             bdciechi_username: String::new(),
             bdciechi_password: String::new(),
+            audio_description_gemini_api_key: String::new(),
+            audio_description_gemini_model: default_audio_description_gemini_model(),
+            audio_description_gemini_web: false,
+            audio_description_language: default_audio_description_language(),
+            audio_description_tts_engine: default_audio_description_tts_engine(),
+            audio_description_tts_voice: String::new(),
+            audio_description_verbosity: default_audio_description_verbosity(),
+            audio_description_extended_pauses: true,
+            audio_description_recognize_characters: true,
+            audio_description_save_project: false,
+            audio_description_keep_character_catalog: false,
+            audio_description_character_catalog: String::new(),
+            audio_description_save_folder: default_audio_description_save_folder(),
         };
         normalize_settings_data(&mut settings);
         settings
@@ -443,6 +486,22 @@ impl Settings {
             println!("ERROR: Salvataggio impostazioni fallito: {}", err);
         }
     }
+}
+
+fn default_true() -> bool { true }
+fn default_audio_description_gemini_model() -> String { "gemini-3.5-flash-lite".to_string() }
+fn default_audio_description_language() -> String { "it".to_string() }
+fn default_audio_description_tts_engine() -> String { "microsoft".to_string() }
+fn default_audio_description_verbosity() -> String { "detailed".to_string() }
+fn default_audio_description_save_folder() -> String {
+    std::env::var_os("HOME")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir)
+        .join("Documents")
+        .join("Sonarpad")
+        .join("Audiodescriptions")
+        .to_string_lossy()
+        .to_string()
 }
 
 fn default_ui_language() -> String {
@@ -8776,6 +8835,27 @@ fn synthesize_voice_chunk_blocking(
 
 fn normalize_settings_data(settings: &mut Settings) {
     settings.voice_engine = normalized_voice_engine(&settings.voice_engine);
+    settings.audio_description_gemini_model = settings.audio_description_gemini_model.trim().to_string();
+    if settings.audio_description_gemini_model.is_empty() {
+        settings.audio_description_gemini_model = default_audio_description_gemini_model();
+    }
+    settings.audio_description_language = settings.audio_description_language.trim().to_string();
+    if settings.audio_description_language.is_empty() {
+        settings.audio_description_language = default_audio_description_language();
+    }
+    settings.audio_description_tts_engine = if is_system_voice_engine(&settings.audio_description_tts_engine) {
+        "system".to_string()
+    } else {
+        "microsoft".to_string()
+    };
+    settings.audio_description_verbosity = match settings.audio_description_verbosity.as_str() {
+        "short" | "standard" | "detailed" => settings.audio_description_verbosity.clone(),
+        _ => default_audio_description_verbosity(),
+    };
+    settings.audio_description_save_folder = settings.audio_description_save_folder.trim().to_string();
+    if settings.audio_description_save_folder.is_empty() {
+        settings.audio_description_save_folder = default_audio_description_save_folder();
+    }
     settings.media_seek_seconds = normalize_media_seek_seconds(settings.media_seek_seconds);
     settings.news_language = normalize_news_language(&settings.news_language);
     if settings.article_sources.is_empty() {
@@ -12918,7 +12998,7 @@ fn open_settings_dialog(
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, if cfg!(target_os = "macos") { 520 } else { 460 })
+        .with_size(560, if cfg!(target_os = "macos") { 590 } else { 520 })
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -13146,6 +13226,63 @@ fn open_settings_dialog(
         SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
         5,
     );
+
+    let audio_description_folder_row = BoxSizer::builder(Orientation::Horizontal).build();
+    audio_description_folder_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&audio_description::save_folder_label())
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let audio_description_folder_ctrl = TextCtrl::builder(&panel).build();
+    audio_description_folder_ctrl.set_value(&settings_before.audio_description_save_folder);
+    audio_description_folder_row.add(
+        &audio_description_folder_ctrl,
+        1,
+        SizerFlag::Expand | SizerFlag::All,
+        5,
+    );
+    let audio_description_folder_button = Button::builder(&panel)
+        .with_label(&ui.choose_folder)
+        .build();
+    audio_description_folder_row.add(
+        &audio_description_folder_button,
+        0,
+        SizerFlag::All,
+        5,
+    );
+    root.add_sizer(&audio_description_folder_row, 0, SizerFlag::Expand, 0);
+
+    let dialog_audio_description_folder = dialog;
+    let audio_description_folder_ctrl_choose = audio_description_folder_ctrl;
+    let choose_folder_title = ui.choose_folder.clone();
+    audio_description_folder_button.on_click(move |_| {
+        let current = audio_description_folder_ctrl_choose.get_value();
+        let default_path = if current.trim().is_empty() {
+            default_audio_description_save_folder()
+        } else {
+            current
+        };
+        let dir_dialog = DirDialog::builder(
+            &dialog_audio_description_folder,
+            &choose_folder_title,
+            &default_path,
+        )
+        .build();
+        #[cfg(target_os = "macos")]
+        set_mac_native_file_dialog_open(true);
+        let result = dir_dialog.show_modal();
+        #[cfg(target_os = "macos")]
+        set_mac_native_file_dialog_open(false);
+        if result == ID_OK
+            && let Some(path) = dir_dialog.get_path()
+        {
+            let folder = PathBuf::from(path);
+            audio_description_folder_ctrl_choose.set_value(&folder.to_string_lossy());
+        }
+    });
 
     let auto_check_updates_checkbox = CheckBox::builder(&panel)
         .with_label(&ui.auto_check_updates_label)
@@ -13524,6 +13661,10 @@ fn open_settings_dialog(
         }
         updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
         updated.disable_blank_line_pauses = disable_blank_line_pauses_checkbox.get_value();
+        updated.audio_description_save_folder = audio_description_folder_ctrl.get_value().trim().to_string();
+        if updated.audio_description_save_folder.is_empty() {
+            updated.audio_description_save_folder = default_audio_description_save_folder();
+        }
         updated.auto_check_updates = auto_check_updates_checkbox.get_value();
 
         let refresh_needed = settings_before.voice_engine != updated.voice_engine
@@ -13539,6 +13680,7 @@ fn open_settings_dialog(
             || settings_before.media_seek_seconds != updated.media_seek_seconds
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
             || settings_before.disable_blank_line_pauses != updated.disable_blank_line_pauses
+            || settings_before.audio_description_save_folder != updated.audio_description_save_folder
             || settings_before.auto_check_updates != updated.auto_check_updates
             || refresh_needed;
 
@@ -24789,6 +24931,13 @@ fn main() {
             &ui.tools_wikipedia_label,
             ItemKind::Normal,
         );
+        let audio_description_label = audio_description::menu_label();
+        tools_menu.append(
+            ID_TOOLS_AUDIO_DESCRIPTION,
+            &audio_description_label,
+            &audio_description_label,
+            ItemKind::Normal,
+        );
         if youtube_tools_available() {
             tools_menu.append(
                 ID_TOOLS_YOUTUBE,
@@ -25570,6 +25719,8 @@ fn main() {
                 );
             } else if event.get_id() == ID_TOOLS_WIKIPEDIA {
                 open_wikipedia_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
+            } else if event.get_id() == ID_TOOLS_AUDIO_DESCRIPTION {
+                audio_description::open_create_dialog(&f_menu, &settings_menu, &rt, &voices_data);
             } else if event.get_id() == ID_TOOLS_YOUTUBE {
                 open_youtube_dialog(&f_menu, &settings_menu);
             } else if event.get_id() == ID_TOOLS_TRECCANI {

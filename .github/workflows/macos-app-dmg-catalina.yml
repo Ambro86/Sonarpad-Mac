@@ -77,7 +77,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v13
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v15-audiodescription
 
       - name: Validate Sonarpad tokens
         shell: bash
@@ -99,6 +99,27 @@ jobs:
         run: |
           set -euxo pipefail
           cargo build --release --target x86_64-apple-darwin
+
+      - name: Set up Python 3.11 for bundled audio-description worker
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Build Catalina-compatible bundled audio-description worker
+        shell: bash
+        env:
+          ONNXRUNTIME_VERSION: "1.15.0"
+          NUMPY_SPEC: "numpy>=1.24,<2"
+        run: |
+          set -euxo pipefail
+          python3 -m venv .venv-audio-description
+          source .venv-audio-description/bin/activate
+          PYTHON_BIN="$PWD/.venv-audio-description/bin/python" \
+            bash ./bridge/build_audio_description_bridge_macos.sh "$PWD/dist/audio-description-worker"
+          test -x "dist/audio-description-worker/audio_description_bridge/audio_description_bridge"
+          file "dist/audio-description-worker/audio_description_bridge/audio_description_bridge"
+          PYTHONPATH="$PWD/bridge:$PWD/bridge/audio_description_runtime:$PWD/bridge/tests" \
+            python bridge/run_audio_description_tests_macos.py
 
       - name: Download Catalina-compatible pdfium for macOS Intel
         shell: bash
@@ -185,6 +206,11 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]asetrate[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]volume[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]wav[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]segment[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]matroska[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]mp4[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]pcm_s16le[[:space:]]' >/dev/null
           }
           if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
             otool -L "dist/ffmpeg-install/bin/ffmpeg"
@@ -262,6 +288,9 @@ jobs:
             --enable-protocol=tls \
             --enable-demuxer=hls \
             --enable-demuxer=aiff \
+            --enable-demuxer=wav \
+            --enable-demuxer=flac \
+            --enable-demuxer=ogg \
             --enable-demuxer=mpegts \
             --enable-demuxer=matroska \
             --enable-demuxer=mov \
@@ -269,6 +298,9 @@ jobs:
             --enable-muxer=ipod \
             --enable-muxer=mp3 \
             --enable-muxer=mp4 \
+            --enable-muxer=matroska \
+            --enable-muxer=segment \
+            --enable-muxer=wav \
             --enable-gpl \
             --enable-libmp3lame \
             --enable-encoder=libmp3lame \
@@ -280,7 +312,15 @@ jobs:
             --enable-parser=mpegaudio \
             --enable-parser=opus \
             --enable-decoder=aac \
+            --enable-decoder=ac3 \
+            --enable-decoder=eac3 \
+            --enable-decoder=dca \
+            --enable-decoder=alac \
+            --enable-decoder=flac \
+            --enable-decoder=vorbis \
             --enable-decoder=pcm_s16be \
+            --enable-decoder=pcm_s16le \
+            --enable-decoder=pcm_s24le \
             --enable-decoder=h264 \
             --enable-decoder=hevc \
             --enable-decoder=mpeg2video \
@@ -288,6 +328,7 @@ jobs:
             --enable-decoder=mp3 \
             --enable-decoder=opus \
             --enable-encoder=aac \
+            --enable-encoder=pcm_s16le \
             --enable-filter=atrim \
             --enable-filter=aresample \
             --enable-filter=asetrate \
@@ -405,11 +446,12 @@ jobs:
           FFMPEG_DIR="${RESOURCES_DIR}/ffmpeg"
           FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
           FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
+          AUDIO_DESCRIPTION_DIR="${RESOURCES_DIR}/audio-description"
           EN_LPROJ_DIR="${RESOURCES_DIR}/en.lproj"
           IT_LPROJ_DIR="${RESOURCES_DIR}/it.lproj"
 
           rm -rf "${APP_DIR}" "${FFMPEG_DIR}" "${MPV_APP_DEST}"
-          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
+          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${AUDIO_DESCRIPTION_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
           cp "target/x86_64-apple-darwin/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
@@ -426,6 +468,9 @@ jobs:
           done
           cp "dist/ffmpeg-install/bin/ffmpeg" "${FFMPEG_BIN_DIR}/ffmpeg"
           chmod +x "${FFMPEG_BIN_DIR}/ffmpeg"
+          cp -R "dist/audio-description-worker/audio_description_bridge" "${AUDIO_DESCRIPTION_DIR}/audio_description_bridge"
+          chmod +x "${AUDIO_DESCRIPTION_DIR}/audio_description_bridge/audio_description_bridge"
+          xattr -cr "${AUDIO_DESCRIPTION_DIR}/audio_description_bridge" || true
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
@@ -594,6 +639,13 @@ jobs:
           check_max_macos_version "${APP_BIN}" "10.15"
           check_max_macos_version "dist/stage/Sonarpad.app/Contents/Frameworks/libpdfium.dylib" "10.15"
           check_max_macos_version "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg" "10.15"
+          AUDIO_DESCRIPTION_DIR="dist/stage/Sonarpad.app/Contents/Resources/audio-description/audio_description_bridge"
+          test -x "${AUDIO_DESCRIPTION_DIR}/audio_description_bridge"
+          find "${AUDIO_DESCRIPTION_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
+            if file "${bin}" | grep -q "Mach-O"; then
+              check_max_macos_version "${bin}" "10.15"
+            fi
+          done
           if otool -L "dist/stage/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg" \
             | tail -n +2 \
             | awk '{print $1}' \
@@ -658,6 +710,8 @@ jobs:
           FRAMEWORKS_DIR="${APP_DIR}/Contents/Frameworks"
           FFMPEG_BIN="${APP_DIR}/Contents/Resources/ffmpeg/bin/ffmpeg"
           FFMPEG_LIB_DIR="${APP_DIR}/Contents/Resources/ffmpeg/lib"
+          AUDIO_DESCRIPTION_DIR="${APP_DIR}/Contents/Resources/audio-description/audio_description_bridge"
+          AUDIO_DESCRIPTION_BIN="${AUDIO_DESCRIPTION_DIR}/audio_description_bridge"
           MPV_APP_DIR="${APP_DIR}/Contents/Resources/mpv.app"
           MPV_BIN="${MPV_APP_DIR}/Contents/MacOS/mpv"
           YTDLP_BIN="${APP_DIR}/Contents/Resources/yt-dlp"
@@ -687,6 +741,18 @@ jobs:
                 --sign "Developer ID Application" \
                 "${bin}"
             done
+          fi
+
+          if [ -d "${AUDIO_DESCRIPTION_DIR}" ]; then
+            xattr -cr "${AUDIO_DESCRIPTION_DIR}" || true
+            find "${AUDIO_DESCRIPTION_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
+              if file "${bin}" | grep -q "Mach-O"; then
+                codesign --force --options runtime --timestamp \
+                  --sign "Developer ID Application" \
+                  "${bin}"
+              fi
+            done
+            codesign --verify --strict --verbose=2 "${AUDIO_DESCRIPTION_BIN}"
           fi
 
           find "${FRAMEWORKS_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
@@ -856,6 +922,7 @@ jobs:
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/mpv.app/Contents/MacOS/mpv"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/yt-dlp"
+          test -x "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/audio-description/audio_description_bridge/audio_description_bridge"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name '*.dylib' -print
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet
