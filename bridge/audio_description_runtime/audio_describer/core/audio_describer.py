@@ -411,10 +411,6 @@ def _prepare_video_for_gemini(client, video_path, status_callback=None,
             "The audio-description worker accepts only media prepared by Sonarpad."
         ))
 
-    if gemini.is_external_generate_enabled():
-        _status(_("Sending prepared video to Gemini Web…"))
-        return gemini.external_media_part(video_path), None
-
     size = os.path.getsize(video_path)
     app_logger.info(
         "PrepareVideo: path=%s size=%d bytes mime=%s",
@@ -936,7 +932,6 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
     video_file_obj = None
     client = None
     all_descriptions = []
-    previous_chunk_descriptions = []
     character_glossary = []
     detected_character_glossary = []
     character_continuity = {}
@@ -1166,10 +1161,6 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                 _("Chunk %d/%d: asking Gemini for descriptions…") % (i + 1, num_chunks)
             )
             minute_fallback_used = False
-            # Every physical clip starts in a clean Gemini Web conversation.
-            # The marker is one-shot, so recovery and JSON repair for this same
-            # clip remain in the isolated chat and keep the useful context.
-            gemini.set_external_media_fresh_chat(video_part, True)
             try:
                 response = gemini.generate_content_with_retry(
                     client, model=model_name_to_use, contents=api_contents,
@@ -1257,6 +1248,21 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                 )
                 all_token_usage.extend(fallback_usage)
 
+            if enable_glossary and chunk_glossary:
+                detected_character_glossary.extend(chunk_glossary)
+                character_glossary.extend(chunk_glossary)
+                before_count = len(character_continuity)
+                _update_character_continuity(
+                    character_continuity, chunk_glossary, max_characters=96
+                )
+                app_logger.info(
+                    "Chunk %d character continuity: before=%d after=%d names=%s.",
+                    i + 1, before_count, len(character_continuity),
+                    ", ".join(
+                        item["name"] for item in character_continuity.values()
+                    ) or "none",
+                )
+
             if not minute_fallback_used and not chunk_descriptions:
                 app_logger.warning(
                     "Chunk %d returned no descriptions; coverage recovery will inspect it.",
@@ -1275,45 +1281,8 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                     corrected_chunk, chunk_start, chunk_end, i + 1,
                     force_mode="relative" if use_per_chunk_uploads else None,
                 )
-
-                replayed, replay_metrics = _looks_like_previous_chunk_replay(
-                    normalized_chunk, previous_chunk_descriptions
-                )
-                if replayed:
-                    app_logger.warning(
-                        "Chunk %d replay guard rejected the main response: "
-                        "exact_matches=%d ratio=%.3f longest_run=%d. "
-                        "Discarding it and recovering the current chunk from a fresh chat.",
-                        i + 1, replay_metrics["matches"], replay_metrics["ratio"],
-                        replay_metrics["longest_run"],
-                    )
-                    _update_status(
-                        _("Chunk %d repeated the previous video; retrying its coverage in a fresh chat…")
-                        % (i + 1)
-                    )
-                    normalized_chunk = []
-                    chunk_glossary = []
-                    # The next recovery request uses the same physical file, so
-                    # explicitly reset that chat once more before filling slots.
-                    gemini.set_external_media_fresh_chat(video_part, True)
-
-            if enable_glossary and chunk_glossary:
-                detected_character_glossary.extend(chunk_glossary)
-                character_glossary.extend(chunk_glossary)
-                before_count = len(character_continuity)
-                _update_character_continuity(
-                    character_continuity, chunk_glossary, max_characters=96
-                )
-                app_logger.info(
-                    "Chunk %d character continuity: before=%d after=%d names=%s.",
-                    i + 1, before_count, len(character_continuity),
-                    ", ".join(
-                        item["name"] for item in character_continuity.values()
-                    ) or "none",
-                )
-
             max_recovery_passes = 0 if minute_fallback_used else (
-                4 if intensive_mode else 1
+                3 if intensive_mode else 1
             )
             for recovery_pass in range(1, max_recovery_passes + 1):
                 missing_intensive = speech_detector.uncovered_intensive_slots(
@@ -1323,17 +1292,6 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                     [(slot["start"], slot["end"]) for slot in missing_intensive]
                     if intensive_mode else None
                 )
-                if (
-                    intensive_mode
-                    and recovery_pass == max_recovery_passes
-                    and gemini.is_external_generate_enabled()
-                ):
-                    app_logger.info(
-                        "Chunk %d final intensive recovery is starting in a fresh Gemini Web chat.",
-                        i + 1,
-                    )
-                    gemini.set_external_media_fresh_chat(video_part, True)
-
                 normalized_chunk, recovery_usage = _recover_large_chunk_gaps(
                     client=client,
                     model_name=model_name_to_use,
@@ -1390,7 +1348,6 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                         % (i + 1, len(still_missing))
                     )
 
-            previous_chunk_descriptions = list(normalized_chunk)
             _update_status(_("Chunk %d: parsed %d descriptions.") % (i + 1, len(normalized_chunk)))
 
             if current_chunk_file_obj is not None:
@@ -2259,54 +2216,6 @@ def _remove_consecutive_duplicates(descriptions_list, status_update_callback=Non
     return cleaned_list
 
 
-def _description_replay_key(text):
-    """Normalize description text for adjacent-chunk replay detection."""
-    return " ".join(
-        re.sub(r"[^\w\s]", " ", str(text or "").casefold(), flags=re.UNICODE).split()
-    )
-
-
-def _adjacent_chunk_replay_metrics(current, previous):
-    """Return exact-match metrics for two chronologically adjacent chunks."""
-    current_keys = [_description_replay_key(item[2]) for item in current or []]
-    previous_keys = [_description_replay_key(item[2]) for item in previous or []]
-    current_keys = [key for key in current_keys if key]
-    previous_keys = [key for key in previous_keys if key]
-    if not current_keys or not previous_keys:
-        return {"matches": 0, "ratio": 0.0, "longest_run": 0}
-
-    previous_set = set(previous_keys)
-    matches = sum(1 for key in current_keys if key in previous_set)
-    longest_run = 0
-    for current_index in range(len(current_keys)):
-        for previous_index in range(len(previous_keys)):
-            run = 0
-            while (
-                current_index + run < len(current_keys)
-                and previous_index + run < len(previous_keys)
-                and current_keys[current_index + run] == previous_keys[previous_index + run]
-            ):
-                run += 1
-            longest_run = max(longest_run, run)
-
-    return {
-        "matches": matches,
-        "ratio": matches / max(1, len(current_keys)),
-        "longest_run": longest_run,
-    }
-
-
-def _looks_like_previous_chunk_replay(current, previous):
-    """Detect a previous physical chunk replayed on the new local timeline."""
-    metrics = _adjacent_chunk_replay_metrics(current, previous)
-    suspicious = (
-        metrics["longest_run"] >= 3
-        and metrics["matches"] >= 4
-        and metrics["ratio"] >= 0.40
-    )
-    return suspicious, metrics
-
-
 def _character_names_from_glossary(character_glossary):
     """Return unique usable character names, longest first."""
     names = {}
@@ -2509,45 +2418,39 @@ def _parse_unified_response(json_string, status_update_callback):
         return [], [], False
 
     processed_str = _strip_json_fences(json_string)
-    candidates = [processed_str]
-    start_idx = processed_str.find('{')
-    end_idx = processed_str.rfind('}') + 1
-    if 0 <= start_idx < end_idx:
-        embedded = processed_str[start_idx:end_idx].strip()
-        if embedded and embedded != processed_str:
-            # Gemini Web occasionally prefixes/suffixes a perfectly valid JSON
-            # object with UI prose. Try the object directly before logging a
-            # scary JSONDecodeError traceback.
-            candidates.insert(0, embedded)
 
-    last_error = None
-    for index, candidate in enumerate(candidates):
+    try:
+        data = json.loads(processed_str)
+        descs, gloss = _extract_descriptions_and_glossary_from_dict(data, status_update_callback)
+        return descs, gloss, True
+
+    except json.JSONDecodeError as e:
+        if status_update_callback:
+            status_update_callback(_("Error: Could not decode the AI's JSON response: %s") % str(e))
+        app_logger.error(f"Failed to parse unified JSON response: {e}", exc_info=True)
+        # Attempt to find a JSON object within the string if the initial parse fails
         try:
-            data = json.loads(candidate)
-            if index > 0 and status_update_callback:
-                status_update_callback(_("Successfully parsed a fallback JSON object."))
-            descs, gloss = _extract_descriptions_and_glossary_from_dict(
-                data, status_update_callback
-            )
-            return descs, gloss, True
-        except json.JSONDecodeError as exc:
-            last_error = exc
+            start_idx = processed_str.find('{')
+            end_idx = processed_str.rfind('}') + 1
+            if 0 <= start_idx < end_idx:
+                corrected_json_string = processed_str[start_idx:end_idx]
+                data = json.loads(corrected_json_string)
+                if status_update_callback:
+                    status_update_callback(_("Successfully parsed a fallback JSON object."))
+                descs, gloss = _extract_descriptions_and_glossary_from_dict(
+                    data, status_update_callback
+                )
+                return descs, gloss, True
+        except json.JSONDecodeError:
+            if status_update_callback:
+                status_update_callback(_("Fallback JSON parsing also failed."))
 
-    if last_error is not None:
-        if status_update_callback:
-            status_update_callback(
-                _("Error: Could not decode the AI's JSON response: %s") % str(last_error)
-            )
-        app_logger.error("Failed to parse unified JSON response: %s", last_error)
-        if status_update_callback:
-            status_update_callback(_("Fallback JSON parsing also failed."))
-
-    # MAX_TOKENS / truncated string: salvage every complete object
-    salvaged_desc, salvaged_gloss = _salvage_partial_unified_json(
-        processed_str, status_update_callback
-    )
-    if salvaged_desc or salvaged_gloss:
-        return salvaged_desc, salvaged_gloss, False
+        # MAX_TOKENS / truncated string: salvage every complete object
+        salvaged_desc, salvaged_gloss = _salvage_partial_unified_json(
+            processed_str, status_update_callback
+        )
+        if salvaged_desc or salvaged_gloss:
+            return salvaged_desc, salvaged_gloss, False
 
     return [], [], False
 

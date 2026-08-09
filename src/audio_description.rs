@@ -1,7 +1,7 @@
 use crate::audio_description_bridge::{
     AudioDescriptionBridgeCallbacks, AudioDescriptionBridgeRequest, AudioDescriptionBridgeResult,
     AudioDescriptionPreparedChunk, AudioDescriptionQuotaDecision, BridgeCharacter,
-    BridgeInterval, BridgeWebRequest, run_audio_description_bridge,
+    BridgeInterval, run_audio_description_bridge,
 };
 use crate::edge_tts::VoiceInfo;
 use crate::{Settings, append_podcast_log};
@@ -82,7 +82,6 @@ struct CreateJob {
     volume: i32,
     gemini_api_key: String,
     gemini_model: String,
-    gemini_web: bool,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -729,10 +728,9 @@ fn prepare_chunks(
     input: &Path,
     duration: f64,
     dir: &Path,
-    gemini_web: bool,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<AudioDescriptionPreparedChunk>, String> {
-    if !gemini_web && duration <= CHUNK_SECONDS {
+    if duration <= CHUNK_SECONDS {
         let size = fs::metadata(input)
             .map_err(|e| format!("Lettura dimensione file fallita: {e}"))?
             .len();
@@ -752,14 +750,10 @@ fn prepare_chunks(
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".to_string());
     }
-    let extension = if gemini_web { "mp4" } else { "mkv" };
-    let prefix = if gemini_web {
-        "gemini_web_chunk_"
-    } else {
-        "gemini_chunk_"
-    };
+    let extension = "mkv";
+    let prefix = "gemini_chunk_";
     let output_pattern = dir.join(format!("{prefix}%04d.{extension}"));
-    let segment_format = if gemini_web { "mp4" } else { "matroska" };
+    let segment_format = "matroska";
     let args = vec![
         "-hide_banner".into(),
         "-loglevel".into(),
@@ -1099,8 +1093,8 @@ fn render_mix(source_wav: &Path, output_wav: &Path, scheduled: &[ScheduledDescri
     if spec.sample_rate!=MIX_SAMPLE_RATE || spec.channels!=MIX_CHANNELS || spec.bits_per_sample!=16 { return Err("Formato WAV interno inatteso.".to_string()); }
     let out_spec=WavSpec{channels:MIX_CHANNELS,sample_rate:MIX_SAMPLE_RATE,bits_per_sample:16,sample_format:SampleFormat::Int};
     let mut writer=WavWriter::create(output_wav,out_spec).map_err(|e|e.to_string())?;
-    let mut samples=source.samples::<i16>();
     let total_source_frames = source.duration() as u64;
+    let mut samples=source.samples::<i16>();
     let fade_frames=(MIX_SAMPLE_RATE as u64*FADE_MS as u64)/1000;
     let mut source_frame=0u64; let mut cue_index=0usize; let mut output_frames=0u64;
     while source_frame<total_source_frames {
@@ -1160,7 +1154,7 @@ fn create_audio_description(job:&CreateJob,rt:&Runtime,cancel:Arc<AtomicBool>,st
     let input_cmp=fs::canonicalize(&job.input_path).unwrap_or_else(|_|job.input_path.clone());
     let output_cmp=fs::canonicalize(&job.output_path).unwrap_or_else(|_|job.output_path.clone());
     if input_cmp==output_cmp{return Err(tr("audio_description.error.same_path"));}
-    if !job.gemini_web && job.gemini_api_key.trim().is_empty(){return Err(tr("audio_description.error.api_key"));}
+    if job.gemini_api_key.trim().is_empty(){return Err(tr("audio_description.error.api_key"));}
     if job.tts_voice.trim().is_empty(){return Err(tr("audio_description.error.voice"));}
     if let Some(parent)=job.output_path.parent(){fs::create_dir_all(parent).map_err(|e|e.to_string())?;}
     let work=cache_dir("job")?;
@@ -1177,10 +1171,10 @@ fn create_audio_description(job:&CreateJob,rt:&Runtime,cancel:Arc<AtomicBool>,st
             None
         };
         {let mut s=state.lock().unwrap();s.progress=7;s.status=tr("audio_description.progress.chunk_prepare");}
-        let chunks=prepare_chunks(&job.input_path,duration,&work,job.gemini_web,&cancel)?;
-        let request=AudioDescriptionBridgeRequest{input_path:job.input_path.to_string_lossy().to_string(),audio_wav_path,duration_sec:duration,chunks,language:job.language_code.clone(),verbosity:job.verbosity.as_bridge().into(),allow_extended_pauses:job.allow_extended_pauses,recognize_characters:job.recognize_characters,initial_character_glossary:job.catalog.as_ref().map(|c|c.characters.clone()).unwrap_or_default(),gemini_api_key:job.gemini_api_key.clone(),gemini_model:job.gemini_model.clone(),gemini_web:job.gemini_web};
-        let web_cancel=cancel.clone(); let status_state=state.clone(); let progress_state=state.clone(); let quota_state=state.clone(); let mut web_session:Option<crate::gemini_web::GeminiWebSession>=None;
-        let analysis=run_audio_description_bridge(&request,cancel.clone(),AudioDescriptionBridgeCallbacks{download:None,progress:Some(Box::new(move|pct|{let mut s=progress_state.lock().unwrap();s.progress=10+(pct.clamp(0,100)*45/100);})),status:Some(Box::new(move|_,message|{status_state.lock().unwrap().status=message.to_string();})),quota:Some(Box::new(move|model,error|{let(tx,rx)=mpsc::sync_channel(1);quota_state.lock().unwrap().quota=Some(QuotaUiRequest{model:model.to_string(),error:error.to_string(),sender:tx});rx.recv().unwrap_or(AudioDescriptionQuotaDecision::Stop)})),web:job.gemini_web.then(||Box::new(move|req:&BridgeWebRequest|{if web_session.is_none(){web_session=Some(crate::gemini_web::GeminiWebSession::start(&web_cancel)?);}web_session.as_mut().ok_or_else(||"Gemini Web non inizializzato".to_string())?.generate(req,&web_cancel)}) as Box<dyn FnMut(&BridgeWebRequest)->Result<String,String>+Send>)} )?;
+        let chunks=prepare_chunks(&job.input_path,duration,&work,&cancel)?;
+        let request=AudioDescriptionBridgeRequest{input_path:job.input_path.to_string_lossy().to_string(),audio_wav_path,duration_sec:duration,chunks,language:job.language_code.clone(),verbosity:job.verbosity.as_bridge().into(),allow_extended_pauses:job.allow_extended_pauses,recognize_characters:job.recognize_characters,initial_character_glossary:job.catalog.as_ref().map(|c|c.characters.clone()).unwrap_or_default(),gemini_api_key:job.gemini_api_key.clone(),gemini_model:job.gemini_model.clone()};
+        let status_state=state.clone(); let progress_state=state.clone(); let quota_state=state.clone();
+        let analysis=run_audio_description_bridge(&request,cancel.clone(),AudioDescriptionBridgeCallbacks{download:None,progress:Some(Box::new(move|pct|{let mut s=progress_state.lock().unwrap();s.progress=10+(pct.clamp(0,100)*45/100);})),status:Some(Box::new(move|_,message|{status_state.lock().unwrap().status=message.to_string();})),quota:Some(Box::new(move|model,error|{let(tx,rx)=mpsc::sync_channel(1);quota_state.lock().unwrap().quota=Some(QuotaUiRequest{model:model.to_string(),error:error.to_string(),sender:tx});rx.recv().unwrap_or(AudioDescriptionQuotaDecision::Stop)}))})?;
         if analysis.descriptions.is_empty(){return Err("Gemini non ha restituito descrizioni.".to_string());}
         {let mut s=state.lock().unwrap();s.progress=55;s.status=tr("audio_description.progress.tts");}
         let mut synthesized=Vec::with_capacity(analysis.descriptions.len());
@@ -1201,8 +1195,8 @@ fn create_audio_description(job:&CreateJob,rt:&Runtime,cancel:Arc<AtomicBool>,st
 fn show_error(parent:&Dialog,message:&str){let d=MessageDialog::builder(parent,message,&tr("audio_description.title")).with_style(MessageDialogStyle::OK|MessageDialogStyle::IconError).build();d.show_modal();}
 fn show_info(parent:&Dialog,message:&str){let d=MessageDialog::builder(parent,message,&tr("audio_description.title")).with_style(MessageDialogStyle::OK|MessageDialogStyle::IconInformation).build();d.show_modal();}
 
-fn choose_input(parent:&Dialog)->Option<PathBuf>{let d=FileDialog::builder(parent).with_message(&tr("audio_description.open_title")).with_wildcard("Video|*.mp4;*.mkv;*.mov;*.m4v;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*").with_style(FileDialogStyle::Open|FileDialogStyle::FileMustExist).build(); if d.show_modal()==ID_OK{d.get_path()}else{None}}
-fn choose_output(parent:&Dialog,input:&Path)->Option<PathBuf>{let stem=input.file_stem().and_then(|s|s.to_str()).unwrap_or("video");let d=FileDialog::builder(parent).with_message(&tr("audio_description.save_title")).with_default_file(&format!("{}_audiodescritto.mp3",sanitize_filename(stem))).with_wildcard("MP3|*.mp3").with_style(FileDialogStyle::Save|FileDialogStyle::OverwritePrompt).build();if d.show_modal()==ID_OK{d.get_path()}else{None}}
+fn choose_input(parent:&Dialog)->Option<PathBuf>{let d=FileDialog::builder(parent).with_message(&tr("audio_description.open_title")).with_wildcard("Video|*.mp4;*.mkv;*.mov;*.m4v;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*").with_style(FileDialogStyle::Open|FileDialogStyle::FileMustExist).build(); if d.show_modal()==ID_OK{d.get_path().map(PathBuf::from)}else{None}}
+fn choose_output(parent:&Dialog,input:&Path)->Option<PathBuf>{let stem=input.file_stem().and_then(|s|s.to_str()).unwrap_or("video");let d=FileDialog::builder(parent).with_message(&tr("audio_description.save_title")).with_default_file(&format!("{}_audiodescritto.mp3",sanitize_filename(stem))).with_wildcard("MP3|*.mp3").with_style(FileDialogStyle::Save|FileDialogStyle::OverwritePrompt).build();if d.show_modal()==ID_OK{d.get_path().map(PathBuf::from)}else{None}}
 
 fn ask_catalog_name(parent:&Dialog)->Option<String>{let d=Dialog::builder(parent,&tr("audio_description.character_catalog.name_title")).with_size(460,160).build();let p=Panel::builder(&d).build();let root=BoxSizer::builder(Orientation::Vertical).build();root.add(&StaticText::builder(&p).with_label(&tr("audio_description.character_catalog.name_prompt")).build(),0,SizerFlag::Expand|SizerFlag::All,8);let text=TextCtrl::builder(&p).build();root.add(&text,0,SizerFlag::Expand|SizerFlag::All,8);let row=BoxSizer::builder(Orientation::Horizontal).build();row.add_spacer(1);let ok=Button::builder(&p).with_id(ID_OK).with_label("OK").build();let cancel=Button::builder(&p).with_id(ID_CANCEL).with_label(&tr("audio_description.cancel")).build();row.add(&ok,0,SizerFlag::All,5);row.add(&cancel,0,SizerFlag::All,5);root.add_sizer(&row,0,SizerFlag::Expand,0);p.set_sizer(root,true);d.set_affirmative_id(ID_OK);d.set_escape_id(ID_CANCEL);let d1=d;ok.on_click(move |_|d1.end_modal(ID_OK));let d2=d;cancel.on_click(move |_|d2.end_modal(ID_CANCEL));if d.show_modal()==ID_OK{let v=text.get_value().trim().to_string();d.destroy();(!v.is_empty()).then_some(v)}else{d.destroy();None}}
 
@@ -1229,9 +1223,8 @@ pub fn open_create_dialog(parent:&Frame,settings:&Arc<Mutex<Settings>>,rt:&Arc<R
     let verbosity=Choice::builder(&p).build();verbosity.append(&tr("audio_description.verbosity.brief"));verbosity.append(&tr("audio_description.verbosity.standard"));verbosity.append(&tr("audio_description.verbosity.detailed"));verbosity.set_selection(match Verbosity::from_settings(&saved.audio_description_verbosity){Verbosity::Brief=>0,Verbosity::Standard=>1,Verbosity::Detailed=>2});let row=BoxSizer::builder(Orientation::Horizontal).build();row.add(&StaticText::builder(&p).with_label(&tr("audio_description.verbosity")).build(),0,SizerFlag::AlignCenterVertical|SizerFlag::All,5);row.add(&verbosity,1,SizerFlag::Expand|SizerFlag::All,5);root.add_sizer(&row,0,SizerFlag::Expand,0);
     let extended=CheckBox::builder(&p).with_label(&tr("audio_description.extended")).build();extended.set_value(saved.audio_description_extended_pauses);root.add(&extended,0,SizerFlag::Expand|SizerFlag::All,5);let recognize=CheckBox::builder(&p).with_label(&tr("audio_description.recognize_characters")).build();recognize.set_value(saved.audio_description_recognize_characters);root.add(&recognize,0,SizerFlag::Expand|SizerFlag::All,5);let save_project_box=CheckBox::builder(&p).with_label(&tr("audio_description.save_project")).build();save_project_box.set_value(saved.audio_description_save_project);root.add(&save_project_box,0,SizerFlag::Expand|SizerFlag::All,5);
     let keep_catalog=CheckBox::builder(&p).with_label(&tr("audio_description.keep_character_catalog")).build();keep_catalog.set_value(saved.audio_description_keep_character_catalog && saved.audio_description_recognize_characters);keep_catalog.show(saved.audio_description_recognize_characters);root.add(&keep_catalog,0,SizerFlag::Expand|SizerFlag::All,5);let catalogs=Rc::new(RefCell::new(list_catalogs()));let catalog_choice=Choice::builder(&p).build();catalog_choice.append(&tr("audio_description.character_catalog.choose"));for c in catalogs.borrow().iter(){catalog_choice.append(&c.name);}let selected_catalog=catalogs.borrow().iter().position(|c|c.path.to_string_lossy()==saved.audio_description_character_catalog).map(|x|x+1).unwrap_or(0);catalog_choice.set_selection(selected_catalog as u32);catalog_choice.show(saved.audio_description_recognize_characters && saved.audio_description_keep_character_catalog);root.add(&catalog_choice,0,SizerFlag::Expand|SizerFlag::All,5);
-    let web=CheckBox::builder(&p).with_label(&tr("audio_description.gemini_web")).build();web.set_value(saved.audio_description_gemini_web);root.add(&web,0,SizerFlag::Expand|SizerFlag::All,5);let web_open=Button::builder(&p).with_label(&tr("audio_description.gemini_web_open")).build();web_open.show(saved.audio_description_gemini_web);root.add(&web_open,0,SizerFlag::All,5);
     let api_label=StaticText::builder(&p).with_label(&tr("audio_description.gemini_api_key")).build();let api=TextCtrl::builder(&p).build();api.set_value(&saved.audio_description_gemini_api_key);let api_get=Button::builder(&p).with_label(&tr("audio_description.gemini_get_key")).build();let api_row=BoxSizer::builder(Orientation::Horizontal).build();api_row.add(&api_label,0,SizerFlag::AlignCenterVertical|SizerFlag::All,5);api_row.add(&api,1,SizerFlag::Expand|SizerFlag::All,5);api_row.add(&api_get,0,SizerFlag::All,5);root.add_sizer(&api_row,0,SizerFlag::Expand,0);
-    let model_label=StaticText::builder(&p).with_label(&tr("audio_description.gemini_model")).build();let model=Choice::builder(&p).build();model.append(&saved.audio_description_gemini_model);model.set_selection(0);let refresh=Button::builder(&p).with_label(&tr("audio_description.gemini_refresh_models")).build();let model_row=BoxSizer::builder(Orientation::Horizontal).build();model_row.add(&model_label,0,SizerFlag::AlignCenterVertical|SizerFlag::All,5);model_row.add(&model,1,SizerFlag::Expand|SizerFlag::All,5);model_row.add(&refresh,0,SizerFlag::All,5);root.add_sizer(&model_row,0,SizerFlag::Expand,0);api_label.show(!saved.audio_description_gemini_web);api.show(!saved.audio_description_gemini_web);api_get.show(!saved.audio_description_gemini_web);model_label.show(!saved.audio_description_gemini_web);model.show(!saved.audio_description_gemini_web);refresh.show(!saved.audio_description_gemini_web);
+    let model_label=StaticText::builder(&p).with_label(&tr("audio_description.gemini_model")).build();let model=Choice::builder(&p).build();model.append(&saved.audio_description_gemini_model);model.set_selection(0);let refresh=Button::builder(&p).with_label(&tr("audio_description.gemini_refresh_models")).build();let model_row=BoxSizer::builder(Orientation::Horizontal).build();model_row.add(&model_label,0,SizerFlag::AlignCenterVertical|SizerFlag::All,5);model_row.add(&model,1,SizerFlag::Expand|SizerFlag::All,5);model_row.add(&refresh,0,SizerFlag::All,5);root.add_sizer(&model_row,0,SizerFlag::Expand,0);
     let engine=Choice::builder(&p).build();engine.append(&tr("audio_description.engine.edge"));engine.append(&tr("audio_description.engine.system"));let initial_engine=if crate::is_system_voice_engine(&saved.audio_description_tts_engine){1}else{0};engine.set_selection(initial_engine);let engine_row=BoxSizer::builder(Orientation::Horizontal).build();engine_row.add(&StaticText::builder(&p).with_label(&tr("audio_description.engine")).build(),0,SizerFlag::AlignCenterVertical|SizerFlag::All,5);engine_row.add(&engine,1,SizerFlag::Expand|SizerFlag::All,5);root.add_sizer(&engine_row,0,SizerFlag::Expand,0);
     let voice=Choice::builder(&p).build();let voices_edge=voices_data.lock().unwrap().clone();let voices_system=crate::load_system_voices();let active_voices=Rc::new(RefCell::new(Vec::<VoiceInfo>::new()));let fill_voice:Rc<dyn Fn(u32,u32)>= {let active=active_voices.clone();let voice_c=voice;let voices_edge=voices_edge.clone();let voices_system=voices_system.clone();let langs=langs.clone();Rc::new(move|engine_idx,lang_idx|{voice_c.clear();let code=langs.get(lang_idx as usize).map(|x|x.1).unwrap_or("it");let src=if engine_idx==1{&voices_system}else{&voices_edge};let list=src.iter().filter(|v|voice_matches_language(v,code)).cloned().collect::<Vec<_>>();for v in &list{voice_c.append(&v.friendly_name);}if !list.is_empty(){voice_c.set_selection(0);}*active.borrow_mut()=list;})};fill_voice(initial_engine,lang_index as u32);let preferred_voice=if saved.audio_description_tts_voice.trim().is_empty(){if initial_engine==1{saved.system_voice.clone()}else{saved.voice.clone()}}else{saved.audio_description_tts_voice.clone()};if let Some(index)=active_voices.borrow().iter().position(|item|item.short_name==preferred_voice){voice.set_selection(index as u32);}let voice_row=BoxSizer::builder(Orientation::Horizontal).build();voice_row.add(&StaticText::builder(&p).with_label(&tr("audio_description.voice")).build(),0,SizerFlag::AlignCenterVertical|SizerFlag::All,5);voice_row.add(&voice,1,SizerFlag::Expand|SizerFlag::All,5);root.add_sizer(&voice_row,0,SizerFlag::Expand,0);
     let actions=BoxSizer::builder(Orientation::Horizontal).build();let modify=Button::builder(&p).with_label(&tr("audio_description.modify_project")).build();let start=Button::builder(&p).with_id(ID_OK).with_label(&tr("audio_description.start")).build();let close=Button::builder(&p).with_id(ID_CANCEL).with_label(&tr("audio_description.close")).build();actions.add(&modify,0,SizerFlag::All,8);actions.add_spacer(1);actions.add(&start,0,SizerFlag::All,8);actions.add(&close,0,SizerFlag::All,8);root.add_sizer(&actions,0,SizerFlag::Expand,0);p.set_sizer(root,true);
@@ -1239,8 +1232,6 @@ pub fn open_create_dialog(parent:&Frame,settings:&Arc<Mutex<Settings>>,rt:&Arc<R
     let d_output=d;output_btn.on_click(move |_|{let ip=PathBuf::from(input.get_value());if let Some(path)=choose_output(&d_output,&ip){output.set_value(&path.to_string_lossy());}});
     let cc=catalog_choice;let panel_catalog=p;let dialog_catalog=d;keep_catalog.on_toggled(move |_|{cc.show(recognize.get_value() && keep_catalog.get_value());panel_catalog.layout();dialog_catalog.layout();});
     let keep_catalog_show=keep_catalog;let catalog_choice_show=catalog_choice;let panel_recognize=p;let dialog_recognize=d;recognize.on_toggled(move |_|{let on=recognize.get_value();keep_catalog_show.show(on);if !on{keep_catalog_show.set_value(false);}catalog_choice_show.show(on && keep_catalog_show.get_value());panel_recognize.layout();dialog_recognize.layout();});
-    let api_show=api;let api_label_show=api_label;let api_get_show=api_get;let model_show=model;let model_label_show=model_label;let refresh_show=refresh;let web_open_show=web_open;let panel_web=p;let dialog_web=d;web.on_toggled(move |_|{let on=web.get_value();web_open_show.show(on);api_show.show(!on);api_label_show.show(!on);api_get_show.show(!on);model_show.show(!on);model_label_show.show(!on);refresh_show.show(!on);panel_web.layout();dialog_web.layout();});
-    let d_web=d;web_open.on_click(move |_|{if let Err(e)=crate::gemini_web::open_setup_browser(){show_error(&d_web,&e);}});
     let d_api=d;api_get.on_click(move |_|{if let Err(e)=crate::open_url_in_browser("https://aistudio.google.com/app/apikey"){show_error(&d_api,&e);}});
     let d_refresh=d;refresh.on_click(move |_|{match fetch_gemini_models(&api.get_value()){Ok(models)=>{let selected=model.get_string_selection().unwrap_or_default();model.clear();for m in &models{model.append(m);}let pos=models.iter().position(|m|m==&selected).unwrap_or(0);if !models.is_empty(){model.set_selection(pos as u32);}},Err(e)=>show_error(&d_refresh,&trf("audio_description.gemini_error_models",&[("error",e)]))}});
     let fill_e=fill_voice.clone();engine.on_selection_changed(move |_|fill_e(engine.get_selection().unwrap_or(0),language.get_selection().unwrap_or(0)));let fill_l=fill_voice.clone();language.on_selection_changed(move |_|fill_l(engine.get_selection().unwrap_or(0),language.get_selection().unwrap_or(0)));
@@ -1249,10 +1240,10 @@ pub fn open_create_dialog(parent:&Frame,settings:&Arc<Mutex<Settings>>,rt:&Arc<R
     d.set_escape_id(ID_CANCEL);
     let d_close=d;close.on_click(move |_|d_close.end_modal(ID_CANCEL));
     let parent_run=*parent;let settings_run=settings.clone();let rt_run=rt.clone();start.on_click(move |_|{
-        let input_path=PathBuf::from(input.get_value());let output_path=PathBuf::from(output.get_value());let lang_idx=language.get_selection().unwrap_or(0)as usize;let language_code=langs.get(lang_idx).map(|x|x.1).unwrap_or("it").to_string();let verbosity_value=match verbosity.get_selection().unwrap_or(2){0=>Verbosity::Brief,1=>Verbosity::Standard,_=>Verbosity::Detailed};let engine_value=if engine.get_selection().unwrap_or(0)==1{"system".to_string()}else{"microsoft".to_string()};let voice_idx=voice.get_selection().unwrap_or(0)as usize;let voice_value=active_voices.borrow().get(voice_idx).map(|v|v.short_name.clone()).unwrap_or_default();let web_value=web.get_value();let model_value=model.get_string_selection().unwrap_or_else(||saved.audio_description_gemini_model.clone());
+        let input_path=PathBuf::from(input.get_value());let output_path=PathBuf::from(output.get_value());let lang_idx=language.get_selection().unwrap_or(0)as usize;let language_code=langs.get(lang_idx).map(|x|x.1).unwrap_or("it").to_string();let verbosity_value=match verbosity.get_selection().unwrap_or(2){0=>Verbosity::Brief,1=>Verbosity::Standard,_=>Verbosity::Detailed};let engine_value=if engine.get_selection().unwrap_or(0)==1{"system".to_string()}else{"microsoft".to_string()};let voice_idx=voice.get_selection().unwrap_or(0)as usize;let voice_value=active_voices.borrow().get(voice_idx).map(|v|v.short_name.clone()).unwrap_or_default();let model_value=model.get_string_selection().unwrap_or_else(||saved.audio_description_gemini_model.clone());
         let catalog=if keep_catalog.get_value(){let sel=catalog_choice.get_selection().unwrap_or(0)as usize;if sel==0{if let Some(name)=ask_catalog_name(&d){Some(CharacterCatalog{name:name.clone(),path:catalog_path_for_name(&name),characters:Vec::new()})}else{return;}}else{catalogs.borrow().get(sel-1).cloned()}}else{None};
-        let job=CreateJob{input_path,output_path,language_code:language_code.clone(),verbosity:verbosity_value,allow_extended_pauses:extended.get_value(),recognize_characters:recognize.get_value(),save_project:save_project_box.get_value(),keep_character_catalog:keep_catalog.get_value(),catalog:catalog.clone(),tts_engine:engine_value.clone(),tts_voice:voice_value.clone(),rate:saved.rate,pitch:saved.pitch,volume:saved.volume,gemini_api_key:api.get_value(),gemini_model:model_value.clone(),gemini_web:web_value};
-        {let mut st=settings_run.lock().unwrap();st.audio_description_gemini_api_key=job.gemini_api_key.clone();st.audio_description_gemini_model=model_value;st.audio_description_gemini_web=web_value;st.audio_description_language=language_code;st.audio_description_tts_engine=engine_value.clone();st.audio_description_tts_voice=voice_value.clone();st.audio_description_verbosity=verbosity_value.as_bridge().to_string();st.audio_description_extended_pauses=job.allow_extended_pauses;st.audio_description_recognize_characters=job.recognize_characters;st.audio_description_save_project=job.save_project;st.audio_description_keep_character_catalog=job.keep_character_catalog;st.audio_description_character_catalog=catalog.as_ref().map(|c|c.path.to_string_lossy().to_string()).unwrap_or_default();st.save();}
+        let job=CreateJob{input_path,output_path,language_code:language_code.clone(),verbosity:verbosity_value,allow_extended_pauses:extended.get_value(),recognize_characters:recognize.get_value(),save_project:save_project_box.get_value(),keep_character_catalog:keep_catalog.get_value(),catalog:catalog.clone(),tts_engine:engine_value.clone(),tts_voice:voice_value.clone(),rate:saved.rate,pitch:saved.pitch,volume:saved.volume,gemini_api_key:api.get_value(),gemini_model:model_value.clone()};
+        {let mut st=settings_run.lock().unwrap();st.audio_description_gemini_api_key=job.gemini_api_key.clone();st.audio_description_gemini_model=model_value;st.audio_description_language=language_code;st.audio_description_tts_engine=engine_value.clone();st.audio_description_tts_voice=voice_value.clone();st.audio_description_verbosity=verbosity_value.as_bridge().to_string();st.audio_description_extended_pauses=job.allow_extended_pauses;st.audio_description_recognize_characters=job.recognize_characters;st.audio_description_save_project=job.save_project;st.audio_description_keep_character_catalog=job.keep_character_catalog;st.audio_description_character_catalog=catalog.as_ref().map(|c|c.path.to_string_lossy().to_string()).unwrap_or_default();st.save();}
         match run_with_progress(&parent_run,job,rt_run.clone()){Ok(out)=>{let mut msg=trf("audio_description.success_details",&[("path",out.output_path.display().to_string()),("count",out.generated.to_string()),("normal",(out.inserted-out.extended).to_string()),("pauses",out.extended.to_string()),("dropped",out.dropped.to_string())]);if out.dropped_mandatory>0{msg.push_str(&format!("\n\n{}",trf("audio_description.warning.mandatory_dropped",&[("count",out.dropped_mandatory.to_string())])));}if let Some(p)=out.project_path{msg.push_str(&format!("\n\n{}",trf("audio_description.project_saved",&[("path",p.display().to_string())])));}if let Some(p)=out.catalog_path{msg.push_str(&format!("\n\n{}",trf("audio_description.catalog_output",&[("path",p.display().to_string())])));}show_info(&d,&msg);},Err(e)=>{if e!="cancelled"{show_error(&d,&e);}}}
     });
     d.show_modal();d.destroy();
@@ -1357,7 +1348,7 @@ fn synthesize_project_text_duration(
     result
 }
 
-fn project_file_dialog(parent:&Frame)->Option<PathBuf>{let d=FileDialog::builder(parent).with_message(&tr("audio_description.project.open_title")).with_wildcard("Progetto Sonarpad|*.sonarpad-ad.json|JSON|*.json|Tutti|*.*").with_style(FileDialogStyle::Open|FileDialogStyle::FileMustExist).build();if d.show_modal()==ID_OK{d.get_path()}else{None}}
+fn project_file_dialog(parent:&Frame)->Option<PathBuf>{let d=FileDialog::builder(parent).with_message(&tr("audio_description.project.open_title")).with_wildcard("Progetto Sonarpad|*.sonarpad-ad.json|JSON|*.json|Tutti|*.*").with_style(FileDialogStyle::Open|FileDialogStyle::FileMustExist).build();if d.show_modal()==ID_OK{d.get_path().map(PathBuf::from)}else{None}}
 
 fn load_project(path:&Path)->Result<AudioDescriptionProject,String>{let raw=fs::read(path).map_err(|e|e.to_string())?;let p:AudioDescriptionProject=serde_json::from_slice(&raw).map_err(|e|format!("Progetto non valido: {e}"))?;if p.format!=PROJECT_FORMAT||p.version!=PROJECT_VERSION{return Err("Formato progetto non supportato.".into());}Ok(p)}
 

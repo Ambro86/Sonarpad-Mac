@@ -10,11 +10,10 @@ Protocollo stdout:
 STATUS:{json}
 PROGRESS:0-100
 QUOTA:{json}
-WEB_REQUEST:{json}
 RESULT:{json}
 ```
 
-`WEB_REQUEST` delega al processo Rust l’automazione di Gemini Web tramite Chrome/Edge e CDP. API Gemini e Gemini Web usano la stessa pipeline Pyannote, gli stessi audit di timestamp/copertura, il replay guard tra chunk, i recovery pass e la continuità del catalogo personaggi.
+`QUOTA` viene emesso quando l’API richiede una decisione interattiva sulla quota o sul modello. La pipeline usa Pyannote per il parlato e Gemini API per le descrizioni, con audit di timestamp/copertura, recovery pass e continuità del catalogo personaggi.
 
 Il worker non include e non avvia `ffmpeg` o `ffprobe`: Sonarpad usa il proprio FFmpeg incluso nel bundle per creare WAV/chunk e per il rendering finale. Anche TTS, ducking, scheduling e salvataggio progetto/catalogo rimangono nel processo Rust.
 
@@ -32,4 +31,4 @@ I workflow GitHub eseguono questo passaggio automaticamente per Apple Silicon, I
 python3 bridge/run_audio_description_tests_macos.py
 ```
 
-La suite Mac comprende i test portabili del motore e controlli specifici dell’host macOS: protocollo, timestamp, retry Gemini, replay guard, priorità mandatory, bundle PyInstaller, Gemini Web, menu wxDragon e workflow GitHub.
+La suite Mac comprende i test portabili del motore e controlli specifici dell’host macOS: protocollo, timestamp, retry Gemini, priorità mandatory, bundle PyInstaller, menu wxDragon e workflow GitHub.

@@ -9,7 +9,6 @@ ROOT = Path(__file__).resolve().parents[2]
 MAIN = (ROOT / "src" / "main.rs").read_text(encoding="utf-8")
 AUDIO = (ROOT / "src" / "audio_description.rs").read_text(encoding="utf-8")
 BRIDGE = (ROOT / "src" / "audio_description_bridge.rs").read_text(encoding="utf-8")
-WEB = (ROOT / "src" / "gemini_web.rs").read_text(encoding="utf-8")
 WORKFLOW = (ROOT / ".github" / "workflows" / "macos-app-dmg.yml").read_text(encoding="utf-8")
 CATALINA = (ROOT / ".github" / "workflows" / "macos-app-dmg-catalina.yml").read_text(encoding="utf-8")
 RELEASE = (ROOT / ".github" / "workflows" / "crea-release-macos.yml").read_text(encoding="utf-8")
@@ -23,13 +22,12 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("audio_description::open_create_dialog", MAIN)
         self.assertIn("mod audio_description;", MAIN)
         self.assertIn("mod audio_description_bridge;", MAIN)
-        self.assertIn("mod gemini_web;", MAIN)
+        self.assertNotIn("mod gemini_web;", MAIN)
 
-    def test_audio_description_preferences_include_web_api_and_dedicated_tts(self):
+    def test_audio_description_preferences_include_api_and_dedicated_tts(self):
         required = (
             "audio_description_gemini_api_key",
             "audio_description_gemini_model",
-            "audio_description_gemini_web",
             "audio_description_language",
             "audio_description_verbosity",
             "audio_description_extended_pauses",
@@ -50,9 +48,9 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('"segment".into()', AUDIO)
         self.assertIn('"-segment_time"', AUDIO)
         self.assertIn("probe_media(&path)", AUDIO)
-        self.assertIn('"gemini_web_chunk_"', AUDIO)
+        self.assertNotIn('"gemini_web_chunk_"', AUDIO)
         self.assertIn('"gemini_chunk_"', AUDIO)
-        self.assertIn('let extension = if gemini_web { "mp4" } else { "mkv" };', AUDIO)
+        self.assertIn('let extension = "mkv";', AUDIO)
         self.assertIn("GEMINI_MAX_CHUNK_BYTES", AUDIO)
 
     def test_mandatory_descriptions_are_scheduled_before_optional_ones(self):
@@ -68,22 +66,15 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("audio-description", BRIDGE)
         self.assertIn("audio_description_bridge", BRIDGE)
         self.assertIn("process_group(0)", BRIDGE)
-        self.assertIn("WEB_REQUEST", BRIDGE)
-        self.assertIn("fresh_chat", BRIDGE)
+        self.assertNotIn("WEB_REQUEST", BRIDGE)
+        self.assertNotIn("BridgeWebRequest", BRIDGE)
         self.assertNotIn("http://", BRIDGE.lower())
         self.assertNotIn("https://", BRIDGE.lower())
 
-    def test_gemini_web_uses_chrome_profile_and_fresh_chat_per_physical_chunk(self):
-        self.assertIn("Google Chrome.app/Contents/MacOS/Google Chrome", WEB)
-        self.assertIn("Application Support", WEB)
-        self.assertIn("Sonarpad", WEB)
-        self.assertIn("browser_profile", WEB)
-        self.assertIn("start_fresh_chat", WEB)
-        self.assertIn("request.fresh_chat", WEB)
-        self.assertIn("send acknowledged by the page", WEB)
-        self.assertIn("Input.dispatchMouseEvent", WEB)
-        source_without_drop_impl = WEB.replace("fn drop(&mut self)", "fn destructor(&mut self)")
-        self.assertNotIn("drop(", source_without_drop_impl)
+    def test_gemini_web_integration_is_removed(self):
+        self.assertFalse((ROOT / "src" / "gemini_web.rs").exists())
+        self.assertNotIn("gemini_web", AUDIO)
+        self.assertNotIn("WEB_REQUEST", BRIDGE)
 
     def test_pyinstaller_spec_bundles_runtime_model_and_google_genai(self):
         self.assertIn("pyannote-segmentation", MAC_SPEC)
@@ -135,7 +126,7 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
     def test_conditional_controls_relayout_native_dialog(self):
         self.assertIn("panel_catalog.layout()", AUDIO)
         self.assertIn("panel_recognize.layout()", AUDIO)
-        self.assertIn("panel_web.layout()", AUDIO)
+        self.assertNotIn("panel_web.layout()", AUDIO)
 
     def test_all_mac_audio_description_locales_have_same_keys(self):
         files = sorted((ROOT / "i18n").glob("audio_description_*.json"))

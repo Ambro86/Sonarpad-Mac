@@ -11,7 +11,6 @@ Stdout contains line-oriented events. Only these prefixes are protocol data:
     STATUS:{...json...}
     PROGRESS:<0-100>
     QUOTA:{...json...}
-    WEB_REQUEST:{...json...}
     RESULT:{...json...}
 
 All logging goes to stderr/a temporary log. The worker performs Pyannote ONNX
@@ -39,42 +38,6 @@ from audio_describer.models import config_model  # noqa: E402
 from audio_describer.utils.logger import app_logger, get_log_file_path  # noqa: E402
 
 CHUNK_DURATION_SECONDS = 180
-_WEB_REQUEST_SEQUENCE = 0
-
-
-def _web_generation_handler(payload: dict) -> str:
-    """Synchronously ask the Rust host to perform one visible Gemini Web turn."""
-    global _WEB_REQUEST_SEQUENCE
-    _WEB_REQUEST_SEQUENCE += 1
-    request_id = _WEB_REQUEST_SEQUENCE
-    event = dict(payload or {})
-    event["request_id"] = request_id
-    _emit("WEB_REQUEST", event)
-
-    while True:
-        line = sys.stdin.readline()
-        if not line:
-            raise RuntimeError("Sonarpad closed the Gemini Web transport.")
-        try:
-            reply = json.loads(line)
-        except json.JSONDecodeError:
-            continue
-        if not isinstance(reply, dict):
-            continue
-        if str(reply.get("action") or "").strip().lower() != "web_response":
-            continue
-        try:
-            reply_id = int(reply.get("request_id"))
-        except (TypeError, ValueError):
-            continue
-        if reply_id != request_id:
-            continue
-        if bool(reply.get("ok")):
-            text = str(reply.get("text") or "")
-            if not text.strip():
-                raise RuntimeError("Gemini Web returned an empty response.")
-            return text
-        raise RuntimeError(str(reply.get("error") or "Gemini Web request failed."))
 
 
 def _emit(prefix: str, value) -> None:
@@ -162,9 +125,8 @@ def _validate_request(request: dict) -> None:
     wav_value = str(request.get("audio_wav_path") or "").strip()
     if wav_value and not Path(wav_value).is_file():
         raise FileNotFoundError(f"Prepared Pyannote WAV not found: {wav_value}")
-    web_mode = bool(request.get("gemini_web", False))
     api_key = str(request.get("gemini_api_key") or "").strip()
-    if not web_mode and not api_key:
+    if not api_key:
         raise ValueError("Gemini API key is not configured in Sonarpad.")
     verbosity = str(request.get("verbosity") or "detailed")
     if verbosity not in {"short", "standard", "detailed"}:
@@ -206,11 +168,7 @@ def _normalise_initial_character_glossary(value) -> list[dict]:
 
 def _configure_omni(request: dict) -> None:
     language = str(request.get("language") or "it").strip() or "it"
-    web_mode = bool(request.get("gemini_web", False))
-    model = str(
-        request.get("gemini_model")
-        or ("gemini-web" if web_mode else "gemini-3.5-flash-lite")
-    ).strip()
+    model = str(request.get("gemini_model") or "gemini-3.5-flash-lite").strip()
     config_model.configure(
         {
             "user_gemini_api_key": str(request.get("gemini_api_key") or ""),
@@ -236,12 +194,7 @@ def _configure_omni(request: dict) -> None:
         }
     )
     audio_describer.reset_gemini_client()
-    gemini_helpers.set_quota_decision_handler(
-        None if web_mode else _quota_decision_handler
-    )
-    gemini_helpers.set_external_generate_handler(
-        _web_generation_handler if web_mode else None
-    )
+    gemini_helpers.set_quota_decision_handler(_quota_decision_handler)
 
 
 _CHUNK_RE = re.compile(r"(?:chunk|segment)\D*(\d+)\s*(?:of|/)\s*(\d+)", re.I)
@@ -309,8 +262,8 @@ def _normalise_descriptions(descriptions, mandatory_slots=None) -> list[dict]:
         result.append({"start_sec": start, "end_sec": end, "text": text})
 
     # Mark exactly one representative description per mandatory slot. Extra
-    # descriptions in the same silence remain optional so exact-duration TTS
-    # scheduling cannot let them crowd out the slot's required narration.
+    # descriptions in the same silence remain optional so downstream exact-TTS
+    # scheduling can distinguish the required cue from additional narration.
     claimed_rows = set()
     for slot in mandatory_slots:
         slot_start = float(slot["start"])
@@ -413,6 +366,7 @@ def run(request: dict) -> dict:
                 id_suffix=f"C{index:04d}",
             )
         )
+
     if bool(request.get("allow_extended_pauses", True)):
         aligned, dropped, short_gap_candidates = (
             speech_detector.align_descriptions_with_extended_pauses_prioritizing_slots(
@@ -436,10 +390,7 @@ def run(request: dict) -> dict:
         ",".join(slot["id"] for slot in final_missing_slots) or "none",
     )
     normalized = _normalise_descriptions(aligned, mandatory_slots)
-    model = str(
-        request.get("gemini_model")
-        or ("gemini-web" if bool(request.get("gemini_web", False)) else "gemini-3.5-flash-lite")
-    ).strip()
+    model = str(request.get("gemini_model") or "gemini-3.5-flash-lite").strip()
     protected = [
         {"start_sec": float(start), "end_sec": float(end)}
         for start, end in dialogue_intervals
@@ -486,7 +437,6 @@ def main() -> int:
             "expects_host_prepared_media": True,
             "contains_tts_or_playback": False,
             "interactive_quota_decisions": True,
-            "gemini_web_transport": True,
             "optional_character_glossary": True,
             "persistent_character_catalog_seed": True,
         }

@@ -40,7 +40,6 @@ pub struct AudioDescriptionBridgeRequest {
     pub initial_character_glossary: Vec<BridgeCharacter>,
     pub gemini_api_key: String,
     pub gemini_model: String,
-    pub gemini_web: bool,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -105,17 +104,6 @@ struct BridgeQuota {
     error: String,
 }
 
-#[derive(Debug, Clone, Deserialize)]
-pub struct BridgeWebRequest {
-    #[serde(default)]
-    pub request_id: u64,
-    #[serde(default)]
-    pub prompt: String,
-    #[serde(default)]
-    pub attachment_path: Option<String>,
-    #[serde(default)]
-    pub fresh_chat: bool,
-}
 
 #[derive(Debug, Clone)]
 pub enum AudioDescriptionQuotaDecision {
@@ -128,15 +116,12 @@ pub type AudioDescriptionBridgePercentCallback = Box<dyn FnMut(i32) + Send>;
 pub type AudioDescriptionBridgeStatusCallback = Box<dyn FnMut(&str, &str) + Send>;
 pub type AudioDescriptionBridgeQuotaCallback =
     Box<dyn FnMut(&str, &str) -> AudioDescriptionQuotaDecision + Send>;
-pub type AudioDescriptionBridgeWebCallback =
-    Box<dyn FnMut(&BridgeWebRequest) -> Result<String, String> + Send>;
 
 pub struct AudioDescriptionBridgeCallbacks {
     pub download: Option<AudioDescriptionBridgePercentCallback>,
     pub progress: Option<AudioDescriptionBridgePercentCallback>,
     pub status: Option<AudioDescriptionBridgeStatusCallback>,
     pub quota: Option<AudioDescriptionBridgeQuotaCallback>,
-    pub web: Option<AudioDescriptionBridgeWebCallback>,
 }
 
 fn app_bundle_resources_dir() -> Option<PathBuf> {
@@ -358,45 +343,6 @@ pub fn run_audio_description_bridge(
                         child_stdin.flush().map_err(|error| {
                             format!(
                                 "flush quota decision to audio-description worker failed: {error}"
-                            )
-                        })?;
-                    } else if let Some(raw_web) = line.strip_prefix("WEB_REQUEST:") {
-                        let web_request = serde_json::from_str::<BridgeWebRequest>(raw_web)
-                            .map_err(|error| {
-                                format!(
-                                    "invalid Gemini Web request from audio-description worker: {error}"
-                                )
-                            })?;
-                        let web_result = callbacks
-                            .web
-                            .as_mut()
-                            .ok_or_else(|| {
-                                "audio-description worker requested Gemini Web but no host transport is configured"
-                                    .to_string()
-                            })
-                            .and_then(|callback| callback(&web_request));
-                        let reply = match web_result {
-                            Ok(text) => serde_json::json!({
-                                "action": "web_response",
-                                "request_id": web_request.request_id,
-                                "ok": true,
-                                "text": text,
-                            }),
-                            Err(error) => serde_json::json!({
-                                "action": "web_response",
-                                "request_id": web_request.request_id,
-                                "ok": false,
-                                "error": error,
-                            }),
-                        };
-                        writeln!(child_stdin, "{reply}").map_err(|error| {
-                            format!(
-                                "write Gemini Web response to audio-description worker failed: {error}"
-                            )
-                        })?;
-                        child_stdin.flush().map_err(|error| {
-                            format!(
-                                "flush Gemini Web response to audio-description worker failed: {error}"
                             )
                         })?;
                     } else if let Some(raw_result) = line.strip_prefix("RESULT:") {

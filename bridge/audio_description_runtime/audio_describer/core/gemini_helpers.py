@@ -8,7 +8,6 @@ import datetime
 import threading
 import time
 from typing import Any, Union
-from types import SimpleNamespace
 
 from ..i18n_setup import _
 from .. import config
@@ -32,22 +31,6 @@ _MODEL_ID_ALIASES = {
 }
 _VALIDATED_GENERATE_MODELS = set()
 _QUOTA_DECISION_HANDLER = None
-_EXTERNAL_GENERATE_HANDLER = None
-
-
-class ExternalMediaPart:
-    """Marker for a Sonarpad-owned local media file handled by the Rust host."""
-    def __init__(self, path, fresh_chat=False):
-        self.path = os.path.abspath(os.fspath(path))
-        self.fresh_chat = bool(fresh_chat)
-
-
-class _ExternalGeminiClient:
-    """Sentinel client used when generation is transported through Sonarpad Rust."""
-    pass
-
-
-_EXTERNAL_GEMINI_CLIENT = _ExternalGeminiClient()
 
 # Windows Winsock codes that are usually transient (timeout / reset / refused).
 _WIN_TRANSIENT_SOCKET_ERRORS = frozenset({
@@ -197,32 +180,6 @@ def set_quota_decision_handler(handler):
     global _QUOTA_DECISION_HANDLER
     _QUOTA_DECISION_HANDLER = handler
 
-
-def set_external_generate_handler(handler):
-    """Route Gemini generation through the Sonarpad host instead of the API.
-
-    ``handler`` receives a plain dict containing the merged prompt, an optional
-    local attachment path and whether JSON output was requested. It returns
-    the response text produced by the browser session.
-    """
-    global _EXTERNAL_GENERATE_HANDLER
-    _EXTERNAL_GENERATE_HANDLER = handler
-
-
-def is_external_generate_enabled():
-    return _EXTERNAL_GENERATE_HANDLER is not None
-
-
-def external_media_part(path, fresh_chat=False):
-    return ExternalMediaPart(path, fresh_chat=fresh_chat)
-
-
-def set_external_media_fresh_chat(media_part, enabled=True):
-    """Request a fresh Gemini Web conversation for the next use of this part."""
-    if isinstance(media_part, ExternalMediaPart):
-        media_part.fresh_chat = bool(enabled)
-
-
 # --- Global Client Instance ---
 _GEMINI_CLIENT = None
 
@@ -244,8 +201,6 @@ def reset_gemini_client():
 def get_gemini_client():
     """Gets or initializes the global Gemini client."""
     global _GEMINI_CLIENT
-    if is_external_generate_enabled():
-        return _EXTERNAL_GEMINI_CLIENT
     _lazy_import_gemini_sdk()
 
     if _GEMINI_CLIENT:
@@ -281,10 +236,6 @@ def normalize_model_id(model_id):
 def validate_model_for_generate_content(model_id, client=None, status_callback=None):
     """Fail early when the selected model is absent or cannot generate content."""
     model_id = normalize_model_id(model_id)
-    if is_external_generate_enabled():
-        # The concrete model is selected in the visible Gemini Web UI and can
-        # change independently from API model identifiers.
-        return model_id or "gemini-web"
     if not model_id:
         raise GeminiAPIError(_("No Gemini model is configured."))
     if model_id in _VALIDATED_GENERATE_MODELS:
@@ -622,6 +573,23 @@ def _single_exception_is_retryable(exc: BaseException) -> bool:
     return any(keyword in error_str for keyword in _RETRYABLE_ERROR_KEYWORDS)
 
 
+def is_prepaid_credits_depleted_error(exc: BaseException) -> bool:
+    """Return True only for Gemini's permanent prepaid-billing depletion error.
+
+    This is deliberately narrower than generic HTTP 429 / RESOURCE_EXHAUSTED
+    handling. Other quota/rate-limit responses remain retryable or eligible for
+    the existing model-switch decision flow.
+    """
+    seen = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        if "prepayment credits are depleted" in str(current).casefold():
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def is_retryable_transient_error(exc: BaseException) -> bool:
     """True if *exc* (or any cause/context in its chain) is a transient network/API error.
 
@@ -680,6 +648,12 @@ def run_with_retry(operation, *, status_callback=None, operation_label=None):
                 )
             return operation()
         except Exception as e:
+            if is_prepaid_credits_depleted_error(e):
+                app_logger.error(
+                    "Permanent Gemini billing error on %s attempt %d: %s",
+                    label, attempt, e,
+                )
+                raise
             if not is_retryable_transient_error(e):
                 raise
 
@@ -696,95 +670,6 @@ def run_with_retry(operation, *, status_callback=None, operation_label=None):
             time.sleep(RETRY_DELAY_SEC)
 
 
-
-def _external_content_text(value):
-    if value is None:
-        return ""
-    if isinstance(value, str):
-        return value
-    text = getattr(value, "text", None)
-    if isinstance(text, str) and text:
-        return text
-    parts = getattr(value, "parts", None)
-    if parts:
-        return "\n".join(
-            piece for piece in (_external_content_text(part) for part in parts) if piece
-        )
-    return ""
-
-
-def _external_system_instruction(config_obj):
-    return _external_content_text(getattr(config_obj, "system_instruction", None)).strip()
-
-
-def _external_response(text):
-    finish_reason = SimpleNamespace(name="STOP")
-    part = SimpleNamespace(text=str(text or ""), thought=False)
-    content = SimpleNamespace(parts=[part])
-    candidate = SimpleNamespace(content=content, finish_reason=finish_reason)
-    return SimpleNamespace(
-        candidates=[candidate],
-        prompt_feedback=None,
-        usage_metadata=None,
-        _sonarpad_external_text=str(text or ""),
-    )
-
-
-def _call_external_generate_content(model, contents, config_obj, status_callback=None):
-    if _EXTERNAL_GENERATE_HANDLER is None:
-        raise GeminiAPIError("Gemini Web transport is not configured.")
-
-    prompt_parts = []
-    attachment_path = None
-    fresh_chat = False
-    values = contents if isinstance(contents, (list, tuple)) else [contents]
-    for value in values:
-        if isinstance(value, ExternalMediaPart):
-            attachment_path = value.path
-            fresh_chat = fresh_chat or bool(getattr(value, "fresh_chat", False))
-            # Fresh-chat is intentionally one-shot: the main request for a
-            # physical chunk resets the conversation, while its recovery and
-            # JSON-repair turns stay in that same isolated chat.
-            value.fresh_chat = False
-            continue
-        text = _external_content_text(value).strip()
-        if text:
-            prompt_parts.append(text)
-
-    system_instruction = _external_system_instruction(config_obj)
-    prompt = "\n\n".join(prompt_parts)
-    if system_instruction:
-        prompt = (
-            "SYSTEM INSTRUCTIONS (follow these as highest-priority instructions):\n"
-            + system_instruction
-            + "\n\nUSER REQUEST:\n"
-            + prompt
-        )
-
-    if not prompt.strip():
-        raise GeminiAPIError("Gemini Web request contains no prompt text.")
-
-    if status_callback:
-        status_callback(_("Contacting Gemini Web…"))
-
-    payload = {
-        "model": str(model or "gemini-web"),
-        "prompt": prompt,
-        "attachment_path": attachment_path,
-        "fresh_chat": fresh_chat,
-        "json_response": (
-            getattr(config_obj, "response_mime_type", None) == "application/json"
-        ),
-    }
-    with _GenerationHeartbeat(status_callback, _("Gemini Web")):
-        text = _EXTERNAL_GENERATE_HANDLER(payload)
-    if not str(text or "").strip():
-        raise GeminiAPIError("Gemini Web returned an empty response.")
-    if status_callback:
-        status_callback(_("Gemini Web response received. Parsing…"))
-    return _external_response(text)
-
-
 def _call_generate_content(client, model, contents, config, status_callback=None):
     """One generate_content call with a background heartbeat for UI progress.
 
@@ -792,11 +677,6 @@ def _call_generate_content(client, model, contents, config, status_callback=None
     stream either stays quiet until the end or is hard to reassemble, and a
     failed stream must never trigger a second full video analysis.
     """
-    if is_external_generate_enabled():
-        return _call_external_generate_content(
-            model, contents, config, status_callback=status_callback
-        )
-
     if status_callback:
         status_callback(_("Contacting Gemini API (model: %s)…") % model)
 
@@ -846,8 +726,7 @@ def generate_content_with_retry(client, model, contents, config, status_callback
     A switched model is also used by later requests/chunks because the UI
     persists it in the current settings.
     """
-    if not is_external_generate_enabled():
-        _lazy_import_gemini_sdk()
+    _lazy_import_gemini_sdk()
     configured_model = config_model.get_setting("gemini_model_override")
     current_model = normalize_model_id(configured_model or model)
     quota_prompted_models = set()
@@ -865,6 +744,12 @@ def generate_content_with_retry(client, model, contents, config, status_callback
                 client, current_model, contents, config, status_callback
             )
         except Exception as exc:
+            if is_prepaid_credits_depleted_error(exc):
+                app_logger.error(
+                    "Permanent Gemini prepaid-billing error on model %s: %s",
+                    current_model, exc,
+                )
+                raise
             if not is_retryable_transient_error(exc):
                 raise
 

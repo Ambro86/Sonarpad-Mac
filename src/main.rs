@@ -3,7 +3,6 @@
 mod articles;
 mod audio_description;
 mod audio_description_bridge;
-mod gemini_web;
 mod bdciechi;
 mod calendar;
 mod curl_client;
@@ -398,8 +397,6 @@ struct Settings {
     audio_description_gemini_api_key: String,
     #[serde(default = "default_audio_description_gemini_model")]
     audio_description_gemini_model: String,
-    #[serde(default)]
-    audio_description_gemini_web: bool,
     #[serde(default = "default_audio_description_language")]
     audio_description_language: String,
     #[serde(default = "default_audio_description_tts_engine")]
@@ -463,7 +460,6 @@ impl Settings {
             bdciechi_password: String::new(),
             audio_description_gemini_api_key: String::new(),
             audio_description_gemini_model: default_audio_description_gemini_model(),
-            audio_description_gemini_web: false,
             audio_description_language: default_audio_description_language(),
             audio_description_tts_engine: default_audio_description_tts_engine(),
             audio_description_tts_voice: String::new(),
@@ -25568,6 +25564,8 @@ fn main() {
         let podcast_menu_state_menu = Arc::clone(&podcast_menu_state);
         let radio_menu_state_menu = Arc::clone(&radio_menu_state);
         let rt_articles_menu = Arc::clone(&rt);
+        let rt_audio_description_menu = Arc::clone(&rt);
+        let voices_audio_description_menu = Arc::clone(&voices_data);
         let podcast_selection_menu = Rc::clone(&podcast_playback);
         let cursor_moved_menu = Rc::clone(&cursor_moved_by_user);
         let current_article_state_menu = Rc::clone(&current_article_state);
@@ -25720,7 +25718,7 @@ fn main() {
             } else if event.get_id() == ID_TOOLS_WIKIPEDIA {
                 open_wikipedia_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
             } else if event.get_id() == ID_TOOLS_AUDIO_DESCRIPTION {
-                audio_description::open_create_dialog(&f_menu, &settings_menu, &rt, &voices_data);
+                audio_description::open_create_dialog(&f_menu, &settings_menu, &rt_audio_description_menu, &voices_audio_description_menu);
             } else if event.get_id() == ID_TOOLS_YOUTUBE {
                 open_youtube_dialog(&f_menu, &settings_menu);
             } else if event.get_id() == ID_TOOLS_TRECCANI {

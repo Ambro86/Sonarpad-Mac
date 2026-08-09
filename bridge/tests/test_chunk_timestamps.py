@@ -19,7 +19,6 @@ from audio_describer.core.audio_describer import (
     _format_recent_description_context,
     _generate_blocked_chunk_by_minutes,
     _items_for_minute,
-    _looks_like_previous_chunk_replay,
     _update_character_continuity,
     _upload_and_wait_for_active,
 )
@@ -514,35 +513,6 @@ class ChunkTimestampTests(unittest.TestCase):
         self.assertIn("OPTIONAL INTENSIVE SHORT-GAP", prompt)
         self.assertIn("may pause", prompt)
         self.assertIn("only if", prompt)
-
-
-class AdjacentChunkReplayGuardTests(unittest.TestCase):
-    def test_replay_guard_rejects_a_previous_chunk_block_shifted_to_new_timeline(self):
-        previous = [
-            (360.0 + index * 10.0, 365.0 + index * 10.0, f"Descrizione {index}")
-            for index in range(14)
-        ]
-        current = [
-            (543.75 + index * 10.0, 548.75 + index * 10.0, f"Descrizione {index}")
-            for index in range(7)
-        ] + [
-            (620.0, 624.0, "Contenuto davvero nuovo"),
-        ]
-        replayed, metrics = _looks_like_previous_chunk_replay(
-            current, previous
-        )
-        self.assertTrue(replayed)
-        self.assertGreaterEqual(metrics["longest_run"], 3)
-        self.assertGreaterEqual(metrics["matches"], 5)
-
-    def test_replay_guard_allows_normal_adjacent_chunks(self):
-        previous = [(0.0, 2.0, "Adar solleva la torcia.")]
-        current = [(180.0, 182.0, "Galadriel attraversa il bosco.")]
-        replayed, metrics = _looks_like_previous_chunk_replay(
-            current, previous
-        )
-        self.assertFalse(replayed)
-        self.assertEqual(metrics["matches"], 0)
 
 if __name__ == "__main__":
     unittest.main()
