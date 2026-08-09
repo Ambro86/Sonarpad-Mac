@@ -389,9 +389,32 @@ jobs:
           set -euxo pipefail
           mkdir -p dist/mpv
           rm -rf dist/mpv/*
-          curl -L --fail \
-            "https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-0.35.0.tar.gz" \
-            -o "dist/mpv/mpv.tar.gz"
+          MPV_ARCHIVE_URL="https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-0.35.0.tar.gz"
+          MPV_ARCHIVE="dist/mpv/mpv.tar.gz"
+          for attempt in $(seq 1 12); do
+            echo "Downloading mpv archive (attempt ${attempt}/12)"
+            curl_status=0
+            curl --location --fail --show-error --http1.1 \
+              --connect-timeout 30 --max-time 300 --continue-at - \
+              "${MPV_ARCHIVE_URL}" -o "${MPV_ARCHIVE}" || curl_status=$?
+            if [ "${curl_status}" -eq 0 ]; then
+              break
+            fi
+            if tar -tzf "${MPV_ARCHIVE}" >/dev/null 2>&1; then
+              echo "The mpv archive is complete despite curl status ${curl_status}."
+              break
+            fi
+            if [ "${curl_status}" -eq 33 ]; then
+              echo "The server rejected resume; restarting the archive download."
+              rm -f "${MPV_ARCHIVE}"
+            fi
+            if [ "${attempt}" -eq 12 ]; then
+              echo "Unable to download the mpv archive after ${attempt} attempts."
+              exit "${curl_status}"
+            fi
+            sleep $((attempt * 5))
+          done
+          tar -tzf "${MPV_ARCHIVE}" >/dev/null
           tar -xzf "dist/mpv/mpv.tar.gz" -C dist/mpv
           MPV_APP_DIR="$(find dist/mpv -maxdepth 2 -type d -name 'mpv.app' | head -n 1)"
           test -n "${MPV_APP_DIR}"
