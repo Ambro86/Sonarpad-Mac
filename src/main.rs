@@ -20419,6 +20419,26 @@ fn tv_search_found_message(count: usize) -> String {
     }
 }
 
+const TV_SEARCH_DUPLICATE_WINDOW: Duration = Duration::from_millis(750);
+
+fn normalized_tv_search_query(query: &str) -> String {
+    query.trim().to_ascii_lowercase()
+}
+
+fn tv_search_is_recent_duplicate(
+    last_completion: Option<&(String, Instant)>,
+    query: &str,
+    now: Instant,
+) -> bool {
+    let normalized_query = normalized_tv_search_query(query);
+    last_completion.is_some_and(|(last_query, completed_at)| {
+        last_query == &normalized_query
+            && now
+                .checked_duration_since(*completed_at)
+                .is_some_and(|elapsed| elapsed < TV_SEARCH_DUPLICATE_WINDOW)
+    })
+}
+
 struct TvChannelChoiceControls<'a> {
     choice: &'a Choice,
     open_button: &'a Button,
@@ -20482,7 +20502,7 @@ fn tv_channel_indices_for_category(channels: &[tv::TvChannel], category: &str) -
 }
 
 fn tv_channel_indices_for_search(channels: &[tv::TvChannel], query: &str) -> Vec<usize> {
-    let query = query.trim().to_ascii_lowercase();
+    let query = normalized_tv_search_query(query);
     if query.is_empty() {
         return Vec::new();
     }
@@ -20933,93 +20953,89 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         panel_category_change.layout();
         dialog_category_change.layout();
     });
-    let tv_search_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
-    let tv_search_timer = Rc::new(RefCell::new(None::<Rc<Timer<Dialog>>>));
+    let tv_search_active = Rc::new(Cell::new(false));
+    let tv_search_last_completion = Rc::new(RefCell::new(None::<(String, Instant)>));
     let perform_tv_search = Rc::new({
         let channels = Rc::clone(&channels);
         let visible_indices = Rc::clone(&visible_channel_indices);
-
-        let tv_search_progress = Rc::clone(&tv_search_progress);
-        let tv_search_timer = Rc::clone(&tv_search_timer);
+        let tv_search_active = Rc::clone(&tv_search_active);
+        let tv_search_last_completion = Rc::clone(&tv_search_last_completion);
         let tv_categories = Rc::clone(&tv_categories);
         let programmatic_category_change = Rc::clone(&programmatic_category_change);
         move || {
-            if tv_search_progress.borrow().is_some() {
+            let query = search_ctrl.get_value();
+            if tv_search_active.get() {
+                append_podcast_log(&format!(
+                    "tv.search.duplicate_suppressed reason=active query={:?}",
+                    query.trim()
+                ));
                 return;
             }
-            *tv_search_progress.borrow_mut() = Some(open_youtube_search_progress_dialog(&dialog));
-            let timer = Rc::new(Timer::new(&dialog));
-            *tv_search_timer.borrow_mut() = Some(Rc::clone(&timer));
-            let search_ctrl_timer = search_ctrl;
-            let category_choice_timer = category_choice;
-            let choice_timer = choice;
-            let open_button_timer = open_button;
-            let record_button_timer = record_button;
-            let schedule_button_timer = schedule_button;
-            let guide_button_timer = guide_button;
-            let favorite_button_timer = favorite_button;
-            let channels_timer = Rc::clone(&channels);
-            let visible_indices_timer = Rc::clone(&visible_indices);
-            let panel_timer = panel;
-            let dialog_timer = dialog;
-            let tv_search_progress_timer = Rc::clone(&tv_search_progress);
-            let tv_search_timer_done = Rc::clone(&tv_search_timer);
-            let programmatic_category_change_timer = Rc::clone(&programmatic_category_change);
-            let tv_categories_timer = Rc::clone(&tv_categories);
-            timer.on_tick(move |_| {
-                if let Some(timer) = tv_search_timer_done.borrow_mut().take() {
-                    timer.stop();
-                }
-                if let Some(progress_dialog) = tv_search_progress_timer.borrow_mut().take() {
-                    progress_dialog.destroy();
-                }
-                let query = search_ctrl_timer.get_value();
-                let candidate_indices = if query.trim().is_empty() {
-                    let category = category_choice_timer
-                        .get_selection()
-                        .and_then(|sel| tv_categories_timer.get(sel as usize))
-                        .map(String::as_str)
-                        .unwrap_or("");
-                    tv_channel_indices_for_category(&channels_timer, category)
-                } else {
-                    tv_channel_indices_for_search(&channels_timer, &query)
-                };
-                let found_count = candidate_indices.len();
-                if let Some(first_category) = candidate_indices
-                    .first()
-                    .and_then(|index| channels_timer.get(*index))
-                    .map(|channel| channel.category.as_str())
-                    && let Some(category_index) = tv_categories_timer
-                        .iter()
-                        .position(|category| category == first_category)
-                    && category_choice_timer.get_selection() != Some(category_index as u32)
-                {
-                    programmatic_category_change_timer.set(true);
-                    category_choice_timer.set_selection(category_index as u32);
-                    programmatic_category_change_timer.set(false);
-                }
-                refresh_tv_channel_choice(
-                    TvChannelChoiceControls {
-                        choice: &choice_timer,
-                        open_button: &open_button_timer,
-                        record_button: &record_button_timer,
-                        schedule_button: &schedule_button_timer,
-                        guide_button: &guide_button_timer,
-                        favorite_button: &favorite_button_timer,
-                    },
-                    &channels_timer,
-                    &visible_indices_timer,
-                    candidate_indices,
-                );
-                panel_timer.layout();
-                dialog_timer.layout();
-                show_message_subdialog(
-                    &dialog_timer,
-                    &current_ui_strings().tv_label,
-                    &tv_search_found_message(found_count),
-                );
-            });
-            timer.start(300, false);
+            if tv_search_is_recent_duplicate(
+                tv_search_last_completion.borrow().as_ref(),
+                &query,
+                Instant::now(),
+            ) {
+                append_podcast_log(&format!(
+                    "tv.search.duplicate_suppressed reason=recent_completion query={:?}",
+                    query.trim()
+                ));
+                return;
+            }
+            tv_search_active.set(true);
+            append_podcast_log(&format!("tv.search.started query={:?}", query.trim()));
+            let candidate_indices = if query.trim().is_empty() {
+                let category = category_choice
+                    .get_selection()
+                    .and_then(|sel| tv_categories.get(sel as usize))
+                    .map(String::as_str)
+                    .unwrap_or("");
+                tv_channel_indices_for_category(&channels, category)
+            } else {
+                tv_channel_indices_for_search(&channels, &query)
+            };
+            let found_count = candidate_indices.len();
+            if let Some(first_category) = candidate_indices
+                .first()
+                .and_then(|index| channels.get(*index))
+                .map(|channel| channel.category.as_str())
+                && let Some(category_index) = tv_categories
+                    .iter()
+                    .position(|category| category == first_category)
+                && category_choice.get_selection() != Some(category_index as u32)
+            {
+                programmatic_category_change.set(true);
+                category_choice.set_selection(category_index as u32);
+                programmatic_category_change.set(false);
+            }
+            refresh_tv_channel_choice(
+                TvChannelChoiceControls {
+                    choice: &choice,
+                    open_button: &open_button,
+                    record_button: &record_button,
+                    schedule_button: &schedule_button,
+                    guide_button: &guide_button,
+                    favorite_button: &favorite_button,
+                },
+                &channels,
+                &visible_indices,
+                candidate_indices,
+            );
+            panel.layout();
+            dialog.layout();
+            show_message_subdialog(
+                &dialog,
+                &current_ui_strings().tv_label,
+                &tv_search_found_message(found_count),
+            );
+            *tv_search_last_completion.borrow_mut() =
+                Some((normalized_tv_search_query(&query), Instant::now()));
+            tv_search_active.set(false);
+            append_podcast_log(&format!(
+                "tv.search.completed query={:?} found_count={}",
+                query.trim(),
+                found_count
+            ));
         }
     });
     let perform_tv_search_click = Rc::clone(&perform_tv_search);
@@ -28111,5 +28127,30 @@ mod ytdlp_path_tests {
         assert!(command.get_args().any(|argument| {
             argument.to_string_lossy() == "--script=/tmp/sonarpad-accessibility.lua"
         }));
+    }
+}
+
+#[cfg(test)]
+mod tv_search_tests {
+    use super::tv_search_is_recent_duplicate;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn suppresses_only_an_immediate_repeat_of_the_same_query() {
+        let now = Instant::now();
+        let recent = ("mediaset".to_string(), now - Duration::from_millis(100));
+        assert!(tv_search_is_recent_duplicate(
+            Some(&recent),
+            "  MEDIASET ",
+            now
+        ));
+        assert!(!tv_search_is_recent_duplicate(Some(&recent), "rai", now));
+
+        let expired = ("mediaset".to_string(), now - Duration::from_secs(1));
+        assert!(!tv_search_is_recent_duplicate(
+            Some(&expired),
+            "mediaset",
+            now
+        ));
     }
 }
