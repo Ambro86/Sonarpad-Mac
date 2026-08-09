@@ -2116,24 +2116,29 @@ fn run_with_progress(
         .unwrap_or_else(|| Err("cancelled".into()))
 }
 
-fn language_choices() -> Vec<(&'static str, &'static str)> {
-    vec![
-        ("Italiano", "it"),
-        ("English", "en"),
-        ("Deutsch", "de"),
-        ("Español", "es"),
-        ("Français", "fr"),
-        ("Português", "pt"),
-        ("Português (Brasil)", "pt-BR"),
-        ("Čeština", "cs"),
-        ("Polski", "pl"),
-        ("Русский", "ru"),
-        ("Українська", "uk"),
-        ("Svenska", "sv"),
-        ("Tiếng Việt", "vi"),
-        ("中文", "zh"),
-        ("हिन्दी", "hi"),
-    ]
+const AUDIO_DESCRIPTION_LANGUAGES: &[(&str, &str)] = &[
+    ("audio_description.language_name.it", "it"),
+    ("audio_description.language_name.en", "en"),
+    ("audio_description.language_name.de", "de"),
+    ("audio_description.language_name.es", "es"),
+    ("audio_description.language_name.fr", "fr"),
+    ("audio_description.language_name.pt", "pt"),
+    ("audio_description.language_name.pt-BR", "pt-BR"),
+    ("audio_description.language_name.cs", "cs"),
+    ("audio_description.language_name.pl", "pl"),
+    ("audio_description.language_name.ru", "ru"),
+    ("audio_description.language_name.uk", "uk"),
+    ("audio_description.language_name.sv", "sv"),
+    ("audio_description.language_name.vi", "vi"),
+    ("audio_description.language_name.zh", "zh"),
+    ("audio_description.language_name.hi", "hi"),
+];
+
+fn language_choices() -> Vec<(String, &'static str)> {
+    AUDIO_DESCRIPTION_LANGUAGES
+        .iter()
+        .map(|(translation_key, code)| (tr(translation_key), *code))
+        .collect()
 }
 
 fn voice_matches_language(voice: &VoiceInfo, language: &str) -> bool {
@@ -3469,5 +3474,49 @@ pub fn open_project_editor(
     if quit_requested.get() {
         append_podcast_log("audio_description.project.quit_forwarded_to_main");
         parent.close(false);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AUDIO_DESCRIPTION_LANGUAGES;
+    use std::collections::HashMap;
+
+    const UI_TRANSLATIONS: &[(&str, &str)] = &[
+        ("it", include_str!("../i18n/audio_description_it.json")),
+        ("en", include_str!("../i18n/audio_description_en.json")),
+        ("fr", include_str!("../i18n/audio_description_fr.json")),
+        ("es", include_str!("../i18n/audio_description_es.json")),
+        ("pt", include_str!("../i18n/audio_description_pt.json")),
+        ("cs", include_str!("../i18n/audio_description_cs.json")),
+        ("pl", include_str!("../i18n/audio_description_pl.json")),
+    ];
+
+    #[test]
+    fn every_audio_description_language_name_is_localized() {
+        for (ui_language, raw) in UI_TRANSLATIONS {
+            let translations: HashMap<String, String> =
+                serde_json::from_str(raw).expect("valid audio-description translations");
+            for (translation_key, _) in AUDIO_DESCRIPTION_LANGUAGES {
+                assert!(
+                    translations
+                        .get(*translation_key)
+                        .is_some_and(|label| !label.trim().is_empty()),
+                    "missing {translation_key} for UI language {ui_language}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn italian_language_names_are_displayed_in_italian() {
+        let translations: HashMap<String, String> =
+            serde_json::from_str(include_str!("../i18n/audio_description_it.json"))
+                .expect("valid Italian audio-description translations");
+        assert_eq!(
+            translations["audio_description.language_name.en"],
+            "Inglese"
+        );
+        assert_eq!(translations["audio_description.language_name.cs"], "Ceco");
     }
 }
