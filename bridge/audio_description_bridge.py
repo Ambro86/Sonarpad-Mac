@@ -428,9 +428,22 @@ def main() -> int:
 
     if args.self_test:
         model = speech_detector.get_bundled_model_path()
+        try:
+            gemini_runtime = gemini_helpers.validate_gemini_runtime()
+            gemini_error = ""
+        except Exception as exc:
+            gemini_runtime = {"available": False, "module_path": ""}
+            gemini_error = str(exc)
         result = {
-            "ok": bool(model and os.path.isfile(model)),
+            "ok": bool(
+                model
+                and os.path.isfile(model)
+                and gemini_runtime["available"]
+            ),
             "model_path": model,
+            "gemini_sdk_available": gemini_runtime["available"],
+            "gemini_sdk_path": gemini_runtime["module_path"],
+            "gemini_sdk_error": gemini_error,
             "chunk_duration_sec": CHUNK_DURATION_SECONDS,
             "exports_audio": False,
             "uses_external_ffmpeg": False,

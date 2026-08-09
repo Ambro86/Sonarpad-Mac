@@ -138,17 +138,41 @@ def _lazy_import_gemini_sdk():
             GEMINI_SDK_AVAILABLE = True
             app_logger.info(f"Successfully lazy-imported Gemini SDK. Location: {genai.__file__}")
 
-        except ImportError as e:
+        except ModuleNotFoundError as e:
             GEMINI_SDK_AVAILABLE = False
             app_logger.error("Failed to lazy-import Gemini SDK: %s", e, exc_info=True)
+            missing_module = str(getattr(e, "name", "") or "")
+            if missing_module == "google" or missing_module.startswith("google.genai"):
+                raise GeminiAPIError(
+                    "Google's Gemini SDK is missing from the audio-description worker. "
+                    "Reinstall or update Sonarpad; installing a package with system pip "
+                    "does not modify the bundled worker."
+                ) from e
             raise GeminiAPIError(
-                "Google's Gemini SDK could not be loaded. Install the 'google-genai' package "
-                "(pip install google-genai). This might also be a compatibility issue or a corrupted installation."
+                f"A Python dependency required by Google's Gemini SDK is missing "
+                f"({missing_module or e}). Reinstall or update Sonarpad."
+            ) from e
+        except ImportError as e:
+            GEMINI_SDK_AVAILABLE = False
+            app_logger.error("Failed to load a native Gemini SDK dependency: %s", e, exc_info=True)
+            raise GeminiAPIError(
+                "Google's Gemini SDK is installed, but one of its native libraries could not "
+                f"be loaded ({e}). Reinstall or update Sonarpad; system pip cannot repair "
+                "the bundled audio-description worker."
             ) from e
         except Exception as e:
             GEMINI_SDK_AVAILABLE = False
             app_logger.critical("A critical, non-import error occurred during Gemini SDK lazy-loading: %s", e, exc_info=True)
             raise GeminiAPIError("A critical error occurred while loading Google's Gemini SDK, which may be due to a system incompatibility.") from e
+
+
+def validate_gemini_runtime():
+    """Load the bundled Gemini SDK without creating a client or making a request."""
+    _lazy_import_gemini_sdk()
+    return {
+        "available": True,
+        "module_path": str(getattr(genai, "__file__", "") or ""),
+    }
 
 
 class GeminiAPIError(Exception):

@@ -484,11 +484,21 @@ impl Settings {
     }
 }
 
-fn default_true() -> bool { true }
-fn default_audio_description_gemini_model() -> String { "gemini-3.5-flash-lite".to_string() }
-fn default_audio_description_language() -> String { "it".to_string() }
-fn default_audio_description_tts_engine() -> String { "microsoft".to_string() }
-fn default_audio_description_verbosity() -> String { "detailed".to_string() }
+fn default_true() -> bool {
+    true
+}
+fn default_audio_description_gemini_model() -> String {
+    "gemini-3.5-flash-lite".to_string()
+}
+fn default_audio_description_language() -> String {
+    "it".to_string()
+}
+fn default_audio_description_tts_engine() -> String {
+    "microsoft".to_string()
+}
+fn default_audio_description_verbosity() -> String {
+    "detailed".to_string()
+}
 fn default_audio_description_save_folder() -> String {
     std::env::var_os("HOME")
         .map(PathBuf::from)
@@ -1805,7 +1815,6 @@ fn handle_shortcut_event(
                 return;
             }
             event.skip(true);
-            return;
         }
 
         #[cfg(not(target_os = "macos"))]
@@ -2502,7 +2511,7 @@ fn restart_sonarpad() -> Result<(), String> {
             .arg(&app_bundle)
             .spawn()
             .map_err(|err| format!("riavvio Sonarpad non riuscito: {err}"))?;
-        return Ok(());
+        Ok(())
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -7949,7 +7958,7 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
 fn primary_podcast_log_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
-        return app_storage_dir().map(|dir| dir.join("log.txt"));
+        app_storage_dir().map(|dir| dir.join("log.txt"))
     }
 
     #[cfg(windows)]
@@ -8831,7 +8840,8 @@ fn synthesize_voice_chunk_blocking(
 
 fn normalize_settings_data(settings: &mut Settings) {
     settings.voice_engine = normalized_voice_engine(&settings.voice_engine);
-    settings.audio_description_gemini_model = settings.audio_description_gemini_model.trim().to_string();
+    settings.audio_description_gemini_model =
+        settings.audio_description_gemini_model.trim().to_string();
     if settings.audio_description_gemini_model.is_empty() {
         settings.audio_description_gemini_model = default_audio_description_gemini_model();
     }
@@ -8839,16 +8849,18 @@ fn normalize_settings_data(settings: &mut Settings) {
     if settings.audio_description_language.is_empty() {
         settings.audio_description_language = default_audio_description_language();
     }
-    settings.audio_description_tts_engine = if is_system_voice_engine(&settings.audio_description_tts_engine) {
-        "system".to_string()
-    } else {
-        "microsoft".to_string()
-    };
+    settings.audio_description_tts_engine =
+        if is_system_voice_engine(&settings.audio_description_tts_engine) {
+            "system".to_string()
+        } else {
+            "microsoft".to_string()
+        };
     settings.audio_description_verbosity = match settings.audio_description_verbosity.as_str() {
         "short" | "standard" | "detailed" => settings.audio_description_verbosity.clone(),
         _ => default_audio_description_verbosity(),
     };
-    settings.audio_description_save_folder = settings.audio_description_save_folder.trim().to_string();
+    settings.audio_description_save_folder =
+        settings.audio_description_save_folder.trim().to_string();
     if settings.audio_description_save_folder.is_empty() {
         settings.audio_description_save_folder = default_audio_description_save_folder();
     }
@@ -10322,8 +10334,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
     }
 }
 
-const COMMUNITY_NEWS_SOURCES_URL: &str =
-    "https://sonarpad.com/api/get_community_news_sources.php";
+const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
 const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.3.1 (https://sonarpad.com)";
@@ -10507,15 +10518,14 @@ fn fetch_community_article_sources(
 
     for (attempt, base_url) in request_bases.iter().enumerate() {
         let mut request_url = Url::parse(base_url).map_err(|error| error.to_string())?;
-        let cache_buster = format!(
-            "{}-{}",
-            chrono::Local::now().timestamp_millis(),
-            attempt
-        );
+        let cache_buster = format!("{}-{}", chrono::Local::now().timestamp_millis(), attempt);
         request_url
             .query_pairs_mut()
             .append_pair("language", expected_language)
-            .append_pair("lang", normalize_community_news_language_code(news_language))
+            .append_pair(
+                "lang",
+                normalize_community_news_language_code(news_language),
+            )
             .append_pair("_ts", &cache_buster);
 
         let response = match client
@@ -10771,21 +10781,18 @@ fn open_community_article_sources_dialog(
         (locked.news_language.clone(), existing_urls, existing_names)
     };
 
-    let sources = match fetch_community_article_sources(
-        &news_language,
-        existing_urls,
-        existing_names,
-    ) {
-        Ok(items) => items,
-        Err(err) => {
-            show_message_dialog(
-                parent,
-                &ui.article_community_sources_title,
-                &ui.article_community_sources_error.replace("{err}", &err),
-            );
-            return None;
-        }
-    };
+    let sources =
+        match fetch_community_article_sources(&news_language, existing_urls, existing_names) {
+            Ok(items) => items,
+            Err(err) => {
+                show_message_dialog(
+                    parent,
+                    &ui.article_community_sources_title,
+                    &ui.article_community_sources_error.replace("{err}", &err),
+                );
+                return None;
+            }
+        };
 
     if sources.is_empty() {
         show_message_dialog(
@@ -13243,12 +13250,7 @@ fn open_settings_dialog(
     let audio_description_folder_button = Button::builder(&panel)
         .with_label(&ui.choose_folder)
         .build();
-    audio_description_folder_row.add(
-        &audio_description_folder_button,
-        0,
-        SizerFlag::All,
-        5,
-    );
+    audio_description_folder_row.add(&audio_description_folder_button, 0, SizerFlag::All, 5);
     root.add_sizer(&audio_description_folder_row, 0, SizerFlag::Expand, 0);
 
     let dialog_audio_description_folder = dialog;
@@ -13657,7 +13659,8 @@ fn open_settings_dialog(
         }
         updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
         updated.disable_blank_line_pauses = disable_blank_line_pauses_checkbox.get_value();
-        updated.audio_description_save_folder = audio_description_folder_ctrl.get_value().trim().to_string();
+        updated.audio_description_save_folder =
+            audio_description_folder_ctrl.get_value().trim().to_string();
         if updated.audio_description_save_folder.is_empty() {
             updated.audio_description_save_folder = default_audio_description_save_folder();
         }
@@ -13676,7 +13679,8 @@ fn open_settings_dialog(
             || settings_before.media_seek_seconds != updated.media_seek_seconds
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
             || settings_before.disable_blank_line_pauses != updated.disable_blank_line_pauses
-            || settings_before.audio_description_save_folder != updated.audio_description_save_folder
+            || settings_before.audio_description_save_folder
+                != updated.audio_description_save_folder
             || settings_before.auto_check_updates != updated.auto_check_updates
             || refresh_needed;
 
@@ -16989,24 +16993,33 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     dialog.destroy();
 }
 
+#[cfg(target_os = "macos")]
+fn bundled_ytdlp_candidate(executable: &Path) -> Option<PathBuf> {
+    executable
+        .parent()
+        .and_then(|dir| dir.parent())
+        .map(|contents_dir| contents_dir.join("Resources").join("yt-dlp"))
+}
+
 fn ytdlp_executable_path() -> PathBuf {
+    #[cfg(target_os = "macos")]
+    if let Ok(exe) = std::env::current_exe()
+        && let Some(bundled) = bundled_ytdlp_candidate(&exe)
+        && bundled.is_file()
+    {
+        append_podcast_log(&format!(
+            "ytdlp.path.selected source=bundled path={}",
+            bundled.display()
+        ));
+        return bundled;
+    }
+
     #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
     {
+        append_podcast_log("ytdlp.path.bundled_missing trying_intel_external=true");
         match intel_external_ytdlp_executable_path() {
             Ok(path) => return path,
             Err(err) => append_podcast_log(&format!("ytdlp.intel_external.unavailable {err}")),
-        }
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        if let Ok(exe) = std::env::current_exe()
-            && let Some(contents_dir) = exe.parent().and_then(|dir| dir.parent())
-        {
-            let bundled = contents_dir.join("Resources").join("yt-dlp");
-            if bundled.exists() {
-                return bundled;
-            }
         }
     }
     #[cfg(windows)]
@@ -17375,7 +17388,20 @@ fn youtube_mp3_download_format_for_profile(profile: usize) -> &'static str {
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+fn ytdlp_verbose_probe_enabled(value: Option<&str>) -> bool {
+    value.is_some_and(|value| matches!(value.trim(), "1" | "true" | "TRUE" | "yes" | "YES"))
+}
+
+#[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_log_intel_verbose_probe(context: &str, ytdlp: &Path, url: &str) {
+    let setting = std::env::var("SONARPAD_YTDLP_VERBOSE_PROBE").ok();
+    let enabled = ytdlp_verbose_probe_enabled(setting.as_deref());
+    if !enabled {
+        append_podcast_log(&format!(
+            "ytdlp.{context}.intel_verbose_probe.skipped enabled=false"
+        ));
+        return;
+    }
     append_podcast_log(&format!(
         "ytdlp.{context}.intel_verbose_probe.begin url={url}"
     ));
@@ -18132,6 +18158,12 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     let allow_bookmarks = media_bookmarks_enabled();
     let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
     let mpv_input_conf = bundled_mpv_input_conf_path();
+    let accessibility_script = write_mpv_accessibility_script(&mpv_config_dir, title, None)?;
+    append_podcast_log(&format!(
+        "youtube.mpv.accessibility_script title={} path={}",
+        title,
+        accessibility_script.display()
+    ));
     if let Some(parent_dir) = mpv_executable.parent()
         && !parent_dir.as_os_str().is_empty()
     {
@@ -18149,6 +18181,7 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
         .arg("--volume-max=300")
         .arg("--no-video")
         .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
+    attach_mpv_accessibility_script(&mut command, &accessibility_script);
     if ytdlp.exists() {
         command.arg(format!(
             "--script-opts=ytdl_hook-ytdl_path={}",
@@ -18168,9 +18201,20 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
         command.arg("--resume-playback=no");
     }
     command.arg(format!("--title=Sonarpad - {title}"));
-    let _child = command
+    append_podcast_log(&format!(
+        "youtube.mpv.spawn title={} url={} mpv={}",
+        title,
+        url,
+        mpv_executable.display()
+    ));
+    let child = command
         .spawn()
         .map_err(|err| format!("avvio mpv fallito: {err}"))?;
+    append_podcast_log(&format!(
+        "youtube.mpv.started pid={} title={}",
+        child.id(),
+        title
+    ));
     Ok(())
 }
 
@@ -23229,6 +23273,10 @@ fn log_mpv_debug_log_snapshot(context: &str, path: &Path) {
     }
 }
 
+fn attach_mpv_accessibility_script(command: &mut Command, script_path: &Path) {
+    command.arg(format!("--script={}", script_path.display()));
+}
+
 fn write_mpv_accessibility_script(
     mpv_config_dir: &Path,
     title: &str,
@@ -23687,25 +23735,81 @@ local function stop_current_speech_command()
         .. "rm -f " .. shell_quote(say_pid_file) .. "; "
 end
 
-local function speak(text)
-    if text == nil or text == "" then
-        return
+local speech_request_id = 0
+local voiceover_running = nil
+local voiceover_last_check = -10
+
+local function voiceover_is_running()
+    local now = mp.get_time()
+    if voiceover_running ~= nil and now - voiceover_last_check < 2 then
+        return voiceover_running
     end
-    local command = stop_current_speech_command()
-        .. "/usr/bin/pkill -x say 2>/dev/null || true; "
-        .. "/usr/bin/say -r 185 " .. shell_quote(text) .. " & echo $! > " .. shell_quote(say_pid_file)
+    voiceover_last_check = now
     local ok, result = pcall(function()
         return mp.command_native({
             name = "subprocess",
             playback_only = false,
             capture_stdout = false,
             capture_stderr = false,
-            args = {"/bin/sh", "-c", command}
+            args = {"/usr/bin/pgrep", "-x", "VoiceOver"}
         })
     end)
-    if not ok then
-        log_line("speech.start_failed error=" .. tostring(result))
+    voiceover_running = ok and result ~= nil and result.status == 0
+    return voiceover_running
+end
+
+local function speak_with_system_voice(text, request_id)
+    if request_id ~= speech_request_id then
+        return
     end
+    local command = stop_current_speech_command()
+        .. "/usr/bin/say -r 185 " .. shell_quote(text) .. " & echo $! > " .. shell_quote(say_pid_file)
+    mp.command_native_async({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = false,
+        capture_stderr = false,
+        args = {"/bin/sh", "-c", command}
+    }, function(success, result, error)
+        local status = result and result.status or "nil"
+        if not success or status ~= 0 then
+            log_line("speech.say_failed status=" .. tostring(status) .. " error=" .. tostring(error))
+        end
+    end)
+end
+
+local function speak(text)
+    if text == nil or text == "" then
+        return
+    end
+    speech_request_id = speech_request_id + 1
+    local request_id = speech_request_id
+    if not voiceover_is_running() then
+        speak_with_system_voice(text, request_id)
+        return
+    end
+    mp.command_native_async({
+        name = "subprocess",
+        playback_only = false,
+        capture_stdout = false,
+        capture_stderr = true,
+        args = {
+            "/usr/bin/osascript",
+            "-e", "on run argv",
+            "-e", "tell application \"VoiceOver\" to output (item 1 of argv)",
+            "-e", "end run",
+            text
+        }
+    }, function(success, result, error)
+        local status = result and result.status or "nil"
+        if success and status == 0 then
+            return
+        end
+        voiceover_running = nil
+        local stderr = result and tostring(result.stderr or ""):gsub("\n", " ") or ""
+        log_line("speech.voiceover_failed status=" .. tostring(status) .. " error=" .. tostring(error) .. " stderr=" .. stderr)
+        speak_with_system_voice(text, request_id)
+    end)
 end
 
 local function run_shell_async(command, callback)
@@ -23979,7 +24083,9 @@ local function readable_position()
 end
 
 local function speak_position_later()
-    mp.add_timeout(0.25, function()
+    -- Allow mpv to publish the new time-pos on its next event-loop turn without
+    -- adding the perceptible quarter-second delay used by the old `say` path.
+    mp.add_timeout(0.05, function()
         speak(readable_position())
     end)
 end
@@ -23994,6 +24100,9 @@ local function toggle_pause_with_speech()
 end
 
 local function seek_with_speech(seconds)
+    local before = mp.get_property_number("time-pos")
+    local duration = mp.get_property_number("duration")
+    log_line("seek requested_seconds=" .. tostring(seconds) .. " before=" .. tostring(before) .. " duration=" .. tostring(duration))
     mp.commandv("seek", tostring(seconds), "relative+keyframes")
     speak_position_later()
 end
@@ -24064,7 +24173,7 @@ mp.add_forced_key_binding("Meta+D", "sonarpad-video-diagnostics-command-uppercas
     diagnostic_screenshot("manual")
     speak("Diagnostica video salvata")
 end)
-log_line("bindings_registered recording_key=Meta+r video_diagnostic_key=Meta+d speak_rate=185")
+log_line("bindings_registered recording_key=Meta+r video_diagnostic_key=Meta+d speech=voiceover_or_system_fallback")
 
 mp.register_event("shutdown", function()
     stop_recording(false)
@@ -24175,7 +24284,7 @@ fn open_stream_with_mpv_recordable(
         "mpv.recordable.accessibility_script_path",
         &accessibility_script,
     );
-    command.arg(format!("--script={}", accessibility_script.display()));
+    attach_mpv_accessibility_script(&mut command, &accessibility_script);
 
     if let Some(audio_track) = preferred_audio_track {
         if audio_track == "3" {
@@ -27963,4 +28072,44 @@ Non posso scaricare la pagina web al posto dell'audio.",
         frame.show(true);
         frame.centre();
     });
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod ytdlp_path_tests {
+    use super::{
+        attach_mpv_accessibility_script, bundled_ytdlp_candidate, ytdlp_verbose_probe_enabled,
+    };
+    use std::path::{Path, PathBuf};
+    use std::process::Command;
+
+    #[test]
+    fn bundled_ytdlp_is_resolved_from_the_app_contents_directory() {
+        assert_eq!(
+            bundled_ytdlp_candidate(Path::new(
+                "/Applications/Sonarpad.app/Contents/MacOS/Sonarpad"
+            )),
+            Some(PathBuf::from(
+                "/Applications/Sonarpad.app/Contents/Resources/yt-dlp"
+            ))
+        );
+        assert_eq!(bundled_ytdlp_candidate(Path::new("Sonarpad")), None);
+    }
+
+    #[test]
+    fn verbose_probe_is_off_unless_explicitly_enabled() {
+        assert!(!ytdlp_verbose_probe_enabled(None));
+        assert!(!ytdlp_verbose_probe_enabled(Some("0")));
+        assert!(!ytdlp_verbose_probe_enabled(Some("false")));
+        assert!(ytdlp_verbose_probe_enabled(Some("1")));
+        assert!(ytdlp_verbose_probe_enabled(Some("true")));
+    }
+
+    #[test]
+    fn accessibility_script_is_passed_to_every_mpv_command() {
+        let mut command = Command::new("mpv");
+        attach_mpv_accessibility_script(&mut command, Path::new("/tmp/sonarpad-accessibility.lua"));
+        assert!(command.get_args().any(|argument| {
+            argument.to_string_lossy() == "--script=/tmp/sonarpad-accessibility.lua"
+        }));
+    }
 }

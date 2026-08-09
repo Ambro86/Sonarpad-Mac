@@ -146,6 +146,50 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertIn('PYTHON_BIN="${PYTHON_BIN:-python3}"', script)
         self.assertIn('audio_description_bridge_macos.spec', script)
         self.assertIn('onnxruntime==${ONNXRUNTIME_VERSION}', script)
+        self.assertIn('cryptography==${CRYPTOGRAPHY_VERSION}', script)
+        self.assertIn('--only-binary=cryptography', script)
+        self.assertIn('audio_description_bridge" --self-test', script)
+
+    def test_self_test_loads_gemini_and_checks_the_bundled_model(self):
+        emitted = []
+        with mock.patch.object(bridge.sys, "argv", ["worker", "--self-test"]), mock.patch.object(
+            bridge.speech_detector,
+            "get_bundled_model_path",
+            return_value=__file__,
+        ), mock.patch.object(
+            bridge.gemini_helpers,
+            "validate_gemini_runtime",
+            return_value={"available": True, "module_path": "bundled/google/genai"},
+        ) as validate, mock.patch.object(
+            bridge, "_emit", side_effect=lambda prefix, value: emitted.append((prefix, value))
+        ):
+            self.assertEqual(0, bridge.main())
+
+        validate.assert_called_once_with()
+        result = emitted[-1][1]
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["gemini_sdk_available"])
+        self.assertEqual("bundled/google/genai", result["gemini_sdk_path"])
+
+    def test_self_test_fails_when_gemini_native_dependency_cannot_load(self):
+        emitted = []
+        with mock.patch.object(bridge.sys, "argv", ["worker", "--self-test"]), mock.patch.object(
+            bridge.speech_detector,
+            "get_bundled_model_path",
+            return_value=__file__,
+        ), mock.patch.object(
+            bridge.gemini_helpers,
+            "validate_gemini_runtime",
+            side_effect=bridge.gemini_helpers.GeminiAPIError("native library failed"),
+        ), mock.patch.object(
+            bridge, "_emit", side_effect=lambda prefix, value: emitted.append((prefix, value))
+        ):
+            self.assertEqual(1, bridge.main())
+
+        result = emitted[-1][1]
+        self.assertFalse(result["ok"])
+        self.assertFalse(result["gemini_sdk_available"])
+        self.assertEqual("native library failed", result["gemini_sdk_error"])
 
 
 if __name__ == "__main__":

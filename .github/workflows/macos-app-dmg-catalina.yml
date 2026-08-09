@@ -474,6 +474,21 @@ jobs:
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           cp -R "${MPV_APP_DIR}" "${MPV_APP_DEST}"
           chmod +x "${MPV_APP_DEST}/Contents/MacOS/mpv"
+          MPV_INFO_PLIST="${MPV_APP_DEST}/Contents/Info.plist"
+          /usr/libexec/PlistBuddy -c "Set :CFBundleDevelopmentRegion it" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleLocalizations" "${MPV_INFO_PLIST}" || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations array" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:0 string en" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:1 string it" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:2 string fr" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:3 string es" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:4 string pt" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:5 string cs" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:6 string pl" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Delete :CFBundleAllowMixedLocalizations" "${MPV_INFO_PLIST}" || true
+          /usr/libexec/PlistBuddy -c "Add :CFBundleAllowMixedLocalizations bool true" "${MPV_INFO_PLIST}"
+          cp -R "mpv-config/localizations/." "${MPV_APP_DEST}/Contents/Resources/"
+          plutil -lint "${MPV_INFO_PLIST}"
           cp "dist/yt-dlp-intel/yt-dlp" "${RESOURCES_DIR}/yt-dlp"
           chmod +x "${RESOURCES_DIR}/yt-dlp"
           cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'

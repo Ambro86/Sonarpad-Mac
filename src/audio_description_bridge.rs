@@ -1,8 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -104,7 +104,6 @@ struct BridgeQuota {
     error: String,
 }
 
-
 #[derive(Debug, Clone)]
 pub enum AudioDescriptionQuotaDecision {
     SwitchModel(String),
@@ -137,16 +136,34 @@ fn app_bundle_resources_dir() -> Option<PathBuf> {
 fn bridge_candidates() -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     if let Some(resources) = app_bundle_resources_dir() {
-        candidates.push(resources.join("audio-description").join("audio_description_bridge").join(BRIDGE_FILE_NAME));
+        candidates.push(
+            resources
+                .join("audio-description")
+                .join("audio_description_bridge")
+                .join(BRIDGE_FILE_NAME),
+        );
     }
     if let Ok(exe) = std::env::current_exe()
-        && let Some(root) = exe.parent().and_then(|p| p.parent()).and_then(|p| p.parent())
+        && let Some(root) = exe
+            .parent()
+            .and_then(|p| p.parent())
+            .and_then(|p| p.parent())
     {
-        candidates.push(root.join("bridge").join("dist").join("audio_description_bridge").join(BRIDGE_FILE_NAME));
+        candidates.push(
+            root.join("bridge")
+                .join("dist")
+                .join("audio_description_bridge")
+                .join(BRIDGE_FILE_NAME),
+        );
         candidates.push(root.join("bridge").join(BRIDGE_FILE_NAME));
     }
     if let Ok(cwd) = std::env::current_dir() {
-        candidates.push(cwd.join("bridge").join("dist").join("audio_description_bridge").join(BRIDGE_FILE_NAME));
+        candidates.push(
+            cwd.join("bridge")
+                .join("dist")
+                .join("audio_description_bridge")
+                .join(BRIDGE_FILE_NAME),
+        );
         candidates.push(cwd.join("bridge").join(BRIDGE_FILE_NAME));
     }
     candidates
@@ -177,6 +194,9 @@ fn decode_bridge_text(raw: &[u8]) -> String {
 
 fn terminate_bridge_process_tree(child: &mut Child) {
     let pid = child.id();
+    crate::append_podcast_log(&format!(
+        "audio_description.worker cancel_terminate pid={pid}"
+    ));
     // The worker is started in its own process group, so this also reaches any
     // PyInstaller/runtime descendants before they can be re-parented.
     let _ = Command::new("/bin/kill")
@@ -290,6 +310,7 @@ pub fn run_audio_description_bridge(
         let mut result: Option<AudioDescriptionBridgeResult> = None;
         loop {
             if cancel.load(Ordering::SeqCst) {
+                crate::append_podcast_log("audio_description.worker cancellation_received");
                 terminate_bridge_process_tree(&mut child);
                 // Dropping the JoinHandles detaches the pipe-reader threads. They
                 // will finish when macOS closes the killed worker's pipe handles,

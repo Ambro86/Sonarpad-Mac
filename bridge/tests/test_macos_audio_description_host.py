@@ -83,6 +83,89 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("google.genai", MAC_SPEC)
         self.assertIn("onnxruntime", MAC_SPEC)
 
+    def test_worker_build_pins_binary_cryptography_and_runs_packaged_self_test(self):
+        build_script = (ROOT / "bridge" / "build_audio_description_bridge_macos.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('CRYPTOGRAPHY_VERSION="${CRYPTOGRAPHY_VERSION:-48.0.1}"', build_script)
+        self.assertIn('GOOGLE_GENAI_VERSION="${GOOGLE_GENAI_VERSION:-2.12.1}"', build_script)
+        self.assertIn('GOOGLE_API_CORE_VERSION="${GOOGLE_API_CORE_VERSION:-2.32.0}"', build_script)
+        self.assertIn("--only-binary=cryptography", build_script)
+        self.assertIn('audio_description_bridge" --self-test', build_script)
+
+    def test_audio_description_progress_uses_the_ui_event_loop(self):
+        start = AUDIO.index("fn run_with_progress")
+        end = AUDIO.index("fn language_choices", start)
+        progress = AUDIO[start:end]
+        self.assertIn("Gauge::builder", progress)
+        self.assertIn("Timer::new(&progress_dialog)", progress)
+        self.assertIn("progress_cancel.on_click", progress)
+        self.assertIn("ID_AUDIO_DESCRIPTION_PROGRESS_CANCEL", progress)
+        self.assertNotIn("with_id(ID_CANCEL)", progress)
+        self.assertIn("progress_dialog.on_close", progress)
+        self.assertIn("progress_dialog.show_modal()", progress)
+        self.assertNotIn("thread::sleep", progress)
+
+    def test_completion_dialog_waits_for_an_accessible_ok(self):
+        self.assertIn("ID_AUDIO_DESCRIPTION_START", AUDIO)
+        self.assertIn("fn show_completion", AUDIO)
+        self.assertRegex(AUDIO, r"TextCtrlStyle::MultiLine\s*\|\s*TextCtrlStyle::ReadOnly")
+        self.assertIn("completion_ok.set_focus()", AUDIO)
+        self.assertIn("completion_dialog.show_modal()", AUDIO)
+
+    def test_create_dialog_close_and_macos_quit_are_not_standard_cancel_buttons(self):
+        start = AUDIO.index("pub fn open_create_dialog")
+        end = AUDIO.index("fn format_mmss", start)
+        create_dialog = AUDIO[start:end]
+        self.assertIn("ID_AUDIO_DESCRIPTION_CLOSE", create_dialog)
+        self.assertIn("audio_description.create.close_requested_button", create_dialog)
+        self.assertIn("audio_description.create.close_requested_window", create_dialog)
+        self.assertIn("audio_description.create.quit_requested_menu", create_dialog)
+        self.assertIn("audio_description.create.closed_after_cancel", create_dialog)
+        self.assertRegex(
+            create_dialog,
+            r'(?s)if e\s*==\s*"cancelled".*d\.end_modal\(ID_AUDIO_DESCRIPTION_CLOSE\)',
+        )
+        self.assertIn("parent.close(false)", create_dialog)
+
+    def test_success_ok_opens_generated_audio_and_keeps_create_dialog_open(self):
+        start = AUDIO.index("pub fn open_create_dialog")
+        end = AUDIO.index("fn format_mmss", start)
+        create_dialog = AUDIO[start:end]
+        success_start = create_dialog.index("Ok(out)")
+        success_end = create_dialog.index("Err(e)", success_start)
+        success = create_dialog[success_start:success_end]
+        self.assertLess(success.index("show_completion"), success.index("open_local_media_with_mpv"))
+        self.assertIn("audio_description.create.open_output_completed", success)
+        self.assertNotIn("d.end_modal", success)
+
+    def test_project_export_uses_event_loop_and_closes_modal_layers(self):
+        progress_start = AUDIO.index("fn run_project_export_with_progress")
+        progress_end = AUDIO.index("pub fn open_project_editor", progress_start)
+        progress = AUDIO[progress_start:progress_end]
+        self.assertIn("Gauge::builder", progress)
+        self.assertIn("Timer::new(&progress_dialog)", progress)
+        self.assertIn("cancel_button.on_click", progress)
+        self.assertIn("progress_dialog.show_modal()", progress)
+        self.assertNotIn("thread::sleep", progress)
+
+        editor_start = AUDIO.index("pub fn open_project_editor")
+        editor = AUDIO[editor_start:]
+        self.assertIn("audio_description.project.editor_closed_after_export", editor)
+        self.assertIn("ID_AUDIO_DESCRIPTION_PROJECT_CLOSE", editor)
+        self.assertIn("audio_description.project.quit_requested_menu", editor)
+        self.assertIn("parent.close(false)", editor)
+
+        create_start = AUDIO.index("pub fn open_create_dialog")
+        create_end = AUDIO.index("fn format_mmss", create_start)
+        create_dialog = AUDIO[create_start:create_end]
+        self.assertIn("open_project_requested", create_dialog)
+        self.assertIn("audio_description.create.open_project_after_close", create_dialog)
+        self.assertRegex(
+            create_dialog,
+            r"(?s)open_project_requested_button\.set\(true\).*d_modify\.end_modal",
+        )
+
     def test_modern_workflow_builds_bundles_and_signs_worker(self):
         self.assertIn("build_audio_description_bridge_macos.sh", WORKFLOW)
         self.assertIn("dist/audio-description-worker", WORKFLOW)
@@ -91,6 +174,20 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("codesign", WORKFLOW)
         self.assertIn("--enable-muxer=segment", WORKFLOW)
         self.assertIn("--enable-muxer=matroska", WORKFLOW)
+
+    def test_packaged_mpv_declares_italian_for_voiceover(self):
+        for workflow in (WORKFLOW, (ROOT / ".github/workflows/macos-app-dmg-catalina.yml").read_text()):
+            self.assertIn("MPV_INFO_PLIST", workflow)
+            self.assertIn("Set :CFBundleDevelopmentRegion it", workflow)
+            self.assertIn('cp -R "mpv-config/localizations/."', workflow)
+            for index, language in enumerate(("en", "it", "fr", "es", "pt", "cs", "pl")):
+                self.assertIn(
+                    f"Add :CFBundleLocalizations:{index} string {language}", workflow
+                )
+        for language in ("en", "it", "fr", "es", "pt", "cs", "pl"):
+            self.assertTrue(
+                (ROOT / f"mpv-config/localizations/{language}.lproj/InfoPlist.strings").is_file()
+            )
         self.assertIn('ONNXRUNTIME_VERSION: "1.19.2"', WORKFLOW)
 
     def test_catalina_workflow_uses_compatible_worker_and_checks_macho_targets(self):

@@ -4,6 +4,17 @@ Worker Python headless del modulo **Crea audiodescrizione IA** per Sonarpad Mac.
 
 Il worker viene costruito con PyInstaller in modalità onedir e distribuito direttamente dentro `Sonarpad.app/Contents/Resources/audio-description/audio_description_bridge`. L’utente finale non deve installare Python, ONNX Runtime o altri componenti.
 
+Le dipendenze principali del worker sono bloccate nel build script. In particolare,
+`cryptography` deve essere installato esclusivamente da una wheel binaria macOS:
+una compilazione locale contro Homebrew OpenSSL può produrre un worker che si avvia
+ma fallisce quando viene importato Gemini. Al termine della build viene eseguito il
+binario PyInstaller con `--self-test`, che importa realmente Gemini e verifica il
+modello ONNX senza effettuare richieste di rete.
+
+Le versioni del client Gemini (`google-genai 2.12.1` e `google-api-core 2.32.0`)
+corrispondono al worker Windows verificato come funzionante. macOS conserva
+separatamente il pin compatibile di `cryptography`.
+
 Protocollo stdout:
 
 ```text
