@@ -361,6 +361,16 @@ fn sanitize_filename(value: &str) -> String {
     }
 }
 
+fn suggested_catalog_name(input: &str) -> String {
+    Path::new(input)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .map(str::trim)
+        .filter(|stem| !stem.is_empty())
+        .unwrap_or_default()
+        .to_string()
+}
+
 fn catalog_path_for_name(name: &str) -> PathBuf {
     catalog_dir().join(format!(
         "{}_character_catalog.json",
@@ -1795,6 +1805,28 @@ fn show_error(parent: &Dialog, message: &str) {
     d.show_modal();
 }
 
+fn show_project_error(parent: &Dialog, message: &str) {
+    let d = MessageDialog::builder(
+        parent,
+        message,
+        &tr("audio_description.project.title"),
+    )
+    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+    .build();
+    d.show_modal();
+}
+
+fn show_project_edit_success(parent: &Dialog) {
+    let d = MessageDialog::builder(
+        parent,
+        &tr("audio_description.project.edit_saved"),
+        &tr("audio_description.project.edit_success_title"),
+    )
+    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+    .build();
+    d.show_modal();
+}
+
 fn show_completion(parent: &Dialog, message: &str) {
     let completion_dialog = Dialog::builder(parent, &tr("audio_description.status.complete"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -1855,52 +1887,6 @@ fn choose_output(parent: &Dialog, input: &Path) -> Option<PathBuf> {
     if d.show_modal() == ID_OK {
         d.get_path().map(PathBuf::from)
     } else {
-        None
-    }
-}
-
-fn ask_catalog_name(parent: &Dialog) -> Option<String> {
-    let d = Dialog::builder(
-        parent,
-        &tr("audio_description.character_catalog.name_title"),
-    )
-    .with_size(460, 160)
-    .build();
-    let p = Panel::builder(&d).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
-    root.add(
-        &StaticText::builder(&p)
-            .with_label(&tr("audio_description.character_catalog.name_prompt"))
-            .build(),
-        0,
-        SizerFlag::Expand | SizerFlag::All,
-        8,
-    );
-    let text = TextCtrl::builder(&p).build();
-    root.add(&text, 0, SizerFlag::Expand | SizerFlag::All, 8);
-    let row = BoxSizer::builder(Orientation::Horizontal).build();
-    row.add_spacer(1);
-    let ok = Button::builder(&p).with_id(ID_OK).with_label("OK").build();
-    let cancel = Button::builder(&p)
-        .with_id(ID_CANCEL)
-        .with_label(&tr("audio_description.cancel"))
-        .build();
-    row.add(&ok, 0, SizerFlag::All, 5);
-    row.add(&cancel, 0, SizerFlag::All, 5);
-    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
-    p.set_sizer(root, true);
-    d.set_affirmative_id(ID_OK);
-    d.set_escape_id(ID_CANCEL);
-    let d1 = d;
-    ok.on_click(move |_| d1.end_modal(ID_OK));
-    let d2 = d;
-    cancel.on_click(move |_| d2.end_modal(ID_CANCEL));
-    if d.show_modal() == ID_OK {
-        let v = text.get_value().trim().to_string();
-        d.destroy();
-        (!v.is_empty()).then_some(v)
-    } else {
-        d.destroy();
         None
     }
 }
@@ -2180,7 +2166,7 @@ pub fn open_create_dialog(
     );
     input_row.add(&input, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let input_btn = Button::builder(&p)
-        .with_label(&tr("audio_description.browse"))
+        .with_label(&tr("audio_description.browse_input"))
         .build();
     input_row.add(&input_btn, 0, SizerFlag::All, 5);
     root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
@@ -2196,7 +2182,7 @@ pub fn open_create_dialog(
     );
     output_row.add(&output, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let output_btn = Button::builder(&p)
-        .with_label(&tr("audio_description.browse"))
+        .with_label(&tr("audio_description.browse_output"))
         .build();
     output_row.add(&output_btn, 0, SizerFlag::All, 5);
     root.add_sizer(&output_row, 0, SizerFlag::Expand, 0);
@@ -2269,7 +2255,7 @@ pub fn open_create_dialog(
     root.add(&keep_catalog, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let catalogs = Rc::new(RefCell::new(list_catalogs()));
     let catalog_choice = Choice::builder(&p).build();
-    catalog_choice.append(&tr("audio_description.character_catalog.choose"));
+    catalog_choice.append(&tr("audio_description.character_catalog.new_option"));
     for c in catalogs.borrow().iter() {
         catalog_choice.append(&c.name);
     }
@@ -2280,11 +2266,38 @@ pub fn open_create_dialog(
         .map(|x| x + 1)
         .unwrap_or(0);
     catalog_choice.set_selection(selected_catalog as u32);
-    catalog_choice.show(
-        saved.audio_description_recognize_characters
-            && saved.audio_description_keep_character_catalog,
+    let catalog_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let catalog_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.character_catalog.selection_label"))
+        .build();
+    catalog_row.add(
+        &catalog_label,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
     );
-    root.add(&catalog_choice, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    catalog_row.add(&catalog_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let show_catalog_controls = saved.audio_description_recognize_characters
+        && saved.audio_description_keep_character_catalog;
+    catalog_label.show(show_catalog_controls);
+    catalog_choice.show(show_catalog_controls);
+    root.add_sizer(&catalog_row, 0, SizerFlag::Expand, 0);
+    let catalog_name_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let catalog_name_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.character_catalog.new_name_label"))
+        .build();
+    let catalog_name = TextCtrl::builder(&p).build();
+    catalog_name_row.add(
+        &catalog_name_label,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    catalog_name_row.add(&catalog_name, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let show_new_catalog_name = show_catalog_controls && selected_catalog == 0;
+    catalog_name_label.show(show_new_catalog_name);
+    catalog_name.show(show_new_catalog_name);
+    root.add_sizer(&catalog_name_row, 0, SizerFlag::Expand, 0);
     let api_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.gemini_api_key"))
         .build();
@@ -2424,6 +2437,14 @@ pub fn open_create_dialog(
     input_btn.on_click(move |_| {
         if let Some(path) = choose_input(&d_input) {
             input.set_value(&path.to_string_lossy());
+            if catalog_choice.get_selection().unwrap_or(0) == 0
+                && catalog_name.get_value().trim().is_empty()
+            {
+                let suggested = suggested_catalog_name(&path.to_string_lossy());
+                if !suggested.is_empty() {
+                    catalog_name.set_value(&suggested);
+                }
+            }
             if output.get_value().trim().is_empty() {
                 let mut dest = default_output_dir()
                     .join(path.file_stem().and_then(|s| s.to_str()).unwrap_or("video"));
@@ -2442,16 +2463,52 @@ pub fn open_create_dialog(
             output.set_value(&path.to_string_lossy());
         }
     });
-    let cc = catalog_choice;
+    let catalog_label_toggle = catalog_label;
+    let catalog_choice_toggle = catalog_choice;
+    let catalog_name_label_toggle = catalog_name_label;
+    let catalog_name_toggle = catalog_name;
     let panel_catalog = p;
     let dialog_catalog = d;
     keep_catalog.on_toggled(move |_| {
-        cc.show(recognize.get_value() && keep_catalog.get_value());
+        let show_catalog = recognize.get_value() && keep_catalog.get_value();
+        catalog_label_toggle.show(show_catalog);
+        catalog_choice_toggle.show(show_catalog);
+        let show_name = show_catalog && catalog_choice_toggle.get_selection().unwrap_or(0) == 0;
+        catalog_name_label_toggle.show(show_name);
+        catalog_name_toggle.show(show_name);
+        if show_name && catalog_name_toggle.get_value().trim().is_empty() {
+            let suggested = suggested_catalog_name(&input.get_value());
+            if !suggested.is_empty() {
+                catalog_name_toggle.set_value(&suggested);
+            }
+        }
         panel_catalog.layout();
         dialog_catalog.layout();
     });
+    let catalog_name_label_choice = catalog_name_label;
+    let catalog_name_choice = catalog_name;
+    let panel_catalog_choice = p;
+    let dialog_catalog_choice = d;
+    catalog_choice.on_selection_changed(move |_| {
+        let show_name = recognize.get_value()
+            && keep_catalog.get_value()
+            && catalog_choice.get_selection().unwrap_or(0) == 0;
+        catalog_name_label_choice.show(show_name);
+        catalog_name_choice.show(show_name);
+        if show_name && catalog_name_choice.get_value().trim().is_empty() {
+            let suggested = suggested_catalog_name(&input.get_value());
+            if !suggested.is_empty() {
+                catalog_name_choice.set_value(&suggested);
+            }
+        }
+        panel_catalog_choice.layout();
+        dialog_catalog_choice.layout();
+    });
     let keep_catalog_show = keep_catalog;
+    let catalog_label_show = catalog_label;
     let catalog_choice_show = catalog_choice;
+    let catalog_name_label_show = catalog_name_label;
+    let catalog_name_show = catalog_name;
     let panel_recognize = p;
     let dialog_recognize = d;
     recognize.on_toggled(move |_| {
@@ -2460,7 +2517,12 @@ pub fn open_create_dialog(
         if !on {
             keep_catalog_show.set_value(false);
         }
-        catalog_choice_show.show(on && keep_catalog_show.get_value());
+        let show_catalog = on && keep_catalog_show.get_value();
+        catalog_label_show.show(show_catalog);
+        catalog_choice_show.show(show_catalog);
+        let show_name = show_catalog && catalog_choice_show.get_selection().unwrap_or(0) == 0;
+        catalog_name_label_show.show(show_name);
+        catalog_name_show.show(show_name);
         panel_recognize.layout();
         dialog_recognize.layout();
     });
@@ -2564,15 +2626,17 @@ pub fn open_create_dialog(
         let catalog = if keep_catalog.get_value() {
             let sel = catalog_choice.get_selection().unwrap_or(0) as usize;
             if sel == 0 {
-                if let Some(name) = ask_catalog_name(&d) {
-                    Some(CharacterCatalog {
-                        name: name.clone(),
-                        path: catalog_path_for_name(&name),
-                        characters: Vec::new(),
-                    })
-                } else {
+                let name = catalog_name.get_value().trim().to_string();
+                if name.is_empty() {
+                    show_error(&d, &tr("audio_description.character_catalog.name_error"));
+                    catalog_name.set_focus();
                     return;
                 }
+                Some(CharacterCatalog {
+                    name: name.clone(),
+                    path: catalog_path_for_name(&name),
+                    characters: Vec::new(),
+                })
             } else {
                 catalogs.borrow().get(sel - 1).cloned()
             }
@@ -2767,10 +2831,11 @@ fn project_edit_available_duration(
     Ok(Some((available_end - start).max(0.0)))
 }
 
-fn synthesize_project_text_duration(
+fn synthesize_project_text_duration_with_voice(
     project: &AudioDescriptionProject,
     text: &str,
     index: usize,
+    tts_voice: &str,
     rt: &Runtime,
 ) -> Result<f64, String> {
     let dir = cache_dir("project_edit")?;
@@ -2780,7 +2845,7 @@ fn synthesize_project_text_duration(
             text,
             TtsParameters {
                 engine: &project.tts_engine,
-                voice: &project.tts_voice,
+                voice: tts_voice,
                 rate: project.tts_rate,
                 pitch: project.tts_pitch,
                 volume: project.tts_volume,
@@ -2794,6 +2859,182 @@ fn synthesize_project_text_duration(
     })();
     let _ = fs::remove_dir_all(&dir);
     result
+}
+
+fn synthesize_project_text_duration(
+    project: &AudioDescriptionProject,
+    text: &str,
+    index: usize,
+    rt: &Runtime,
+) -> Result<f64, String> {
+    synthesize_project_text_duration_with_voice(project, text, index, &project.tts_voice, rt)
+}
+
+#[derive(Clone, Debug)]
+struct ProjectVoiceFitError {
+    source_start_sec: f64,
+    actual_sec: f64,
+}
+
+#[derive(Clone, Debug, Default)]
+struct ProjectVoiceValidationState {
+    progress: i32,
+    done: Option<Result<(), String>>,
+    fit_error: Option<ProjectVoiceFitError>,
+}
+
+fn validate_project_voice(
+    project: &AudioDescriptionProject,
+    tts_voice: &str,
+    rt: &Runtime,
+    state: &Arc<Mutex<ProjectVoiceValidationState>>,
+) -> Result<(), String> {
+    let total = project.descriptions.len().max(1);
+    let work = cache_dir("project_voice_check")?;
+    let cancel = Arc::new(AtomicBool::new(false));
+    let result = (|| {
+        let mut synthesized = Vec::with_capacity(project.descriptions.len());
+        for (index, description) in project.descriptions.iter().enumerate() {
+            let pcm = synthesize_text_pcm(
+                &description.text,
+                TtsParameters {
+                    engine: &project.tts_engine,
+                    voice: tts_voice,
+                    rate: project.tts_rate,
+                    pitch: project.tts_pitch,
+                    volume: project.tts_volume,
+                },
+                rt,
+                &work,
+                index,
+                &cancel,
+            )?;
+            let duration_sec =
+                pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
+            synthesized.push(SynthesizedDescription {
+                original_index: index,
+                text: description.text.clone(),
+                desired_start_sec: description.gemini_start_sec,
+                mandatory: description.mandatory,
+                slot_id: description.slot_id.clone(),
+                slot_start_sec: description.slot_start_sec,
+                slot_end_sec: description.slot_end_sec,
+                pcm,
+                duration_sec,
+            });
+            state.lock().unwrap().progress =
+                ((index + 1) as i32 * 90 / total as i32).clamp(0, 90);
+        }
+
+        let protected = project
+            .protected_intervals
+            .iter()
+            .map(|interval| BridgeInterval {
+                start_sec: interval.start_sec,
+                end_sec: interval.end_sec,
+            })
+            .collect::<Vec<_>>();
+        let (_, dropped) = schedule_descriptions(
+            &synthesized,
+            &protected,
+            project.source_duration_sec,
+            project.allow_extended_pauses,
+        );
+        if let Some(first) = dropped.first() {
+            let source_start_sec = project
+                .descriptions
+                .get(first.original_index)
+                .map(|description| description.source_start_sec)
+                .unwrap_or(first.desired_start_sec);
+            state.lock().unwrap().fit_error = Some(ProjectVoiceFitError {
+                source_start_sec,
+                actual_sec: first.duration_sec,
+            });
+            return Err("voice_does_not_fit".to_string());
+        }
+        state.lock().unwrap().progress = 100;
+        Ok(())
+    })();
+    let _ = fs::remove_dir_all(&work);
+    result
+}
+
+fn run_project_voice_validation_with_progress(
+    parent: &Dialog,
+    project: AudioDescriptionProject,
+    tts_voice: String,
+    runtime: Arc<Runtime>,
+) -> (Result<(), String>, Option<ProjectVoiceFitError>) {
+    let progress_dialog = Dialog::builder(
+        parent,
+        &tr("audio_description.project.voice_check_title"),
+    )
+    .with_style(
+        DialogStyle::Caption
+            | DialogStyle::SystemMenu
+            | DialogStyle::CloseBox
+            | DialogStyle::StayOnTop,
+    )
+    .with_size(520, 150)
+    .build();
+    let panel = Panel::builder(&progress_dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let label = StaticText::builder(&panel)
+        .with_label(&tr("audio_description.project.voice_check_status"))
+        .build();
+    root.add(
+        &label,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        12,
+    );
+    let gauge = Gauge::builder(&panel).with_range(100).build();
+    root.add(
+        &gauge,
+        0,
+        SizerFlag::Expand | SizerFlag::All,
+        12,
+    );
+    panel.set_sizer(root, true);
+
+    let state = Arc::new(Mutex::new(ProjectVoiceValidationState::default()));
+    let thread_state = Arc::clone(&state);
+    thread::spawn(move || {
+        let result = validate_project_voice(&project, &tts_voice, &runtime, &thread_state);
+        thread_state.lock().unwrap().done = Some(result);
+    });
+
+    let result = Rc::new(RefCell::new(None::<(
+        Result<(), String>,
+        Option<ProjectVoiceFitError>,
+    )>));
+    let timer = Rc::new(Timer::new(&progress_dialog));
+    let timer_tick = Rc::clone(&timer);
+    let timer_handle = Rc::clone(&timer);
+    let state_tick = Arc::clone(&state);
+    let result_tick = Rc::clone(&result);
+    let dialog_tick = progress_dialog;
+    timer_tick.on_tick(move |_| {
+        let snapshot = state_tick.lock().unwrap().clone();
+        gauge.set_value(snapshot.progress.clamp(0, 99));
+        if let Some(done) = snapshot.done {
+            timer_handle.stop();
+            gauge.set_value(100);
+            *result_tick.borrow_mut() = Some((done, snapshot.fit_error));
+            dialog_tick.end_modal(ID_OK);
+        }
+    });
+    progress_dialog.on_close(move |event| {
+        event.skip(false);
+    });
+    timer.start(100, false);
+    progress_dialog.show_modal();
+    timer.stop();
+    progress_dialog.destroy();
+    result
+        .borrow_mut()
+        .take()
+        .unwrap_or_else(|| (Err("voice_check_failed".to_string()), None))
 }
 
 fn project_file_dialog(parent: &Frame) -> Option<PathBuf> {
@@ -3093,7 +3334,7 @@ fn run_project_export_with_progress(
 pub fn open_project_editor(
     parent: &Frame,
     rt: &Arc<Runtime>,
-    _voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
+    voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
 ) {
     let Some(path) = project_file_dialog(parent) else {
         return;
@@ -3154,6 +3395,62 @@ pub fn open_project_editor(
     }
     root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
+    let voice = Choice::builder(&panel).build();
+    let voices_edge = voices_data.lock().unwrap().clone();
+    let voices_system = crate::load_system_voices();
+    let project_engine_is_system = crate::is_system_voice_engine(&project.borrow().tts_engine);
+    let project_language = project.borrow().language_code.clone();
+    let source_voices = if project_engine_is_system {
+        &voices_system
+    } else {
+        &voices_edge
+    };
+    let mut project_voice_options = source_voices
+        .iter()
+        .filter(|candidate| voice_matches_language(candidate, &project_language))
+        .cloned()
+        .collect::<Vec<_>>();
+    let current_project_voice = project.borrow().tts_voice.clone();
+    if !current_project_voice.trim().is_empty()
+        && !project_voice_options
+            .iter()
+            .any(|candidate| candidate.short_name == current_project_voice)
+    {
+        project_voice_options.insert(
+            0,
+            VoiceInfo {
+                short_name: current_project_voice.clone(),
+                friendly_name: current_project_voice,
+                locale: project_language.clone(),
+                suggested_codec: String::new(),
+            },
+        );
+    }
+    let project_voices = Rc::new(RefCell::new(project_voice_options));
+    for candidate in project_voices.borrow().iter() {
+        voice.append(&candidate.friendly_name);
+    }
+    if let Some(index) = project_voices
+        .borrow()
+        .iter()
+        .position(|candidate| candidate.short_name == project.borrow().tts_voice)
+    {
+        voice.set_selection(index as u32);
+    } else if !project_voices.borrow().is_empty() {
+        voice.set_selection(0);
+    }
+    let voice_row = BoxSizer::builder(Orientation::Horizontal).build();
+    voice_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&tr("audio_description.voice"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    voice_row.add(&voice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&voice_row, 0, SizerFlag::Expand, 0);
+
     let initial_status = if project.borrow().descriptions.is_empty() {
         tr("audio_description.project.status.ready")
     } else {
@@ -3200,18 +3497,123 @@ pub fn open_project_editor(
         }
     });
 
+    let project_voice = Rc::clone(&project);
+    let path_voice = path.clone();
+    let project_voices_change = Rc::clone(&project_voices);
+    let rt_voice = Arc::clone(rt);
+    let dialog_voice = dialog;
+    let voice_change_guard = Rc::new(Cell::new(false));
+    let voice_change_guard_event = Rc::clone(&voice_change_guard);
+    voice.on_selection_changed(move |_| {
+        if voice_change_guard_event.get() {
+            return;
+        }
+        let selected_index = voice.get_selection().unwrap_or(0) as usize;
+        let candidate = {
+            project_voices_change
+                .borrow()
+                .get(selected_index)
+                .cloned()
+        };
+        let Some(candidate) = candidate else {
+            return;
+        };
+        if candidate.short_name == project_voice.borrow().tts_voice {
+            return;
+        }
+
+        let snapshot = project_voice.borrow().clone();
+        let previous_voice = snapshot.tts_voice.clone();
+        let (validation, fit_error) = run_project_voice_validation_with_progress(
+            &dialog_voice,
+            snapshot,
+            candidate.short_name.clone(),
+            Arc::clone(&rt_voice),
+        );
+
+        match validation {
+            Ok(()) => {
+                {
+                    let mut mutable = project_voice.borrow_mut();
+                    mutable.tts_voice = candidate.short_name.clone();
+                    mutable.updated_at_utc = now_utc();
+                }
+                if let Err(error) = save_project(&path_voice, &project_voice.borrow()) {
+                    project_voice.borrow_mut().tts_voice = previous_voice.clone();
+                    show_project_error(&dialog_voice, &error);
+                    voice_change_guard_event.set(true);
+                    let previous_index = project_voices_change
+                        .borrow()
+                        .iter()
+                        .position(|item| item.short_name == previous_voice);
+                    if let Some(previous_index) = previous_index {
+                        voice.set_selection(previous_index as u32);
+                    }
+                    voice_change_guard_event.set(false);
+                    return;
+                }
+                let message = trf(
+                    "audio_description.project.voice_changed",
+                    &[(
+                        "count",
+                        project_voice.borrow().descriptions.len().to_string(),
+                    )],
+                );
+                let info = MessageDialog::builder(
+                    &dialog_voice,
+                    &message,
+                    &tr("audio_description.project.voice_changed_title"),
+                )
+                .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+                .build();
+                info.show_modal();
+            }
+            Err(error) => {
+                let message = if error == "voice_does_not_fit" {
+                    fit_error.map_or_else(
+                        || tr("audio_description.project.voice_change_failed"),
+                        |fit| {
+                            trf(
+                                "audio_description.project.voice_too_long",
+                                &[
+                                    ("time", format_mmss(fit.source_start_sec)),
+                                    ("actual", format!("{:.3}", fit.actual_sec)),
+                                ],
+                            )
+                        },
+                    )
+                } else {
+                    trf(
+                        "audio_description.project.voice_check_error",
+                        &[("error", error)],
+                    )
+                };
+                show_project_error(&dialog_voice, &message);
+                voice_change_guard_event.set(true);
+                let previous_index = project_voices_change
+                    .borrow()
+                    .iter()
+                    .position(|item| item.short_name == previous_voice);
+                if let Some(previous_index) = previous_index {
+                    voice.set_selection(previous_index as u32);
+                }
+                voice_change_guard_event.set(false);
+            }
+        }
+    });
+
     let project_apply = Rc::clone(&project);
     let path_apply = path.clone();
     let dialog_apply = dialog;
     let rt_apply = Arc::clone(rt);
     apply.on_click(move |_| {
         let Some(index) = choice.get_selection().map(|value| value as usize) else {
-            show_error(&dialog_apply, &tr("audio_description.project.no_selection"));
+            show_project_error(&dialog_apply, &tr("audio_description.project.no_selection"));
             return;
         };
         let value = text.get_value().trim().to_string();
         if value.is_empty() {
-            show_error(&dialog_apply, &tr("audio_description.project.error_empty"));
+            show_project_error(&dialog_apply, &tr("audio_description.project.error_empty"));
             return;
         }
         if project_apply
@@ -3228,7 +3630,7 @@ pub fn open_project_editor(
         let available = match project_edit_available_duration(&project_apply.borrow(), index) {
             Ok(value) => value,
             Err(error) => {
-                show_error(&dialog_apply, &error);
+                show_project_error(&dialog_apply, &error);
                 return;
             }
         };
@@ -3240,14 +3642,14 @@ pub fn open_project_editor(
         ) {
             Ok(value) => value,
             Err(error) => {
-                show_error(&dialog_apply, &error);
+                show_project_error(&dialog_apply, &error);
                 return;
             }
         };
         if let Some(available) = available
             && duration > available + 0.001
         {
-            show_error(
+            show_project_error(
                 &dialog_apply,
                 &trf(
                     "audio_description.project.error_too_long",
@@ -3271,7 +3673,7 @@ pub fn open_project_editor(
             mutable.updated_at_utc = now_utc();
         }
         if let Err(error) = save_project(&path_apply, &project_apply.borrow()) {
-            show_error(&dialog_apply, &error);
+            show_project_error(&dialog_apply, &error);
             return;
         }
         choice.clear();
@@ -3284,6 +3686,7 @@ pub fn open_project_editor(
         }
         choice.set_selection(index as u32);
         status.set_label(&tr("audio_description.project.edit_saved"));
+        show_project_edit_success(&dialog_apply);
     });
 
     let project_play = Rc::clone(&project);

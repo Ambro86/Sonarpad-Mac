@@ -123,5 +123,18 @@
   "audio_description.quota.wait": "Wait",
   "audio_description.warning.mandatory_dropped": "Warning: {count} mandatory descriptions could not fit even with the real TTS duration.",
   "audio_description.catalog_output": "Catalog: {path}",
-  "audio_description.save_folder": "Default audio descriptions folder:"
+  "audio_description.save_folder": "Default audio descriptions folder:",
+  "audio_description.browse_input": "Choose video...",
+  "audio_description.browse_output": "Change destination folder...",
+  "audio_description.project.edit_success_title": "Audio description modified",
+  "audio_description.project.voice_check_title": "Checking new voice",
+  "audio_description.project.voice_check_status": "Checking every audio description with the new voice...",
+  "audio_description.project.voice_changed_title": "Audio-description voice changed",
+  "audio_description.project.voice_changed": "The new voice was checked and saved. All {count} audio descriptions fit in the available time.",
+  "audio_description.project.voice_too_long": "With the selected voice, the audio description at {time} lasts {actual} seconds and cannot be placed safely in the track. The project voice was not changed.",
+  "audio_description.project.voice_change_failed": "The new voice cannot be applied because at least one audio description does not fit in the available time. The project voice was not changed.",
+  "audio_description.project.voice_check_error": "The new voice could not be checked: {error}. The project voice was not changed.",
+  "audio_description.character_catalog.new_option": "Create a new catalog...",
+  "audio_description.character_catalog.selection_label": "Character catalog:",
+  "audio_description.character_catalog.new_name_label": "New catalog name:"
 }

@@ -123,5 +123,18 @@
   "audio_description.quota.wait": "Attendi",
   "audio_description.warning.mandatory_dropped": "Attenzione: {count} descrizioni obbligatorie non sono entrate nemmeno con la durata TTS reale.",
   "audio_description.catalog_output": "Catalogo: {path}",
-  "audio_description.save_folder": "Cartella predefinita audiodescrizioni:"
+  "audio_description.save_folder": "Cartella predefinita audiodescrizioni:",
+  "audio_description.browse_input": "Scegli video...",
+  "audio_description.browse_output": "Cambia cartella di destinazione...",
+  "audio_description.project.edit_success_title": "Audiodescrizione modificata",
+  "audio_description.project.voice_check_title": "Verifica nuova voce",
+  "audio_description.project.voice_check_status": "Verifica di tutte le audiodescrizioni con la nuova voce...",
+  "audio_description.project.voice_changed_title": "Voce audiodescrizione modificata",
+  "audio_description.project.voice_changed": "Nuova voce verificata e salvata. Tutte le {count} audiodescrizioni rientrano nel tempo disponibile.",
+  "audio_description.project.voice_too_long": "Con la voce selezionata l’audiodescrizione a {time} dura {actual} secondi e non trova uno spazio sicuro sufficiente nella traccia. La voce del progetto non è stata modificata.",
+  "audio_description.project.voice_change_failed": "La nuova voce non può essere applicata perché almeno un’audiodescrizione non rientra nel tempo disponibile. La voce del progetto non è stata modificata.",
+  "audio_description.project.voice_check_error": "Impossibile verificare la nuova voce: {error}. La voce del progetto non è stata modificata.",
+  "audio_description.character_catalog.new_option": "Crea un nuovo catalogo...",
+  "audio_description.character_catalog.selection_label": "Catalogo personaggi:",
+  "audio_description.character_catalog.new_name_label": "Nome del nuovo catalogo:"
 }

@@ -123,5 +123,18 @@
   "audio_description.quota.wait": "Attendre",
   "audio_description.warning.mandatory_dropped": "Attention : {count} descriptions obligatoires n’ont pas pu être insérées même avec la durée TTS réelle.",
   "audio_description.catalog_output": "Catalogue : {path}",
-  "audio_description.save_folder": "Dossier par défaut des audiodescriptions :"
+  "audio_description.save_folder": "Dossier par défaut des audiodescriptions :",
+  "audio_description.browse_input": "Choisir la vidéo...",
+  "audio_description.browse_output": "Changer le dossier de destination...",
+  "audio_description.project.edit_success_title": "Audiodescription modifiée",
+  "audio_description.project.voice_check_title": "Vérification de la nouvelle voix",
+  "audio_description.project.voice_check_status": "Vérification de toutes les audiodescriptions avec la nouvelle voix...",
+  "audio_description.project.voice_changed_title": "Voix de l’audiodescription modifiée",
+  "audio_description.project.voice_changed": "La nouvelle voix a été vérifiée et enregistrée. Les {count} audiodescriptions tiennent dans le temps disponible.",
+  "audio_description.project.voice_too_long": "Avec la voix sélectionnée, l’audiodescription à {time} dure {actual} secondes et ne peut pas être placée en toute sécurité dans la piste. La voix du projet n’a pas été modifiée.",
+  "audio_description.project.voice_change_failed": "La nouvelle voix ne peut pas être appliquée car au moins une audiodescription ne tient pas dans le temps disponible. La voix du projet n’a pas été modifiée.",
+  "audio_description.project.voice_check_error": "Impossible de vérifier la nouvelle voix : {error}. La voix du projet n’a pas été modifiée.",
+  "audio_description.character_catalog.new_option": "Créer un nouveau catalogue...",
+  "audio_description.character_catalog.selection_label": "Catalogue de personnages :",
+  "audio_description.character_catalog.new_name_label": "Nom du nouveau catalogue :"
 }

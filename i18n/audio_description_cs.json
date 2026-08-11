@@ -123,5 +123,18 @@
   "audio_description.quota.wait": "Počkat",
   "audio_description.warning.mandatory_dropped": "Upozornění: {count} povinných popisů se nevešlo ani při skutečné délce TTS.",
   "audio_description.catalog_output": "Katalog: {path}",
-  "audio_description.save_folder": "Výchozí složka audiopopisů:"
+  "audio_description.save_folder": "Výchozí složka audiopopisů:",
+  "audio_description.browse_input": "Vybrat video...",
+  "audio_description.browse_output": "Změnit cílovou složku...",
+  "audio_description.project.edit_success_title": "Audiopopis upraven",
+  "audio_description.project.voice_check_title": "Kontrola nového hlasu",
+  "audio_description.project.voice_check_status": "Kontrola všech audiopopisů s novým hlasem...",
+  "audio_description.project.voice_changed_title": "Hlas audiopopisu změněn",
+  "audio_description.project.voice_changed": "Nový hlas byl zkontrolován a uložen. Všech {count} audiopopisů se vejde do dostupného času.",
+  "audio_description.project.voice_too_long": "S vybraným hlasem trvá audiopopis v čase {time} {actual} s a nelze jej bezpečně umístit do stopy. Hlas projektu nebyl změněn.",
+  "audio_description.project.voice_change_failed": "Nový hlas nelze použít, protože alespoň jeden audiopopis se nevejde do dostupného času. Hlas projektu nebyl změněn.",
+  "audio_description.project.voice_check_error": "Nový hlas nelze ověřit: {error}. Hlas projektu nebyl změněn.",
+  "audio_description.character_catalog.new_option": "Vytvořit nový katalog...",
+  "audio_description.character_catalog.selection_label": "Katalog postav:",
+  "audio_description.character_catalog.new_name_label": "Název nového katalogu:"
 }

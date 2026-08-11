@@ -123,5 +123,18 @@
   "audio_description.quota.wait": "Czekaj",
   "audio_description.warning.mandatory_dropped": "Uwaga: {count} obowiązkowych opisów nie udało się zmieścić nawet przy rzeczywistym czasie TTS.",
   "audio_description.catalog_output": "Katalog: {path}",
-  "audio_description.save_folder": "Domyślny folder audiodeskrypcji:"
+  "audio_description.save_folder": "Domyślny folder audiodeskrypcji:",
+  "audio_description.browse_input": "Wybierz wideo...",
+  "audio_description.browse_output": "Zmień folder docelowy...",
+  "audio_description.project.edit_success_title": "Audiodeskrypcja zmodyfikowana",
+  "audio_description.project.voice_check_title": "Sprawdzanie nowego głosu",
+  "audio_description.project.voice_check_status": "Sprawdzanie wszystkich audiodeskrypcji z nowym głosem...",
+  "audio_description.project.voice_changed_title": "Zmieniono głos audiodeskrypcji",
+  "audio_description.project.voice_changed": "Nowy głos został sprawdzony i zapisany. Wszystkie {count} audiodeskrypcje mieszczą się w dostępnym czasie.",
+  "audio_description.project.voice_too_long": "Przy wybranym głosie audiodeskrypcja o {time} trwa {actual} s i nie można jej bezpiecznie umieścić na ścieżce. Głos projektu nie został zmieniony.",
+  "audio_description.project.voice_change_failed": "Nie można zastosować nowego głosu, ponieważ co najmniej jedna audiodeskrypcja nie mieści się w dostępnym czasie. Głos projektu nie został zmieniony.",
+  "audio_description.project.voice_check_error": "Nie można sprawdzić nowego głosu: {error}. Głos projektu nie został zmieniony.",
+  "audio_description.character_catalog.new_option": "Utwórz nowy katalog...",
+  "audio_description.character_catalog.selection_label": "Katalog postaci:",
+  "audio_description.character_catalog.new_name_label": "Nazwa nowego katalogu:"
 }

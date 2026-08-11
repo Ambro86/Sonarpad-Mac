@@ -14,6 +14,7 @@ for path in (BRIDGE_DIR, RUNTIME_DIR, TESTS_DIR):
         sys.path.insert(0, value)
 
 MODULES = (
+    "test_audio_description_logging",
     "test_audio_description_bridge_spec",
     "test_bridge_protocol",
     "test_chunk_timestamps",

@@ -225,6 +225,50 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("panel_recognize.layout()", AUDIO)
         self.assertNotIn("panel_web.layout()", AUDIO)
 
+    def test_create_dialog_has_unambiguous_browse_buttons(self):
+        self.assertIn('tr("audio_description.browse_input")', AUDIO)
+        self.assertIn('tr("audio_description.browse_output")', AUDIO)
+
+    def test_create_dialog_makes_new_character_catalog_explicit_before_start(self):
+        start = AUDIO.index("pub fn open_create_dialog")
+        end = AUDIO.index("fn format_mmss", start)
+        create_dialog = AUDIO[start:end]
+        self.assertIn('tr("audio_description.character_catalog.new_option")', create_dialog)
+        self.assertIn('tr("audio_description.character_catalog.selection_label")', create_dialog)
+        self.assertIn('tr("audio_description.character_catalog.new_name_label")', create_dialog)
+        self.assertIn("let catalog_name = TextCtrl::builder", create_dialog)
+        self.assertIn("catalog_choice.on_selection_changed", create_dialog)
+        self.assertIn("suggested_catalog_name", create_dialog)
+        self.assertIn("catalog_name.set_focus()", create_dialog)
+        self.assertNotIn("ask_catalog_name", AUDIO)
+
+
+    def test_project_editor_uses_modal_feedback_for_applied_edits(self):
+        self.assertIn("show_project_edit_success(&dialog_apply)", AUDIO)
+        self.assertRegex(
+            AUDIO,
+            r'(?s)duration > available \+ 0\.001.*show_project_error\(\s*&dialog_apply',
+        )
+        self.assertIn('audio_description.project.edit_success_title', AUDIO)
+
+    def test_project_editor_voice_change_checks_every_description_before_saving(self):
+        self.assertIn("let voice = Choice::builder(&panel).build();", AUDIO)
+        self.assertIn("voice_matches_language(candidate, &project_language)", AUDIO)
+        self.assertIn("fn validate_project_voice(", AUDIO)
+        self.assertIn("for (index, description) in project.descriptions.iter().enumerate()", AUDIO)
+        self.assertIn("schedule_descriptions(", AUDIO)
+        self.assertIn("project.allow_extended_pauses", AUDIO)
+        self.assertIn("voice.on_selection_changed", AUDIO)
+        self.assertIn("mutable.tts_voice = candidate.short_name.clone();", AUDIO)
+        self.assertIn("ProjectVoiceFitError", AUDIO)
+        self.assertIn('audio_description.project.voice_too_long', AUDIO)
+        voice_progress_start = AUDIO.index("fn run_project_voice_validation_with_progress")
+        voice_progress_end = AUDIO.index("fn project_file_dialog", voice_progress_start)
+        voice_progress = AUDIO[voice_progress_start:voice_progress_end]
+        self.assertIn("Timer::new(&progress_dialog)", voice_progress)
+        self.assertIn("progress_dialog.show_modal()", voice_progress)
+        self.assertNotIn("thread::sleep", voice_progress)
+
     def test_all_mac_audio_description_locales_have_same_keys(self):
         files = sorted((ROOT / "i18n").glob("audio_description_*.json"))
         self.assertEqual(7, len(files))
