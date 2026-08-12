@@ -136,6 +136,7 @@ struct ScheduledDescription {
 
 #[derive(Clone, Debug)]
 struct DroppedDescription {
+    original_index: usize,
     text: String,
     desired_start_sec: f64,
     mandatory: bool,
@@ -1263,6 +1264,7 @@ fn schedule_descriptions(
             }
         }
         dropped.push(DroppedDescription {
+            original_index: d.original_index,
             text: d.text,
             desired_start_sec: d.desired_start_sec,
             mandatory: d.mandatory,
@@ -1516,6 +1518,84 @@ fn save_project(path: &Path, project: &AudioDescriptionProject) -> Result<(), St
         serde_json::to_vec_pretty(project).map_err(|e| e.to_string())?,
     )
     .map_err(|e| format!("Salvataggio progetto fallito: {e}"))
+}
+
+fn temporary_sibling_path(path: &Path, label: &str) -> PathBuf {
+    let stamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("audio_description");
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or("");
+    let file_name = if extension.is_empty() {
+        format!(".{stem}.{label}.{}.{}", std::process::id(), stamp)
+    } else {
+        format!(
+            ".{stem}.{label}.{}.{}.{}",
+            std::process::id(),
+            stamp,
+            extension
+        )
+    };
+    parent.join(file_name)
+}
+
+fn commit_project_pair(
+    temporary_mp3: &Path,
+    final_mp3: &Path,
+    temporary_project: &Path,
+    final_project: &Path,
+) -> Result<(), String> {
+    let mp3_backup = temporary_sibling_path(final_mp3, "backup");
+    let project_backup = temporary_sibling_path(final_project, "backup");
+    let had_mp3 = final_mp3.exists();
+    let had_project = final_project.exists();
+
+    if had_mp3 {
+        fs::rename(final_mp3, &mp3_backup)
+            .map_err(|error| format!("Backup del vecchio MP3 fallito: {error}"))?;
+    }
+    if had_project && let Err(error) = fs::rename(final_project, &project_backup) {
+        if had_mp3 {
+            let _ = fs::rename(&mp3_backup, final_mp3);
+        }
+        return Err(format!("Backup del vecchio progetto fallito: {error}"));
+    }
+
+    if let Err(error) = fs::rename(temporary_mp3, final_mp3) {
+        if had_project {
+            let _ = fs::rename(&project_backup, final_project);
+        }
+        if had_mp3 {
+            let _ = fs::rename(&mp3_backup, final_mp3);
+        }
+        return Err(format!("Aggiornamento MP3 fallito: {error}"));
+    }
+    if let Err(error) = fs::rename(temporary_project, final_project) {
+        let _ = fs::remove_file(final_mp3);
+        if had_mp3 {
+            let _ = fs::rename(&mp3_backup, final_mp3);
+        }
+        if had_project {
+            let _ = fs::rename(&project_backup, final_project);
+        }
+        return Err(format!("Aggiornamento progetto fallito: {error}"));
+    }
+
+    if had_mp3 {
+        let _ = fs::remove_file(mp3_backup);
+    }
+    if had_project {
+        let _ = fs::remove_file(project_backup);
+    }
+    Ok(())
 }
 
 fn fetch_gemini_models(api_key: &str) -> Result<Vec<String>, String> {
@@ -2879,18 +2959,25 @@ struct ProjectVoiceFitError {
 #[derive(Clone, Debug, Default)]
 struct ProjectVoiceValidationState {
     progress: i32,
-    done: Option<Result<(), String>>,
+    done: Option<Result<AudioDescriptionProject, String>>,
     fit_error: Option<ProjectVoiceFitError>,
 }
 
-fn validate_project_voice(
+fn change_project_voice(
     project: &AudioDescriptionProject,
+    project_file: &Path,
+    tts_engine: &str,
     tts_voice: &str,
     rt: &Runtime,
     state: &Arc<Mutex<ProjectVoiceValidationState>>,
-) -> Result<(), String> {
+) -> Result<AudioDescriptionProject, String> {
+    if project.descriptions.is_empty() {
+        return Err(tr("audio_description.project.no_selection"));
+    }
     let total = project.descriptions.len().max(1);
-    let work = cache_dir("project_voice_check")?;
+    let work = cache_dir("project_voice_change")?;
+    let temporary_mp3 = temporary_sibling_path(&project.output_mp3_path, "voice");
+    let temporary_project = temporary_sibling_path(project_file, "voice");
     let cancel = Arc::new(AtomicBool::new(false));
     let result = (|| {
         let mut synthesized = Vec::with_capacity(project.descriptions.len());
@@ -2898,7 +2985,7 @@ fn validate_project_voice(
             let pcm = synthesize_text_pcm(
                 &description.text,
                 TtsParameters {
-                    engine: &project.tts_engine,
+                    engine: tts_engine,
                     voice: tts_voice,
                     rate: project.tts_rate,
                     pitch: project.tts_pitch,
@@ -2923,8 +3010,12 @@ fn validate_project_voice(
                 duration_sec,
             });
             state.lock().unwrap().progress =
-                ((index + 1) as i32 * 90 / total as i32).clamp(0, 90);
+                ((index + 1) as i32 * 75 / total as i32).clamp(0, 75);
         }
+
+        let source = work.join("source.wav");
+        let source_duration = decode_source_audio(&project.source_path, &source, &cancel)?.duration_sec;
+        state.lock().unwrap().progress = 80;
 
         let protected = project
             .protected_intervals
@@ -2934,10 +3025,10 @@ fn validate_project_voice(
                 end_sec: interval.end_sec,
             })
             .collect::<Vec<_>>();
-        let (_, dropped) = schedule_descriptions(
+        let (scheduled, dropped) = schedule_descriptions(
             &synthesized,
             &protected,
-            project.source_duration_sec,
+            source_duration,
             project.allow_extended_pauses,
         );
         if let Some(first) = dropped.first() {
@@ -2952,9 +3043,87 @@ fn validate_project_voice(
             });
             return Err("voice_does_not_fit".to_string());
         }
+        if scheduled.len() != project.descriptions.len() {
+            return Err("voice_does_not_fit".to_string());
+        }
+        state.lock().unwrap().progress = 85;
+
+        let mix = work.join("voice-change-mix.wav");
+        let output_duration = render_mix(&source, &mix, &scheduled, &cancel)?;
+        state.lock().unwrap().progress = 92;
+
+        if let Some(parent) = project.output_mp3_path.parent() {
+            fs::create_dir_all(parent).map_err(|e| format!("Salvataggio MP3 fallito: {e}"))?;
+        }
+        encode_mp3(&mix, &temporary_mp3, &cancel)?;
+        let metadata = fs::metadata(&temporary_mp3)
+            .map_err(|e| format!("Verifica del nuovo MP3 fallita: {e}"))?;
+        if metadata.len() == 0 {
+            return Err("Il nuovo MP3 audiodescritto è vuoto.".to_string());
+        }
+        state.lock().unwrap().progress = 96;
+
+        let previous = project.clone();
+        let mut extra_offset = 0.0;
+        let mut descriptions = Vec::with_capacity(scheduled.len());
+        for (new_id, scheduled_description) in scheduled.iter().enumerate() {
+            let old = previous
+                .descriptions
+                .get(scheduled_description.original_index)
+                .ok_or_else(|| "Indice descrizione progetto non valido.".to_string())?;
+            let output_start = scheduled_description.start_sec + extra_offset;
+            let extended_pause_duration_sec = if scheduled_description.extended_pause {
+                scheduled_description.duration_sec
+            } else {
+                0.0
+            };
+            let output_end = output_start + scheduled_description.duration_sec;
+            descriptions.push(ProjectDescription {
+                id: new_id,
+                text: old.text.clone(),
+                original_text: old.original_text.clone(),
+                rendered_text: old.text.clone(),
+                modified: old.text != old.original_text,
+                gemini_start_sec: old.gemini_start_sec,
+                mandatory: old.mandatory,
+                slot_id: old.slot_id.clone(),
+                slot_start_sec: old.slot_start_sec,
+                slot_end_sec: old.slot_end_sec,
+                source_start_sec: scheduled_description.start_sec,
+                output_start_sec: output_start,
+                output_end_sec: output_end,
+                tts_duration_sec: scheduled_description.duration_sec,
+                extended_pause: scheduled_description.extended_pause,
+                extended_pause_duration_sec,
+                duck_start_sec: (!scheduled_description.extended_pause).then_some(output_start),
+                duck_end_sec: (!scheduled_description.extended_pause).then_some(output_end),
+            });
+            extra_offset += extended_pause_duration_sec;
+        }
+
+        let mut updated = previous;
+        updated.updated_at_utc = now_utc();
+        updated.source_duration_sec = source_duration;
+        updated.output_duration_sec = output_duration;
+        updated.tts_engine = tts_engine.to_string();
+        updated.tts_voice = tts_voice.to_string();
+        updated.descriptions = descriptions;
+
+        save_project(&temporary_project, &updated)?;
+        commit_project_pair(
+            &temporary_mp3,
+            &project.output_mp3_path,
+            &temporary_project,
+            project_file,
+        )?;
         state.lock().unwrap().progress = 100;
-        Ok(())
+        Ok(updated)
     })();
+
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary_mp3);
+        let _ = fs::remove_file(&temporary_project);
+    }
     let _ = fs::remove_dir_all(&work);
     result
 }
@@ -2962,9 +3131,14 @@ fn validate_project_voice(
 fn run_project_voice_validation_with_progress(
     parent: &Dialog,
     project: AudioDescriptionProject,
+    project_file: PathBuf,
+    tts_engine: String,
     tts_voice: String,
     runtime: Arc<Runtime>,
-) -> (Result<(), String>, Option<ProjectVoiceFitError>) {
+) -> (
+    Result<AudioDescriptionProject, String>,
+    Option<ProjectVoiceFitError>,
+) {
     let progress_dialog = Dialog::builder(
         parent,
         &tr("audio_description.project.voice_check_title"),
@@ -2989,23 +3163,25 @@ fn run_project_voice_validation_with_progress(
         12,
     );
     let gauge = Gauge::builder(&panel).with_range(100).build();
-    root.add(
-        &gauge,
-        0,
-        SizerFlag::Expand | SizerFlag::All,
-        12,
-    );
+    root.add(&gauge, 0, SizerFlag::Expand | SizerFlag::All, 12);
     panel.set_sizer(root, true);
 
     let state = Arc::new(Mutex::new(ProjectVoiceValidationState::default()));
     let thread_state = Arc::clone(&state);
     thread::spawn(move || {
-        let result = validate_project_voice(&project, &tts_voice, &runtime, &thread_state);
+        let result = change_project_voice(
+            &project,
+            &project_file,
+            &tts_engine,
+            &tts_voice,
+            &runtime,
+            &thread_state,
+        );
         thread_state.lock().unwrap().done = Some(result);
     });
 
     let result = Rc::new(RefCell::new(None::<(
-        Result<(), String>,
+        Result<AudioDescriptionProject, String>,
         Option<ProjectVoiceFitError>,
     )>));
     let timer = Rc::new(Timer::new(&progress_dialog));
@@ -3395,50 +3571,81 @@ pub fn open_project_editor(
     }
     root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
+    let apply = Button::builder(&panel)
+        .with_label(&tr("audio_description.project.apply"))
+        .build();
+    let apply_row = BoxSizer::builder(Orientation::Horizontal).build();
+    apply_row.add(&apply, 0, SizerFlag::All, 4);
+    root.add_sizer(&apply_row, 0, SizerFlag::Expand, 0);
+
+    let engine = Choice::builder(&panel).build();
+    engine.append(&tr("audio_description.engine.edge"));
+    engine.append(&tr("audio_description.engine.system"));
+    let initial_project_engine = if crate::is_system_voice_engine(&project.borrow().tts_engine) {
+        1
+    } else {
+        0
+    };
+    engine.set_selection(initial_project_engine);
+    let engine_row = BoxSizer::builder(Orientation::Horizontal).build();
+    engine_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&tr("audio_description.engine"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    engine_row.add(&engine, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&engine_row, 0, SizerFlag::Expand, 0);
+
     let voice = Choice::builder(&panel).build();
     let voices_edge = voices_data.lock().unwrap().clone();
     let voices_system = crate::load_system_voices();
-    let project_engine_is_system = crate::is_system_voice_engine(&project.borrow().tts_engine);
     let project_language = project.borrow().language_code.clone();
-    let source_voices = if project_engine_is_system {
-        &voices_system
-    } else {
-        &voices_edge
+    let project_voices = Rc::new(RefCell::new(Vec::<VoiceInfo>::new()));
+    let fill_project_voices: Rc<dyn Fn(u32, Option<String>)> = {
+        let active = Rc::clone(&project_voices);
+        let voice_control = voice;
+        let voices_edge = voices_edge.clone();
+        let voices_system = voices_system.clone();
+        let language_code = project_language.clone();
+        Rc::new(move |engine_index, preferred_voice| {
+            voice_control.clear();
+            let source = if engine_index == 1 {
+                &voices_system
+            } else {
+                &voices_edge
+            };
+            let list = source
+                .iter()
+                .filter(|candidate| voice_matches_language(candidate, &language_code))
+                .cloned()
+                .collect::<Vec<_>>();
+            for candidate in &list {
+                voice_control.append(&candidate.friendly_name);
+            }
+            let selection = preferred_voice
+                .as_deref()
+                .and_then(|preferred| {
+                    list.iter()
+                        .position(|candidate| candidate.short_name == preferred)
+                })
+                .unwrap_or(0);
+            if !list.is_empty() {
+                voice_control.set_selection(selection as u32);
+            }
+            *active.borrow_mut() = list;
+        })
     };
-    let mut project_voice_options = source_voices
-        .iter()
-        .filter(|candidate| voice_matches_language(candidate, &project_language))
-        .cloned()
-        .collect::<Vec<_>>();
-    let current_project_voice = project.borrow().tts_voice.clone();
-    if !current_project_voice.trim().is_empty()
-        && !project_voice_options
-            .iter()
-            .any(|candidate| candidate.short_name == current_project_voice)
-    {
-        project_voice_options.insert(
-            0,
-            VoiceInfo {
-                short_name: current_project_voice.clone(),
-                friendly_name: current_project_voice,
-                locale: project_language.clone(),
-                suggested_codec: String::new(),
-            },
-        );
-    }
-    let project_voices = Rc::new(RefCell::new(project_voice_options));
-    for candidate in project_voices.borrow().iter() {
-        voice.append(&candidate.friendly_name);
-    }
-    if let Some(index) = project_voices
-        .borrow()
-        .iter()
-        .position(|candidate| candidate.short_name == project.borrow().tts_voice)
-    {
-        voice.set_selection(index as u32);
-    } else if !project_voices.borrow().is_empty() {
-        voice.set_selection(0);
-    }
+    fill_project_voices(
+        initial_project_engine,
+        Some(project.borrow().tts_voice.clone()),
+    );
+
+    let change_voice = Button::builder(&panel)
+        .with_label(&tr("audio_description.project.change_voice"))
+        .build();
     let voice_row = BoxSizer::builder(Orientation::Horizontal).build();
     voice_row.add(
         &StaticText::builder(&panel)
@@ -3449,6 +3656,7 @@ pub fn open_project_editor(
         5,
     );
     voice_row.add(&voice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    voice_row.add(&change_voice, 0, SizerFlag::All, 5);
     root.add_sizer(&voice_row, 0, SizerFlag::Expand, 0);
 
     let initial_status = if project.borrow().descriptions.is_empty() {
@@ -3462,9 +3670,6 @@ pub fn open_project_editor(
     root.add(&status, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
     let row = BoxSizer::builder(Orientation::Horizontal).build();
-    let apply = Button::builder(&panel)
-        .with_label(&tr("audio_description.project.apply"))
-        .build();
     let play = Button::builder(&panel)
         .with_label(&tr("audio_description.project.play_description"))
         .build();
@@ -3478,7 +3683,7 @@ pub fn open_project_editor(
         .with_id(ID_AUDIO_DESCRIPTION_PROJECT_CLOSE)
         .with_label(&tr("audio_description.close"))
         .build();
-    for button in [&apply, &play, &delete, &export, &close] {
+    for button in [&play, &delete, &export, &close] {
         row.add(button, 0, SizerFlag::All, 4);
     }
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
@@ -3497,60 +3702,87 @@ pub fn open_project_editor(
         }
     });
 
+    let project_engine = Rc::clone(&project);
+    let fill_project_voices_engine = Rc::clone(&fill_project_voices);
+    engine.on_selection_changed(move |_| {
+        let selected_engine = engine.get_selection().unwrap_or(0);
+        let selected_is_system = selected_engine == 1;
+        let current = project_engine.borrow();
+        let current_is_system = crate::is_system_voice_engine(&current.tts_engine);
+        let preferred = (selected_is_system == current_is_system)
+            .then(|| current.tts_voice.clone());
+        drop(current);
+        fill_project_voices_engine(selected_engine, preferred);
+    });
+
     let project_voice = Rc::clone(&project);
     let path_voice = path.clone();
     let project_voices_change = Rc::clone(&project_voices);
+    let fill_project_voices_change = Rc::clone(&fill_project_voices);
     let rt_voice = Arc::clone(rt);
     let dialog_voice = dialog;
-    let voice_change_guard = Rc::new(Cell::new(false));
-    let voice_change_guard_event = Rc::clone(&voice_change_guard);
-    voice.on_selection_changed(move |_| {
-        if voice_change_guard_event.get() {
-            return;
-        }
-        let selected_index = voice.get_selection().unwrap_or(0) as usize;
-        let candidate = {
-            project_voices_change
-                .borrow()
-                .get(selected_index)
-                .cloned()
-        };
+    change_voice.on_click(move |_| {
+        let selected_description_index = choice.get_selection().unwrap_or(0) as usize;
+        let selected_voice_index = voice.get_selection().unwrap_or(0) as usize;
+        let candidate = project_voices_change
+            .borrow()
+            .get(selected_voice_index)
+            .cloned();
         let Some(candidate) = candidate else {
+            show_project_error(&dialog_voice, &tr("audio_description.error.voice"));
             return;
         };
-        if candidate.short_name == project_voice.borrow().tts_voice {
-            return;
-        }
+        let selected_engine_index = engine.get_selection().unwrap_or(0);
+        let candidate_engine = if selected_engine_index == 1 {
+            "system".to_string()
+        } else {
+            "microsoft".to_string()
+        };
 
         let snapshot = project_voice.borrow().clone();
+        let same_engine = crate::is_system_voice_engine(&candidate_engine)
+            == crate::is_system_voice_engine(&snapshot.tts_engine);
+        if same_engine && candidate.short_name == snapshot.tts_voice {
+            return;
+        }
+        let previous_engine_index = if crate::is_system_voice_engine(&snapshot.tts_engine) {
+            1
+        } else {
+            0
+        };
         let previous_voice = snapshot.tts_voice.clone();
+
         let (validation, fit_error) = run_project_voice_validation_with_progress(
             &dialog_voice,
             snapshot,
+            path_voice.clone(),
+            candidate_engine,
             candidate.short_name.clone(),
             Arc::clone(&rt_voice),
         );
 
         match validation {
-            Ok(()) => {
-                {
-                    let mut mutable = project_voice.borrow_mut();
-                    mutable.tts_voice = candidate.short_name.clone();
-                    mutable.updated_at_utc = now_utc();
+            Ok(updated) => {
+                *project_voice.borrow_mut() = updated;
+                choice.clear();
+                for description in &project_voice.borrow().descriptions {
+                    choice.append(&format!(
+                        "{} - {}",
+                        format_mmss(description.source_start_sec),
+                        description.text
+                    ));
                 }
-                if let Err(error) = save_project(&path_voice, &project_voice.borrow()) {
-                    project_voice.borrow_mut().tts_voice = previous_voice.clone();
-                    show_project_error(&dialog_voice, &error);
-                    voice_change_guard_event.set(true);
-                    let previous_index = project_voices_change
-                        .borrow()
-                        .iter()
-                        .position(|item| item.short_name == previous_voice);
-                    if let Some(previous_index) = previous_index {
-                        voice.set_selection(previous_index as u32);
+                if !project_voice.borrow().descriptions.is_empty() {
+                    let selected_description = selected_description_index
+                        .min(project_voice.borrow().descriptions.len().saturating_sub(1));
+                    choice.set_selection(selected_description as u32);
+                    if let Some(description) = project_voice.borrow().descriptions.get(selected_description) {
+                        text.set_value(&description.text);
+                        status.set_label(&project_description_details(
+                            &project_voice.borrow(),
+                            selected_description,
+                        ));
                     }
-                    voice_change_guard_event.set(false);
-                    return;
                 }
                 let message = trf(
                     "audio_description.project.voice_changed",
@@ -3569,6 +3801,11 @@ pub fn open_project_editor(
                 info.show_modal();
             }
             Err(error) => {
+                engine.set_selection(previous_engine_index);
+                fill_project_voices_change(
+                    previous_engine_index,
+                    Some(previous_voice.clone()),
+                );
                 let message = if error == "voice_does_not_fit" {
                     fit_error.map_or_else(
                         || tr("audio_description.project.voice_change_failed"),
@@ -3589,15 +3826,6 @@ pub fn open_project_editor(
                     )
                 };
                 show_project_error(&dialog_voice, &message);
-                voice_change_guard_event.set(true);
-                let previous_index = project_voices_change
-                    .borrow()
-                    .iter()
-                    .position(|item| item.short_name == previous_voice);
-                if let Some(previous_index) = previous_index {
-                    voice.set_selection(previous_index as u32);
-                }
-                voice_change_guard_event.set(false);
             }
         }
     });

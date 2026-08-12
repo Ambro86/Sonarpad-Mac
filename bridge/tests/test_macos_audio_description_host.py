@@ -251,23 +251,59 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         )
         self.assertIn('audio_description.project.edit_success_title', AUDIO)
 
-    def test_project_editor_voice_change_checks_every_description_before_saving(self):
-        self.assertIn("let voice = Choice::builder(&panel).build();", AUDIO)
-        self.assertIn("voice_matches_language(candidate, &project_language)", AUDIO)
-        self.assertIn("fn validate_project_voice(", AUDIO)
-        self.assertIn("for (index, description) in project.descriptions.iter().enumerate()", AUDIO)
-        self.assertIn("schedule_descriptions(", AUDIO)
-        self.assertIn("project.allow_extended_pauses", AUDIO)
-        self.assertIn("voice.on_selection_changed", AUDIO)
-        self.assertIn("mutable.tts_voice = candidate.short_name.clone();", AUDIO)
-        self.assertIn("ProjectVoiceFitError", AUDIO)
+    def test_project_editor_voice_change_is_explicit_and_accessible(self):
+        editor_start = AUDIO.index("pub fn open_project_editor")
+        editor = AUDIO[editor_start:]
+        self.assertIn('let apply = Button::builder(&panel)', editor)
+        self.assertIn('let engine = Choice::builder(&panel).build();', editor)
+        self.assertIn('engine.append(&tr("audio_description.engine.edge"))', editor)
+        self.assertIn('engine.append(&tr("audio_description.engine.system"))', editor)
+        self.assertIn('let voice = Choice::builder(&panel).build();', editor)
+        self.assertIn('let change_voice = Button::builder(&panel)', editor)
+        self.assertIn('audio_description.project.change_voice', editor)
+        self.assertIn('change_voice.on_click', editor)
+        self.assertNotIn('voice.on_selection_changed', editor)
+        self.assertLess(editor.index('let text = TextCtrl::builder'), editor.index('let apply = Button::builder'))
+        self.assertLess(editor.index('let apply = Button::builder'), editor.index('let engine = Choice::builder'))
+        self.assertLess(editor.index('let engine = Choice::builder'), editor.index('let voice = Choice::builder'))
+        self.assertLess(editor.index('let voice = Choice::builder'), editor.index('let change_voice = Button::builder'))
+
+    def test_project_voice_change_checks_every_description_and_rebuilds_mp3(self):
+        self.assertIn('fn change_project_voice(', AUDIO)
+        voice_change_start = AUDIO.index('fn change_project_voice(')
+        voice_change_end = AUDIO.index('fn run_project_voice_validation_with_progress', voice_change_start)
+        voice_change = AUDIO[voice_change_start:voice_change_end]
+        self.assertIn('for (index, description) in project.descriptions.iter().enumerate()', voice_change)
+        self.assertIn('engine: tts_engine', voice_change)
+        self.assertIn('voice: tts_voice', voice_change)
+        self.assertIn('schedule_descriptions(', voice_change)
+        self.assertIn('project.allow_extended_pauses', voice_change)
+        self.assertIn('render_mix(&source, &mix, &scheduled, &cancel)', voice_change)
+        self.assertIn('encode_mp3(&mix, &temporary_mp3, &cancel)', voice_change)
+        self.assertIn('updated.tts_engine = tts_engine.to_string()', voice_change)
+        self.assertIn('updated.tts_voice = tts_voice.to_string()', voice_change)
+        self.assertIn('commit_project_pair(', voice_change)
+        self.assertIn('ProjectVoiceFitError', AUDIO)
         self.assertIn('audio_description.project.voice_too_long', AUDIO)
-        voice_progress_start = AUDIO.index("fn run_project_voice_validation_with_progress")
-        voice_progress_end = AUDIO.index("fn project_file_dialog", voice_progress_start)
+        voice_progress_start = AUDIO.index('fn run_project_voice_validation_with_progress')
+        voice_progress_end = AUDIO.index('fn project_file_dialog', voice_progress_start)
         voice_progress = AUDIO[voice_progress_start:voice_progress_end]
-        self.assertIn("Timer::new(&progress_dialog)", voice_progress)
-        self.assertIn("progress_dialog.show_modal()", voice_progress)
-        self.assertNotIn("thread::sleep", voice_progress)
+        self.assertIn('Timer::new(&progress_dialog)', voice_progress)
+        self.assertIn('progress_dialog.show_modal()', voice_progress)
+        self.assertNotIn('thread::sleep', voice_progress)
+
+    def test_dropped_description_keeps_original_index_for_voice_fit_errors(self):
+        dropped_start = AUDIO.index('struct DroppedDescription')
+        dropped_end = AUDIO.index('struct ProjectInterval', dropped_start)
+        dropped_struct = AUDIO[dropped_start:dropped_end]
+        self.assertIn('original_index: usize', dropped_struct)
+        schedule_start = AUDIO.index('fn schedule_descriptions(')
+        schedule_end = AUDIO.index('fn mix_sample', schedule_start)
+        schedule = AUDIO[schedule_start:schedule_end]
+        self.assertRegex(
+            schedule,
+            r'(?s)dropped\.push\(DroppedDescription \{.*original_index: d\.original_index',
+        )
 
     def test_all_mac_audio_description_locales_have_same_keys(self):
         files = sorted((ROOT / "i18n").glob("audio_description_*.json"))

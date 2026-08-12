@@ -128,13 +128,14 @@
   "audio_description.browse_output": "Cambiar carpeta de destino...",
   "audio_description.project.edit_success_title": "Audiodescripción modificada",
   "audio_description.project.voice_check_title": "Comprobando nueva voz",
-  "audio_description.project.voice_check_status": "Comprobando todas las audiodescripciones con la nueva voz...",
+  "audio_description.project.voice_check_status": "Verificando todas las audiodescripciones con la nueva voz y actualizando el MP3 del proyecto...",
   "audio_description.project.voice_changed_title": "Voz de audiodescripción modificada",
-  "audio_description.project.voice_changed": "La nueva voz se comprobó y guardó. Las {count} audiodescripciones caben en el tiempo disponible.",
+  "audio_description.project.voice_changed": "La nueva voz se ha verificado y aplicado. Las {count} audiodescripciones caben en el tiempo disponible y se ha actualizado el MP3 del proyecto.",
   "audio_description.project.voice_too_long": "Con la voz seleccionada, la audiodescripción de {time} dura {actual} segundos y no puede colocarse de forma segura en la pista. No se cambió la voz del proyecto.",
   "audio_description.project.voice_change_failed": "No se puede aplicar la nueva voz porque al menos una audiodescripción no cabe en el tiempo disponible. No se cambió la voz del proyecto.",
   "audio_description.project.voice_check_error": "No se pudo comprobar la nueva voz: {error}. No se cambió la voz del proyecto.",
   "audio_description.character_catalog.new_option": "Crear un catálogo nuevo...",
   "audio_description.character_catalog.selection_label": "Catálogo de personajes:",
-  "audio_description.character_catalog.new_name_label": "Nombre del nuevo catálogo:"
+  "audio_description.character_catalog.new_name_label": "Nombre del nuevo catálogo:",
+  "audio_description.project.change_voice": "Cambiar voz"
 }
