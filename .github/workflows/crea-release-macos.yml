@@ -102,12 +102,17 @@ jobs:
           fi
 
           expected_worker="Sonarpad.app/Contents/Resources/audio-description/audio_description_bridge/audio_description_bridge"
+          expected_transcription_worker="Sonarpad.app/Contents/Resources/transcription/faster_whisper_bridge/faster_whisper_bridge"
           expected_ffmpeg="Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
           for archive in ./release_files/*.zip; do
             [ -f "$archive" ] || continue
             echo "Verifying bundled audio-description runtime in $(basename "$archive")"
             unzip -Z1 "$archive" | grep -Fx "$expected_worker" >/dev/null || {
               echo "ERROR: bundled audio-description worker missing from $archive"
+              exit 1
+            }
+            unzip -Z1 "$archive" | grep -Fx "$expected_transcription_worker" >/dev/null || {
+              echo "ERROR: bundled faster-whisper transcription worker missing from $archive"
               exit 1
             }
             unzip -Z1 "$archive" | grep -Fx "$expected_ffmpeg" >/dev/null || {

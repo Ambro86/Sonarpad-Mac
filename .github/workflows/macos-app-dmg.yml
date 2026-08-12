@@ -145,6 +145,18 @@ jobs:
           PYTHONPATH="$PWD/bridge:$PWD/bridge/audio_description_runtime:$PWD/bridge/tests" \
             python bridge/run_audio_description_tests_macos.py
 
+      - name: Build bundled faster-whisper transcription worker
+        shell: bash
+        run: |
+          set -euxo pipefail
+          python3 -m venv .venv-faster-whisper
+          source .venv-faster-whisper/bin/activate
+          PYTHON_BIN="$PWD/.venv-faster-whisper/bin/python" \
+            bash ./bridge/build_faster_whisper_bridge_macos.sh "$PWD/dist/faster-whisper-worker"
+          test -x "dist/faster-whisper-worker/faster_whisper_bridge/faster_whisper_bridge"
+          "dist/faster-whisper-worker/faster_whisper_bridge/faster_whisper_bridge" --self-test
+          file "dist/faster-whisper-worker/faster_whisper_bridge/faster_whisper_bridge"
+
       - name: Download pdfium for macOS
         shell: bash
         run: |
@@ -419,11 +431,12 @@ jobs:
           FFMPEG_BIN_DIR="${FFMPEG_DIR}/bin"
           FFMPEG_LIB_DIR="${FFMPEG_DIR}/lib"
           AUDIO_DESCRIPTION_DIR="${RESOURCES_DIR}/audio-description"
+          TRANSCRIPTION_DIR="${RESOURCES_DIR}/transcription"
           EN_LPROJ_DIR="${RESOURCES_DIR}/en.lproj"
           IT_LPROJ_DIR="${RESOURCES_DIR}/it.lproj"
 
           rm -rf "${APP_DIR}" "${FFMPEG_DIR}" "${MPV_APP_DEST}"
-          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${AUDIO_DESCRIPTION_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
+          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${AUDIO_DESCRIPTION_DIR}" "${TRANSCRIPTION_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
@@ -438,6 +451,9 @@ jobs:
           cp -R "dist/audio-description-worker/audio_description_bridge" "${AUDIO_DESCRIPTION_DIR}/audio_description_bridge"
           chmod +x "${AUDIO_DESCRIPTION_DIR}/audio_description_bridge/audio_description_bridge"
           xattr -cr "${AUDIO_DESCRIPTION_DIR}/audio_description_bridge" || true
+          cp -R "dist/faster-whisper-worker/faster_whisper_bridge" "${TRANSCRIPTION_DIR}/faster_whisper_bridge"
+          chmod +x "${TRANSCRIPTION_DIR}/faster_whisper_bridge/faster_whisper_bridge"
+          xattr -cr "${TRANSCRIPTION_DIR}/faster_whisper_bridge" || true
           otool -L "${FFMPEG_BIN_DIR}/ffmpeg"
           if otool -L "${FFMPEG_BIN_DIR}/ffmpeg" \
             | tail -n +2 \
@@ -649,6 +665,8 @@ jobs:
           FFMPEG_LIB_DIR="${APP_DIR}/Contents/Resources/ffmpeg/lib"
           AUDIO_DESCRIPTION_DIR="${APP_DIR}/Contents/Resources/audio-description/audio_description_bridge"
           AUDIO_DESCRIPTION_BIN="${AUDIO_DESCRIPTION_DIR}/audio_description_bridge"
+          TRANSCRIPTION_DIR="${APP_DIR}/Contents/Resources/transcription/faster_whisper_bridge"
+          TRANSCRIPTION_BIN="${TRANSCRIPTION_DIR}/faster_whisper_bridge"
           MPV_APP_DIR="${APP_DIR}/Contents/Resources/mpv.app"
           MPV_BIN="${MPV_APP_DIR}/Contents/MacOS/mpv"
           YTDLP_BIN="${APP_DIR}/Contents/Resources/yt-dlp"
@@ -690,6 +708,18 @@ jobs:
               fi
             done
             codesign --verify --strict --verbose=2 "${AUDIO_DESCRIPTION_BIN}"
+          fi
+
+          if [ -d "${TRANSCRIPTION_DIR}" ]; then
+            xattr -cr "${TRANSCRIPTION_DIR}" || true
+            find "${TRANSCRIPTION_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
+              if file "${bin}" | grep -q "Mach-O"; then
+                codesign --force --options runtime --timestamp \
+                  --sign "Developer ID Application" \
+                  "${bin}"
+              fi
+            done
+            codesign --verify --strict --verbose=2 "${TRANSCRIPTION_BIN}"
           fi
 
           find "${FRAMEWORKS_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
@@ -863,6 +893,7 @@ jobs:
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/mpv.app/Contents/MacOS/mpv"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/yt-dlp"
           test -x "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/audio-description/audio_description_bridge/audio_description_bridge"
+          test -x "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/transcription/faster_whisper_bridge/faster_whisper_bridge"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name 'libcurl*.dylib' | grep .
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
           hdiutil detach "${MOUNT_DIR}" -quiet

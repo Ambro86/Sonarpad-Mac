@@ -9,6 +9,9 @@ mod curl_client;
 mod directories;
 mod edge_tts;
 mod file_loader;
+mod faster_whisper_bridge;
+mod la7_play;
+mod media_transcription;
 mod podcast_player;
 mod podcasts;
 mod rai_audiodescrizioni;
@@ -125,6 +128,8 @@ const ID_TOOLS_VOICE_DICTIONARY: i32 = 2373;
 const ID_TOOLS_CALENDAR: i32 = 2374;
 const ID_TOOLS_TRECCANI: i32 = 2375;
 const ID_TOOLS_AUDIO_DESCRIPTION: i32 = 2376;
+const ID_TOOLS_MEDIA_TRANSCRIPTION: i32 = 2377;
+const ID_LA7_PLAY: i32 = 2378;
 // wxWidgets only accepts custom menu IDs below 32767. Keep the three
 // favorite-action ranges contiguous and below the podcast ranges at 27000.
 const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 24000;
@@ -21832,6 +21837,323 @@ fn open_rai_audio_items_dialog_from_items(
     dialog.destroy();
 }
 
+fn la7_play_code_available(parent: &Frame) -> bool {
+    if Settings::load().ui_language != "it" {
+        return false;
+    }
+    if load_saved_rai_luce_code().is_some() {
+        return true;
+    }
+    let _ = handle_rai_missing_code(
+        parent,
+        "Chiave Luce mancante: La Sette Play richiede il codice Sonarpad.",
+    );
+    false
+}
+
+fn open_la7_play_browser_dialog(parent: &Frame) {
+    if !la7_play_code_available(parent) {
+        return;
+    }
+    open_la7_play_page_dialog(parent, la7_play::root_page());
+}
+
+fn open_la7_play_page_dialog(parent: &Frame, page: la7_play::BrowsePage) {
+    open_la7_play_page_dialog_inner(parent, &page.title, page.items);
+}
+
+fn open_la7_play_page_subdialog(parent: &Dialog, page: la7_play::BrowsePage) {
+    open_la7_play_page_subdialog_inner(parent, &page.title, page.items);
+}
+
+fn open_la7_play_page_dialog_inner(
+    parent: &Frame,
+    title: &str,
+    items: Vec<la7_play::BrowseItem>,
+) {
+    let ui = current_ui_strings();
+    if items.is_empty() {
+        show_message_dialog(parent, title, &ui.rai_no_items);
+        return;
+    }
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 240)
+        .build();
+    open_la7_play_items_modal(&dialog, items);
+}
+
+fn open_la7_play_page_subdialog_inner(
+    parent: &Dialog,
+    title: &str,
+    items: Vec<la7_play::BrowseItem>,
+) {
+    let ui = current_ui_strings();
+    if items.is_empty() {
+        show_message_subdialog(parent, title, &ui.rai_no_items);
+        return;
+    }
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 240)
+        .build();
+    open_la7_play_items_modal(&dialog, items);
+}
+
+fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) {
+    let ui = current_ui_strings();
+    let panel = Panel::builder(dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+
+    let choice = Choice::builder(&panel).build();
+    for item in &items {
+        choice.append(&rai_item_label(&item.title, item.description.as_deref()));
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel).with_label(&ui.open).build();
+    let save_button = Button::builder(&panel)
+        .with_label(&ui.rai_save_content)
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let items_rc = Rc::new(items);
+    if let Some(sel) = choice.get_selection() {
+        let visible = items_rc
+            .get(sel as usize)
+            .is_some_and(|item| item.kind == la7_play::ItemKind::Media);
+        update_choice_button_visibility(dialog, &panel, &save_button, visible);
+    }
+
+    let choice_open = choice;
+    let items_open = Rc::clone(&items_rc);
+    let parent_open = *dialog;
+    open_button.on_click(move |_| {
+        if let Some(sel) = choice_open.get_selection()
+            && let Some(item) = items_open.get(sel as usize)
+        {
+            match item.kind {
+                la7_play::ItemKind::Page => match la7_play::load_page(&item.target) {
+                    Ok(page) => open_la7_play_page_subdialog(&parent_open, page),
+                    Err(err) => show_message_subdialog(
+                        &parent_open,
+                        la7_play::menu_label(),
+                        &err,
+                    ),
+                },
+                la7_play::ItemKind::Media => {
+                    if let Err(err) = la7_play::resolve_vod(&item.target).and_then(|url| {
+                        open_stream_with_mpv(&url, &item.title, None, true)
+                    }) {
+                        show_message_subdialog(&parent_open, la7_play::menu_label(), &err);
+                    }
+                }
+                la7_play::ItemKind::Live => {
+                    if let Err(err) = open_la7_live_with_mpv(&item.target) {
+                        show_message_subdialog(&parent_open, la7_play::menu_label(), &err);
+                    }
+                }
+            }
+        }
+    });
+
+    let choice_save = choice;
+    let items_save = Rc::clone(&items_rc);
+    let parent_save = *dialog;
+    save_button.on_click(move |_| {
+        if let Some(sel) = choice_save.get_selection()
+            && let Some(item) = items_save.get(sel as usize)
+            && item.kind == la7_play::ItemKind::Media
+        {
+            match la7_play::resolve_vod(&item.target)
+                .and_then(|url| save_la7_target_dialog(&parent_save, &url, &item.title))
+            {
+                Ok(()) => show_message_subdialog(
+                    &parent_save,
+                    la7_play::menu_label(),
+                    &current_ui_strings().rai_save_completed,
+                ),
+                Err(err) => show_message_subdialog(&parent_save, la7_play::menu_label(), &err),
+            }
+        }
+    });
+
+    let choice_visibility = choice;
+    let dialog_visibility = *dialog;
+    let panel_visibility = panel;
+    let save_button_visibility = save_button;
+    let items_visibility = Rc::clone(&items_rc);
+    choice.on_selection_changed(move |_| {
+        let visible = choice_visibility
+            .get_selection()
+            .and_then(|sel| items_visibility.get(sel as usize))
+            .is_some_and(|item| item.kind == la7_play::ItemKind::Media);
+        update_choice_button_visibility(
+            &dialog_visibility,
+            &panel_visibility,
+            &save_button_visibility,
+            visible,
+        );
+    });
+
+    let parent_search = *dialog;
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match la7_play::search(&query) {
+            Ok(page) => open_la7_play_page_subdialog(&parent_search, page),
+            Err(err) => show_message_subdialog(&parent_search, la7_play::menu_label(), &err),
+        }
+    });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
+
+    let dialog_close = *dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn open_la7_live_with_mpv(target: &str) -> Result<(), String> {
+    let channels = tv::load_channels()?;
+    let needle = target.trim().to_ascii_lowercase();
+    let channel = channels.into_iter().find(|channel| {
+        let label = channel.name.to_ascii_lowercase();
+        if needle == "la7" {
+            label == "la7" || label.contains("la 7") && !label.contains("cinema")
+        } else {
+            label.contains("la7") && label.contains("cinema")
+                || label.contains("la 7") && label.contains("cinema")
+                || label.contains("la7d")
+        }
+    });
+    let channel = channel.ok_or_else(|| {
+        "Il contenuto selezionato non dispone di un flusso riproducibile.".to_string()
+    })?;
+    open_tv_stream_with_mpv(&channel)
+}
+
+fn save_la7_target_dialog(parent: &Dialog, url: &str, suggested_name: &str) -> Result<(), String> {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.rai_save_content)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(500, 170)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let choice = Choice::builder(&panel).build();
+    choice.append("MP3");
+    choice.append("MP4");
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    buttons.add_spacer(1);
+    buttons.add(
+        &Button::builder(&panel)
+            .with_id(ID_OK)
+            .with_label(&ui.ok)
+            .build(),
+        0,
+        SizerFlag::All,
+        10,
+    );
+    buttons.add(
+        &Button::builder(&panel)
+            .with_id(ID_CANCEL)
+            .with_label(&ui.cancel)
+            .build(),
+        0,
+        SizerFlag::All,
+        10,
+    );
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let selected = if dialog.show_modal() == ID_OK {
+        choice.get_selection().unwrap_or(0)
+    } else {
+        dialog.destroy();
+        return Ok(());
+    };
+    dialog.destroy();
+    if selected == 0 {
+        save_la7_with_ffmpeg(parent, url, suggested_name, "mp3", true)
+    } else {
+        save_la7_with_ffmpeg(parent, url, suggested_name, "mp4", false)
+    }
+}
+
+fn save_la7_with_ffmpeg(
+    parent: &Dialog,
+    url: &str,
+    suggested_name: &str,
+    extension: &str,
+    audio_only: bool,
+) -> Result<(), String> {
+    let ui = current_ui_strings();
+    let default_file = format!("{}.{}", sanitize_filename(suggested_name), extension);
+    let wildcard = format!("File (*.{extension})|*.{extension}|Tutti|*.*");
+    let dialog = FileDialog::builder(parent)
+        .with_message(&ui.rai_save_content)
+        .with_default_file(&default_file)
+        .with_wildcard(&wildcard)
+        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+        .build();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+    if dialog_result != ID_OK {
+        return Ok(());
+    }
+    let path = dialog
+        .get_path()
+        .ok_or_else(|| ui.save_folder_not_selected.clone())?;
+    if audio_only {
+        run_ffmpeg_save(
+            parent,
+            &["-y", "-i", url, "-vn", "-c:a", "libmp3lame", "-b:a", "192k"],
+            Path::new(&path),
+        )
+    } else {
+        run_ffmpeg_save(
+            parent,
+            &["-y", "-i", url, "-c", "copy"],
+            Path::new(&path),
+        )
+    }
+}
+
 fn open_raiplay_search_dialog(parent: &Frame) -> Option<String> {
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, &ui.raiplay_search_label)
@@ -25059,6 +25381,13 @@ fn main() {
             &audio_description_label,
             ItemKind::Normal,
         );
+        let media_transcription_label = media_transcription::menu_label();
+        tools_menu.append(
+            ID_TOOLS_MEDIA_TRANSCRIPTION,
+            &media_transcription_label,
+            &media_transcription_label,
+            ItemKind::Normal,
+        );
         if youtube_tools_available() {
             tools_menu.append(
                 ID_TOOLS_YOUTUBE,
@@ -25128,6 +25457,12 @@ fn main() {
                 ID_RAIPLAY_BROWSE,
                 &ui.raiplay_label,
                 &ui.raiplay_label,
+                ItemKind::Normal,
+            );
+            tools_menu.append(
+                ID_LA7_PLAY,
+                la7_play::menu_label(),
+                la7_play::menu_label(),
                 ItemKind::Normal,
             );
             tools_menu.append(
@@ -25844,6 +26179,8 @@ fn main() {
                 open_wikipedia_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
             } else if event.get_id() == ID_TOOLS_AUDIO_DESCRIPTION {
                 audio_description::open_create_dialog(&f_menu, &settings_menu, &rt_audio_description_menu, &voices_audio_description_menu);
+            } else if event.get_id() == ID_TOOLS_MEDIA_TRANSCRIPTION {
+                media_transcription::open_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_YOUTUBE {
                 open_youtube_dialog(&f_menu, &settings_menu);
             } else if event.get_id() == ID_TOOLS_TRECCANI {
@@ -25868,6 +26205,8 @@ fn main() {
                 open_rai_audio_descriptions_dialog(&f_menu);
             } else if event.get_id() == ID_RAIPLAY_BROWSE {
                 open_raiplay_browser_dialog(&f_menu, None);
+            } else if event.get_id() == ID_LA7_PLAY {
+                open_la7_play_browser_dialog(&f_menu);
             } else if event.get_id() == ID_RAIPLAY_SEARCH {
                 if let Some(query) = open_raiplay_search_dialog(&f_menu) {
                     open_raiplay_browser_dialog(&f_menu, Some(query));
