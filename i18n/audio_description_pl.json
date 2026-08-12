@@ -64,6 +64,8 @@
   "audio_description.progress.tts": "Syntezowanie opisów wybranym głosem Sonarpad...",
   "audio_description.progress.tts_edit": "Syntezowanie zmodyfikowanych opisów projektu...",
   "audio_description.project.apply": "Zastosuj tekst",
+  "audio_description.project.search": "Szukaj w opisach:",
+  "audio_description.project.search_button": "Szukaj",
   "audio_description.project.apply_before_export": "Najpierw zastosuj bieżącą zmianę, a następnie ponownie wyeksportuj MP3.",
   "audio_description.project.delete_confirm": "Usunąć wybrany opis z projektu?",
   "audio_description.project.delete_description": "Usuń opis",

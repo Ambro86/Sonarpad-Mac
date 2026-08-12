@@ -64,6 +64,8 @@
   "audio_description.progress.tts": "Sintesi delle descrizioni con la voce Sonarpad selezionata...",
   "audio_description.progress.tts_edit": "Sintesi delle descrizioni modificate del progetto...",
   "audio_description.project.apply": "Applica testo",
+  "audio_description.project.search": "Cerca descrizioni:",
+  "audio_description.project.search_button": "Cerca",
   "audio_description.project.apply_before_export": "Applica prima la modifica corrente, poi esporta nuovamente l’MP3.",
   "audio_description.project.delete_confirm": "Eliminare dal progetto la descrizione selezionata?",
   "audio_description.project.delete_description": "Elimina descrizione",

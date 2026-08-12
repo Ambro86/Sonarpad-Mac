@@ -4024,6 +4024,69 @@ fn run_project_export_with_progress(
         .unwrap_or_else(|| Err("cancelled".to_string()))
 }
 
+fn project_description_search_order(
+    descriptions: &[ProjectDescription],
+    query: &str,
+) -> Vec<usize> {
+    let needle = query.trim().to_lowercase();
+    if needle.is_empty() {
+        return (0..descriptions.len()).collect();
+    }
+
+    let mut matches = Vec::new();
+    let mut remaining = Vec::new();
+    for (index, description) in descriptions.iter().enumerate() {
+        if description.text.to_lowercase().contains(&needle) {
+            matches.push(index);
+        } else {
+            remaining.push(index);
+        }
+    }
+    matches.extend(remaining);
+    matches
+}
+
+fn selected_project_description_index(
+    choice: &Choice,
+    display_order: &RefCell<Vec<usize>>,
+) -> Option<usize> {
+    let display_index = choice.get_selection()? as usize;
+    display_order.borrow().get(display_index).copied()
+}
+
+fn refresh_project_description_choice(
+    choice: &Choice,
+    descriptions: &[ProjectDescription],
+    display_order: &RefCell<Vec<usize>>,
+    query: &str,
+    preferred_real_index: Option<usize>,
+) -> Option<usize> {
+    let order = project_description_search_order(descriptions, query);
+    choice.clear();
+    for index in &order {
+        if let Some(description) = descriptions.get(*index) {
+            choice.append(&format!(
+                "{} - {}",
+                format_mmss(description.source_start_sec),
+                description.text
+            ));
+        }
+    }
+
+    if order.is_empty() {
+        *display_order.borrow_mut() = order;
+        return None;
+    }
+
+    let display_index = preferred_real_index
+        .and_then(|real_index| order.iter().position(|index| *index == real_index))
+        .unwrap_or(0);
+    let selected_real_index = order[display_index];
+    *display_order.borrow_mut() = order;
+    choice.set_selection(display_index as u32);
+    Some(selected_real_index)
+}
+
 pub fn open_project_editor(
     parent: &Frame,
     rt: &Arc<Runtime>,
@@ -4060,16 +4123,14 @@ pub fn open_project_editor(
         5,
     );
     let choice = Choice::builder(&panel).build();
-    for description in &project.borrow().descriptions {
-        choice.append(&format!(
-            "{} - {}",
-            format_mmss(description.source_start_sec),
-            description.text
-        ));
-    }
-    if !project.borrow().descriptions.is_empty() {
-        choice.set_selection(0);
-    }
+    let description_display_order = Rc::new(RefCell::new(Vec::<usize>::new()));
+    refresh_project_description_choice(
+        &choice,
+        &project.borrow().descriptions,
+        &description_display_order,
+        "",
+        None,
+    );
     root.add(&choice, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
     root.add(
@@ -4094,6 +4155,25 @@ pub fn open_project_editor(
     let apply_row = BoxSizer::builder(Orientation::Horizontal).build();
     apply_row.add(&apply, 0, SizerFlag::All, 4);
     root.add_sizer(&apply_row, 0, SizerFlag::Expand, 0);
+
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&tr("audio_description.project.search"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    let search_button = Button::builder(&panel)
+        .with_label(&tr("audio_description.project.search_button"))
+        .build();
+    search_row.add(&search, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
     let engine = Choice::builder(&panel).build();
     engine.append(&tr("audio_description.engine.edge"));
@@ -4213,13 +4293,69 @@ pub fn open_project_editor(
     panel.set_sizer(root, true);
 
     let project_selection = Rc::clone(&project);
+    let display_order_selection = Rc::clone(&description_display_order);
     choice.on_selection_changed(move |_| {
-        if let Some(index) = choice.get_selection().map(|value| value as usize)
+        if let Some(index) =
+            selected_project_description_index(&choice, &display_order_selection)
             && let Some(description) = project_selection.borrow().descriptions.get(index)
         {
             text.set_value(&description.text);
             status.set_label(&project_description_details(
                 &project_selection.borrow(),
+                index,
+            ));
+        }
+    });
+
+    let project_search = Rc::clone(&project);
+    let display_order_search = Rc::clone(&description_display_order);
+    let run_description_search = Rc::new(move || {
+        let query = search.get_value();
+        let preferred = if query.trim().is_empty() {
+            selected_project_description_index(&choice, &display_order_search)
+        } else {
+            None
+        };
+        let selected = refresh_project_description_choice(
+            &choice,
+            &project_search.borrow().descriptions,
+            &display_order_search,
+            &query,
+            preferred,
+        );
+        if let Some(index) = selected
+            && let Some(description) = project_search.borrow().descriptions.get(index)
+        {
+            text.set_value(&description.text);
+            status.set_label(&project_description_details(&project_search.borrow(), index));
+        }
+        choice.set_focus();
+    });
+    let run_description_search_button = Rc::clone(&run_description_search);
+    search_button.on_click(move |_| run_description_search_button());
+    let run_description_search_enter = Rc::clone(&run_description_search);
+    search.on_text_enter(move |_| run_description_search_enter());
+
+    let project_search_clear = Rc::clone(&project);
+    let display_order_search_clear = Rc::clone(&description_display_order);
+    search.on_text_changed(move |_| {
+        if !search.get_value().trim().is_empty() {
+            return;
+        }
+        let preferred = selected_project_description_index(&choice, &display_order_search_clear);
+        let selected = refresh_project_description_choice(
+            &choice,
+            &project_search_clear.borrow().descriptions,
+            &display_order_search_clear,
+            "",
+            preferred,
+        );
+        if let Some(index) = selected
+            && let Some(description) = project_search_clear.borrow().descriptions.get(index)
+        {
+            text.set_value(&description.text);
+            status.set_label(&project_description_details(
+                &project_search_clear.borrow(),
                 index,
             ));
         }
@@ -4244,8 +4380,10 @@ pub fn open_project_editor(
     let fill_project_voices_change = Rc::clone(&fill_project_voices);
     let rt_voice = Arc::clone(rt);
     let dialog_voice = dialog;
+    let display_order_voice = Rc::clone(&description_display_order);
     change_voice.on_click(move |_| {
-        let selected_description_index = choice.get_selection().unwrap_or(0) as usize;
+        let selected_description_index =
+            selected_project_description_index(&choice, &display_order_voice).unwrap_or(0);
         let selected_voice_index = voice.get_selection().unwrap_or(0) as usize;
         let candidate = project_voices_change
             .borrow()
@@ -4287,19 +4425,21 @@ pub fn open_project_editor(
         match validation {
             Ok(updated) => {
                 *project_voice.borrow_mut() = updated;
-                choice.clear();
-                for description in &project_voice.borrow().descriptions {
-                    choice.append(&format!(
-                        "{} - {}",
-                        format_mmss(description.source_start_sec),
-                        description.text
-                    ));
-                }
                 if !project_voice.borrow().descriptions.is_empty() {
                     let selected_description = selected_description_index
                         .min(project_voice.borrow().descriptions.len().saturating_sub(1));
-                    choice.set_selection(selected_description as u32);
-                    if let Some(description) = project_voice.borrow().descriptions.get(selected_description) {
+                    let query = search.get_value();
+                    let selected = refresh_project_description_choice(
+                        &choice,
+                        &project_voice.borrow().descriptions,
+                        &display_order_voice,
+                        &query,
+                        Some(selected_description),
+                    );
+                    if let Some(selected_description) = selected
+                        && let Some(description) =
+                            project_voice.borrow().descriptions.get(selected_description)
+                    {
                         text.set_value(&description.text);
                         status.set_label(&project_description_details(
                             &project_voice.borrow(),
@@ -4357,8 +4497,9 @@ pub fn open_project_editor(
     let path_apply = path.clone();
     let dialog_apply = dialog;
     let rt_apply = Arc::clone(rt);
+    let display_order_apply = Rc::clone(&description_display_order);
     apply.on_click(move |_| {
-        let Some(index) = choice.get_selection().map(|value| value as usize) else {
+        let Some(index) = selected_project_description_index(&choice, &display_order_apply) else {
             show_project_error(&dialog_apply, &tr("audio_description.project.no_selection"));
             return;
         };
@@ -4427,15 +4568,14 @@ pub fn open_project_editor(
             show_project_error(&dialog_apply, &error);
             return;
         }
-        choice.clear();
-        for description in &project_apply.borrow().descriptions {
-            choice.append(&format!(
-                "{} - {}",
-                format_mmss(description.source_start_sec),
-                description.text
-            ));
-        }
-        choice.set_selection(index as u32);
+        let query = search.get_value();
+        refresh_project_description_choice(
+            &choice,
+            &project_apply.borrow().descriptions,
+            &display_order_apply,
+            &query,
+            Some(index),
+        );
         status.set_label(&tr("audio_description.project.edit_saved"));
         show_project_edit_success(&dialog_apply);
     });
@@ -4443,8 +4583,9 @@ pub fn open_project_editor(
     let project_play = Rc::clone(&project);
     let rt_play = Arc::clone(rt);
     let dialog_play = dialog;
+    let display_order_play = Rc::clone(&description_display_order);
     play.on_click(move |_| {
-        let Some(index) = choice.get_selection().map(|value| value as usize) else {
+        let Some(index) = selected_project_description_index(&choice, &display_order_play) else {
             show_error(&dialog_play, &tr("audio_description.project.no_selection"));
             return;
         };
@@ -4505,8 +4646,9 @@ pub fn open_project_editor(
     let project_delete = Rc::clone(&project);
     let path_delete = path.clone();
     let dialog_delete = dialog;
+    let display_order_delete = Rc::clone(&description_display_order);
     delete.on_click(move |_| {
-        let Some(index) = choice.get_selection().map(|value| value as usize) else {
+        let Some(index) = selected_project_description_index(&choice, &display_order_delete) else {
             show_error(
                 &dialog_delete,
                 &tr("audio_description.project.no_selection"),
@@ -4539,17 +4681,18 @@ pub fn open_project_editor(
             show_error(&dialog_delete, &error);
             return;
         }
-        choice.clear();
-        for description in &project_delete.borrow().descriptions {
-            choice.append(&format!(
-                "{} - {}",
-                format_mmss(description.source_start_sec),
-                description.text
-            ));
-        }
         let next_index = index.min(project_delete.borrow().descriptions.len() - 1);
-        choice.set_selection(next_index as u32);
-        if let Some(description) = project_delete.borrow().descriptions.get(next_index) {
+        let query = search.get_value();
+        let selected = refresh_project_description_choice(
+            &choice,
+            &project_delete.borrow().descriptions,
+            &display_order_delete,
+            &query,
+            Some(next_index),
+        );
+        if let Some(selected_index) = selected
+            && let Some(description) = project_delete.borrow().descriptions.get(selected_index)
+        {
             text.set_value(&description.text);
         }
         status.set_label(&tr("audio_description.project.description_deleted"));
@@ -4559,8 +4702,9 @@ pub fn open_project_editor(
     let path_export = path.clone();
     let rt_export = Arc::clone(rt);
     let dialog_export = dialog;
+    let display_order_export = Rc::clone(&description_display_order);
     export.on_click(move |_| {
-        if let Some(index) = choice.get_selection().map(|value| value as usize) {
+        if let Some(index) = selected_project_description_index(&choice, &display_order_export) {
             let draft = text.get_value().trim().to_string();
             if project_export
                 .borrow()
@@ -4601,8 +4745,11 @@ pub fn open_project_editor(
 
     let project_export_srt = Rc::clone(&project);
     let dialog_export_srt = dialog;
+    let display_order_export_srt = Rc::clone(&description_display_order);
     export_srt.on_click(move |_| {
-        if let Some(index) = choice.get_selection().map(|value| value as usize) {
+        if let Some(index) =
+            selected_project_description_index(&choice, &display_order_export_srt)
+        {
             let draft = text.get_value().trim().to_string();
             if project_export_srt
                 .borrow()
@@ -4642,8 +4789,11 @@ pub fn open_project_editor(
 
     let project_export_vtt = Rc::clone(&project);
     let dialog_export_vtt = dialog;
+    let display_order_export_vtt = Rc::clone(&description_display_order);
     export_vtt.on_click(move |_| {
-        if let Some(index) = choice.get_selection().map(|value| value as usize) {
+        if let Some(index) =
+            selected_project_description_index(&choice, &display_order_export_vtt)
+        {
             let draft = text.get_value().trim().to_string();
             if project_export_vtt
                 .borrow()
@@ -4715,7 +4865,9 @@ pub fn open_project_editor(
 
 #[cfg(test)]
 mod tests {
-    use super::AUDIO_DESCRIPTION_LANGUAGES;
+    use super::{
+        AUDIO_DESCRIPTION_LANGUAGES, ProjectDescription, project_description_search_order,
+    };
     use std::collections::HashMap;
 
     const UI_TRANSLATIONS: &[(&str, &str)] = &[
@@ -4727,6 +4879,75 @@ mod tests {
         ("cs", include_str!("../i18n/audio_description_cs.json")),
         ("pl", include_str!("../i18n/audio_description_pl.json")),
     ];
+
+    fn test_project_description(id: usize, text: &str) -> ProjectDescription {
+        ProjectDescription {
+            id,
+            text: text.to_string(),
+            original_text: text.to_string(),
+            rendered_text: text.to_string(),
+            modified: false,
+            gemini_start_sec: id as f64,
+            mandatory: false,
+            slot_id: String::new(),
+            slot_start_sec: None,
+            slot_end_sec: None,
+            source_start_sec: id as f64,
+            output_start_sec: id as f64,
+            output_end_sec: id as f64 + 1.0,
+            tts_duration_sec: 1.0,
+            extended_pause: false,
+            extended_pause_duration_sec: 0.0,
+            duck_start_sec: None,
+            duck_end_sec: None,
+        }
+    }
+
+    #[test]
+    fn project_description_search_moves_matches_to_top_without_hiding_other_rows() {
+        let descriptions = vec![
+            test_project_description(0, "Elrond osserva la sala."),
+            test_project_description(1, "Galadriel entra nella stanza."),
+            test_project_description(2, "GALADRIEL guarda verso il mare."),
+            test_project_description(3, "Sauron si volta."),
+        ];
+
+        assert_eq!(
+            project_description_search_order(&descriptions, "galadriel"),
+            vec![1, 2, 0, 3]
+        );
+        assert_eq!(
+            project_description_search_order(&descriptions, "  GALADRIEL  "),
+            vec![1, 2, 0, 3]
+        );
+        assert_eq!(
+            project_description_search_order(&descriptions, "nessun risultato"),
+            vec![0, 1, 2, 3]
+        );
+        assert_eq!(
+            project_description_search_order(&descriptions, ""),
+            vec![0, 1, 2, 3]
+        );
+    }
+
+    #[test]
+    fn project_search_controls_are_localized_in_every_ui_language() {
+        for (ui_language, raw) in UI_TRANSLATIONS {
+            let translations: HashMap<String, String> =
+                serde_json::from_str(raw).expect("valid audio-description translations");
+            for key in [
+                "audio_description.project.search",
+                "audio_description.project.search_button",
+            ] {
+                assert!(
+                    translations
+                        .get(key)
+                        .is_some_and(|label| !label.trim().is_empty()),
+                    "missing {key} for UI language {ui_language}"
+                );
+            }
+        }
+    }
 
     #[test]
     fn every_audio_description_language_name_is_localized() {

@@ -64,6 +64,8 @@
   "audio_description.progress.tts": "Syntéza popisů vybraným hlasem Sonarpad...",
   "audio_description.progress.tts_edit": "Syntéza upravených popisů projektu...",
   "audio_description.project.apply": "Použít text",
+  "audio_description.project.search": "Hledat v popisech:",
+  "audio_description.project.search_button": "Hledat",
   "audio_description.project.apply_before_export": "Nejprve použijte aktuální změnu a potom znovu exportujte MP3.",
   "audio_description.project.delete_confirm": "Odstranit vybraný popis z projektu?",
   "audio_description.project.delete_description": "Odstranit popis",
