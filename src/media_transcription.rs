@@ -261,7 +261,9 @@ fn run_with_progress(
                 gauge_tick.set_value(snapshot.progress.clamp(0, 99));
             } else {
                 status_tick.set_label(&tr("media_transcription.status.preparing_model"));
-                gauge_tick.pulse();
+                // wxDragon 0.9.9 does not expose wxGauge::Pulse. Keep the gauge
+                // determinate while the bundled worker prepares/downloads the model.
+                gauge_tick.set_value(snapshot.progress.clamp(0, 99));
             }
         }
         if let Some(done) = snapshot.done {

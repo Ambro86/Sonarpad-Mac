@@ -179,6 +179,24 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
             r"(?s)open_project_requested_button\.set\(true\).*d_modify\.end_modal",
         )
 
+    def test_project_editor_exports_srt_and_vtt_after_mp3(self):
+        editor_start = AUDIO.index("pub fn open_project_editor")
+        editor = AUDIO[editor_start:]
+        mp3 = editor.index('tr("audio_description.project.export")')
+        srt = editor.index('tr("audio_description.project.export_srt")')
+        vtt = editor.index('tr("audio_description.project.export_vtt")')
+        close = editor.index('tr("audio_description.close")', vtt)
+        self.assertLess(mp3, srt)
+        self.assertLess(srt, vtt)
+        self.assertLess(vtt, close)
+        self.assertIn('export_project_subtitles(&dialog_export_srt, &snapshot, "srt")', editor)
+        self.assertIn('export_project_subtitles(&dialog_export_vtt, &snapshot, "vtt")', editor)
+        self.assertIn("fn render_project_srt", AUDIO)
+        self.assertIn("fn render_project_vtt", AUDIO)
+        self.assertIn('String::from("WEBVTT\\r\\n\\r\\n")', AUDIO)
+        self.assertIn("description.output_start_sec", AUDIO)
+        self.assertIn("description.output_end_sec", AUDIO)
+
     def test_modern_workflow_builds_bundles_and_signs_worker(self):
         self.assertIn("build_audio_description_bridge_macos.sh", WORKFLOW)
         self.assertIn("dist/audio-description-worker", WORKFLOW)

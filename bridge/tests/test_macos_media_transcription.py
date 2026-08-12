@@ -69,6 +69,8 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('tr("media_transcription.model.medium")', source)
         self.assertIn('tr("media_transcription.model.large")', source)
         self.assertIn("Gauge::builder(&panel).with_range(100).build()", source)
+        self.assertIn("gauge_tick.set_value(snapshot.progress.clamp(0, 99))", source)
+        self.assertNotIn("gauge_tick.pulse()", source)
         self.assertIn("run_with_progress", source)
         self.assertIn("FileDialogStyle::FileMustExist", source)
         self.assertIn("FileDialogStyle::OverwritePrompt", source)

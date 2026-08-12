@@ -3226,6 +3226,125 @@ fn project_file_dialog(parent: &Frame) -> Option<PathBuf> {
     }
 }
 
+fn format_project_subtitle_timestamp(seconds: f64, millisecond_separator: char) -> String {
+    let safe_seconds = if seconds.is_finite() {
+        seconds.max(0.0)
+    } else {
+        0.0
+    };
+    let total_ms = (safe_seconds * 1000.0).round() as u64;
+    let hours = total_ms / 3_600_000;
+    let minutes = (total_ms / 60_000) % 60;
+    let secs = (total_ms / 1000) % 60;
+    let millis = total_ms % 1000;
+    format!("{hours:02}:{minutes:02}:{secs:02}{millisecond_separator}{millis:03}")
+}
+
+fn normalized_project_subtitle_text(text: &str) -> String {
+    text.replace("\r\n", "\n")
+        .replace('\r', "\n")
+        .trim()
+        .to_string()
+}
+
+fn render_project_srt(project: &AudioDescriptionProject) -> String {
+    let mut output = String::new();
+    let mut cue_number = 1usize;
+    for description in &project.descriptions {
+        let text = normalized_project_subtitle_text(&description.text);
+        if text.is_empty() {
+            continue;
+        }
+        let start = description.output_start_sec.max(0.0);
+        let end = description.output_end_sec.max(start + 0.001);
+        output.push_str(&format!(
+            "{cue_number}\r\n{} --> {}\r\n{}\r\n\r\n",
+            format_project_subtitle_timestamp(start, ','),
+            format_project_subtitle_timestamp(end, ','),
+            text.replace('\n', "\r\n")
+        ));
+        cue_number += 1;
+    }
+    output
+}
+
+fn render_project_vtt(project: &AudioDescriptionProject) -> String {
+    let mut output = String::from("WEBVTT\r\n\r\n");
+    for description in &project.descriptions {
+        let text = normalized_project_subtitle_text(&description.text);
+        if text.is_empty() {
+            continue;
+        }
+        let start = description.output_start_sec.max(0.0);
+        let end = description.output_end_sec.max(start + 0.001);
+        output.push_str(&format!(
+            "{} --> {}\r\n{}\r\n\r\n",
+            format_project_subtitle_timestamp(start, '.'),
+            format_project_subtitle_timestamp(end, '.'),
+            text.replace('\n', "\r\n")
+        ));
+    }
+    output
+}
+
+fn choose_project_subtitle_output(
+    parent: &Dialog,
+    project: &AudioDescriptionProject,
+    extension: &str,
+) -> Option<PathBuf> {
+    let stem = project
+        .output_mp3_path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .or_else(|| project.source_path.file_stem().and_then(|value| value.to_str()))
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or("audiodescrizione");
+    let format_name = extension.to_ascii_uppercase();
+    let wildcard = if extension.eq_ignore_ascii_case("vtt") {
+        "WebVTT|*.vtt"
+    } else {
+        "SubRip|*.srt"
+    };
+    let dialog = FileDialog::builder(parent)
+        .with_message(&trf(
+            "audio_description.project.export_subtitle_title",
+            &[("format", format_name)],
+        ))
+        .with_default_file(&format!("{stem}.{extension}"))
+        .with_wildcard(wildcard)
+        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+        .build();
+    if dialog.show_modal() != ID_OK {
+        return None;
+    }
+    let mut path = dialog.get_path().map(PathBuf::from)?;
+    if !path
+        .extension()
+        .and_then(|value| value.to_str())
+        .is_some_and(|value| value.eq_ignore_ascii_case(extension))
+    {
+        path.set_extension(extension);
+    }
+    Some(path)
+}
+
+fn export_project_subtitles(
+    parent: &Dialog,
+    project: &AudioDescriptionProject,
+    extension: &str,
+) -> Result<Option<PathBuf>, String> {
+    let Some(path) = choose_project_subtitle_output(parent, project, extension) else {
+        return Ok(None);
+    };
+    let contents = if extension.eq_ignore_ascii_case("vtt") {
+        render_project_vtt(project)
+    } else {
+        render_project_srt(project)
+    };
+    fs::write(&path, contents.as_bytes()).map_err(|error| error.to_string())?;
+    Ok(Some(path))
+}
+
 fn load_project(path: &Path) -> Result<AudioDescriptionProject, String> {
     let raw = fs::read(path).map_err(|e| e.to_string())?;
     let p: AudioDescriptionProject =
@@ -3679,11 +3798,17 @@ pub fn open_project_editor(
     let export = Button::builder(&panel)
         .with_label(&tr("audio_description.project.export"))
         .build();
+    let export_srt = Button::builder(&panel)
+        .with_label(&tr("audio_description.project.export_srt"))
+        .build();
+    let export_vtt = Button::builder(&panel)
+        .with_label(&tr("audio_description.project.export_vtt"))
+        .build();
     let close = Button::builder(&panel)
         .with_id(ID_AUDIO_DESCRIPTION_PROJECT_CLOSE)
         .with_label(&tr("audio_description.close"))
         .build();
-    for button in [&play, &delete, &export, &close] {
+    for button in [&play, &delete, &export, &export_srt, &export_vtt, &close] {
         row.add(button, 0, SizerFlag::All, 4);
     }
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
@@ -4073,6 +4198,88 @@ pub fn open_project_editor(
                 append_podcast_log("audio_description.project.export_failed");
                 show_error(&dialog_export, &error);
             }
+        }
+    });
+
+    let project_export_srt = Rc::clone(&project);
+    let dialog_export_srt = dialog;
+    export_srt.on_click(move |_| {
+        if let Some(index) = choice.get_selection().map(|value| value as usize) {
+            let draft = text.get_value().trim().to_string();
+            if project_export_srt
+                .borrow()
+                .descriptions
+                .get(index)
+                .is_some_and(|description| description.text != draft)
+            {
+                show_error(
+                    &dialog_export_srt,
+                    &tr("audio_description.project.apply_before_export"),
+                );
+                return;
+            }
+        }
+        let snapshot = project_export_srt.borrow();
+        match export_project_subtitles(&dialog_export_srt, &snapshot, "srt") {
+            Ok(Some(path)) => show_completion(
+                &dialog_export_srt,
+                &trf(
+                    "audio_description.project.export_subtitle_success",
+                    &[
+                        ("format", "SRT".to_string()),
+                        ("path", path.to_string_lossy().into_owned()),
+                    ],
+                ),
+            ),
+            Ok(None) => {}
+            Err(error) => show_error(
+                &dialog_export_srt,
+                &trf(
+                    "audio_description.project.export_subtitle_error",
+                    &[("format", "SRT".to_string()), ("error", error)],
+                ),
+            ),
+        }
+    });
+
+    let project_export_vtt = Rc::clone(&project);
+    let dialog_export_vtt = dialog;
+    export_vtt.on_click(move |_| {
+        if let Some(index) = choice.get_selection().map(|value| value as usize) {
+            let draft = text.get_value().trim().to_string();
+            if project_export_vtt
+                .borrow()
+                .descriptions
+                .get(index)
+                .is_some_and(|description| description.text != draft)
+            {
+                show_error(
+                    &dialog_export_vtt,
+                    &tr("audio_description.project.apply_before_export"),
+                );
+                return;
+            }
+        }
+        let snapshot = project_export_vtt.borrow();
+        match export_project_subtitles(&dialog_export_vtt, &snapshot, "vtt") {
+            Ok(Some(path)) => show_completion(
+                &dialog_export_vtt,
+                &trf(
+                    "audio_description.project.export_subtitle_success",
+                    &[
+                        ("format", "VTT".to_string()),
+                        ("path", path.to_string_lossy().into_owned()),
+                    ],
+                ),
+            ),
+            Ok(None) => {}
+            Err(error) => show_error(
+                &dialog_export_vtt,
+                &trf(
+                    "audio_description.project.export_subtitle_error",
+                    &[("format", "VTT".to_string()), ("error", error)],
+                ),
+            ),
         }
     });
 
