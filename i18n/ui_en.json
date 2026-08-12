@@ -382,5 +382,11 @@
   "article_community_sources_empty": "No community news sources are available for this language.",
   "article_community_sources_error": "Error loading community news sources: {err}",
   "add_article_community_instructions": "Enter the source title and an RSS feed URL or website URL. Sonarpad will use the selected news language and, if you enter a website, will try to find the feed automatically.",
-  "add_article_community_selected_language": "Selected language: {language}"
+  "add_article_community_selected_language": "Selected language: {language}",
+  "editor_text_label": "Document text",
+  "weather_results_label": "Weather forecast",
+  "cinema_details_label": "Movie details",
+  "italian_directories_location_label": "Location (optional):",
+  "youtube_search_label": "YouTube URL or search",
+  "tv_search_label": "Search TV channel"
 }

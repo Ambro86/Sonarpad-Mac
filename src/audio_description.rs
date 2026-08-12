@@ -2146,6 +2146,7 @@ fn show_completion(parent: &Dialog, message: &str) {
     let completion_details = TextCtrl::builder(&completion_panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
+    completion_details.set_accessibility_label(&tr("audio_description.completion.details"));
     completion_details.set_value(message);
     completion_root.add(
         &completion_details,
@@ -2479,6 +2480,7 @@ pub fn open_create_dialog(
     let p = Panel::builder(&d).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let input = TextCtrl::builder(&p).build();
+    input.set_accessibility_label(&tr("audio_description.input"));
     let input_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.input"))
         .build();
@@ -2496,6 +2498,7 @@ pub fn open_create_dialog(
     input_row.add(&input_btn, 0, SizerFlag::All, 5);
     root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
     let output = TextCtrl::builder(&p).build();
+    output.set_accessibility_label(&tr("audio_description.output"));
     let output_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.output"))
         .build();
@@ -2615,6 +2618,7 @@ pub fn open_create_dialog(
         .with_label(&tr("audio_description.character_catalog.new_name_label"))
         .build();
     let catalog_name = TextCtrl::builder(&p).build();
+    catalog_name.set_accessibility_label(&tr("audio_description.character_catalog.new_name_label"));
     catalog_name_row.add(
         &catalog_name_label,
         0,
@@ -2630,6 +2634,7 @@ pub fn open_create_dialog(
         .with_label(&tr("audio_description.gemini_api_key"))
         .build();
     let api = TextCtrl::builder(&p).build();
+    api.set_accessibility_label(&tr("audio_description.gemini_api_key"));
     api.set_value(&saved.audio_description_gemini_api_key);
     let api_get = Button::builder(&p)
         .with_label(&tr("audio_description.gemini_get_key"))
@@ -4144,6 +4149,7 @@ pub fn open_project_editor(
     let text = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine)
         .build();
+    text.set_accessibility_label(&tr("audio_description.project.text"));
     if let Some(description) = project.borrow().descriptions.first() {
         text.set_value(&description.text);
     }
@@ -4168,6 +4174,7 @@ pub fn open_project_editor(
     let search = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search.set_accessibility_label(&tr("audio_description.project.search"));
     let search_button = Button::builder(&panel)
         .with_label(&tr("audio_description.project.search_button"))
         .build();

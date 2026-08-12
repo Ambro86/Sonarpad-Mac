@@ -304,6 +304,7 @@ pub fn open_dialog(parent: &Frame) {
         5,
     );
     let input = TextCtrl::builder(&panel).build();
+    input.set_accessibility_label(&tr("media_transcription.input"));
     input_row.add(&input, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let input_button = Button::builder(&panel)
         .with_label(&tr("media_transcription.browse_input"))
@@ -321,6 +322,7 @@ pub fn open_dialog(parent: &Frame) {
         5,
     );
     let output = TextCtrl::builder(&panel).build();
+    output.set_accessibility_label(&tr("media_transcription.output"));
     output_row.add(&output, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let output_button = Button::builder(&panel)
         .with_label(&tr("media_transcription.browse_output"))

@@ -722,6 +722,7 @@ struct UiStrings {
     settings_title: String,
     about_title: String,
     donations_title: String,
+    editor_text_label: String,
     interface_language_label: String,
     news_language_label: String,
     voice_engine_label: String,
@@ -795,6 +796,7 @@ struct UiStrings {
     weather_precipitation_probability: String,
     weather_wind: String,
     weather_relative_humidity: String,
+    weather_results_label: String,
     cinema_title: String,
     cinema_no_movies: String,
     cinema_released: String,
@@ -802,6 +804,7 @@ struct UiStrings {
     cinema_upcoming_releases: String,
     cinema_will_release: String,
     cinema_open_trailer: String,
+    cinema_details_label: String,
     cinema_no_trailer: String,
     convert_media_title: String,
     convert_media_input: String,
@@ -850,6 +853,7 @@ struct UiStrings {
     bdciechi_go_button: String,
     italian_directories_title: String,
     italian_directories_directory_label: String,
+    italian_directories_location_label: String,
     italian_directories_white_pages: String,
     italian_directories_yellow_pages: String,
     italian_directories_empty_query: String,
@@ -858,6 +862,7 @@ struct UiStrings {
     wikipedia_open_preview: String,
     wikipedia_import_editor: String,
     youtube_title: String,
+    youtube_search_label: String,
     youtube_favorites_label: String,
     youtube_format_label: String,
     youtube_quality_label: String,
@@ -1050,6 +1055,7 @@ struct UiStrings {
     raiplay_search_label: String,
     raiplaysound_label: String,
     tv_label: String,
+    tv_search_label: String,
     tv_favorites_label: String,
     tv_add_favorite: String,
     routes_title: String,
@@ -1133,10 +1139,12 @@ fn current_ui_strings() -> &'static UiStrings {
     ui_strings(&ui_language)
 }
 
-fn set_italian_accessible_name(widget: &impl WxWidget, ui_language: &str, name: &str) {
-    if ui_language == "it" {
-        widget.set_name(name);
-    }
+fn set_localized_accessible_label(
+    widget: &impl WxWidget,
+    _ui_language: &str,
+    label: &str,
+) {
+    widget.set_accessibility_label(label);
 }
 
 #[cfg(target_os = "macos")]
@@ -2067,6 +2075,7 @@ fn open_donations_dialog(parent: &Frame) {
     let text = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
+    text.set_accessibility_label(donations_title());
     text.set_value(donations_message());
     root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
@@ -2101,6 +2110,7 @@ fn open_changelog_dialog(parent: &Frame) {
     let text = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
+    text.set_accessibility_label(&ui.changelog_title);
     text.set_value(&changelog_message());
     root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
@@ -2965,6 +2975,7 @@ fn prompt_text_save_path(
     );
 
     let name_ctrl = TextCtrl::builder(&panel).build();
+    name_ctrl.set_accessibility_label(&ui.save_filename_label);
     name_ctrl.set_value(&default_filename);
     root.add(
         &name_ctrl,
@@ -2984,7 +2995,7 @@ fn prompt_text_save_path(
     );
 
     let format_choice = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &format_choice,
         &settings_snapshot.ui_language,
         &ui.save_format_label,
@@ -3593,6 +3604,7 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     );
 
     let name_ctrl = TextCtrl::builder(&panel).build();
+    name_ctrl.set_accessibility_label(&ui.save_filename_label);
     name_ctrl.set_value(&default_filename);
     root.add(
         &name_ctrl,
@@ -3612,7 +3624,7 @@ fn prompt_audiobook_save_path(parent: &Frame, settings: &Arc<Mutex<Settings>>) -
     );
 
     let format_choice = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &format_choice,
         &settings_snapshot.ui_language,
         &ui.save_format_label,
@@ -4517,6 +4529,7 @@ fn open_radio_country_city_dialog(
     let ui_language = Settings::load().ui_language;
     let dialog_title = match ui_language.as_str() {
         "it" => "Radio per nazione e città",
+        "fr" => "Radio par pays et ville",
         "es" => "Radio por país y ciudad",
         "pt" => "Rádio por país e cidade",
         "cs" => "Rádio podle země a města",
@@ -4525,6 +4538,7 @@ fn open_radio_country_city_dialog(
     };
     let country_label = match ui_language.as_str() {
         "it" => "Nazione",
+        "fr" => "Pays",
         "es" => "País",
         "pt" => "País",
         "cs" => "Země",
@@ -4533,6 +4547,7 @@ fn open_radio_country_city_dialog(
     };
     let city_label = match ui_language.as_str() {
         "it" => "Città o regione",
+        "fr" => "Ville ou région",
         "es" => "Ciudad o región",
         "pt" => "Cidade ou região",
         "cs" => "Město nebo region",
@@ -4541,6 +4556,7 @@ fn open_radio_country_city_dialog(
     };
     let station_label = match ui_language.as_str() {
         "it" => "Nome radio",
+        "fr" => "Nom de la radio",
         "es" => "Nombre de la radio",
         "pt" => "Nome da rádio",
         "cs" => "Název rádia",
@@ -4549,6 +4565,7 @@ fn open_radio_country_city_dialog(
     };
     let search_label = match ui_language.as_str() {
         "it" => "Cerca",
+        "fr" => "Rechercher",
         "es" => "Buscar",
         "pt" => "Pesquisar",
         "cs" => "Hledat",
@@ -4557,6 +4574,7 @@ fn open_radio_country_city_dialog(
     };
     let close_label = match ui_language.as_str() {
         "it" => "Chiudi",
+        "fr" => "Fermer",
         "es" => "Cerrar",
         "pt" => "Fechar",
         "cs" => "Zavřít",
@@ -4596,6 +4614,7 @@ fn open_radio_country_city_dialog(
         5,
     );
     let city_ctrl = TextCtrl::builder(&panel).build();
+    city_ctrl.set_accessibility_label(city_label);
     city_row.add(&city_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&city_row, 0, SizerFlag::Expand, 0);
 
@@ -4611,6 +4630,7 @@ fn open_radio_country_city_dialog(
     let query_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    query_ctrl.set_accessibility_label(station_label);
     query_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&query_row, 0, SizerFlag::Expand, 0);
 
@@ -4991,6 +5011,7 @@ fn open_add_community_radio_dialog(parent: &Dialog) {
         5,
     );
     let name_ctrl = TextCtrl::builder(&panel).build();
+    name_ctrl.set_accessibility_label(&ui.add_radio_community_name);
     name_row.add(&name_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&name_row, 0, SizerFlag::Expand, 0);
 
@@ -5005,6 +5026,7 @@ fn open_add_community_radio_dialog(parent: &Dialog) {
         5,
     );
     let url_ctrl = TextCtrl::builder(&panel).build();
+    url_ctrl.set_accessibility_label(&ui.add_radio_community_url);
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
 
@@ -5448,6 +5470,7 @@ fn open_add_radio_dialog(parent: &Frame) -> Option<(String, String)> {
         5,
     );
     let title_ctrl = TextCtrl::builder(&panel).build();
+    title_ctrl.set_accessibility_label(&ui.title_label);
     title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
 
@@ -5461,6 +5484,7 @@ fn open_add_radio_dialog(parent: &Frame) -> Option<(String, String)> {
         5,
     );
     let url_ctrl = TextCtrl::builder(&panel).build();
+    url_ctrl.set_accessibility_label(&ui.radio_url_label);
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
 
@@ -5541,6 +5565,7 @@ fn open_add_tv_channel_dialog(parent: &Dialog) -> Option<(String, String)> {
         5,
     );
     let title_ctrl = TextCtrl::builder(&panel).build();
+    title_ctrl.set_accessibility_label(&ui.title_label);
     title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
 
@@ -5554,6 +5579,7 @@ fn open_add_tv_channel_dialog(parent: &Dialog) -> Option<(String, String)> {
         5,
     );
     let url_ctrl = TextCtrl::builder(&panel).build();
+    url_ctrl.set_accessibility_label(tv_channel_url_label());
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
 
@@ -5635,6 +5661,7 @@ fn open_edit_radio_favorite_dialog(
         5,
     );
     let title_ctrl = TextCtrl::builder(&panel).build();
+    title_ctrl.set_accessibility_label(&ui.title_label);
     title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
 
@@ -5648,6 +5675,7 @@ fn open_edit_radio_favorite_dialog(
         5,
     );
     let url_ctrl = TextCtrl::builder(&panel).build();
+    url_ctrl.set_accessibility_label(&ui.radio_url_label);
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
 
@@ -5943,6 +5971,7 @@ fn open_radio_search_dialog(
     println!("DEBUG: Radio Search Dialog - Building");
     let dialog_title = match ui_language.as_str() {
         "it" => "Cerca radio",
+        "fr" => "Rechercher une radio",
         "es" => "Buscar radio",
         "pt" => "Pesquisar rádio",
         "cs" => "Hledat rádio",
@@ -5957,16 +5986,18 @@ fn open_radio_search_dialog(
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let radio_search_text_label = match ui_language.as_str() {
+        "it" => "Testo",
+        "fr" => "Texte",
+        "es" => "Texto",
+        "pt" => "Texto",
+        "cs" => "Text",
+        "pl" => "Tekst",
+        _ => "Text",
+    };
     search_row.add(
         &StaticText::builder(&panel)
-            .with_label(match ui_language.as_str() {
-                "it" => "Testo",
-                "es" => "Texto",
-                "pt" => "Texto",
-                "cs" => "Text",
-                "pl" => "Tekst",
-                _ => "Text",
-            })
+            .with_label(radio_search_text_label)
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -5975,6 +6006,7 @@ fn open_radio_search_dialog(
     let keyword_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    keyword_ctrl.set_accessibility_label(radio_search_text_label);
     search_row.add(&keyword_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
@@ -7893,6 +7925,7 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
         5,
     );
     let original_ctrl = TextCtrl::builder(&panel).build();
+    original_ctrl.set_accessibility_label(original_label);
     original_row.add(&original_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&original_row, 0, SizerFlag::Expand, 0);
 
@@ -7906,6 +7939,7 @@ fn open_voice_dictionary_dialog(parent: &Frame) {
         5,
     );
     let replacement_ctrl = TextCtrl::builder(&panel).build();
+    replacement_ctrl.set_accessibility_label(replacement_label);
     replacement_row.add(&replacement_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&replacement_row, 0, SizerFlag::Expand, 0);
 
@@ -10740,6 +10774,7 @@ fn open_add_community_article_source_dialog(
         5,
     );
     let title_ctrl = TextCtrl::builder(&panel).build();
+    title_ctrl.set_accessibility_label(&ui.add_article_community_name);
     title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
 
@@ -10753,6 +10788,7 @@ fn open_add_community_article_source_dialog(
         5,
     );
     let url_ctrl = TextCtrl::builder(&panel).build();
+    url_ctrl.set_accessibility_label(&ui.add_article_community_url);
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
 
@@ -11612,6 +11648,7 @@ fn open_add_podcast_dialog(
         5,
     );
     let keyword_ctrl = TextCtrl::builder(&panel).build();
+    keyword_ctrl.set_accessibility_label(&ui.keyword);
     keyword_row.add(&keyword_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&keyword_row, 0, SizerFlag::Expand, 0);
 
@@ -11845,6 +11882,7 @@ fn open_add_article_source_dialog(parent: &Frame) -> Option<(String, String)> {
         5,
     );
     let title_ctrl = TextCtrl::builder(&panel).build();
+    title_ctrl.set_accessibility_label(&ui.title_label);
     title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
 
@@ -11858,6 +11896,7 @@ fn open_add_article_source_dialog(parent: &Frame) -> Option<(String, String)> {
         5,
     );
     let url_ctrl = TextCtrl::builder(&panel).build();
+    url_ctrl.set_accessibility_label(&ui.url_or_source_label);
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
 
@@ -11942,6 +11981,7 @@ fn open_edit_article_source_dialog(
         5,
     );
     let title_ctrl = TextCtrl::builder(&panel).build();
+    title_ctrl.set_accessibility_label(&ui.title_label);
     title_row.add(&title_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&title_row, 0, SizerFlag::Expand, 0);
 
@@ -11955,6 +11995,7 @@ fn open_edit_article_source_dialog(
         5,
     );
     let url_ctrl = TextCtrl::builder(&panel).build();
+    url_ctrl.set_accessibility_label(&ui.url_or_source_label);
     url_row.add(&url_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&url_row, 0, SizerFlag::Expand, 0);
 
@@ -12128,6 +12169,7 @@ fn open_article_folder_name_dialog(parent: &Dialog, title: &str, ui: &UiStrings)
         5,
     );
     let text_ctrl = TextCtrl::builder(&panel).build();
+    text_ctrl.set_accessibility_label(&ui.folder_name_label);
     row.add(&text_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
 
@@ -13076,7 +13118,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_ui_lang = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &choice_ui_lang,
         &settings_before.ui_language,
         &ui.interface_language_label,
@@ -13094,7 +13136,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_news_lang = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &choice_news_lang,
         &settings_before.ui_language,
         &ui.news_language_label,
@@ -13112,7 +13154,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_voice_engine = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &choice_voice_engine,
         &settings_before.ui_language,
         &ui.voice_engine_label,
@@ -13135,7 +13177,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_lang = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &choice_lang,
         &settings_before.ui_language,
         &ui.voice_language_label,
@@ -13153,7 +13195,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_voices = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &choice_voices,
         &settings_before.ui_language,
         &ui.voice_label,
@@ -13171,7 +13213,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_rate = Choice::builder(&panel).build();
-    set_italian_accessible_name(&choice_rate, &settings_before.ui_language, &ui.rate_label);
+    set_localized_accessible_label(&choice_rate, &settings_before.ui_language, &ui.rate_label);
     for (label, _) in RATE_PRESETS {
         choice_rate.append(label);
     }
@@ -13189,7 +13231,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_pitch = Choice::builder(&panel).build();
-    set_italian_accessible_name(&choice_pitch, &settings_before.ui_language, &ui.pitch_label);
+    set_localized_accessible_label(&choice_pitch, &settings_before.ui_language, &ui.pitch_label);
     for (label, _) in PITCH_PRESETS {
         choice_pitch.append(label);
     }
@@ -13207,7 +13249,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_volume = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &choice_volume,
         &settings_before.ui_language,
         &ui.volume_label,
@@ -13245,7 +13287,7 @@ fn open_settings_dialog(
         5,
     );
     let choice_media_seek = Choice::builder(&panel).build();
-    set_italian_accessible_name(
+    set_localized_accessible_label(
         &choice_media_seek,
         &settings_before.ui_language,
         &ui.media_seek_step_label,
@@ -13300,6 +13342,7 @@ fn open_settings_dialog(
         5,
     );
     let audio_description_folder_ctrl = TextCtrl::builder(&panel).build();
+    audio_description_folder_ctrl.set_accessibility_label(&audio_description::save_folder_label());
     audio_description_folder_ctrl.set_value(&settings_before.audio_description_save_folder);
     audio_description_folder_row.add(
         &audio_description_folder_ctrl,
@@ -13380,6 +13423,7 @@ fn open_settings_dialog(
     }
 
     let rai_code_ctrl = TextCtrl::builder(&panel).build();
+    rai_code_ctrl.set_accessibility_label(&ui.rai_luce_code_label);
     if settings_before.ui_language == "it" {
         let rai_row = BoxSizer::builder(Orientation::Horizontal).build();
         rai_row.add(
@@ -13811,8 +13855,11 @@ fn request_rai_luce_code(parent: &Dialog) {
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let name_ctrl = TextCtrl::builder(&panel).build();
+    name_ctrl.set_accessibility_label(&ui.rai_name_label);
     let surname_ctrl = TextCtrl::builder(&panel).build();
+    surname_ctrl.set_accessibility_label(&ui.rai_surname_label);
     let email_ctrl = TextCtrl::builder(&panel).build();
+    email_ctrl.set_accessibility_label(&ui.rai_email_label);
     for (label, ctrl) in [
         (&ui.rai_name_label, &name_ctrl),
         (&ui.rai_surname_label, &surname_ctrl),
@@ -14389,6 +14436,8 @@ fn open_weather_dialog(parent: &Frame) {
     let city_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    city_ctrl.set_accessibility_label(&city_search_label);
+    city_ctrl.set_accessibility_description(&ui.weather_city_hint);
     search_row.add(&city_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_button.set_default();
@@ -14429,6 +14478,7 @@ fn open_weather_dialog(parent: &Frame) {
     let result_text = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
+    result_text.set_accessibility_label(&ui.weather_results_label);
     root.add(&result_text, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
@@ -14852,6 +14902,7 @@ fn open_cinema_dialog(parent: &Frame) {
     let details_text = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
+    details_text.set_accessibility_label(&ui.cinema_details_label);
     root.add(&details_text, 1, SizerFlag::Expand | SizerFlag::All, 8);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
@@ -15542,6 +15593,7 @@ fn open_convert_media_dialog(parent: &Frame) {
     let input_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ReadOnly)
         .build();
+    input_ctrl.set_accessibility_label(&ui.convert_media_input);
     input_row.add(&input_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let input_button = Button::builder(&panel)
         .with_label(&ui.convert_media_browse_input)
@@ -15561,6 +15613,7 @@ fn open_convert_media_dialog(parent: &Frame) {
     let output_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ReadOnly)
         .build();
+    output_ctrl.set_accessibility_label(&ui.convert_media_output);
     output_row.add(&output_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let output_button = Button::builder(&panel)
         .with_label(&ui.convert_media_browse_output)
@@ -15580,6 +15633,7 @@ fn open_convert_media_dialog(parent: &Frame) {
     let image_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ReadOnly)
         .build();
+    image_ctrl.set_accessibility_label(&ui.convert_media_image);
     image_row.add(&image_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let image_button = Button::builder(&panel)
         .with_label(&ui.convert_media_browse_image)
@@ -15614,6 +15668,7 @@ fn open_convert_media_dialog(parent: &Frame) {
         5,
     );
     let bitrate_ctrl = TextCtrl::builder(&panel).build();
+    bitrate_ctrl.set_accessibility_label(&ui.convert_media_bitrate);
     bitrate_ctrl.set_value("192");
     options_row.add(&bitrate_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     options_row.add(
@@ -15877,13 +15932,14 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.keyword);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
     let location_row = BoxSizer::builder(Orientation::Horizontal).build();
     location_row.add(
         &StaticText::builder(&panel)
-            .with_label("Località (opzionale):")
+            .with_label(&ui.italian_directories_location_label)
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -15892,6 +15948,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let location_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    location_ctrl.set_accessibility_label(&ui.italian_directories_location_label);
     location_row.add(&location_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&location_row, 0, SizerFlag::Expand, 0);
 
@@ -16162,6 +16219,7 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
     let query_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    query_ctrl.set_accessibility_label("Cerca");
     search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_button.set_default();
@@ -16858,6 +16916,7 @@ fn show_text_preview_dialog(parent: &Dialog, title: &str, text_value: &str) {
     let text = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
+    text.set_accessibility_label(title);
     text.set_value(text_value);
     root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 8);
     let ok_button = Button::builder(&panel)
@@ -16896,6 +16955,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     let query_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    query_ctrl.set_accessibility_label(&ui.wikipedia_search_label);
     search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -19124,6 +19184,7 @@ fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let query_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    query_ctrl.set_accessibility_label(&ui.youtube_search_label);
     search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_button.set_default();
@@ -19435,6 +19496,7 @@ fn open_calendar_dialog(parent: &Frame) {
     let details = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
+    details.set_accessibility_label(labels.details);
     details.set_value(&calendar::build_day_details(&language, today));
     root.add(&details, 1, SizerFlag::Expand | SizerFlag::All, 5);
 
@@ -19581,6 +19643,7 @@ fn open_calendar_reminder_dialog(
         5,
     );
     let text_ctrl = TextCtrl::builder(&panel).build();
+    text_ctrl.set_accessibility_label(labels.reminder_text);
     root.add(&text_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
     let mode_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -20768,11 +20831,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
     search_row.add(
         &StaticText::builder(&panel)
-            .with_label(if Settings::load().ui_language == "it" {
-                "Cerca canale TV"
-            } else {
-                "Search TV channel"
-            })
+            .with_label(&ui.tv_search_label)
             .build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
@@ -20781,6 +20840,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.tv_search_label);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -21451,6 +21511,7 @@ fn open_rai_audio_recent_dialog(parent: &Frame, items: &[rai_audiodescrizioni::C
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.keyword);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -21621,6 +21682,7 @@ fn open_rai_audio_group_subdialog(parent: &Dialog, groups: &[rai_audiodescrizion
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.keyword);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -21710,6 +21772,7 @@ fn open_rai_audio_items_dialog_from_items(
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.keyword);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -21904,6 +21967,7 @@ fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) 
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.keyword);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -22160,6 +22224,7 @@ fn open_raiplay_search_dialog(parent: &Frame) -> Option<String> {
         5,
     );
     let ctrl = TextCtrl::builder(&panel).build();
+    ctrl.set_accessibility_label(&ui.keyword);
     row.add(&ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
@@ -22264,6 +22329,7 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.keyword);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -22468,6 +22534,7 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.keyword);
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
@@ -25505,6 +25572,7 @@ fn main() {
         let text_ctrl = TextCtrl::builder(&panel)
             .with_style(TextCtrlStyle::MultiLine)
             .build();
+        text_ctrl.set_accessibility_label(&ui.editor_text_label);
         text_ctrl.set_editable(!settings.lock().unwrap().read_only_mode);
         let cursor_moved_by_user = Rc::new(Cell::new(false));
         main_sizer.add(&text_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -25571,10 +25639,10 @@ fn main() {
 
         main_sizer.add_sizer(&btn_sizer, 0, SizerFlag::Expand, 0);
         let podcast_seek_choice = Choice::builder(&panel).build();
-        set_italian_accessible_name(
+        set_localized_accessible_label(
             &podcast_seek_choice,
             &initial_ui_language,
-            "Spostamento podcast",
+            &ui.media_seek_step_label,
         );
         podcast_seek_choice.append(&podcast_seek_choice_placeholder());
         podcast_seek_choice.set_selection(0);

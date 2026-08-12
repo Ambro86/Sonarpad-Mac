@@ -382,5 +382,11 @@
   "article_community_sources_empty": "Não há fontes da comunidade disponíveis para este idioma.",
   "article_community_sources_error": "Erro ao carregar as fontes da comunidade: {err}",
   "add_article_community_instructions": "Introduza o título da fonte e o URL do feed RSS ou do site. O Sonarpad usará o idioma de notícias selecionado e, se introduzir um site, tentará encontrar o feed automaticamente.",
-  "add_article_community_selected_language": "Idioma selecionado: {language}"
+  "add_article_community_selected_language": "Idioma selecionado: {language}",
+  "editor_text_label": "Texto do documento",
+  "weather_results_label": "Previsão do tempo",
+  "cinema_details_label": "Detalhes do filme",
+  "italian_directories_location_label": "Localização (opcional):",
+  "youtube_search_label": "URL ou pesquisa no YouTube",
+  "tv_search_label": "Pesquisar canal de TV"
 }

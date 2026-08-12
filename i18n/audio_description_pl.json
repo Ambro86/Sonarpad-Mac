@@ -149,5 +149,6 @@
   "audio_description.resume.model": "Wybierz model:",
   "audio_description.resume.title": "Kontynuuj przerwaną audiodeskrypcję",
   "audio_description.resume.open_title": "Otwórz przerwaną audiodeskrypcję",
-  "audio_description.resume.invalid": "Nie można kontynuować przerwanej audiodeskrypcji:\\n{error}"
+  "audio_description.resume.invalid": "Nie można kontynuować przerwanej audiodeskrypcji:\\n{error}",
+  "audio_description.completion.details": "Szczegóły zakończenia"
 }

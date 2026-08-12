@@ -149,5 +149,6 @@
   "audio_description.resume.model": "Choose model:",
   "audio_description.resume.title": "Continue interrupted audio description",
   "audio_description.resume.open_title": "Open an interrupted audio-description checkpoint",
-  "audio_description.resume.invalid": "The interrupted audio description cannot be continued:\\n{error}"
+  "audio_description.resume.invalid": "The interrupted audio description cannot be continued:\\n{error}",
+  "audio_description.completion.details": "Completion details"
 }

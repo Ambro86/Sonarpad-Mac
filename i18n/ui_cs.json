@@ -382,5 +382,11 @@
   "article_community_sources_empty": "Pro tento jazyk nejsou dostupné žádné komunitní zdroje.",
   "article_community_sources_error": "Chyba při načítání komunitních zdrojů: {err}",
   "add_article_community_instructions": "Zadejte název zdroje a URL RSS kanálu nebo webu. Sonarpad použije vybraný jazyk zpráv a pokud zadáte web, pokusí se automaticky najít kanál.",
-  "add_article_community_selected_language": "Vybraný jazyk: {language}"
+  "add_article_community_selected_language": "Vybraný jazyk: {language}",
+  "editor_text_label": "Text dokumentu",
+  "weather_results_label": "Předpověď počasí",
+  "cinema_details_label": "Podrobnosti o filmu",
+  "italian_directories_location_label": "Lokalita (volitelné):",
+  "youtube_search_label": "URL nebo vyhledávání na YouTube",
+  "tv_search_label": "Hledat televizní kanál"
 }

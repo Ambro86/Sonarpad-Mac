@@ -149,5 +149,6 @@
   "audio_description.resume.model": "Scegli modello:",
   "audio_description.resume.title": "Continua audiodescrizione interrotta",
   "audio_description.resume.open_title": "Apri un'audiodescrizione interrotta",
-  "audio_description.resume.invalid": "Impossibile continuare l'audiodescrizione interrotta:\\n{error}"
+  "audio_description.resume.invalid": "Impossibile continuare l'audiodescrizione interrotta:\\n{error}",
+  "audio_description.completion.details": "Dettagli completamento"
 }

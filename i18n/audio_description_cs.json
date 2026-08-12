@@ -149,5 +149,6 @@
   "audio_description.resume.model": "Vyberte model:",
   "audio_description.resume.title": "Pokračovat v přerušeném audiopopisu",
   "audio_description.resume.open_title": "Otevřít přerušený audiopopis",
-  "audio_description.resume.invalid": "V přerušeném audiopopisu nelze pokračovat:\\n{error}"
+  "audio_description.resume.invalid": "V přerušeném audiopopisu nelze pokračovat:\\n{error}",
+  "audio_description.completion.details": "Podrobnosti dokončení"
 }

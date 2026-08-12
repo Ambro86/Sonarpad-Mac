@@ -361,11 +361,13 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_from_label)
         .build();
     let from_ctrl = TextCtrl::builder(&panel).build();
+    from_ctrl.set_accessibility_label(&ui.routes_from_label);
 
     let to_label = StaticText::builder(&panel)
         .with_label(&ui.routes_to_label)
         .build();
     let to_ctrl = TextCtrl::builder(&panel).build();
+    to_ctrl.set_accessibility_label(&ui.routes_to_label);
 
     sizer.add(&from_label, 0, SizerFlag::All, 5);
     sizer.add(&from_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 5);

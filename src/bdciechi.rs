@@ -448,7 +448,9 @@ fn show_bdciechi_login_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>, t
     let sizer = BoxSizer::builder(Orientation::Vertical).build();
 
     let username_ctrl = TextCtrl::builder(&panel).build();
+    username_ctrl.set_accessibility_label(&ui.bdciechi_username_label);
     let password_ctrl = TextCtrl::builder(&panel).build();
+    password_ctrl.set_accessibility_label(&ui.bdciechi_password_label);
 
     let s = settings.lock().unwrap();
     username_ctrl.set_value(&s.bdciechi_username);
@@ -602,6 +604,7 @@ fn show_bdciechi_dashboard(
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label(&ui.bdciechi_search_label);
     let search_btn = Button::builder(&panel)
         .with_label(&ui.bdciechi_search_button)
         .build();
