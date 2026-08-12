@@ -18090,75 +18090,10 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
 
-fn is_members_only_youtube_error(err: &str) -> bool {
-    let err_lc = err.to_ascii_lowercase();
-    err_lc.contains("members-only")
-        || err_lc.contains("members only")
-        || err_lc.contains("join this channel to get access to members-only content")
-}
-
-fn is_blocking_youtube_probe_error(err: &str) -> bool {
-    let err_lc = err.to_ascii_lowercase();
-    is_members_only_youtube_error(err)
-        || err_lc.contains("private video")
-        || err_lc.contains("this video is private")
-        || err_lc.contains("video unavailable")
-        || err_lc.contains("this video is unavailable")
-        || err_lc.contains("not available in your country")
-}
-
-fn youtube_members_only_message() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "Questo video e riservato ai membri del canale. Scegli un altro contenuto."
-    } else {
-        "This video is reserved for channel members. Choose another content item."
-    }
-}
-
-fn probe_youtube_stream_playable(ytdlp_path: &Path, url: &str) -> Result<(), String> {
-    ytdlp_log_path_state("probe", ytdlp_path);
-    ytdlp_log_basic_diagnostics("probe", ytdlp_path);
-    ytdlp_log_intel_verbose_probe("probe", ytdlp_path, url);
-    append_podcast_log(&format!("ytdlp.probe.begin url={url}"));
-    let mut command = ytdlp_command(ytdlp_path);
-    configure_ytdlp_for_current_macos(&mut command);
-    command
-        .arg("--no-playlist")
-        .arg("--no-warnings")
-        .arg("--skip-download")
-        .arg("--print")
-        .arg("id")
-        .arg("--")
-        .arg(url)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    ytdlp_log_command_state("probe", ytdlp_path, &command);
-    let output = command.output().map_err(|err| {
-        ytdlp_log_spawn_error("probe", &err);
-        err.to_string()
-    })?;
-    ytdlp_log_output("probe", output.status, &output.stdout, &output.stderr);
-    if output.status.success() {
-        return Ok(());
-    }
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(format!("{stderr}\n{stdout}").trim().to_string())
-}
-
 fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let ytdlp = ytdlp_executable_path();
-    if let Err(err) = probe_youtube_stream_playable(&ytdlp, url) {
-        if is_members_only_youtube_error(&err) {
-            return Err(youtube_members_only_message().to_string());
-        }
-        if is_blocking_youtube_probe_error(&err) {
-            return Err(err);
-        }
-        append_podcast_log(&format!("ytdlp.probe.ignored_error {}", err));
-    }
     let mut command = Command::new(&mpv_executable);
     let allow_bookmarks = media_bookmarks_enabled();
     let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
@@ -28466,6 +28401,24 @@ mod ytdlp_path_tests {
         assert!(command.get_args().any(|argument| {
             argument.to_string_lossy() == "--script=/tmp/sonarpad-accessibility.lua"
         }));
+    }
+
+    #[test]
+    fn youtube_playback_does_not_run_a_blocking_ytdlp_probe_before_mpv() {
+        let source = include_str!("main.rs");
+        let start = source
+            .find("fn open_youtube_with_mpv")
+            .expect("YouTube MPV opener");
+        let end = source[start..]
+            .find("fn find_youtube_temp_download")
+            .map(|offset| start + offset)
+            .expect("function after YouTube MPV opener");
+        let opener = &source[start..end];
+
+        assert!(!opener.contains("probe_youtube_stream_playable"));
+        assert!(!opener.contains("command.output()"));
+        assert!(opener.contains("ytdl_hook-ytdl_path"));
+        assert!(opener.contains(".spawn()"));
     }
 }
 

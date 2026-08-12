@@ -221,6 +221,17 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
             )
         self.assertIn('ONNXRUNTIME_VERSION: "1.19.2"', WORKFLOW)
 
+    def test_modern_workflow_pins_official_mpv_0_41_release(self):
+        self.assertIn('MPV_VERSION: "0.41.0"', WORKFLOW)
+        self.assertIn("mpv-v0.41.0-macos-14-arm.zip", WORKFLOW)
+        self.assertIn("mpv-v0.41.0-macos-15-intel.zip", WORKFLOW)
+        self.assertIn("github.com/mpv-player/mpv/releases/download", WORKFLOW)
+        self.assertIn("shasum -a 256 --check", WORKFLOW)
+        self.assertIn("Unexpected mpv version", WORKFLOW)
+        self.assertNotIn("mpv-arm64-latest.tar.gz", WORKFLOW)
+        self.assertNotIn("mpv-latest.tar.gz", WORKFLOW)
+        self.assertIn("mpv-0.35.0.tar.gz", CATALINA)
+
     def test_catalina_workflow_uses_compatible_worker_and_checks_macho_targets(self):
         self.assertIn("build_audio_description_bridge_macos.sh", CATALINA)
         self.assertIn('ONNXRUNTIME_VERSION: "1.15.0"', CATALINA)

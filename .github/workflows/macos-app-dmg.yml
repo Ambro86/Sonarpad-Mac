@@ -22,6 +22,9 @@ jobs:
             rust_target: aarch64-apple-darwin
             build_flavor: apple-silicon
             ffmpeg_macos_min: "11.0"
+            app_macos_min: "14.0"
+            mpv_asset: mpv-v0.41.0-macos-14-arm.zip
+            mpv_sha256: 5c96f9b21355fc0a11d2e2161ad65f33031070e9fb3f6bd9865fb459b94587e6
             pdfium_archive: pdfium-mac-arm64.tgz
             dmg_name: Sonarpad-macOS-AppleSilicon.dmg
             dmg_artifact_name: sonarpad-macos-dmg-apple-silicon
@@ -31,6 +34,9 @@ jobs:
             rust_target: x86_64-apple-darwin
             build_flavor: intel
             ffmpeg_macos_min: "10.15"
+            app_macos_min: "15.0"
+            mpv_asset: mpv-v0.41.0-macos-15-intel.zip
+            mpv_sha256: 41003617ab4f7784394b5ddea7ce51b3e0838e8cfc8166ad1a378b2eda3b583c
             pdfium_archive: pdfium-mac-x64.tgz
             dmg_name: Sonarpad-macOS-Intel.dmg
             dmg_artifact_name: sonarpad-macos-dmg-intel
@@ -45,6 +51,7 @@ jobs:
       CXXFLAGS: -mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}
       LDFLAGS: -mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}
       CURL_CFFI_VERSION: "0.7.0"
+      MPV_VERSION: "0.41.0"
       SONARPAD_MACOS_BUILD_FLAVOR: ${{ matrix.build_flavor }}
       SONARPAD_ROUTE_CLIENT_TOKEN: ${{ secrets.SONARPAD_ROUTE_CLIENT_TOKEN }}
       SONARPAD_TV_CLIENT_TOKEN: ${{ secrets.SONARPAD_TV_CLIENT_TOKEN }}
@@ -377,12 +384,8 @@ jobs:
           set -euxo pipefail
           mkdir -p dist/mpv
           rm -rf dist/mpv/*
-          if [ "${{ matrix.rust_target }}" = "aarch64-apple-darwin" ]; then
-            MPV_ARCHIVE_URL="https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-arm64-latest.tar.gz"
-          else
-            MPV_ARCHIVE_URL="https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-latest.tar.gz"
-          fi
-          MPV_ARCHIVE="dist/mpv/mpv.tar.gz"
+          MPV_ARCHIVE_URL="https://github.com/mpv-player/mpv/releases/download/v${MPV_VERSION}/${{ matrix.mpv_asset }}"
+          MPV_ARCHIVE="dist/mpv/${{ matrix.mpv_asset }}"
           for attempt in $(seq 1 12); do
             echo "Downloading mpv archive (attempt ${attempt}/12)"
             curl_status=0
@@ -392,7 +395,7 @@ jobs:
             if [ "${curl_status}" -eq 0 ]; then
               break
             fi
-            if tar -tzf "${MPV_ARCHIVE}" >/dev/null 2>&1; then
+            if unzip -tq "${MPV_ARCHIVE}" >/dev/null 2>&1; then
               echo "The mpv archive is complete despite curl status ${curl_status}."
               break
             fi
@@ -406,11 +409,23 @@ jobs:
             fi
             sleep $((attempt * 5))
           done
-          tar -tzf "${MPV_ARCHIVE}" >/dev/null
-          tar -xzf "dist/mpv/mpv.tar.gz" -C dist/mpv
+          echo "${{ matrix.mpv_sha256 }}  ${MPV_ARCHIVE}" | shasum -a 256 --check
+          unzip -tq "${MPV_ARCHIVE}" >/dev/null
+          mkdir -p dist/mpv/release
+          unzip -q "${MPV_ARCHIVE}" -d dist/mpv/release
+          MPV_TARBALL="$(find dist/mpv/release -type f -name 'mpv.tar.gz' -print -quit)"
+          test -n "${MPV_TARBALL}"
+          tar -tzf "${MPV_TARBALL}" >/dev/null
+          tar -xzf "${MPV_TARBALL}" -C dist/mpv
           MPV_APP_DIR="$(find dist/mpv -maxdepth 2 -type d -name 'mpv.app' | head -n 1)"
           test -n "${MPV_APP_DIR}"
           test -x "${MPV_APP_DIR}/Contents/MacOS/mpv"
+          MPV_VERSION_OUTPUT="$("${MPV_APP_DIR}/Contents/MacOS/mpv" --version | head -n 1)"
+          echo "${MPV_VERSION_OUTPUT}"
+          case "${MPV_VERSION_OUTPUT}" in
+            "mpv v${MPV_VERSION}"*) ;;
+            *) echo "Unexpected mpv version: ${MPV_VERSION_OUTPUT}"; exit 1 ;;
+          esac
           echo "MPV_APP_DIR=${MPV_APP_DIR}" >> "${GITHUB_ENV}"
 
       - name: Package .app and .dmg
@@ -581,7 +596,7 @@ jobs:
               </dict>
             </array>
             <key>LSMinimumSystemVersion</key>
-            <string>12.0</string>
+            <string>${{ matrix.app_macos_min }}</string>
             <key>NSAppTransportSecurity</key>
             <dict>
               <key>NSAllowsArbitraryLoadsForMedia</key>
