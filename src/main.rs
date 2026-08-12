@@ -53,6 +53,8 @@ use tokio::runtime::Runtime;
 use uuid::Uuid;
 use wxdragon::event::{KeyboardEvent, MenuEvents};
 use wxdragon::prelude::*;
+#[cfg(target_os = "macos")]
+use wxdragon::translations::TranslationsLoader;
 use wxdragon::timer::Timer;
 
 const ID_OPEN: i32 = 101;
@@ -772,6 +774,8 @@ struct UiStrings {
     menu_podcasts: String,
     menu_radio: String,
     menu_tools: String,
+    #[cfg(target_os = "macos")]
+    menu_window: String,
     tools_wikipedia_label: String,
     tools_youtube_label: String,
     tools_italian_directories_label: String,
@@ -1136,12 +1140,63 @@ fn set_italian_accessible_name(widget: &impl WxWidget, ui_language: &str, name: 
 }
 
 #[cfg(target_os = "macos")]
-fn install_italian_wx_translations_if_needed(ui_language: &str) {
-    if ui_language == "it" {
-        let translations = Translations::new();
-        translations.set_language_str("it");
-        Translations::set_global(translations);
+// The wxstd menu catalogs are embedded so the .app never depends on external locale files.
+struct EmbeddedWxStdTranslations;
+
+#[cfg(target_os = "macos")]
+fn embedded_wxstd_catalog(ui_language: &str) -> Option<&'static [u8]> {
+    let normalized = ui_language.trim().to_ascii_lowercase();
+    let language = normalized
+        .split(['-', '_'])
+        .next()
+        .unwrap_or(normalized.as_str());
+    match language {
+        "it" => Some(include_bytes!("../i18n/wxstd_it.mo")),
+        "en" => Some(include_bytes!("../i18n/wxstd_en.mo")),
+        "fr" => Some(include_bytes!("../i18n/wxstd_fr.mo")),
+        "es" => Some(include_bytes!("../i18n/wxstd_es.mo")),
+        "pt" => Some(include_bytes!("../i18n/wxstd_pt.mo")),
+        "cs" | "cz" => Some(include_bytes!("../i18n/wxstd_cs.mo")),
+        "pl" => Some(include_bytes!("../i18n/wxstd_pl.mo")),
+        _ => None,
     }
+}
+
+#[cfg(target_os = "macos")]
+impl TranslationsLoader for EmbeddedWxStdTranslations {
+    fn load_catalog(
+        &self,
+        domain: &str,
+        lang: &str,
+    ) -> Option<std::borrow::Cow<'_, [u8]>> {
+        if domain != "wxstd" {
+            return None;
+        }
+        embedded_wxstd_catalog(lang).map(std::borrow::Cow::Borrowed)
+    }
+
+    fn available_translations(&self, domain: &str) -> Vec<String> {
+        if domain == "wxstd" {
+            ["it", "en", "fr", "es", "pt", "cs", "pl"]
+                .into_iter()
+                .map(str::to_string)
+                .collect()
+        } else {
+            Vec::new()
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn install_wx_translations(ui_language: &str) {
+    let language = normalize_ui_language(ui_language);
+    let translations = Translations::new();
+    translations.set_loader(EmbeddedWxStdTranslations);
+    translations.set_language_str(&language);
+    if !translations.add_std_catalog() {
+        eprintln!("WARNING: unable to load embedded wxstd catalog for {language}");
+    }
+    Translations::set_global(translations);
 }
 
 fn log_background_refresh_error(message: &str) {
@@ -25148,7 +25203,7 @@ fn main() {
     let _ = wxdragon::main(move |_app| {
         let initial_ui_language = settings.lock().unwrap().ui_language.clone();
         #[cfg(target_os = "macos")]
-        install_italian_wx_translations_if_needed(&initial_ui_language);
+        install_wx_translations(&initial_ui_language);
 
         #[cfg(target_os = "macos")]
         {
@@ -25415,15 +25470,17 @@ fn main() {
             );
         }
 
-        let menubar = MenuBar::builder()
+        let menubar_builder = MenuBar::builder()
             .append(file_menu, &ui.menu_file)
             .append(articles_menu, &ui.menu_articles)
             .append(podcasts_menu, &ui.menu_podcasts)
             .append(radio_menu, &ui.menu_radio)
             .append(view_menu, &ui.menu_view)
-            .append(tools_menu, &ui.menu_tools)
-            .append(help_menu, &ui.menu_help)
-            .build();
+            .append(tools_menu, &ui.menu_tools);
+        #[cfg(target_os = "macos")]
+        let menubar_builder =
+            menubar_builder.append(Menu::builder().build(), &ui.menu_window);
+        let menubar = menubar_builder.append(help_menu, &ui.menu_help).build();
         frame.set_menu_bar(menubar);
 
         let settings_recent_menu_open = Arc::clone(&settings);
@@ -28362,6 +28419,40 @@ Non posso scaricare la pagina web al posto dell'audio.",
         frame.show(true);
         frame.centre();
     });
+}
+
+#[cfg(all(test, target_os = "macos"))]
+mod wxstd_translation_tests {
+    use super::{embedded_wxstd_catalog, ui_strings};
+
+    #[test]
+    fn every_supported_ui_language_has_an_embedded_wxstd_catalog() {
+        for language in [
+            "it", "en", "fr", "es", "pt", "cs", "pl", "it_IT", "fr_FR", "es-ES",
+            "pt_PT", "cs_CZ", "pl_PL",
+        ] {
+            let catalog = embedded_wxstd_catalog(language)
+                .unwrap_or_else(|| panic!("missing wxstd catalog for {language}"));
+            assert!(catalog.len() > 28, "catalog too small for {language}");
+            assert_eq!(&catalog[..4], &[0xde, 0x12, 0x04, 0x95]);
+        }
+    }
+
+    #[test]
+    fn window_menu_is_localized_for_every_supported_ui_language() {
+        let expected = [
+            ("it", "Finestra"),
+            ("en", "Window"),
+            ("fr", "Fenêtre"),
+            ("es", "Ventana"),
+            ("pt", "Janela"),
+            ("cs", "Okno"),
+            ("pl", "Okno"),
+        ];
+        for (language, window_title) in expected {
+            assert_eq!(ui_strings(language).menu_window.as_str(), window_title);
+        }
+    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
