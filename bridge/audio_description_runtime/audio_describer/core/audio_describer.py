@@ -940,7 +940,11 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                                   status_update_callback=None, dialogue_free_windows="",
                                   dialogue_intervals=None, prepared_chunks=None,
                                   total_duration_override=None,
-                                  initial_character_glossary=None):
+                                  initial_character_glossary=None,
+                                  resume_completed_chunks=0,
+                                  resume_descriptions=None,
+                                  resume_character_glossary=None,
+                                  checkpoint_callback=None):
     """Generate long-video descriptions in bounded analysis chunks.
 
     Multi-chunk videos use exact temporary clips for lower Gemini latency. A
@@ -993,10 +997,27 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
         num_chunks = len(normalized_chunks)
         use_per_chunk_uploads = True
         shared_file_obj = None
+        resume_completed_chunks = max(0, min(int(resume_completed_chunks or 0), num_chunks))
+        for item in resume_descriptions or []:
+            if not isinstance(item, dict):
+                continue
+            try:
+                start = float(item.get("start_sec") or 0.0)
+                end = float(item.get("end_sec") or start)
+            except (TypeError, ValueError):
+                continue
+            text = str(item.get("text") or "").strip()
+            if text and end > start:
+                all_descriptions.append((start, end, text))
         app_logger.info(
             "Using %d physical chunk(s) prepared by Sonarpad's Rust FFmpeg backend.",
             num_chunks,
         )
+        if resume_completed_chunks:
+            app_logger.info(
+                "Resuming audio description from checkpoint: completed_chunks=%d/%d descriptions=%d.",
+                resume_completed_chunks, num_chunks, len(all_descriptions),
+            )
 
         _update_status(_("Processing video..."))
 
@@ -1005,11 +1026,16 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
             _update_character_continuity(
                 character_continuity, initial_character_glossary, max_characters=96
             )
+        if enable_glossary and resume_character_glossary:
+            _update_character_continuity(
+                character_continuity, resume_character_glossary, max_characters=96
+            )
+        if enable_glossary and character_continuity:
             seeded = list(character_continuity.values())
             character_glossary.extend(seeded)
             detected_character_glossary.extend(seeded)
             app_logger.info(
-                "Loaded %d established character(s) from the Sonarpad catalog.",
+                "Loaded %d established/resumed character(s) for continuity.",
                 len(seeded),
             )
         extended_mode = bool(
@@ -1024,6 +1050,12 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
         )
 
         for i, prepared_chunk in enumerate(normalized_chunks):
+            if i < resume_completed_chunks:
+                app_logger.info(
+                    "Chunk %d/%d restored from checkpoint; Gemini call skipped.",
+                    i + 1, num_chunks,
+                )
+                continue
             chunk_start = prepared_chunk["start"]
             chunk_end = prepared_chunk["end"]
             chunk_free_windows = dialogue_free_windows
@@ -1378,6 +1410,21 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                     )
 
             _update_status(_("Chunk %d: parsed %d descriptions.") % (i + 1, len(normalized_chunk)))
+
+            if checkpoint_callback is not None:
+                try:
+                    checkpoint_callback(
+                        i + 1,
+                        num_chunks,
+                        list(all_descriptions),
+                        list(character_continuity.values()) if enable_glossary else [],
+                        str(config_model.get_setting("gemini_model_override") or model_name_to_use),
+                    )
+                except Exception as exc:
+                    app_logger.warning(
+                        "Chunk %d checkpoint callback failed; continuing job: %s",
+                        i + 1, exc,
+                    )
 
             if current_chunk_file_obj is not None:
                 _cleanup_uploaded_file(client, current_chunk_file_obj, _update_status)
@@ -2755,10 +2802,15 @@ def _build_unified_prompts(user_prompt, model_name_to_use, dialogue_free_windows
     intensive_mode = bool(intensive_mode or intensive_slots_text)
     selection_directive = (
         "2.  **FILL EVERY USABLE SILENCE:** This is intensive mode. Produce at least one "
-        "description for every numbered mandatory slot supplied by the user. Do not omit a slot, "
-        "even if the view is static. You may add more descriptions inside the same slot when "
-        "distinct, useful visual changes occur and there is enough time. Keep entries chronological, "
-        "non-overlapping, and keep their combined words within the slot's word budget."
+        "description for every numbered mandatory slot supplied by the user. Temporal grounding "
+        "has absolute priority over choosing an interesting action. Do not omit a slot, even if "
+        "the view is static. If no action can be confirmed inside that exact slot, describe only "
+        "what is visibly present there: a logo, title card, setting, framing, stationary character "
+        "or object, or the current resulting state. A static or mundane description that is correct "
+        "for the slot is always preferable to an interesting action seen even a few seconds before "
+        "or after it. You may add more descriptions inside the same slot when distinct, useful visual "
+        "changes occur and there is enough time. Keep entries chronological, non-overlapping, and "
+        "keep their combined words within the slot's word budget."
         if intensive_mode else
         "2.  **BE SELECTIVE AND CONCISE (2 WORDS/SECOND RULE):** Describe only NEW and "
         "PLOT-CRITICAL visual information. A 3-second description can have a maximum of 6 words."
@@ -2846,7 +2898,10 @@ Your entire output MUST be a single JSON object with two top-level keys: "charac
                 "inspect only the frames inside that slot before choosing the text. Every character, "
                 "object, and action named in the entry must be visible inside that exact slot; never "
                 "pull an action from a preceding or following scene. If those frames are static, "
-                "describe their current visible state or setting.",
+                "describe their current visible state or setting, including a logo or title card when "
+                "that is what is actually visible. Temporal correctness is more important than visual "
+                "interest: a plain but correct description is always preferable to an action seen "
+                "outside the slot.",
             ])
         else:
             user_prompt_parts.append(

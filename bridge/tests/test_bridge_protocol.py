@@ -64,6 +64,28 @@ class BridgeProtocolTests(unittest.TestCase):
                 )
             self.assertIs(captured["enable_character_glossary"], enabled)
 
+    def test_audio_description_keeps_three_minute_chunks_and_default_frame_rate(self):
+        captured = {}
+        with mock.patch.object(
+            bridge.config_model,
+            "configure",
+            side_effect=lambda values: captured.update(values),
+        ), mock.patch.object(bridge.audio_describer, "reset_gemini_client"), mock.patch.object(
+            bridge.gemini_helpers, "set_quota_decision_handler"
+        ):
+            bridge._configure_omni(
+                {
+                    "language": "it",
+                    "gemini_api_key": "test-key",
+                    "gemini_model": "gemini-test",
+                    "verbosity": "detailed",
+                }
+            )
+
+        self.assertEqual(bridge.CHUNK_DURATION_SECONDS, 180)
+        self.assertEqual(captured["video_chunk_duration_seconds"], 180)
+        self.assertEqual(captured["frame_rate_for_ai"], 0)
+
     def test_normalise_descriptions_filters_invalid_rows_and_sorts(self):
         normalized = bridge._normalise_descriptions(
             [
@@ -190,6 +212,36 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertFalse(result["gemini_sdk_available"])
         self.assertEqual("native library failed", result["gemini_sdk_error"])
+
+    def test_validate_request_accepts_resume_and_rejects_progress_past_chunk_count(self):
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            media = root / "film.mkv"
+            chunk1 = root / "chunk1.mkv"
+            chunk2 = root / "chunk2.mkv"
+            for path in (media, chunk1, chunk2):
+                path.write_bytes(b"x")
+            request = {
+                "input_path": str(media),
+                "duration_sec": 360.0,
+                "gemini_api_key": "key",
+                "verbosity": "detailed",
+                "chunks": [
+                    {"path": str(chunk1), "start_sec": 0.0, "end_sec": 180.0},
+                    {"path": str(chunk2), "start_sec": 180.0, "end_sec": 360.0},
+                ],
+                "resume": {
+                    "completed_chunks": 1,
+                    "descriptions": [
+                        {"start_sec": 10.0, "end_sec": 12.0, "text": "Scena."}
+                    ],
+                    "character_glossary": [],
+                },
+            }
+            bridge._validate_request(request)
+            request["resume"]["completed_chunks"] = 3
+            with self.assertRaisesRegex(ValueError, "completed_chunks"):
+                bridge._validate_request(request)
 
 
 if __name__ == "__main__":

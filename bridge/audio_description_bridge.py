@@ -42,6 +42,7 @@ from audio_describer.utils.logger import (  # noqa: E402
 )
 
 CHUNK_DURATION_SECONDS = 180
+GEMINI_FRAME_RATE_FOR_AI = 0
 
 
 def _emit(prefix: str, value) -> None:
@@ -138,6 +139,17 @@ def _validate_request(request: dict) -> None:
     initial_glossary = request.get("initial_character_glossary", [])
     if initial_glossary is not None and not isinstance(initial_glossary, list):
         raise ValueError("initial_character_glossary must be a list.")
+    resume = request.get("resume")
+    if resume is not None:
+        if not isinstance(resume, dict):
+            raise ValueError("resume must be an object.")
+        completed_chunks = int(resume.get("completed_chunks") or 0)
+        if completed_chunks < 0 or completed_chunks > len(chunks):
+            raise ValueError("resume completed_chunks is outside the prepared chunk range.")
+        if not isinstance(resume.get("descriptions", []), list):
+            raise ValueError("resume descriptions must be a list.")
+        if not isinstance(resume.get("character_glossary", []), list):
+            raise ValueError("resume character_glossary must be a list.")
 
 
 def _normalise_initial_character_glossary(value) -> list[dict]:
@@ -188,7 +200,7 @@ def _configure_omni(request: dict) -> None:
             "enable_extended_audio_description": bool(
                 request.get("allow_extended_pauses", True)
             ),
-            "frame_rate_for_ai": 0,
+            "frame_rate_for_ai": GEMINI_FRAME_RATE_FOR_AI,
             "enable_video_chunking": True,
             "video_chunk_duration_seconds": CHUNK_DURATION_SECONDS,
             "enable_character_glossary": bool(
@@ -334,6 +346,33 @@ def run(request: dict) -> dict:
     initial_glossary = _normalise_initial_character_glossary(
         request.get("initial_character_glossary", [])
     )
+    resume = request.get("resume") or {}
+
+    def _checkpoint(
+        completed_chunks, total_chunks, descriptions_so_far, character_glossary, gemini_model
+    ):
+        rows = []
+        for item in descriptions_so_far:
+            if not isinstance(item, (list, tuple)) or len(item) < 3:
+                continue
+            rows.append(
+                {
+                    "start_sec": float(item[0]),
+                    "end_sec": float(item[1]),
+                    "text": str(item[2] or ""),
+                }
+            )
+        _emit(
+            "CHECKPOINT",
+            {
+                "completed_chunks": int(completed_chunks),
+                "total_chunks": int(total_chunks),
+                "descriptions": rows,
+                "character_glossary": character_glossary or [],
+                "gemini_model": str(gemini_model or ""),
+            },
+        )
+
     descriptions, glossary, token_usage = audio_describer.generate_descriptions_chunked(
         input_path,
         CHUNK_DURATION_SECONDS,
@@ -344,6 +383,10 @@ def run(request: dict) -> dict:
         prepared_chunks=prepared_chunks,
         total_duration_override=duration,
         initial_character_glossary=initial_glossary,
+        resume_completed_chunks=int(resume.get("completed_chunks") or 0),
+        resume_descriptions=resume.get("descriptions") or [],
+        resume_character_glossary=resume.get("character_glossary") or [],
+        checkpoint_callback=_checkpoint,
     )
     if descriptions is None:
         raise RuntimeError("Gemini did not return an audio-description result.")

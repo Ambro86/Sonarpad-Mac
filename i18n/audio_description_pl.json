@@ -142,5 +142,10 @@
   "audio_description.character_catalog.new_option": "Utwórz nowy katalog...",
   "audio_description.character_catalog.selection_label": "Katalog postaci:",
   "audio_description.character_catalog.new_name_label": "Nazwa nowego katalogu:",
-  "audio_description.project.change_voice": "Zmień głos"
+  "audio_description.project.change_voice": "Zmień głos",
+  "audio_description.resume.start": "Kontynuuj audiodeskrypcję",
+  "audio_description.resume.model": "Wybierz model:",
+  "audio_description.resume.title": "Kontynuuj przerwaną audiodeskrypcję",
+  "audio_description.resume.open_title": "Otwórz przerwaną audiodeskrypcję",
+  "audio_description.resume.invalid": "Nie można kontynuować przerwanej audiodeskrypcji:\\n{error}"
 }

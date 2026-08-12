@@ -1,6 +1,7 @@
 use crate::audio_description_bridge::{
-    AudioDescriptionBridgeCallbacks, AudioDescriptionBridgeRequest, AudioDescriptionBridgeResult,
-    AudioDescriptionPreparedChunk, AudioDescriptionQuotaDecision, BridgeCharacter, BridgeInterval,
+    AudioDescriptionBridgeCallbacks, AudioDescriptionBridgeCheckpoint, AudioDescriptionBridgeRequest,
+    AudioDescriptionBridgeResult, AudioDescriptionBridgeResume, AudioDescriptionPreparedChunk,
+    AudioDescriptionQuotaDecision, BridgeCharacter, BridgeDescription, BridgeInterval,
     run_audio_description_bridge,
 };
 use crate::edge_tts::VoiceInfo;
@@ -33,6 +34,8 @@ const BITRATE_KBPS: u32 = 192;
 const PROJECT_FORMAT: &str = "sonarpad-audio-description-project";
 const CATALOG_FORMAT: &str = "sonarpad-character-catalog";
 const PROJECT_VERSION: u32 = 1;
+const AUDIO_DESCRIPTION_PARTIAL_FORMAT: &str = "sonarpad-audio-description-partial";
+const AUDIO_DESCRIPTION_PARTIAL_VERSION: u32 = 1;
 const EDGE_TRAILING_MIN_REMOVE_MS: u64 = 60;
 const EDGE_TRAILING_KEEP_MS: u64 = 30;
 const EDGE_TRAILING_SEEK_MS: u64 = 5;
@@ -86,6 +89,7 @@ struct CreateJob {
     volume: i32,
     gemini_api_key: String,
     gemini_model: String,
+    resume_checkpoint_path: Option<PathBuf>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
@@ -104,6 +108,53 @@ struct CharacterCatalog {
     name: String,
     path: PathBuf,
     characters: Vec<BridgeCharacter>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AudioDescriptionPartialCatalog {
+    name: String,
+    path: PathBuf,
+    #[serde(default)]
+    characters: Vec<BridgeCharacter>,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AudioDescriptionPartialCheckpoint {
+    format: String,
+    version: u32,
+    source_path: PathBuf,
+    output_mp3_path: PathBuf,
+    source_file_size: u64,
+    source_duration_sec: f64,
+    language_code: String,
+    verbosity: String,
+    allow_extended_pauses: bool,
+    recognize_characters: bool,
+    save_project: bool,
+    keep_character_catalog: bool,
+    tts_engine: String,
+    tts_voice: String,
+    rate: i32,
+    pitch: i32,
+    volume: i32,
+    gemini_model: String,
+    character_catalog: Option<AudioDescriptionPartialCatalog>,
+    completed_chunks: usize,
+    total_chunks: usize,
+    #[serde(default)]
+    descriptions: Vec<BridgeDescription>,
+    #[serde(default)]
+    character_glossary: Vec<BridgeCharacter>,
+}
+
+#[derive(Clone, Debug)]
+struct AudioDescriptionResumeSettings {
+    checkpoint_path: PathBuf,
+    input_path: PathBuf,
+    output_path: PathBuf,
+    gemini_model: String,
+    completed_chunks: usize,
+    total_chunks: usize,
 }
 
 #[derive(Clone, Debug)]
@@ -1421,6 +1472,134 @@ fn project_path(output: &Path) -> PathBuf {
     p
 }
 
+fn partial_checkpoint_path(output: &Path) -> PathBuf {
+    let mut p = output.to_path_buf();
+    p.set_extension("sonarpad-ad.partial.json");
+    p
+}
+
+fn load_partial_checkpoint(path: &Path) -> Result<AudioDescriptionPartialCheckpoint, String> {
+    let raw = fs::read(path)
+        .map_err(|error| format!("Impossibile leggere il checkpoint dell'audiodescrizione: {error}"))?;
+    let checkpoint: AudioDescriptionPartialCheckpoint = serde_json::from_slice(&raw)
+        .map_err(|error| format!("Checkpoint audiodescrizione non valido: {error}"))?;
+    if checkpoint.format != AUDIO_DESCRIPTION_PARTIAL_FORMAT
+        || checkpoint.version != AUDIO_DESCRIPTION_PARTIAL_VERSION
+    {
+        return Err("Formato del checkpoint audiodescrizione non supportato.".to_string());
+    }
+    if checkpoint.total_chunks == 0 || checkpoint.completed_chunks > checkpoint.total_chunks {
+        return Err("Avanzamento del checkpoint audiodescrizione non valido.".to_string());
+    }
+    let source_metadata = fs::metadata(&checkpoint.source_path).map_err(|error| {
+        format!("Il video salvato nel checkpoint non è disponibile: {error}")
+    })?;
+    if source_metadata.len() != checkpoint.source_file_size {
+        return Err("Il video non corrisponde più al lavoro interrotto.".to_string());
+    }
+    Ok(checkpoint)
+}
+
+fn save_partial_checkpoint(
+    path: &Path,
+    job: &CreateJob,
+    source_duration_sec: f64,
+    checkpoint: &AudioDescriptionBridgeCheckpoint,
+) -> Result<(), String> {
+    let source_file_size = fs::metadata(&job.input_path)
+        .map_err(|error| format!("Lettura dati del video fallita: {error}"))?
+        .len();
+    let character_catalog = job.catalog.as_ref().map(|catalog| AudioDescriptionPartialCatalog {
+        name: catalog.name.clone(),
+        path: catalog.path.clone(),
+        characters: catalog.characters.clone(),
+    });
+    let value = AudioDescriptionPartialCheckpoint {
+        format: AUDIO_DESCRIPTION_PARTIAL_FORMAT.to_string(),
+        version: AUDIO_DESCRIPTION_PARTIAL_VERSION,
+        source_path: job.input_path.clone(),
+        output_mp3_path: job.output_path.clone(),
+        source_file_size,
+        source_duration_sec,
+        language_code: job.language_code.clone(),
+        verbosity: job.verbosity.as_bridge().to_string(),
+        allow_extended_pauses: job.allow_extended_pauses,
+        recognize_characters: job.recognize_characters,
+        save_project: job.save_project,
+        keep_character_catalog: job.keep_character_catalog,
+        tts_engine: job.tts_engine.clone(),
+        tts_voice: job.tts_voice.clone(),
+        rate: job.rate,
+        pitch: job.pitch,
+        volume: job.volume,
+        gemini_model: if checkpoint.gemini_model.trim().is_empty() {
+            job.gemini_model.clone()
+        } else {
+            checkpoint.gemini_model.trim().to_string()
+        },
+        character_catalog,
+        completed_chunks: checkpoint.completed_chunks,
+        total_chunks: checkpoint.total_chunks,
+        descriptions: checkpoint.descriptions.clone(),
+        character_glossary: checkpoint.character_glossary.clone(),
+    };
+    let raw = serde_json::to_vec_pretty(&value)
+        .map_err(|error| format!("Serializzazione checkpoint fallita: {error}"))?;
+    let temporary = temporary_sibling_path(path, "partial");
+    fs::write(&temporary, raw)
+        .map_err(|error| format!("Salvataggio checkpoint fallito: {error}"))?;
+    // On macOS/Unix, rename atomically replaces an existing file on the same volume.
+    // This avoids a window where a crash could leave the job without a checkpoint.
+    fs::rename(&temporary, path).map_err(|error| {
+        let _ = fs::remove_file(&temporary);
+        format!("Conferma checkpoint fallita: {error}")
+    })
+}
+
+fn load_resume_settings(path: &Path) -> Result<AudioDescriptionResumeSettings, String> {
+    let checkpoint = load_partial_checkpoint(path)?;
+    Ok(AudioDescriptionResumeSettings {
+        checkpoint_path: path.to_path_buf(),
+        input_path: checkpoint.source_path,
+        output_path: checkpoint.output_mp3_path,
+        gemini_model: checkpoint.gemini_model,
+        completed_chunks: checkpoint.completed_chunks,
+        total_chunks: checkpoint.total_chunks,
+    })
+}
+
+fn job_from_checkpoint(
+    path: &Path,
+    gemini_api_key: String,
+    gemini_model: String,
+) -> Result<CreateJob, String> {
+    let checkpoint = load_partial_checkpoint(path)?;
+    let catalog = checkpoint.character_catalog.map(|catalog| CharacterCatalog {
+        name: catalog.name,
+        path: catalog.path,
+        characters: catalog.characters,
+    });
+    Ok(CreateJob {
+        input_path: checkpoint.source_path,
+        output_path: checkpoint.output_mp3_path,
+        language_code: checkpoint.language_code,
+        verbosity: Verbosity::from_settings(&checkpoint.verbosity),
+        allow_extended_pauses: checkpoint.allow_extended_pauses,
+        recognize_characters: checkpoint.recognize_characters,
+        save_project: checkpoint.save_project,
+        keep_character_catalog: checkpoint.keep_character_catalog,
+        catalog,
+        tts_engine: checkpoint.tts_engine,
+        tts_voice: checkpoint.tts_voice,
+        rate: checkpoint.rate,
+        pitch: checkpoint.pitch,
+        volume: checkpoint.volume,
+        gemini_api_key,
+        gemini_model,
+        resume_checkpoint_path: Some(path.to_path_buf()),
+    })
+}
+
 fn build_project(
     job: &CreateJob,
     analysis: &AudioDescriptionBridgeResult,
@@ -1712,6 +1891,10 @@ fn create_audio_description(
         fs::create_dir_all(parent).map_err(|e| e.to_string())?;
     }
     let work = cache_dir("job")?;
+    let checkpoint_path = job
+        .resume_checkpoint_path
+        .clone()
+        .unwrap_or_else(|| partial_checkpoint_path(&job.output_path));
     let result = (|| {
         {
             let mut s = state.lock().unwrap();
@@ -1734,6 +1917,23 @@ fn create_audio_description(
             s.status = tr("audio_description.progress.chunk_prepare");
         }
         let chunks = prepare_chunks(&job.input_path, duration, &work, &cancel)?;
+        let resume = if job.resume_checkpoint_path.is_some() {
+            let checkpoint = load_partial_checkpoint(&checkpoint_path)?;
+            if checkpoint.total_chunks != chunks.len()
+                || (checkpoint.source_duration_sec - duration).abs() > 0.5
+            {
+                return Err(
+                    "Il checkpoint interrotto non corrisponde più al video preparato.".to_string(),
+                );
+            }
+            Some(AudioDescriptionBridgeResume {
+                completed_chunks: checkpoint.completed_chunks,
+                descriptions: checkpoint.descriptions,
+                character_glossary: checkpoint.character_glossary,
+            })
+        } else {
+            None
+        };
         let request = AudioDescriptionBridgeRequest {
             input_path: job.input_path.to_string_lossy().to_string(),
             audio_wav_path,
@@ -1750,10 +1950,13 @@ fn create_audio_description(
                 .unwrap_or_default(),
             gemini_api_key: job.gemini_api_key.clone(),
             gemini_model: job.gemini_model.clone(),
+            resume,
         };
         let status_state = state.clone();
         let progress_state = state.clone();
         let quota_state = state.clone();
+        let checkpoint_job = job.clone();
+        let checkpoint_target = checkpoint_path.clone();
         let analysis = run_audio_description_bridge(
             &request,
             cancel.clone(),
@@ -1774,6 +1977,25 @@ fn create_audio_description(
                         sender: tx,
                     });
                     rx.recv().unwrap_or(AudioDescriptionQuotaDecision::Stop)
+                })),
+                checkpoint: Some(Box::new(move |checkpoint| {
+                    if let Err(error) = save_partial_checkpoint(
+                        &checkpoint_target,
+                        &checkpoint_job,
+                        duration,
+                        checkpoint,
+                    ) {
+                        append_podcast_log(&format!(
+                            "audio_description.checkpoint_save_failed error={error}"
+                        ));
+                    } else {
+                        append_podcast_log(&format!(
+                            "audio_description.checkpoint_saved chunk={}/{} path={}",
+                            checkpoint.completed_chunks,
+                            checkpoint.total_chunks,
+                            checkpoint_target.display()
+                        ));
+                    }
                 })),
             },
         )?;
@@ -1875,6 +2097,13 @@ fn create_audio_description(
         })
     })();
     let _ = fs::remove_dir_all(&work);
+    if result.is_ok() && checkpoint_path.exists() {
+        if let Err(error) = fs::remove_file(&checkpoint_path) {
+            append_podcast_log(&format!(
+                "audio_description.checkpoint_remove_after_success_failed error={error}"
+            ));
+        }
+    }
     result
 }
 
@@ -1953,6 +2182,21 @@ fn choose_input(parent: &Dialog) -> Option<PathBuf> {
         None
     }
 }
+fn choose_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
+    let d = FileDialog::builder(parent)
+        .with_message(&tr("audio_description.resume.open_title"))
+        .with_wildcard(
+            "Checkpoint audiodescrizione|*.sonarpad-ad.partial.json|JSON|*.json|Tutti|*.*",
+        )
+        .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
+        .build();
+    if d.show_modal() == ID_OK {
+        d.get_path().map(PathBuf::from)
+    } else {
+        None
+    }
+}
+
 fn choose_output(parent: &Dialog, input: &Path) -> Option<PathBuf> {
     let stem = input
         .file_stem()
@@ -2235,11 +2479,12 @@ pub fn open_create_dialog(
     let p = Panel::builder(&d).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
     let input = TextCtrl::builder(&p).build();
+    let input_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.input"))
+        .build();
     let input_row = BoxSizer::builder(Orientation::Horizontal).build();
     input_row.add(
-        &StaticText::builder(&p)
-            .with_label(&tr("audio_description.input"))
-            .build(),
+        &input_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -2251,11 +2496,12 @@ pub fn open_create_dialog(
     input_row.add(&input_btn, 0, SizerFlag::All, 5);
     root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
     let output = TextCtrl::builder(&p).build();
+    let output_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.output"))
+        .build();
     let output_row = BoxSizer::builder(Orientation::Horizontal).build();
     output_row.add(
-        &StaticText::builder(&p)
-            .with_label(&tr("audio_description.output"))
-            .build(),
+        &output_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -2276,11 +2522,12 @@ pub fn open_create_dialog(
         .position(|(_, code)| *code == saved.audio_description_language)
         .unwrap_or(0);
     language.set_selection(lang_index as u32);
+    let language_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.language"))
+        .build();
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     row.add(
-        &StaticText::builder(&p)
-            .with_label(&tr("audio_description.language"))
-            .build(),
+        &language_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -2298,11 +2545,12 @@ pub fn open_create_dialog(
             Verbosity::Detailed => 2,
         },
     );
+    let verbosity_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.verbosity"))
+        .build();
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     row.add(
-        &StaticText::builder(&p)
-            .with_label(&tr("audio_description.verbosity"))
-            .build(),
+        &verbosity_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -2424,11 +2672,12 @@ pub fn open_create_dialog(
         0
     };
     engine.set_selection(initial_engine);
+    let engine_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.engine"))
+        .build();
     let engine_row = BoxSizer::builder(Orientation::Horizontal).build();
     engine_row.add(
-        &StaticText::builder(&p)
-            .with_label(&tr("audio_description.engine"))
-            .build(),
+        &engine_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -2484,11 +2733,12 @@ pub fn open_create_dialog(
     {
         voice.set_selection(index as u32);
     }
+    let voice_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.voice"))
+        .build();
     let voice_row = BoxSizer::builder(Orientation::Horizontal).build();
     voice_row.add(
-        &StaticText::builder(&p)
-            .with_label(&tr("audio_description.voice"))
-            .build(),
+        &voice_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -2499,6 +2749,9 @@ pub fn open_create_dialog(
     let modify = Button::builder(&p)
         .with_label(&tr("audio_description.modify_project"))
         .build();
+    let continue_interrupted = Button::builder(&p)
+        .with_label(&tr("audio_description.resume.title"))
+        .build();
     let start = Button::builder(&p)
         .with_id(ID_AUDIO_DESCRIPTION_START)
         .with_label(&tr("audio_description.start"))
@@ -2508,11 +2761,71 @@ pub fn open_create_dialog(
         .with_label(&tr("audio_description.close"))
         .build();
     actions.add(&modify, 0, SizerFlag::All, 8);
+    actions.add(&continue_interrupted, 0, SizerFlag::All, 8);
     actions.add_spacer(1);
     actions.add(&start, 0, SizerFlag::All, 8);
     actions.add(&close, 0, SizerFlag::All, 8);
     root.add_sizer(&actions, 0, SizerFlag::Expand, 0);
     p.set_sizer(root, true);
+
+    let set_resume_ui: Rc<dyn Fn(bool)> = {
+        let panel = p;
+        let dialog = d;
+        Rc::new(move |resume_mode| {
+            input_label.show(!resume_mode);
+            input.show(!resume_mode);
+            input_btn.show(!resume_mode);
+            output_label.show(!resume_mode);
+            output.show(!resume_mode);
+            output_btn.show(!resume_mode);
+            language_label.show(!resume_mode);
+            language.show(!resume_mode);
+            verbosity_label.show(!resume_mode);
+            verbosity.show(!resume_mode);
+            extended.show(!resume_mode);
+            recognize.show(!resume_mode);
+            save_project_box.show(!resume_mode);
+            api_label.show(!resume_mode);
+            api.show(!resume_mode);
+            api_get.show(!resume_mode);
+            refresh.show(!resume_mode);
+            engine_label.show(!resume_mode);
+            engine.show(!resume_mode);
+            voice_label.show(!resume_mode);
+            voice.show(!resume_mode);
+            modify.show(!resume_mode);
+            continue_interrupted.show(!resume_mode);
+
+            if resume_mode {
+                keep_catalog.show(false);
+                catalog_label.show(false);
+                catalog_choice.show(false);
+                catalog_name_label.show(false);
+                catalog_name.show(false);
+                model_label.set_label(&tr("audio_description.resume.model"));
+                start.set_label(&tr("audio_description.resume.start"));
+            } else {
+                let recognize_on = recognize.get_value();
+                keep_catalog.show(recognize_on);
+                let show_catalog = recognize_on && keep_catalog.get_value();
+                catalog_label.show(show_catalog);
+                catalog_choice.show(show_catalog);
+                let show_name = show_catalog
+                    && catalog_choice.get_selection().unwrap_or(0) == 0;
+                catalog_name_label.show(show_name);
+                catalog_name.show(show_name);
+                model_label.set_label(&tr("audio_description.gemini_model"));
+                start.set_label(&tr("audio_description.start"));
+            }
+            model_label.show(true);
+            model.show(true);
+            start.show(true);
+            close.show(true);
+            panel.layout();
+            dialog.layout();
+        })
+    };
+
     let d_input = d;
     input_btn.on_click(move |_| {
         if let Some(path) = choose_input(&d_input) {
@@ -2652,6 +2965,67 @@ pub fn open_create_dialog(
         open_project_requested_button.set(true);
         d_modify.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
     });
+    let resume_settings = Rc::new(RefCell::new(None::<AudioDescriptionResumeSettings>));
+    let resume_settings_button = Rc::clone(&resume_settings);
+    let resume_ui_button = Rc::clone(&set_resume_ui);
+    let d_resume = d;
+    continue_interrupted.on_click(move |_| {
+        let Some(path) = choose_resume_checkpoint(&d_resume) else {
+            return;
+        };
+        let resume = match load_resume_settings(&path) {
+            Ok(value) => value,
+            Err(error) => {
+                show_error(
+                    &d_resume,
+                    &trf("audio_description.resume.invalid", &[("error", error)]),
+                );
+                return;
+            }
+        };
+        input.set_value(&resume.input_path.to_string_lossy());
+        output.set_value(&resume.output_path.to_string_lossy());
+        let selected_model = if resume.gemini_model.trim().is_empty() {
+            model.get_string_selection().unwrap_or_default()
+        } else {
+            resume.gemini_model.clone()
+        };
+        let mut resume_models = match fetch_gemini_models(&api.get_value()) {
+            Ok(models) => models,
+            Err(error) => {
+                append_podcast_log(&format!(
+                    "audio_description.create.resume_model_refresh_failed error={error}"
+                ));
+                Vec::new()
+            }
+        };
+        if !selected_model.trim().is_empty()
+            && !resume_models.iter().any(|item| item == &selected_model)
+        {
+            resume_models.insert(0, selected_model.clone());
+        }
+        if resume_models.is_empty() {
+            resume_models.push(selected_model.clone());
+        }
+        model.clear();
+        for item in &resume_models {
+            model.append(item);
+        }
+        let selected_index = resume_models
+            .iter()
+            .position(|item| item == &selected_model)
+            .unwrap_or(0);
+        model.set_selection(selected_index as u32);
+        *resume_settings_button.borrow_mut() = Some(resume.clone());
+        resume_ui_button(true);
+        append_podcast_log(&format!(
+            "audio_description.create.resume_selected chunk={}/{} path={}",
+            resume.completed_chunks,
+            resume.total_chunks,
+            resume.checkpoint_path.display()
+        ));
+        model.set_focus();
+    });
     d.set_escape_id(ID_AUDIO_DESCRIPTION_CLOSE);
     let d_close = d;
     close.on_click(move |_| {
@@ -2679,81 +3053,102 @@ pub fn open_create_dialog(
     let parent_run = *parent;
     let settings_run = settings.clone();
     let rt_run = rt.clone();
+    let resume_settings_run = Rc::clone(&resume_settings);
+    let resume_ui_run = Rc::clone(&set_resume_ui);
     start.on_click(move |_| {
-        let input_path = PathBuf::from(input.get_value());
-        let output_path = PathBuf::from(output.get_value());
-        let lang_idx = language.get_selection().unwrap_or(0) as usize;
-        let language_code = langs.get(lang_idx).map(|x| x.1).unwrap_or("it").to_string();
-        let verbosity_value = match verbosity.get_selection().unwrap_or(2) {
-            0 => Verbosity::Brief,
-            1 => Verbosity::Standard,
-            _ => Verbosity::Detailed,
-        };
-        let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
-            "system".to_string()
-        } else {
-            "microsoft".to_string()
-        };
-        let voice_idx = voice.get_selection().unwrap_or(0) as usize;
-        let voice_value = active_voices
-            .borrow()
-            .get(voice_idx)
-            .map(|v| v.short_name.clone())
-            .unwrap_or_default();
         let model_value = model
             .get_string_selection()
             .unwrap_or_else(|| saved.audio_description_gemini_model.clone());
-        let catalog = if keep_catalog.get_value() {
-            let sel = catalog_choice.get_selection().unwrap_or(0) as usize;
-            if sel == 0 {
-                let name = catalog_name.get_value().trim().to_string();
-                if name.is_empty() {
-                    show_error(&d, &tr("audio_description.character_catalog.name_error"));
-                    catalog_name.set_focus();
+        let job = if let Some(resume) = resume_settings_run.borrow().as_ref() {
+            match job_from_checkpoint(
+                &resume.checkpoint_path,
+                api.get_value(),
+                model_value.clone(),
+            ) {
+                Ok(job) => job,
+                Err(error) => {
+                    show_error(
+                        &d,
+                        &trf("audio_description.resume.invalid", &[("error", error)]),
+                    );
                     return;
                 }
-                Some(CharacterCatalog {
-                    name: name.clone(),
-                    path: catalog_path_for_name(&name),
-                    characters: Vec::new(),
-                })
-            } else {
-                catalogs.borrow().get(sel - 1).cloned()
             }
         } else {
-            None
-        };
-        let job = CreateJob {
-            input_path,
-            output_path,
-            language_code: language_code.clone(),
-            verbosity: verbosity_value,
-            allow_extended_pauses: extended.get_value(),
-            recognize_characters: recognize.get_value(),
-            save_project: save_project_box.get_value(),
-            keep_character_catalog: keep_catalog.get_value(),
-            catalog: catalog.clone(),
-            tts_engine: engine_value.clone(),
-            tts_voice: voice_value.clone(),
-            rate: saved.rate,
-            pitch: saved.pitch,
-            volume: saved.volume,
-            gemini_api_key: api.get_value(),
-            gemini_model: model_value.clone(),
+            let input_path = PathBuf::from(input.get_value());
+            let output_path = PathBuf::from(output.get_value());
+            let lang_idx = language.get_selection().unwrap_or(0) as usize;
+            let language_code = langs.get(lang_idx).map(|x| x.1).unwrap_or("it").to_string();
+            let verbosity_value = match verbosity.get_selection().unwrap_or(2) {
+                0 => Verbosity::Brief,
+                1 => Verbosity::Standard,
+                _ => Verbosity::Detailed,
+            };
+            let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
+                "system".to_string()
+            } else {
+                "microsoft".to_string()
+            };
+            let voice_idx = voice.get_selection().unwrap_or(0) as usize;
+            let voice_value = active_voices
+                .borrow()
+                .get(voice_idx)
+                .map(|v| v.short_name.clone())
+                .unwrap_or_default();
+            let catalog = if keep_catalog.get_value() {
+                let sel = catalog_choice.get_selection().unwrap_or(0) as usize;
+                if sel == 0 {
+                    let name = catalog_name.get_value().trim().to_string();
+                    if name.is_empty() {
+                        show_error(&d, &tr("audio_description.character_catalog.name_error"));
+                        catalog_name.set_focus();
+                        return;
+                    }
+                    Some(CharacterCatalog {
+                        name: name.clone(),
+                        path: catalog_path_for_name(&name),
+                        characters: Vec::new(),
+                    })
+                } else {
+                    catalogs.borrow().get(sel - 1).cloned()
+                }
+            } else {
+                None
+            };
+            CreateJob {
+                input_path,
+                output_path,
+                language_code,
+                verbosity: verbosity_value,
+                allow_extended_pauses: extended.get_value(),
+                recognize_characters: recognize.get_value(),
+                save_project: save_project_box.get_value(),
+                keep_character_catalog: keep_catalog.get_value(),
+                catalog,
+                tts_engine: engine_value,
+                tts_voice: voice_value,
+                rate: saved.rate,
+                pitch: saved.pitch,
+                volume: saved.volume,
+                gemini_api_key: api.get_value(),
+                gemini_model: model_value.clone(),
+                resume_checkpoint_path: None,
+            }
         };
         {
             let mut st = settings_run.lock().unwrap();
             st.audio_description_gemini_api_key = job.gemini_api_key.clone();
             st.audio_description_gemini_model = model_value;
-            st.audio_description_language = language_code;
-            st.audio_description_tts_engine = engine_value.clone();
-            st.audio_description_tts_voice = voice_value.clone();
-            st.audio_description_verbosity = verbosity_value.as_bridge().to_string();
+            st.audio_description_language = job.language_code.clone();
+            st.audio_description_tts_engine = job.tts_engine.clone();
+            st.audio_description_tts_voice = job.tts_voice.clone();
+            st.audio_description_verbosity = job.verbosity.as_bridge().to_string();
             st.audio_description_extended_pauses = job.allow_extended_pauses;
             st.audio_description_recognize_characters = job.recognize_characters;
             st.audio_description_save_project = job.save_project;
             st.audio_description_keep_character_catalog = job.keep_character_catalog;
-            st.audio_description_character_catalog = catalog
+            st.audio_description_character_catalog = job
+                .catalog
                 .as_ref()
                 .map(|c| c.path.to_string_lossy().to_string())
                 .unwrap_or_default();
@@ -2800,6 +3195,9 @@ pub fn open_create_dialog(
                     ));
                 }
                 show_completion(&d, &msg);
+                if resume_settings_run.borrow_mut().take().is_some() {
+                    resume_ui_run(false);
+                }
                 append_podcast_log(&format!(
                     "audio_description.create.open_output_requested path={}",
                     output_to_open.display()

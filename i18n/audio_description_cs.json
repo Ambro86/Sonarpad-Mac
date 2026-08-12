@@ -142,5 +142,10 @@
   "audio_description.character_catalog.new_option": "Vytvořit nový katalog...",
   "audio_description.character_catalog.selection_label": "Katalog postav:",
   "audio_description.character_catalog.new_name_label": "Název nového katalogu:",
-  "audio_description.project.change_voice": "Změnit hlas"
+  "audio_description.project.change_voice": "Změnit hlas",
+  "audio_description.resume.start": "Pokračovat v audiopopisu",
+  "audio_description.resume.model": "Vyberte model:",
+  "audio_description.resume.title": "Pokračovat v přerušeném audiopopisu",
+  "audio_description.resume.open_title": "Otevřít přerušený audiopopis",
+  "audio_description.resume.invalid": "V přerušeném audiopopisu nelze pokračovat:\\n{error}"
 }

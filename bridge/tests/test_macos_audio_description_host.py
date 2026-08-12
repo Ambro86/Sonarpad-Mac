@@ -339,6 +339,84 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
             r'(?s)dropped\.push\(DroppedDescription \{.*original_index: d\.original_index',
         )
 
+    def test_temporal_grounding_prompt_matches_windows_release_behavior(self):
+        core = (
+            ROOT
+            / "bridge"
+            / "audio_description_runtime"
+            / "audio_describer"
+            / "core"
+            / "audio_describer.py"
+        ).read_text(encoding="utf-8")
+        worker = (ROOT / "bridge" / "audio_description_bridge.py").read_text(encoding="utf-8")
+        self.assertIn("GEMINI_FRAME_RATE_FOR_AI = 0", worker)
+        self.assertIn("CHUNK_DURATION_SECONDS = 180", worker)
+        self.assertIn("Temporal grounding", core)
+        self.assertIn("A static or mundane description that is correct", core)
+        self.assertIn("including a logo or title card", core)
+        self.assertIn("outside the slot", core)
+
+    def test_interrupted_audio_description_checkpoint_and_resume_protocol(self):
+        worker = (ROOT / "bridge" / "audio_description_bridge.py").read_text(encoding="utf-8")
+        core = (
+            ROOT
+            / "bridge"
+            / "audio_description_runtime"
+            / "audio_describer"
+            / "core"
+            / "audio_describer.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('"CHECKPOINT"', worker)
+        self.assertIn("resume_completed_chunks=", worker)
+        self.assertIn("if i < resume_completed_chunks:", core)
+        extend = core.index("all_descriptions.extend(normalized_chunk)")
+        callback = core.index("checkpoint_callback(", extend)
+        cleanup = core.index("_cleanup_uploaded_file(client, current_chunk_file_obj", callback)
+        self.assertLess(extend, callback)
+        self.assertLess(callback, cleanup)
+        self.assertIn('line.strip_prefix("CHECKPOINT:")', BRIDGE)
+        self.assertIn("AudioDescriptionBridgeResume", BRIDGE)
+
+    def test_continue_interrupted_button_follows_modify_project_in_tab_order(self):
+        start = AUDIO.index("pub fn open_create_dialog")
+        end = AUDIO.index("fn format_mmss", start)
+        dialog = AUDIO[start:end]
+        modify = dialog.index('with_label(&tr("audio_description.modify_project"))')
+        resume = dialog.index('with_label(&tr("audio_description.resume.title"))', modify)
+        create = dialog.index('with_label(&tr("audio_description.start"))', resume)
+        self.assertLess(modify, resume)
+        self.assertLess(resume, create)
+        self.assertRegex(
+            dialog,
+            r'(?s)actions\.add\(&modify.*actions\.add\(&continue_interrupted.*actions\.add\(&start',
+        )
+
+    def test_resume_uses_selected_model_and_preserves_checkpoint_on_cancel(self):
+        self.assertIn('set_extension("sonarpad-ad.partial.json")', AUDIO)
+        self.assertIn("save_partial_checkpoint", AUDIO)
+        self.assertIn("job_from_checkpoint", AUDIO)
+        self.assertIn("model_value.clone()", AUDIO)
+        self.assertIn("resume_checkpoint_path: Some", AUDIO)
+        self.assertIn("if result.is_ok() && checkpoint_path.exists()", AUDIO)
+        self.assertIn('return Err("cancelled".to_string());', BRIDGE)
+        self.assertNotIn(
+            "checkpoint_remove_after_cancel",
+            AUDIO,
+        )
+
+    def test_resume_labels_exist_in_all_mac_locales(self):
+        for path in sorted((ROOT / "i18n").glob("audio_description_*.json")):
+            payload = json.loads(path.read_text(encoding="utf-8"))
+            with self.subTest(locale=path.name):
+                for key in (
+                    "audio_description.resume.title",
+                    "audio_description.resume.model",
+                    "audio_description.resume.start",
+                    "audio_description.resume.open_title",
+                    "audio_description.resume.invalid",
+                ):
+                    self.assertIn(key, payload)
+
     def test_all_mac_audio_description_locales_have_same_keys(self):
         files = sorted((ROOT / "i18n").glob("audio_description_*.json"))
         self.assertEqual(7, len(files))

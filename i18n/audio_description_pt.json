@@ -142,5 +142,10 @@
   "audio_description.character_catalog.new_option": "Criar um novo catálogo...",
   "audio_description.character_catalog.selection_label": "Catálogo de personagens:",
   "audio_description.character_catalog.new_name_label": "Nome do novo catálogo:",
-  "audio_description.project.change_voice": "Alterar voz"
+  "audio_description.project.change_voice": "Alterar voz",
+  "audio_description.resume.start": "Continuar audiodescrição",
+  "audio_description.resume.model": "Escolher modelo:",
+  "audio_description.resume.title": "Continuar audiodescrição interrompida",
+  "audio_description.resume.open_title": "Abrir uma audiodescrição interrompida",
+  "audio_description.resume.invalid": "Não é possível continuar a audiodescrição interrompida:\\n{error}"
 }

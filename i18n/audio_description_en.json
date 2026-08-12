@@ -142,5 +142,10 @@
   "audio_description.character_catalog.new_option": "Create a new catalog...",
   "audio_description.character_catalog.selection_label": "Character catalog:",
   "audio_description.character_catalog.new_name_label": "New catalog name:",
-  "audio_description.project.change_voice": "Change voice"
+  "audio_description.project.change_voice": "Change voice",
+  "audio_description.resume.start": "Continue audio description",
+  "audio_description.resume.model": "Choose model:",
+  "audio_description.resume.title": "Continue interrupted audio description",
+  "audio_description.resume.open_title": "Open an interrupted audio-description checkpoint",
+  "audio_description.resume.invalid": "The interrupted audio description cannot be continued:\\n{error}"
 }
