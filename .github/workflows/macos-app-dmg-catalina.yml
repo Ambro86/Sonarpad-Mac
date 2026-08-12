@@ -110,6 +110,8 @@ jobs:
         env:
           ONNXRUNTIME_VERSION: "1.15.0"
           NUMPY_SPEC: "numpy>=1.24,<2"
+          PROTOBUF_PURE_PYTHON: "1"
+          PROTOBUF_VERSION: "7.35.1"
         run: |
           set -euxo pipefail
           python3 -m venv .venv-audio-description
@@ -118,6 +120,7 @@ jobs:
             bash ./bridge/build_audio_description_bridge_macos.sh "$PWD/dist/audio-description-worker"
           test -x "dist/audio-description-worker/audio_description_bridge/audio_description_bridge"
           file "dist/audio-description-worker/audio_description_bridge/audio_description_bridge"
+          test ! -e "dist/audio-description-worker/audio_description_bridge/_internal/google/_upb/_message.abi3.so"
           PYTHONPATH="$PWD/bridge:$PWD/bridge/audio_description_runtime:$PWD/bridge/tests" \
             python bridge/run_audio_description_tests_macos.py
 

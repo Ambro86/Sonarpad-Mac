@@ -93,6 +93,19 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("--only-binary=cryptography", build_script)
         self.assertIn('audio_description_bridge" --self-test', build_script)
 
+    def test_catalina_worker_can_force_official_pure_python_protobuf_wheel(self):
+        build_script = (ROOT / "bridge" / "build_audio_description_bridge_macos.sh").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('PROTOBUF_PURE_PYTHON="${PROTOBUF_PURE_PYTHON:-0}"', build_script)
+        self.assertIn('PROTOBUF_VERSION="${PROTOBUF_VERSION:-7.35.1}"', build_script)
+        self.assertIn("--platform any", build_script)
+        self.assertIn("protobuf-*-py3-none-any.whl", build_script)
+
+    def test_extended_pauses_are_disabled_by_default(self):
+        self.assertIn("audio_description_extended_pauses: false", MAIN)
+        self.assertNotIn("audio_description_extended_pauses: true", MAIN)
+
     def test_audio_description_progress_uses_the_ui_event_loop(self):
         start = AUDIO.index("fn run_with_progress")
         end = AUDIO.index("fn language_choices", start)
@@ -193,6 +206,9 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
     def test_catalina_workflow_uses_compatible_worker_and_checks_macho_targets(self):
         self.assertIn("build_audio_description_bridge_macos.sh", CATALINA)
         self.assertIn('ONNXRUNTIME_VERSION: "1.15.0"', CATALINA)
+        self.assertIn('PROTOBUF_PURE_PYTHON: "1"', CATALINA)
+        self.assertIn('PROTOBUF_VERSION: "7.35.1"', CATALINA)
+        self.assertIn('_internal/google/_upb/_message.abi3.so', CATALINA)
         self.assertIn("10.15", CATALINA)
         self.assertIn("otool", CATALINA)
         self.assertIn("audio-description", CATALINA)

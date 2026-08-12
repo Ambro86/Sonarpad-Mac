@@ -12,10 +12,31 @@ GOOGLE_GENAI_VERSION="${GOOGLE_GENAI_VERSION:-2.12.1}"
 GOOGLE_API_CORE_VERSION="${GOOGLE_API_CORE_VERSION:-2.32.0}"
 CRYPTOGRAPHY_VERSION="${CRYPTOGRAPHY_VERSION:-48.0.1}"
 PYINSTALLER_VERSION="${PYINSTALLER_VERSION:-6.20.0}"
+PROTOBUF_PURE_PYTHON="${PROTOBUF_PURE_PYTHON:-0}"
+PROTOBUF_VERSION="${PROTOBUF_VERSION:-7.35.1}"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 "$PYTHON_BIN" -m pip install --upgrade pip
+
+# The protobuf 7.35.1 macOS native wheel advertises an old platform tag but
+# its bundled _upb extension currently declares macOS 12.0. Catalina builds
+# opt into the official pure-Python wheel instead; normal macOS builds keep
+# the native implementation.
+if [[ "$PROTOBUF_PURE_PYTHON" == "1" ]]; then
+  PROTOBUF_WHEEL_DIR="$(mktemp -d)"
+  trap 'rm -rf "$PROTOBUF_WHEEL_DIR"' EXIT
+  "$PYTHON_BIN" -m pip download \
+    --no-deps \
+    --only-binary=:all: \
+    --platform any \
+    --dest "$PROTOBUF_WHEEL_DIR" \
+    "protobuf==${PROTOBUF_VERSION}"
+  PROTOBUF_WHEEL="$(find "$PROTOBUF_WHEEL_DIR" -maxdepth 1 -type f -name 'protobuf-*-py3-none-any.whl' -print -quit)"
+  test -n "$PROTOBUF_WHEEL"
+  "$PYTHON_BIN" -m pip install "$PROTOBUF_WHEEL"
+fi
+
 "$PYTHON_BIN" -m pip install --only-binary=cryptography \
   "google-genai==${GOOGLE_GENAI_VERSION}" \
   "google-api-core==${GOOGLE_API_CORE_VERSION}" \

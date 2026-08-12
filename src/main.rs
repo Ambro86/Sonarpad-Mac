@@ -464,7 +464,7 @@ impl Settings {
             audio_description_tts_engine: default_audio_description_tts_engine(),
             audio_description_tts_voice: String::new(),
             audio_description_verbosity: default_audio_description_verbosity(),
-            audio_description_extended_pauses: true,
+            audio_description_extended_pauses: false,
             audio_description_recognize_characters: true,
             audio_description_save_project: false,
             audio_description_keep_character_catalog: false,
