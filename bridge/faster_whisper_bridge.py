@@ -283,12 +283,13 @@ def append_transcribed_segments(
 def transcribe_long_input(model, input_path, language, timestamps, total_duration):
     parts = []
     last_progress = 0
-    selected_language = str(language or "").strip().lower() or None
-    detected_language = selected_language or ""
+    selected_language = str(language or "").strip().lower()
+    if not selected_language:
+        return {"ok": False, "error": "transcription language is required"}
 
     for audio_chunk, offset_seconds in iter_resampled_audio_chunks(input_path):
         chunk_duration = float(audio_chunk.shape[0]) / WHISPER_SAMPLE_RATE
-        segments, info = model.transcribe(
+        segments, _info = model.transcribe(
             audio_chunk,
             language=selected_language,
             task="transcribe",
@@ -296,15 +297,6 @@ def transcribe_long_input(model, input_path, language, timestamps, total_duratio
             beam_size=5,
             condition_on_previous_text=False,
         )
-        if not detected_language:
-            detected_language = str(getattr(info, "language", "") or "").strip().lower()
-            probability = float(getattr(info, "language_probability", 0.0) or 0.0)
-            if detected_language:
-                selected_language = detected_language
-                print(
-                    f"LANGUAGE:{detected_language}:{probability:.4f}",
-                    flush=True,
-                )
         last_progress = append_transcribed_segments(
             segments,
             parts,
@@ -322,19 +314,22 @@ def transcribe_long_input(model, input_path, language, timestamps, total_duratio
                 print(f"PROGRESS:{last_progress}", flush=True)
 
     transcript = ("\n".join(parts) if timestamps else " ".join(parts)).strip()
-    return {"ok": True, "text": transcript, "language": detected_language}
-
+    return {"ok": True, "text": transcript, "language": selected_language}
 
 def transcribe_input(model, input_path, language, timestamps):
     if not os.path.isfile(input_path):
         return {"ok": False, "error": f"input file not found: {input_path}"}
+
+    requested_language = str(language or "").strip().lower()
+    if not requested_language:
+        return {"ok": False, "error": "transcription language is required"}
 
     total_duration = audio_duration_seconds(input_path)
     if total_duration >= LONG_AUDIO_THRESHOLD_SECONDS:
         return transcribe_long_input(
             model,
             input_path,
-            language,
+            requested_language,
             timestamps,
             total_duration,
         )
@@ -343,8 +338,7 @@ def transcribe_input(model, input_path, language, timestamps):
     audio = decode_audio_mono_16k(input_path)
     if total_duration <= 0:
         total_duration = float(audio.shape[0]) / WHISPER_SAMPLE_RATE
-    requested_language = str(language or "").strip().lower() or None
-    segments, info = model.transcribe(
+    segments, _info = model.transcribe(
         audio,
         language=requested_language,
         task="transcribe",
@@ -352,13 +346,6 @@ def transcribe_input(model, input_path, language, timestamps):
         beam_size=5,
         condition_on_previous_text=False,
     )
-    detected_language = str(getattr(info, "language", "") or "").strip().lower()
-    language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
-    if detected_language:
-        print(
-            f"LANGUAGE:{detected_language}:{language_probability:.4f}",
-            flush=True,
-        )
 
     parts = []
     append_transcribed_segments(
@@ -371,8 +358,7 @@ def transcribe_input(model, input_path, language, timestamps):
     )
 
     transcript = ("\n".join(parts) if timestamps else " ".join(parts)).strip()
-    return {"ok": True, "text": transcript, "language": detected_language}
-
+    return {"ok": True, "text": transcript, "language": requested_language}
 
 def worker_loop(model):
     print_json(

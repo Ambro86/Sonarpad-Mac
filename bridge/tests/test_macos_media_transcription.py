@@ -51,42 +51,46 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn("model.transcribe(\n        audio,", source)
         self.assertNotIn("model.transcribe(\n        input_path,", source)
 
-    def test_source_language_follows_windows_transcribe_detection_flow(self):
+    def test_transcription_requires_explicit_audio_language_and_never_auto_detects(self):
         source = text(BRIDGE)
         self.assertNotIn("model.detect_language(", source)
         self.assertNotIn("def detect_source_language", source)
+        self.assertNotIn('getattr(info, "language", "")', source)
+        self.assertIn('"transcription language is required"', source)
         self.assertIn('task="transcribe"', source)
         self.assertNotIn('task="translate"', source)
         self.assertIn("vad_filter=False", source)
         self.assertNotIn("vad_filter=True", source)
-        self.assertIn('getattr(info, "language", "")', source)
 
-    def test_long_transcription_detects_on_first_real_transcribe_then_locks_language(self):
+    def test_long_transcription_forces_requested_language_for_every_chunk(self):
         source = text(BRIDGE)
         start = source.index("def transcribe_long_input")
         end = source.index("def transcribe_input", start)
         body = source[start:end]
-        self.assertIn('selected_language = str(language or "").strip().lower() or None', body)
-        self.assertIn("segments, info = model.transcribe(", body)
+        self.assertIn('selected_language = str(language or "").strip().lower()', body)
+        self.assertNotIn("or None", body)
+        self.assertIn('return {"ok": False, "error": "transcription language is required"}', body)
+        self.assertIn("segments, _info = model.transcribe(", body)
         self.assertIn("language=selected_language", body)
-        self.assertIn('detected_language = str(getattr(info, "language", "") or "").strip().lower()', body)
-        self.assertIn("selected_language = detected_language", body)
+        self.assertNotIn("language_probability", body)
+        self.assertNotIn("detected_language", body)
         self.assertIn('task="transcribe"', body)
-        transcribe_pos = body.index("model.transcribe(")
-        lock_pos = body.index("selected_language = detected_language")
-        self.assertLess(transcribe_pos, lock_pos)
+        self.assertIn('"language": selected_language', body)
 
-    def test_short_transcription_uses_transcribe_info_language_without_separate_detection(self):
+    def test_short_transcription_forces_requested_language(self):
         source = text(BRIDGE)
         start = source.index("def transcribe_input")
         end = source.index("def worker_loop", start)
         body = source[start:end]
-        self.assertIn('requested_language = str(language or "").strip().lower() or None', body)
-        self.assertIn("segments, info = model.transcribe(", body)
+        self.assertIn('requested_language = str(language or "").strip().lower()', body)
+        self.assertNotIn("or None", body)
+        self.assertIn('return {"ok": False, "error": "transcription language is required"}', body)
+        self.assertIn("segments, _info = model.transcribe(", body)
         self.assertIn("language=requested_language", body)
-        self.assertIn('detected_language = str(getattr(info, "language", "") or "").strip().lower()', body)
         self.assertNotIn("detect_language", body)
+        self.assertNotIn("language_probability", body)
         self.assertIn('task="transcribe"', body)
+        self.assertIn('"language": requested_language', body)
 
     def test_pyav_decoder_uses_concrete_audio_stream_not_audio_index_lookup(self):
         source = text(BRIDGE)
@@ -135,6 +139,8 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('.join("models")', source)
         self.assertIn('.join("faster-whisper")', source)
         self.assertIn(".process_group(0)", source)
+        self.assertIn('.arg("--language")', source)
+        self.assertIn('transcription.worker requested_language=', source)
         self.assertIn('strip_prefix("STAGE:")', source)
         self.assertIn('strip_prefix("PROGRESS:")', source)
         self.assertIn('pub backend: String', source)
@@ -150,6 +156,10 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('tr("media_transcription.model.small")', source)
         self.assertIn('tr("media_transcription.model.medium")', source)
         self.assertIn('tr("media_transcription.model.large")', source)
+        self.assertIn('tr("media_transcription.audio_language")', source)
+        self.assertIn("let audio_language = Choice::builder(&panel).build();", source)
+        self.assertIn("let saved_audio_language = Settings::load().transcription_audio_language;", source)
+        self.assertIn("selected_audio_language(&audio_language)", source)
         self.assertIn("Gauge::builder(&panel).with_range(100).build()", source)
         self.assertIn("gauge_tick.set_value(snapshot.progress.clamp(0, 99))", source)
         self.assertNotIn("gauge_tick.pulse()", source)
@@ -164,6 +174,7 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
             source.index("let output = TextCtrl::builder"),
             source.index("let output_button = Button::builder"),
             source.index("let model = Choice::builder"),
+            source.index("let audio_language = Choice::builder"),
             source.index("let start = Button::builder"),
             source.index("let close = Button::builder"),
         ]
@@ -175,8 +186,34 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertEqual(values["media_transcription.browse_input"], "Scegli file media...")
         self.assertEqual(values["media_transcription.browse_output"], "Cambia cartella di destinazione...")
         self.assertEqual(values["media_transcription.model.small"], "Piccolo")
+        self.assertEqual(values["media_transcription.audio_language"], "Lingua dell'audio:")
         self.assertEqual(values["media_transcription.model.medium"], "Medio")
         self.assertEqual(values["media_transcription.model.large"], "Grande v3")
+
+    def test_audio_language_picker_remembers_last_choice_and_offers_common_languages(self):
+        source = text(UI)
+        for label, code in (
+            ("Italiano", "it"),
+            ("English", "en"),
+            ("Español", "es"),
+            ("Français", "fr"),
+            ("Deutsch", "de"),
+            ("Русский", "ru"),
+            ("中文", "zh"),
+        ):
+            self.assertIn(f'(\"{label}\", \"{code}\")', source)
+        self.assertIn(".position(|(_, code)| *code == saved_audio_language.as_str())", source)
+        self.assertIn("audio_language.set_selection(default_language_index as u32);", source)
+        self.assertIn("audio_language.on_selection_changed", source)
+        self.assertIn("settings.transcription_audio_language = selected", source)
+        self.assertIn("settings.save();", source)
+        self.assertIn("chosen_language", source)
+        self.assertIn("transcription.request model={} language={}", source)
+
+        settings_source = text(ROOT / "src" / "main.rs")
+        self.assertIn("transcription_audio_language: String", settings_source)
+        self.assertIn("default_transcription_language_for_ui", settings_source)
+        self.assertIn("is_supported_transcription_language", settings_source)
 
     def test_media_transcription_locale_key_sets_match(self):
         self.assertEqual(len(LOCALES), 7)

@@ -361,6 +361,8 @@ struct Settings {
     system_voice: String,
     #[serde(default = "default_media_seek_seconds")]
     media_seek_seconds: u32,
+    #[serde(default)]
+    transcription_audio_language: String,
     rate: i32,
     pitch: i32,
     volume: i32,
@@ -444,6 +446,7 @@ impl Settings {
             voice_engine: default_voice_engine(),
             system_voice: String::new(),
             media_seek_seconds: default_media_seek_seconds(),
+            transcription_audio_language: String::new(),
             rate: 0,
             pitch: 0,
             volume: 100,
@@ -494,6 +497,48 @@ impl Settings {
 fn default_true() -> bool {
     true
 }
+
+fn is_supported_transcription_language(code: &str) -> bool {
+    matches!(
+        code,
+        "it"
+            | "en"
+            | "es"
+            | "fr"
+            | "pt"
+            | "de"
+            | "uk"
+            | "lt"
+            | "sv"
+            | "vi"
+            | "cs"
+            | "pl"
+            | "sr"
+            | "ru"
+            | "zh"
+            | "hi"
+            | "ja"
+            | "ko"
+            | "ar"
+            | "tr"
+            | "nl"
+            | "ro"
+            | "hu"
+            | "el"
+            | "da"
+            | "no"
+            | "fi"
+    )
+}
+
+fn default_transcription_language_for_ui(ui_language: &str) -> String {
+    if is_supported_transcription_language(ui_language) {
+        ui_language.to_string()
+    } else {
+        "it".to_string()
+    }
+}
+
 fn default_audio_description_gemini_model() -> String {
     "gemini-3.5-flash-lite".to_string()
 }
@@ -8912,6 +8957,14 @@ fn synthesize_voice_chunk_blocking(
 
 fn normalize_settings_data(settings: &mut Settings) {
     settings.voice_engine = normalized_voice_engine(&settings.voice_engine);
+    settings.transcription_audio_language = settings
+        .transcription_audio_language
+        .trim()
+        .to_lowercase();
+    if !is_supported_transcription_language(&settings.transcription_audio_language) {
+        settings.transcription_audio_language =
+            default_transcription_language_for_ui(&settings.ui_language);
+    }
     settings.audio_description_gemini_model =
         settings.audio_description_gemini_model.trim().to_string();
     if settings.audio_description_gemini_model.is_empty() {

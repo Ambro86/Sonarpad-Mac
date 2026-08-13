@@ -7,6 +7,7 @@
   "media_transcription.open_title": "Scegli il file media da trascrivere",
   "media_transcription.save_title": "Scegli il file di destinazione della trascrizione",
   "media_transcription.model": "Modello:",
+  "media_transcription.audio_language": "Lingua dell'audio:",
   "media_transcription.model.small": "Piccolo",
   "media_transcription.model.medium": "Medio",
   "media_transcription.model.large": "Grande v3",

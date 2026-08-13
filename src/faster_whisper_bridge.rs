@@ -180,10 +180,18 @@ fn spawn_stdout_reader(stdout: impl Read + Send + 'static) -> mpsc::Receiver<Str
 pub fn transcribe_media(
     input_path: &Path,
     model: BridgeModel,
+    language: &str,
     cancel: Arc<AtomicBool>,
     mut callbacks: BridgeProgressCallbacks,
 ) -> Result<BridgeTranscriptionResult, String> {
     let bridge_path = ensure_bridge(&cancel)?;
+    let requested_language = language.trim().to_ascii_lowercase();
+    if requested_language.is_empty() {
+        return Err("transcription language is required".to_string());
+    }
+    crate::append_podcast_log(&format!(
+        "transcription.worker requested_language={requested_language}"
+    ));
     let model_cache = model_cache_dir();
     fs::create_dir_all(&model_cache)
         .map_err(|error| format!("create faster-whisper model cache failed: {error}"))?;
@@ -200,6 +208,8 @@ pub fn transcribe_media(
         .arg(input_path)
         .arg("--model")
         .arg(model.as_name())
+        .arg("--language")
+        .arg(&requested_language)
         .arg("--download-root")
         .arg(&model_cache)
         .stdin(Stdio::null())

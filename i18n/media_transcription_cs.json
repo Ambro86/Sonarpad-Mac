@@ -7,6 +7,7 @@
   "media_transcription.open_title": "Vyberte mediální soubor k přepisu",
   "media_transcription.save_title": "Vyberte cílový soubor přepisu",
   "media_transcription.model": "Model:",
+  "media_transcription.audio_language": "Jazyk zvuku:",
   "media_transcription.model.small": "Malý",
   "media_transcription.model.medium": "Střední",
   "media_transcription.model.large": "Velký v3",

@@ -16,6 +16,36 @@ const ID_TRANSCRIPTION_START: i32 = 7200;
 const ID_TRANSCRIPTION_CLOSE: i32 = 7201;
 const ID_TRANSCRIPTION_PROGRESS_CANCEL: i32 = 7202;
 
+const AUDIO_LANGUAGES: &[(&str, &str)] = &[
+    ("Italiano", "it"),
+    ("English", "en"),
+    ("Español", "es"),
+    ("Français", "fr"),
+    ("Português", "pt"),
+    ("Deutsch", "de"),
+    ("Українська", "uk"),
+    ("Lietuvių", "lt"),
+    ("Svenska", "sv"),
+    ("Tiếng Việt", "vi"),
+    ("Čeština", "cs"),
+    ("Polski", "pl"),
+    ("Srpski", "sr"),
+    ("Русский", "ru"),
+    ("中文", "zh"),
+    ("हिन्दी", "hi"),
+    ("日本語", "ja"),
+    ("한국어", "ko"),
+    ("العربية", "ar"),
+    ("Türkçe", "tr"),
+    ("Nederlands", "nl"),
+    ("Română", "ro"),
+    ("Magyar", "hu"),
+    ("Ελληνικά", "el"),
+    ("Dansk", "da"),
+    ("Norsk", "no"),
+    ("Suomi", "fi"),
+];
+
 #[derive(Clone, Debug)]
 struct ProgressState {
     progress: i32,
@@ -119,6 +149,14 @@ fn selected_model(choice: &Choice) -> BridgeModel {
     }
 }
 
+fn selected_audio_language(choice: &Choice) -> &'static str {
+    let index = choice.get_selection().unwrap_or(0) as usize;
+    AUDIO_LANGUAGES
+        .get(index)
+        .map(|(_, code)| *code)
+        .unwrap_or("it")
+}
+
 fn show_message(parent: &dyn WxWidget, title: &str, message: &str, error: bool) {
     let style = if error {
         MessageDialogStyle::OK | MessageDialogStyle::IconError
@@ -136,6 +174,7 @@ fn run_with_progress(
     input: PathBuf,
     output: PathBuf,
     model: BridgeModel,
+    language: String,
 ) -> Result<PathBuf, String> {
     let progress_dialog = Dialog::builder(parent, &tr("media_transcription.title"))
         .with_style(
@@ -185,9 +224,15 @@ fn run_with_progress(
     thread::spawn(move || {
         let state_progress = Arc::clone(&state_thread);
         let state_stage = Arc::clone(&state_thread);
+        crate::append_podcast_log(&format!(
+            "transcription.request model={} language={}",
+            model.as_name(),
+            language
+        ));
         let result = transcribe_media(
             &input,
             model,
+            &language,
             cancel_thread,
             BridgeProgressCallbacks {
                 transcription: Some(Box::new(move |progress| {
@@ -289,7 +334,7 @@ fn run_with_progress(
 pub fn open_dialog(parent: &Frame) {
     let dialog = Dialog::builder(parent, &tr("media_transcription.title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(760, 300)
+        .with_size(760, 350)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -344,6 +389,37 @@ pub fn open_dialog(parent: &Frame) {
     model.set_selection(0);
     model_row.add(&model, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&model_row, 0, SizerFlag::Expand, 0);
+
+    let audio_language_row = BoxSizer::builder(Orientation::Horizontal).build();
+    audio_language_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&tr("media_transcription.audio_language"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let audio_language = Choice::builder(&panel).build();
+    for (label, _) in AUDIO_LANGUAGES {
+        audio_language.append(label);
+    }
+    let saved_audio_language = Settings::load().transcription_audio_language;
+    let default_language_index = AUDIO_LANGUAGES
+        .iter()
+        .position(|(_, code)| *code == saved_audio_language.as_str())
+        .unwrap_or(0);
+    audio_language.set_selection(default_language_index as u32);
+    audio_language_row.add(&audio_language, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&audio_language_row, 0, SizerFlag::Expand, 0);
+
+    audio_language.on_selection_changed(move |_| {
+        let selected = selected_audio_language(&audio_language).to_string();
+        let mut settings = Settings::load();
+        if settings.transcription_audio_language != selected {
+            settings.transcription_audio_language = selected;
+            settings.save();
+        }
+    });
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let start = Button::builder(&panel)
@@ -414,7 +490,19 @@ pub fn open_dialog(parent: &Frame) {
             return;
         }
         let chosen_model = selected_model(&model);
-        match run_with_progress(&dialog_start, input_path, output_path, chosen_model) {
+        let chosen_language = selected_audio_language(&audio_language).to_string();
+        let mut settings = Settings::load();
+        if settings.transcription_audio_language != chosen_language {
+            settings.transcription_audio_language = chosen_language.clone();
+            settings.save();
+        }
+        match run_with_progress(
+            &dialog_start,
+            input_path,
+            output_path,
+            chosen_model,
+            chosen_language,
+        ) {
             Ok(path) => {
                 show_message(
                     &dialog_start,
