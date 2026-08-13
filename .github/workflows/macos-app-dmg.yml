@@ -23,8 +23,9 @@ jobs:
             build_flavor: apple-silicon
             ffmpeg_macos_min: "11.0"
             app_macos_min: "14.0"
-            mpv_asset: mpv-v0.41.0-macos-14-arm.zip
-            mpv_sha256: 5c96f9b21355fc0a11d2e2161ad65f33031070e9fb3f6bd9865fb459b94587e6
+            mpv_version: "0.40.0"
+            mpv_url: https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-arm64-0.40.0.tar.gz
+            mpv_sha256: 3170fb709defebaba33e9755297d70dc3562220541de54fc3d494a8309ef1260
             pdfium_archive: pdfium-mac-arm64.tgz
             dmg_name: Sonarpad-macOS-AppleSilicon.dmg
             dmg_artifact_name: sonarpad-macos-dmg-apple-silicon
@@ -34,9 +35,10 @@ jobs:
             rust_target: x86_64-apple-darwin
             build_flavor: intel
             ffmpeg_macos_min: "10.15"
-            app_macos_min: "15.0"
-            mpv_asset: mpv-v0.41.0-macos-15-intel.zip
-            mpv_sha256: 41003617ab4f7784394b5ddea7ce51b3e0838e8cfc8166ad1a378b2eda3b583c
+            app_macos_min: "12.0"
+            mpv_version: "0.39.0"
+            mpv_url: https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-0.39.0.tar.gz
+            mpv_sha256: 35ec81ad86a97b24956a8d0f4fa1ba2690b44ae7741c920e923620bcd7bd402a
             pdfium_archive: pdfium-mac-x64.tgz
             dmg_name: Sonarpad-macOS-Intel.dmg
             dmg_artifact_name: sonarpad-macos-dmg-intel
@@ -51,7 +53,6 @@ jobs:
       CXXFLAGS: -mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}
       LDFLAGS: -mmacosx-version-min=${{ matrix.ffmpeg_macos_min }}
       CURL_CFFI_VERSION: "0.7.0"
-      MPV_VERSION: "0.41.0"
       SONARPAD_MACOS_BUILD_FLAVOR: ${{ matrix.build_flavor }}
       SONARPAD_ROUTE_CLIENT_TOKEN: ${{ secrets.SONARPAD_ROUTE_CLIENT_TOKEN }}
       SONARPAD_TV_CLIENT_TOKEN: ${{ secrets.SONARPAD_TV_CLIENT_TOKEN }}
@@ -384,10 +385,10 @@ jobs:
           set -euxo pipefail
           mkdir -p dist/mpv
           rm -rf dist/mpv/*
-          MPV_ARCHIVE_URL="https://github.com/mpv-player/mpv/releases/download/v${MPV_VERSION}/${{ matrix.mpv_asset }}"
-          MPV_ARCHIVE="dist/mpv/${{ matrix.mpv_asset }}"
+          MPV_ARCHIVE_URL="${{ matrix.mpv_url }}"
+          MPV_ARCHIVE="dist/mpv/mpv-${{ matrix.mpv_version }}.tar.gz"
           for attempt in $(seq 1 12); do
-            echo "Downloading mpv archive (attempt ${attempt}/12)"
+            echo "Downloading pinned mpv ${{ matrix.mpv_version }} archive (attempt ${attempt}/12)"
             curl_status=0
             curl --location --fail --show-error --http1.1 \
               --connect-timeout 30 --max-time 300 --continue-at - \
@@ -395,7 +396,7 @@ jobs:
             if [ "${curl_status}" -eq 0 ]; then
               break
             fi
-            if unzip -tq "${MPV_ARCHIVE}" >/dev/null 2>&1; then
+            if tar -tzf "${MPV_ARCHIVE}" >/dev/null 2>&1; then
               echo "The mpv archive is complete despite curl status ${curl_status}."
               break
             fi
@@ -410,20 +411,15 @@ jobs:
             sleep $((attempt * 5))
           done
           echo "${{ matrix.mpv_sha256 }}  ${MPV_ARCHIVE}" | shasum -a 256 --check
-          unzip -tq "${MPV_ARCHIVE}" >/dev/null
-          mkdir -p dist/mpv/release
-          unzip -q "${MPV_ARCHIVE}" -d dist/mpv/release
-          MPV_TARBALL="$(find dist/mpv/release -type f -name 'mpv.tar.gz' -print -quit)"
-          test -n "${MPV_TARBALL}"
-          tar -tzf "${MPV_TARBALL}" >/dev/null
-          tar -xzf "${MPV_TARBALL}" -C dist/mpv
+          tar -tzf "${MPV_ARCHIVE}" >/dev/null
+          tar -xzf "${MPV_ARCHIVE}" -C dist/mpv
           MPV_APP_DIR="$(find dist/mpv -maxdepth 2 -type d -name 'mpv.app' | head -n 1)"
           test -n "${MPV_APP_DIR}"
           test -x "${MPV_APP_DIR}/Contents/MacOS/mpv"
           MPV_VERSION_OUTPUT="$("${MPV_APP_DIR}/Contents/MacOS/mpv" --version | head -n 1)"
           echo "${MPV_VERSION_OUTPUT}"
           case "${MPV_VERSION_OUTPUT}" in
-            "mpv v${MPV_VERSION}"*) ;;
+            *"${{ matrix.mpv_version }}"*) ;;
             *) echo "Unexpected mpv version: ${MPV_VERSION_OUTPUT}"; exit 1 ;;
           esac
           echo "MPV_APP_DIR=${MPV_APP_DIR}" >> "${GITHUB_ENV}"

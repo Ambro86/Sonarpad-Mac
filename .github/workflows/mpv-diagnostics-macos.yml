@@ -1,0 +1,168 @@
+name: Diagnose mpv 0.41 on macOS
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_network_tests:
+        description: "Test also the La7 live and on-demand HLS URLs"
+        required: true
+        type: boolean
+        default: true
+      la7_live_url:
+        description: "La7 live HLS URL used by the network probe"
+        required: false
+        type: string
+        default: "https://d1chghleocc9sm.cloudfront.net/v1/master/3722c60a815c199d9c0ef36c5b73da68a62b09d1/cc-evfku205gqrtf/Live.m3u8"
+      la7_vod_url:
+        description: "La7 Play on-demand HLS URL used by the network probe"
+        required: false
+        type: string
+        default: "https://awsvodpkg.iltrovatore.it/local/hls/,/content/entry/data/0/728/0_j3jp514p_0_4lif9wy1_1,/content/entry/data/0/728/0_j3jp514p_0_k4s7v2x8_1,.mp4.urlset/master.m3u8"
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  MPV_041_RELEASE_BASE: "https://github.com/mpv-player/mpv/releases/download/v0.41.0"
+
+jobs:
+  probe:
+    name: mpv 0.41 diagnostics - ${{ matrix.scenario }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - scenario: apple-silicon-macos14
+            runs_on: macos-14
+            compatibility_target: "14.0"
+            runtime: "yes"
+            candidate_asset: "mpv-v0.41.0-macos-14-arm.zip"
+            candidate_sha256: "5c96f9b21355fc0a11d2e2161ad65f33031070e9fb3f6bd9865fb459b94587e6"
+            baseline_url: "https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-arm64-0.40.0.tar.gz"
+            baseline_sha256: "3170fb709defebaba33e9755297d70dc3562220541de54fc3d494a8309ef1260"
+          - scenario: intel-macos15
+            runs_on: macos-15-intel
+            compatibility_target: "15.0"
+            runtime: "yes"
+            candidate_asset: "mpv-v0.41.0-macos-15-intel.zip"
+            candidate_sha256: "41003617ab4f7784394b5ddea7ce51b3e0838e8cfc8166ad1a378b2eda3b583c"
+            baseline_url: "https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-0.39.0.tar.gz"
+            baseline_sha256: "35ec81ad86a97b24956a8d0f4fa1ba2690b44ae7741c920e923620bcd7bd402a"
+          - scenario: intel-catalina-compatibility
+            runs_on: macos-15-intel
+            compatibility_target: "10.15"
+            runtime: "no"
+            candidate_asset: "mpv-v0.41.0-macos-15-intel.zip"
+            candidate_sha256: "41003617ab4f7784394b5ddea7ce51b3e0838e8cfc8166ad1a378b2eda3b583c"
+            baseline_url: "https://laboratory.stolendata.net/~djinn/mpv_osx/mpv-0.35.0.tar.gz"
+            baseline_sha256: ""
+
+    runs-on: ${{ matrix.runs_on }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run complete mpv diagnostic probe
+        shell: bash
+        env:
+          SCENARIO: ${{ matrix.scenario }}
+          CANDIDATE_URL: ${{ env.MPV_041_RELEASE_BASE }}/${{ matrix.candidate_asset }}
+          CANDIDATE_SHA256: ${{ matrix.candidate_sha256 }}
+          BASELINE_URL: ${{ matrix.baseline_url }}
+          BASELINE_SHA256: ${{ matrix.baseline_sha256 }}
+          COMPATIBILITY_TARGET: ${{ matrix.compatibility_target }}
+          RUNTIME_PROBES: ${{ matrix.runtime }}
+          NETWORK_PROBES: ${{ inputs.run_network_tests && 'yes' || 'no' }}
+          LA7_LIVE_URL: ${{ inputs.la7_live_url }}
+          LA7_VOD_URL: ${{ inputs.la7_vod_url }}
+        run: |
+          set -uo pipefail
+          mkdir -p dist/mpv-diagnostics
+          python3 scripts/mpv_diagnostics_macos.py \
+            --scenario "${SCENARIO}" \
+            --candidate-url "${CANDIDATE_URL}" \
+            --candidate-sha "${CANDIDATE_SHA256}" \
+            --baseline-url "${BASELINE_URL}" \
+            --baseline-sha "${BASELINE_SHA256}" \
+            --compat-target "${COMPATIBILITY_TARGET}" \
+            --runtime "${RUNTIME_PROBES}" \
+            --network "${NETWORK_PROBES}" \
+            --live-url "${LA7_LIVE_URL}" \
+            --vod-url "${LA7_VOD_URL}" \
+            --output "dist/mpv-diagnostics/${SCENARIO}.txt"
+          cat "dist/mpv-diagnostics/${SCENARIO}.txt"
+
+      - name: Upload scenario report for aggregation
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-diagnostic-${{ matrix.scenario }}
+          path: dist/mpv-diagnostics/${{ matrix.scenario }}.txt
+          if-no-files-found: warn
+          retention-days: 1
+
+  combined-report:
+    name: Combine mpv diagnostic reports
+    if: always()
+    needs: probe
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all scenario reports
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mpv-diagnostic-*
+          path: dist/scenarios
+          merge-multiple: true
+
+      - name: Build one combined log
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist/final
+          REPORT="dist/final/mpv-diagnostics-combined.txt"
+          {
+            echo "SONARPAD - MPV 0.41 COMPLETE MACOS DIAGNOSTICS"
+            echo "Generated: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+            echo
+            echo "This report compares the mpv 0.41 candidate with Sonarpad's known-good baseline."
+            echo "Catalina is checked statically because GitHub-hosted Actions no longer provides a macOS 10.15 runner."
+            echo
+          } > "${REPORT}"
+
+          shopt -s nullglob
+          files=(dist/scenarios/*.txt)
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "ERROR: no scenario report was produced." >> "${REPORT}"
+          else
+            for file in $(printf '%s\n' "${files[@]}" | sort); do
+              {
+                echo
+                echo "################################################################################"
+                echo "SCENARIO FILE: $(basename "${file}")"
+                echo "################################################################################"
+                cat "${file}"
+              } >> "${REPORT}"
+            done
+          fi
+
+          echo
+          echo "===== QUICK VERDICTS ====="
+          grep -E '^(SCENARIO|COMPATIBILITY_TARGET|CANDIDATE_MAX_MINOS|CANDIDATE_COMPAT_OK|CANDIDATE_CODESIGN_OK|CANDIDATE_SPCTL_OK|PROBE_SUMMARY|DIAGNOSIS_[0-9]+|CATALINA_RUNTIME_NOTE)=' "${REPORT}" || true
+          {
+            echo "## mpv 0.41 diagnostics - quick verdict"
+            echo '```text'
+            grep -E '^(SCENARIO|COMPATIBILITY_TARGET|CANDIDATE_MAX_MINOS|CANDIDATE_COMPAT_OK|CANDIDATE_CODESIGN_OK|CANDIDATE_SPCTL_OK|PROBE_SUMMARY|DIAGNOSIS_[0-9]+|CATALINA_RUNTIME_NOTE)=' "${REPORT}" || true
+            echo '```'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          echo
+          echo "Combined log: ${REPORT}"
+
+      - name: Upload single combined diagnostic log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mpv-diagnostics-combined
+          path: dist/final/mpv-diagnostics-combined.txt
+          if-no-files-found: error
+          retention-days: 14

@@ -8042,134 +8042,138 @@ fn primary_podcast_log_path() -> Option<PathBuf> {
 }
 
 #[cfg(any(target_os = "macos", windows))]
+const SONARPAD_LOG_MAX_BYTES: u64 = 1024 * 1024;
+
+#[cfg(any(target_os = "macos", windows))]
+fn rotated_log_backup_path(path: &Path) -> PathBuf {
+    let mut file_name = path
+        .file_name()
+        .map(|name| name.to_os_string())
+        .unwrap_or_else(|| "log.txt".into());
+    file_name.push(".1");
+    path.with_file_name(file_name)
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn rotate_log_if_needed(path: &Path, incoming_bytes: usize) -> Result<Option<PathBuf>, String> {
+    let metadata = match std::fs::metadata(path) {
+        Ok(metadata) => metadata,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(err) => return Err(format!("metadata_failed={err}")),
+    };
+    if metadata
+        .len()
+        .saturating_add(incoming_bytes as u64)
+        <= SONARPAD_LOG_MAX_BYTES
+    {
+        return Ok(None);
+    }
+
+    let backup_path = rotated_log_backup_path(path);
+    match std::fs::remove_file(&backup_path) {
+        Ok(()) => {}
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {}
+        Err(err) => return Err(format!("remove_backup_failed={err}")),
+    }
+
+    match std::fs::rename(path, &backup_path) {
+        Ok(()) => Ok(Some(backup_path)),
+        Err(rename_err) => {
+            // mpv writes to the same log from another process. If it rotated the file
+            // between our metadata check and rename, the new file is already small.
+            let already_rotated_elsewhere = std::fs::metadata(path)
+                .map(|current| current.len() <= SONARPAD_LOG_MAX_BYTES)
+                .unwrap_or(true);
+            if already_rotated_elsewhere {
+                Ok(None)
+            } else {
+                Err(format!("rename_failed={rename_err}"))
+            }
+        }
+    }
+}
+
+#[cfg(any(target_os = "macos", windows))]
+fn append_rotating_log_line(path: &Path, line: &str, timestamp: &str) -> Result<(), String> {
+    if let Some(parent) = path.parent()
+        && !parent.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(parent).map_err(|err| format!("create_dir_all_failed={err}"))?;
+    }
+
+    let rotated_backup = rotate_log_if_needed(path, line.len())?;
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .map_err(|err| format!("open_failed={err}"))?;
+
+    if let Some(backup_path) = rotated_backup {
+        let backup_name = backup_path
+            .file_name()
+            .map(|name| name.to_string_lossy().into_owned())
+            .unwrap_or_else(|| backup_path.display().to_string());
+        let marker = format!(
+            "[{timestamp}] log.rotated previous={backup_name} max_bytes={SONARPAD_LOG_MAX_BYTES}\n"
+        );
+        file.write_all(marker.as_bytes())
+            .map_err(|err| format!("rotation_marker_write_failed={err}"))?;
+    }
+    file.write_all(line.as_bytes())
+        .map_err(|err| format!("write_failed={err}"))
+}
+
+#[cfg(any(target_os = "macos", windows))]
 fn append_podcast_log(message: &str) {
+    static LOG_WRITE_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+    let _guard = LOG_WRITE_LOCK
+        .get_or_init(|| Mutex::new(()))
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+
     let timestamp = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
-    let line = format!(
-        "[{timestamp}] {message}
-"
-    );
+    let timestamp_text = timestamp.to_string();
+    let line = format!("[{timestamp}] {message}\n");
     let Some(primary_path) = primary_podcast_log_path() else {
         println!("ERROR: Cartella documenti non disponibile per il log podcast");
         return;
     };
     let fallback_path = PathBuf::from("log.txt");
 
-    let primary_failure_reason = if let Some(parent) = primary_path.parent()
-        && !parent.as_os_str().is_empty()
-    {
-        if let Err(err) = std::fs::create_dir_all(parent) {
+    let primary_failure_reason = match append_rotating_log_line(
+        &primary_path,
+        &line,
+        &timestamp_text,
+    ) {
+        Ok(()) => return,
+        Err(err) => {
             println!(
-                "ERROR: Creazione cartella log podcast {} fallita: {}",
-                parent.display(),
-                err
-            );
-            Some(format!(
-                "path={} create_dir_all_failed={}",
+                "ERROR: Scrittura log podcast {} fallita: {}",
                 primary_path.display(),
                 err
-            ))
-        } else {
-            None
-        }
-    } else {
-        None
-    };
-
-    let primary_failure_reason = if let Some(reason) = primary_failure_reason {
-        Some(reason)
-    } else {
-        match std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .open(&primary_path)
-        {
-            Ok(mut file) => {
-                use std::io::Write;
-
-                if let Err(err) = file.write_all(line.as_bytes()) {
-                    println!(
-                        "ERROR: Scrittura log podcast {} fallita: {}",
-                        primary_path.display(),
-                        err
-                    );
-                    Some(format!(
-                        "path={} write_failed={}",
-                        primary_path.display(),
-                        err
-                    ))
-                } else {
-                    return;
-                }
-            }
-            Err(err) => {
-                println!(
-                    "ERROR: Apertura log podcast {} fallita: {}",
-                    primary_path.display(),
-                    err
-                );
-                Some(format!(
-                    "path={} open_failed={}",
-                    primary_path.display(),
-                    err
-                ))
-            }
+            );
+            format!("path={} {err}", primary_path.display())
         }
     };
 
-    let Some(primary_failure_reason) = primary_failure_reason else {
-        return;
-    };
-
-    if let Some(parent) = fallback_path.parent()
-        && !parent.as_os_str().is_empty()
-        && let Err(err) = std::fs::create_dir_all(parent)
-    {
+    if let Err(err) = append_rotating_log_line(&fallback_path, &line, &timestamp_text) {
         println!(
-            "ERROR: Creazione cartella log podcast {} fallita: {}",
-            parent.display(),
+            "ERROR: Scrittura log podcast {} fallita: {}",
+            fallback_path.display(),
             err
         );
         println!("ERROR: Nessun log podcast scritto: {message}");
         return;
     }
 
-    match std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(&fallback_path)
-    {
-        Ok(mut file) => {
-            use std::io::Write;
-
-            if let Err(err) = file.write_all(line.as_bytes()) {
-                println!(
-                    "ERROR: Scrittura log podcast {} fallita: {}",
-                    fallback_path.display(),
-                    err
-                );
-                println!("ERROR: Nessun log podcast scritto: {message}");
-                return;
-            }
-            let diagnostic_line = format!(
-                "[{timestamp}] primary_log_path_failed {primary_failure_reason}
-"
-            );
-            if let Err(err) = file.write_all(diagnostic_line.as_bytes()) {
-                println!(
-                    "ERROR: Scrittura log diagnostico {} fallita: {}",
-                    fallback_path.display(),
-                    err
-                );
-            }
-        }
-        Err(err) => {
-            println!(
-                "ERROR: Apertura log podcast {} fallita: {}",
-                fallback_path.display(),
-                err
-            );
-            println!("ERROR: Nessun log podcast scritto: {message}");
-        }
+    let diagnostic_line =
+        format!("[{timestamp}] primary_log_path_failed {primary_failure_reason}\n");
+    if let Err(err) = append_rotating_log_line(&fallback_path, &diagnostic_line, &timestamp_text) {
+        println!(
+            "ERROR: Scrittura log diagnostico {} fallita: {}",
+            fallback_path.display(),
+            err
+        );
     }
 }
 
@@ -23461,7 +23465,46 @@ fn lua_string_literal(value: &str) -> String {
     out
 }
 
+#[cfg(target_os = "macos")]
+const MPV_DIAGNOSTIC_LOG_KEEP_TOTAL: usize = 10;
+
+#[cfg(target_os = "macos")]
+fn cleanup_mpv_diagnostic_logs(keep_count: usize) {
+    let Some(dir) = app_storage_dir() else {
+        return;
+    };
+    let Ok(entries) = std::fs::read_dir(&dir) else {
+        return;
+    };
+
+    let mut logs = entries
+        .filter_map(Result::ok)
+        .filter_map(|entry| {
+            let path = entry.path();
+            let name = path.file_name()?.to_str()?;
+            if !path.is_file() || !name.starts_with("mpv-") || !name.ends_with(".log") {
+                return None;
+            }
+            let modified = entry.metadata().ok().and_then(|metadata| metadata.modified().ok());
+            Some((path, modified))
+        })
+        .collect::<Vec<_>>();
+
+    logs.sort_by(|left, right| {
+        right
+            .1
+            .cmp(&left.1)
+            .then_with(|| right.0.cmp(&left.0))
+    });
+    for (path, _) in logs.into_iter().skip(keep_count) {
+        let _ = std::fs::remove_file(path);
+    }
+}
+
 fn mpv_diagnostic_log_path(title: &str) -> PathBuf {
+    #[cfg(target_os = "macos")]
+    cleanup_mpv_diagnostic_logs(MPV_DIAGNOSTIC_LOG_KEEP_TOTAL.saturating_sub(1));
+
     let safe_title = sanitize_filename(title);
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let file_name = format!("mpv-{}-{}.log", safe_title, timestamp);
@@ -23677,6 +23720,8 @@ fn write_mpv_accessibility_script(
         "local sonarpad_log_file = {}\n",
         lua_string_literal(&lua_log_path.to_string_lossy())
     ));
+    script.push_str("local sonarpad_log_max_bytes = 1048576\n");
+    script.push_str("local sonarpad_log_backup_file = sonarpad_log_file .. \".1\"\n");
     script.push_str(&format!(
         "local msg_recording_started = {}\n",
         lua_string_literal(messages.recording_started)
@@ -23762,10 +23807,43 @@ fn write_mpv_accessibility_script(
 local current_recording_path = nil
 local quitting_from_key = false
 
+local function rotate_sonarpad_log_if_needed(incoming_bytes)
+    local current = io.open(sonarpad_log_file, "rb")
+    if not current then
+        return false
+    end
+    local size = current:seek("end") or 0
+    current:close()
+    if size + incoming_bytes <= sonarpad_log_max_bytes then
+        return false
+    end
+
+    os.remove(sonarpad_log_backup_file)
+    local renamed = os.rename(sonarpad_log_file, sonarpad_log_backup_file)
+    if renamed then
+        return true
+    end
+
+    -- The Rust host can rotate the same file at the same instant. If that
+    -- happened, the replacement file is already below the limit.
+    local replacement = io.open(sonarpad_log_file, "rb")
+    if replacement then
+        local replacement_size = replacement:seek("end") or 0
+        replacement:close()
+        return replacement_size <= sonarpad_log_max_bytes
+    end
+    return true
+end
+
 local function log_line(message)
+    local line = os.date("[%Y-%m-%d %H:%M:%S] ") .. "mpv.lua." .. tostring(message or "") .. "\n"
+    local rotated = rotate_sonarpad_log_if_needed(#line)
     local file = io.open(sonarpad_log_file, "a")
     if file then
-        file:write(os.date("[%Y-%m-%d %H:%M:%S] ") .. "mpv.lua." .. tostring(message or "") .. "\n")
+        if rotated then
+            file:write(os.date("[%Y-%m-%d %H:%M:%S] ") .. "mpv.lua.log_rotated previous=log.txt.1 max_bytes=1048576\n")
+        end
+        file:write(line)
         file:close()
     end
 end
@@ -25070,6 +25148,8 @@ fn main() {
     #[cfg(windows)]
     SystemOptions::set_option_by_int("msw.no-manifest-check", 1);
 
+    #[cfg(target_os = "macos")]
+    cleanup_mpv_diagnostic_logs(MPV_DIAGNOSTIC_LOG_KEEP_TOTAL);
     append_podcast_log("app.start");
     #[cfg(target_os = "macos")]
     disable_macos_automatic_text_substitutions();
@@ -25475,7 +25555,7 @@ fn main() {
         let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
         let text_ctrl = TextCtrl::builder(&panel)
-            .with_style(TextCtrlStyle::MultiLine)
+            .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::NoVScroll)
             .build();
         text_ctrl.set_accessibility_label(&ui.editor_text_label);
         text_ctrl.set_editable(!settings.lock().unwrap().read_only_mode);

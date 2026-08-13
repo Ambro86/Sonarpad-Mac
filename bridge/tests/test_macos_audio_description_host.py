@@ -221,15 +221,21 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
             )
         self.assertIn('ONNXRUNTIME_VERSION: "1.19.2"', WORKFLOW)
 
-    def test_modern_workflow_pins_official_mpv_0_41_release(self):
-        self.assertIn('MPV_VERSION: "0.41.0"', WORKFLOW)
-        self.assertIn("mpv-v0.41.0-macos-14-arm.zip", WORKFLOW)
-        self.assertIn("mpv-v0.41.0-macos-15-intel.zip", WORKFLOW)
-        self.assertIn("github.com/mpv-player/mpv/releases/download", WORKFLOW)
+    def test_modern_workflow_pins_known_good_mpv_builds(self):
+        self.assertIn('mpv_version: "0.40.0"', WORKFLOW)
+        self.assertIn("mpv-arm64-0.40.0.tar.gz", WORKFLOW)
+        self.assertIn("3170fb709defebaba33e9755297d70dc3562220541de54fc3d494a8309ef1260", WORKFLOW)
+        self.assertIn('mpv_version: "0.39.0"', WORKFLOW)
+        self.assertIn("mpv-0.39.0.tar.gz", WORKFLOW)
+        self.assertIn("35ec81ad86a97b24956a8d0f4fa1ba2690b44ae7741c920e923620bcd7bd402a", WORKFLOW)
+        self.assertIn("laboratory.stolendata.net/~djinn/mpv_osx", WORKFLOW)
         self.assertIn("shasum -a 256 --check", WORKFLOW)
         self.assertIn("Unexpected mpv version", WORKFLOW)
         self.assertNotIn("mpv-arm64-latest.tar.gz", WORKFLOW)
         self.assertNotIn("mpv-latest.tar.gz", WORKFLOW)
+        self.assertNotIn("mpv-v0.41.0-macos-14-arm.zip", WORKFLOW)
+        self.assertNotIn("mpv-v0.41.0-macos-15-intel.zip", WORKFLOW)
+        self.assertIn('app_macos_min: "12.0"', WORKFLOW)
         self.assertIn("mpv-0.35.0.tar.gz", CATALINA)
 
     def test_catalina_workflow_uses_compatible_worker_and_checks_macho_targets(self):
