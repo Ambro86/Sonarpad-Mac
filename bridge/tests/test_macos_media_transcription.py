@@ -51,6 +51,27 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn("model.transcribe(\n        audio,", source)
         self.assertNotIn("model.transcribe(\n        input_path,", source)
 
+    def test_source_language_is_detected_once_and_forced_for_full_transcription(self):
+        source = text(BRIDGE)
+        self.assertIn('def detect_source_language(model, audio, requested_language=""):', source)
+        self.assertIn("model.detect_language(", source)
+        self.assertIn("language_detection_segments=3", source)
+        self.assertIn('task="transcribe"', source)
+        self.assertNotIn('task="translate"', source)
+        self.assertIn("language=selected_language", source)
+        self.assertNotIn("language=language or None", source)
+
+    def test_long_transcription_locks_detected_language_before_first_chunk_decode(self):
+        source = text(BRIDGE)
+        start = source.index("def transcribe_long_input")
+        end = source.index("def transcribe_input", start)
+        body = source[start:end]
+        detect_pos = body.index("detect_source_language(model, audio_chunk)")
+        transcribe_pos = body.index("model.transcribe(")
+        self.assertLess(detect_pos, transcribe_pos)
+        self.assertIn('task="transcribe"', body)
+        self.assertNotIn('getattr(info, "language"', body)
+
     def test_pyav_decoder_uses_concrete_audio_stream_not_audio_index_lookup(self):
         source = text(BRIDGE)
         self.assertIn("def first_audio_stream(container):", source)
@@ -93,7 +114,9 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('strip_prefix("STAGE:")', source)
         self.assertIn('strip_prefix("PROGRESS:")', source)
         self.assertIn('pub backend: String', source)
+        self.assertIn('pub language: String', source)
         self.assertIn('transcription.worker completed backend=', source)
+        self.assertIn('compute_type={} language={}', source)
         self.assertNotIn("github.com", source.lower())
 
     def test_accessible_ui_has_explicit_source_destination_models_and_progress(self):
