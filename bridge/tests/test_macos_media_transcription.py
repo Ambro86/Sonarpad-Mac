@@ -124,6 +124,14 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('--hidden-import mlx_whisper', source)
         self.assertNotIn('--collect-all mlx_whisper', source)
 
+    def test_build_script_does_not_expand_an_empty_array_under_macos_bash_nounset(self):
+        source = text(BUILD_SCRIPT)
+        self.assertNotIn("PYINSTALLER_EXTRA_ARGS", source)
+        self.assertIn('IS_APPLE_SILICON=0', source)
+        self.assertIn('if [[ "$IS_APPLE_SILICON" == "1" ]]; then', source)
+        self.assertIn('--collect-all mlx', source)
+        self.assertIn('--hidden-import mlx_whisper', source)
+
     def test_rust_bridge_is_bundled_and_models_are_cached_in_sonarpad(self):
         source = text(RUST_BRIDGE)
         self.assertIn('.join("transcription")', source)

@@ -25,8 +25,9 @@ cd "$SCRIPT_DIR"
   "faster-whisper==${FASTER_WHISPER_VERSION}" \
   "pyinstaller==${PYINSTALLER_VERSION}"
 
-PYINSTALLER_EXTRA_ARGS=()
+IS_APPLE_SILICON=0
 if [[ "$(uname -m)" == "arm64" ]]; then
+  IS_APPLE_SILICON=1
   # MLX is Apple Silicon only. Keep faster-whisper installed as an automatic CPU fallback.
   # mlx-whisper declares torch because its model-conversion utilities can use it,
   # but Sonarpad only runs already-converted MLX checkpoints. Avoid bundling the
@@ -41,17 +42,26 @@ if [[ "$(uname -m)" == "arm64" ]]; then
     huggingface_hub \
     scipy
   "$PYTHON_BIN" -m pip install --no-deps "mlx-whisper==${MLX_WHISPER_VERSION}"
-  PYINSTALLER_EXTRA_ARGS+=(--collect-all mlx --hidden-import mlx_whisper)
 fi
 
 rm -rf build/faster_whisper_bridge dist/faster_whisper_bridge
-"$PYTHON_BIN" -m PyInstaller \
-  --noconfirm \
-  --clean \
-  --onedir \
-  "${PYINSTALLER_EXTRA_ARGS[@]}" \
-  --name faster_whisper_bridge \
-  faster_whisper_bridge.py
+if [[ "$IS_APPLE_SILICON" == "1" ]]; then
+  "$PYTHON_BIN" -m PyInstaller \
+    --noconfirm \
+    --clean \
+    --onedir \
+    --collect-all mlx \
+    --hidden-import mlx_whisper \
+    --name faster_whisper_bridge \
+    faster_whisper_bridge.py
+else
+  "$PYTHON_BIN" -m PyInstaller \
+    --noconfirm \
+    --clean \
+    --onedir \
+    --name faster_whisper_bridge \
+    faster_whisper_bridge.py
+fi
 
 rm -rf "$OUT_ROOT/faster_whisper_bridge"
 mkdir -p "$OUT_ROOT"
