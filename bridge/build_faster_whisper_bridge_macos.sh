@@ -28,6 +28,7 @@ rm -rf build/faster_whisper_bridge dist/faster_whisper_bridge
   --noconfirm \
   --clean \
   --onedir \
+  --collect-data faster_whisper \
   --name faster_whisper_bridge \
   faster_whisper_bridge.py
 

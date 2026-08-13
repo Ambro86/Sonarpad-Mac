@@ -4,6 +4,7 @@ import json
 import os
 import sys
 import wave
+from pathlib import Path
 
 
 BRIDGE_PROTOCOL_VERSION = 2
@@ -125,27 +126,6 @@ def create_transcription_model(model_name, download_root):
 
 
 
-def detect_source_language(model, audio, requested_language=""):
-    """Detect one source language for the whole job and keep it fixed.
-
-    Whisper's transcribe task should preserve the source language.  Detecting
-    once up front prevents independent/chunk-level auto-detection from
-    switching language part-way through a file.
-    """
-    requested = str(requested_language or "").strip().lower()
-    if requested:
-        return requested, 1.0
-
-    language, probability, _all_probs = model.detect_language(
-        audio=audio,
-        vad_filter=True,
-        language_detection_segments=3,
-        language_detection_threshold=0.5,
-    )
-    language = str(language or "").strip().lower()
-    if not language:
-        raise RuntimeError("could not detect source audio language")
-    return language, float(probability or 0.0)
 
 def active_backend(model):
     return str(getattr(model, "backend", "cpu") or "cpu")
@@ -303,19 +283,12 @@ def append_transcribed_segments(
 def transcribe_long_input(model, input_path, language, timestamps, total_duration):
     parts = []
     last_progress = 0
-    selected_language = str(language or "").strip().lower()
-    detected_language = selected_language
+    selected_language = str(language or "").strip().lower() or None
+    detected_language = selected_language or ""
 
     for audio_chunk, offset_seconds in iter_resampled_audio_chunks(input_path):
         chunk_duration = float(audio_chunk.shape[0]) / WHISPER_SAMPLE_RATE
-        if not selected_language:
-            selected_language, probability = detect_source_language(model, audio_chunk)
-            detected_language = selected_language
-            print(
-                f"LANGUAGE:{selected_language}:{probability:.4f}",
-                flush=True,
-            )
-        segments, _info = model.transcribe(
+        segments, info = model.transcribe(
             audio_chunk,
             language=selected_language,
             task="transcribe",
@@ -323,6 +296,15 @@ def transcribe_long_input(model, input_path, language, timestamps, total_duratio
             beam_size=5,
             condition_on_previous_text=False,
         )
+        if not detected_language:
+            detected_language = str(getattr(info, "language", "") or "").strip().lower()
+            probability = float(getattr(info, "language_probability", 0.0) or 0.0)
+            if detected_language:
+                selected_language = detected_language
+                print(
+                    f"LANGUAGE:{detected_language}:{probability:.4f}",
+                    flush=True,
+                )
         last_progress = append_transcribed_segments(
             segments,
             parts,
@@ -361,21 +343,22 @@ def transcribe_input(model, input_path, language, timestamps):
     audio = decode_audio_mono_16k(input_path)
     if total_duration <= 0:
         total_duration = float(audio.shape[0]) / WHISPER_SAMPLE_RATE
-    selected_language, language_probability = detect_source_language(
-        model, audio, language
-    )
-    print(
-        f"LANGUAGE:{selected_language}:{language_probability:.4f}",
-        flush=True,
-    )
-    segments, _info = model.transcribe(
+    requested_language = str(language or "").strip().lower() or None
+    segments, info = model.transcribe(
         audio,
-        language=selected_language,
+        language=requested_language,
         task="transcribe",
         vad_filter=False,
         beam_size=5,
         condition_on_previous_text=False,
     )
+    detected_language = str(getattr(info, "language", "") or "").strip().lower()
+    language_probability = float(getattr(info, "language_probability", 0.0) or 0.0)
+    if detected_language:
+        print(
+            f"LANGUAGE:{detected_language}:{language_probability:.4f}",
+            flush=True,
+        )
 
     parts = []
     append_transcribed_segments(
@@ -388,7 +371,7 @@ def transcribe_input(model, input_path, language, timestamps):
     )
 
     transcript = ("\n".join(parts) if timestamps else " ".join(parts)).strip()
-    return {"ok": True, "text": transcript, "language": selected_language}
+    return {"ok": True, "text": transcript, "language": detected_language}
 
 
 def worker_loop(model):
@@ -455,6 +438,13 @@ def main():
             import ctranslate2  # type: ignore
             import faster_whisper  # type: ignore
             import onnxruntime  # type: ignore
+
+            faster_whisper_root = Path(faster_whisper.__file__).resolve().parent
+            silero_vad_model = faster_whisper_root / "assets" / "silero_vad_v6.onnx"
+            if not silero_vad_model.is_file():
+                raise FileNotFoundError(
+                    f"bundled faster-whisper VAD model missing: {silero_vad_model}"
+                )
 
             payload = {
                 "ok": True,

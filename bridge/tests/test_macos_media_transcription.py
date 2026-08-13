@@ -51,26 +51,42 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn("model.transcribe(\n        audio,", source)
         self.assertNotIn("model.transcribe(\n        input_path,", source)
 
-    def test_source_language_is_detected_once_and_forced_for_full_transcription(self):
+    def test_source_language_follows_windows_transcribe_detection_flow(self):
         source = text(BRIDGE)
-        self.assertIn('def detect_source_language(model, audio, requested_language=""):', source)
-        self.assertIn("model.detect_language(", source)
-        self.assertIn("language_detection_segments=3", source)
+        self.assertNotIn("model.detect_language(", source)
+        self.assertNotIn("def detect_source_language", source)
         self.assertIn('task="transcribe"', source)
         self.assertNotIn('task="translate"', source)
-        self.assertIn("language=selected_language", source)
-        self.assertNotIn("language=language or None", source)
+        self.assertIn("vad_filter=False", source)
+        self.assertNotIn("vad_filter=True", source)
+        self.assertIn('getattr(info, "language", "")', source)
 
-    def test_long_transcription_locks_detected_language_before_first_chunk_decode(self):
+    def test_long_transcription_detects_on_first_real_transcribe_then_locks_language(self):
         source = text(BRIDGE)
         start = source.index("def transcribe_long_input")
         end = source.index("def transcribe_input", start)
         body = source[start:end]
-        detect_pos = body.index("detect_source_language(model, audio_chunk)")
-        transcribe_pos = body.index("model.transcribe(")
-        self.assertLess(detect_pos, transcribe_pos)
+        self.assertIn('selected_language = str(language or "").strip().lower() or None', body)
+        self.assertIn("segments, info = model.transcribe(", body)
+        self.assertIn("language=selected_language", body)
+        self.assertIn('detected_language = str(getattr(info, "language", "") or "").strip().lower()', body)
+        self.assertIn("selected_language = detected_language", body)
         self.assertIn('task="transcribe"', body)
-        self.assertNotIn('getattr(info, "language"', body)
+        transcribe_pos = body.index("model.transcribe(")
+        lock_pos = body.index("selected_language = detected_language")
+        self.assertLess(transcribe_pos, lock_pos)
+
+    def test_short_transcription_uses_transcribe_info_language_without_separate_detection(self):
+        source = text(BRIDGE)
+        start = source.index("def transcribe_input")
+        end = source.index("def worker_loop", start)
+        body = source[start:end]
+        self.assertIn('requested_language = str(language or "").strip().lower() or None', body)
+        self.assertIn("segments, info = model.transcribe(", body)
+        self.assertIn("language=requested_language", body)
+        self.assertIn('detected_language = str(getattr(info, "language", "") or "").strip().lower()', body)
+        self.assertNotIn("detect_language", body)
+        self.assertIn('task="transcribe"', body)
 
     def test_pyav_decoder_uses_concrete_audio_stream_not_audio_index_lookup(self):
         source = text(BRIDGE)
@@ -93,6 +109,7 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('PYAV_VERSION="${PYAV_VERSION:-12.3.0}"', source)
         self.assertIn('NUMPY_SPEC="${NUMPY_SPEC:-numpy>=1.24.2,<2}"', source)
         self.assertIn("--onedir", source)
+        self.assertIn("--collect-data faster_whisper", source)
         self.assertIn("--self-test", source)
         self.assertNotIn("MLX_VERSION", source)
         self.assertNotIn("MLX_WHISPER_VERSION", source)
@@ -101,6 +118,13 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertNotIn("--hidden-import mlx_whisper", source)
         self.assertNotIn("IS_APPLE_SILICON", source)
         self.assertNotIn("uname -m", source)
+
+
+    def test_self_test_rejects_a_bundle_missing_silero_vad_asset(self):
+        source = text(BRIDGE)
+        self.assertIn('"assets" / "silero_vad_v6.onnx"', source)
+        self.assertIn("bundled faster-whisper VAD model missing", source)
+        self.assertIn("silero_vad_model.is_file()", source)
 
     def test_rust_bridge_is_bundled_and_models_are_cached_in_sonarpad(self):
         source = text(RUST_BRIDGE)
