@@ -383,7 +383,6 @@
   "article_community_sources_error": "Błąd ładowania źródeł społeczności: {err}",
   "add_article_community_instructions": "Wpisz tytuł źródła oraz adres kanału RSS albo strony internetowej. Sonarpad użyje wybranego języka wiadomości, a jeśli wpiszesz stronę, spróbuje automatycznie znaleźć kanał.",
   "add_article_community_selected_language": "Wybrany język: {language}",
-  "editor_text_label": "Tekst dokumentu",
   "weather_results_label": "Prognoza pogody",
   "cinema_details_label": "Szczegóły filmu",
   "italian_directories_location_label": "Lokalizacja (opcjonalnie):",

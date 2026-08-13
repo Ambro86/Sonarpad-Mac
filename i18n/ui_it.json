@@ -383,7 +383,6 @@
   "article_community_sources_error": "Errore caricamento testate della comunità: {err}",
   "add_article_community_instructions": "Inserisci il titolo della testata e l’URL del feed RSS oppure del sito web. Sonarpad userà la lingua notizie selezionata e, se inserisci un sito, proverà a trovare automaticamente il feed.",
   "add_article_community_selected_language": "Lingua selezionata: {language}",
-  "editor_text_label": "Testo del documento",
   "weather_results_label": "Previsioni meteo",
   "cinema_details_label": "Dettagli del film",
   "italian_directories_location_label": "Località (opzionale):",

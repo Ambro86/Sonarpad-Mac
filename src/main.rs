@@ -722,7 +722,6 @@ struct UiStrings {
     settings_title: String,
     about_title: String,
     donations_title: String,
-    editor_text_label: String,
     interface_language_label: String,
     news_language_label: String,
     voice_engine_label: String,
@@ -25555,9 +25554,8 @@ fn main() {
         let main_sizer = BoxSizer::builder(Orientation::Vertical).build();
 
         let text_ctrl = TextCtrl::builder(&panel)
-            .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::NoVScroll)
+            .with_style(TextCtrlStyle::MultiLine)
             .build();
-        text_ctrl.set_accessibility_label(&ui.editor_text_label);
         text_ctrl.set_editable(!settings.lock().unwrap().read_only_mode);
         let cursor_moved_by_user = Rc::new(Cell::new(false));
         main_sizer.add(&text_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);

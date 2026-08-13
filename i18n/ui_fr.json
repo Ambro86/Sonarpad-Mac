@@ -383,7 +383,6 @@
   "article_community_sources_error": "Erreur de chargement des sources de la communauté : {err}",
   "add_article_community_instructions": "Saisissez le titre de la source et l’URL du flux RSS ou du site web. Sonarpad utilisera la langue des actualités sélectionnée et, si vous saisissez un site, essaiera de trouver automatiquement le flux.",
   "add_article_community_selected_language": "Langue sélectionnée : {language}",
-  "editor_text_label": "Texte du document",
   "weather_results_label": "Prévisions météo",
   "cinema_details_label": "Détails du film",
   "italian_directories_location_label": "Lieu (facultatif) :",

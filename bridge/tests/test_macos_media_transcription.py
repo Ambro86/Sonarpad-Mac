@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib.util
 import json
 import unittest
 from pathlib import Path
@@ -31,83 +30,20 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('print("STAGE:model", flush=True)', source)
         self.assertIn('print("STAGE:transcribing", flush=True)', source)
 
-    def test_macos_bridge_prefers_mlx_metal_on_apple_silicon_with_cpu_fallback(self):
+    def test_macos_bridge_uses_same_stable_cpu_backend_on_all_architectures(self):
         source = text(BRIDGE)
-        self.assertIn('class MlxWhisperModel:', source)
-        self.assertIn('mx.metal.is_available()', source)
-        self.assertIn('mx.set_default_device(mx.gpu)', source)
-        self.assertIn('"small": "mlx-community/whisper-small-mlx"', source)
-        self.assertIn('"medium": "mlx-community/whisper-medium-mlx"', source)
-        self.assertIn('"large-v3": "mlx-community/whisper-large-v3-mlx"', source)
-        self.assertIn('class MetalThenCpuModel:', source)
-        self.assertIn('BACKEND_FALLBACK:metal->cpu', source)
-        self.assertIn('"device": "cpu", "compute_type": "int8"', source)
-        self.assertNotIn("SONARPAD_FORCE_CUDA", source)
+        self.assertIn('{"device": "cpu", "compute_type": "int8"}', source)
+        self.assertNotIn("mlx_whisper", source)
+        self.assertNotIn("mlx.core", source)
+        self.assertNotIn("BACKEND_FALLBACK:metal", source)
+        self.assertNotIn("MlxWhisperModel", source)
+        self.assertNotIn("MetalThenCpuModel", source)
+        self.assertNotIn("is_apple_silicon", source)
         self.assertIn('parser.add_argument("--self-test", action="store_true")', source)
-        for module in ("av", "ctranslate2", "faster_whisper", "onnxruntime", "mlx_whisper"):
+        for module in ("av", "ctranslate2", "faster_whisper", "onnxruntime"):
             self.assertIn(module, source)
 
-
-    def test_mlx_adapter_keeps_same_three_user_model_choices(self):
-        source = text(BRIDGE)
-        self.assertEqual(source.count('mlx-community/whisper-small-mlx'), 1)
-        self.assertEqual(source.count('mlx-community/whisper-medium-mlx'), 1)
-        self.assertEqual(source.count('mlx-community/whisper-large-v3-mlx'), 1)
-        self.assertIn('path_or_hf_repo=self._repo', source)
-        self.assertIn('condition_on_previous_text=condition_on_previous_text', source)
-
-    def test_mlx_short_inputs_are_decoded_with_pyav_not_external_ffmpeg(self):
-        source = text(BRIDGE)
-        self.assertIn('def decode_audio_mono_16k(path):', source)
-        self.assertIn('av.AudioResampler(format="s16", layout="mono", rate=WHISPER_SAMPLE_RATE)', source)
-        self.assertIn('audio = decode_audio_mono_16k(os.fspath(audio))', source)
-
-    def test_runtime_metal_failure_switches_once_to_cpu(self):
-        spec = importlib.util.spec_from_file_location("sonarpad_fw_bridge_test", BRIDGE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-
-        class MetalModel:
-            def transcribe(self, *_args, **_kwargs):
-                raise RuntimeError("simulated metal failure")
-
-        class CpuModel:
-            def __init__(self):
-                self.calls = 0
-
-            def transcribe(self, *_args, **_kwargs):
-                self.calls += 1
-                return ["cpu"], "info"
-
-        created = []
-
-        def cpu_factory():
-            model = CpuModel()
-            created.append(model)
-            return model
-
-        model = module.MetalThenCpuModel(MetalModel(), cpu_factory)
-        self.assertEqual(model.transcribe("audio"), (["cpu"], "info"))
-        self.assertEqual(model.backend, "cpu")
-        self.assertEqual(model.compute_type, "int8")
-        self.assertEqual(len(created), 1)
-        self.assertEqual(model.transcribe("audio2"), (["cpu"], "info"))
-        self.assertEqual(len(created), 1)
-        self.assertEqual(created[0].calls, 2)
-
-    def test_model_mapping_is_exact(self):
-        spec = importlib.util.spec_from_file_location("sonarpad_fw_bridge_mapping_test", BRIDGE)
-        module = importlib.util.module_from_spec(spec)
-        assert spec.loader is not None
-        spec.loader.exec_module(module)
-        self.assertEqual(module.mlx_model_repo("small"), "mlx-community/whisper-small-mlx")
-        self.assertEqual(module.mlx_model_repo("medium"), "mlx-community/whisper-medium-mlx")
-        self.assertEqual(module.mlx_model_repo("large-v3"), "mlx-community/whisper-large-v3-mlx")
-        with self.assertRaises(RuntimeError):
-            module.mlx_model_repo("unknown")
-
-    def test_build_script_pins_catalina_compatible_runtime_family(self):
+    def test_build_script_pins_stable_cpu_runtime_family_for_every_mac(self):
         source = text(BUILD_SCRIPT)
         self.assertIn('FASTER_WHISPER_VERSION="${FASTER_WHISPER_VERSION:-1.2.1}"', source)
         self.assertIn('CTRANSLATE2_VERSION="${CTRANSLATE2_VERSION:-4.3.1}"', source)
@@ -116,21 +52,13 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('NUMPY_SPEC="${NUMPY_SPEC:-numpy>=1.24.2,<2}"', source)
         self.assertIn("--onedir", source)
         self.assertIn("--self-test", source)
-        self.assertIn('"mlx==${MLX_VERSION}"', source)
-        self.assertIn('"mlx-metal==${MLX_VERSION}"', source)
-        self.assertIn('--no-deps "mlx-whisper==${MLX_WHISPER_VERSION}"', source)
-        self.assertIn('if [[ "$(uname -m)" == "arm64" ]]; then', source)
-        self.assertNotIn('"torch"', source)
-        self.assertIn('--hidden-import mlx_whisper', source)
-        self.assertNotIn('--collect-all mlx_whisper', source)
-
-    def test_build_script_does_not_expand_an_empty_array_under_macos_bash_nounset(self):
-        source = text(BUILD_SCRIPT)
-        self.assertNotIn("PYINSTALLER_EXTRA_ARGS", source)
-        self.assertIn('IS_APPLE_SILICON=0', source)
-        self.assertIn('if [[ "$IS_APPLE_SILICON" == "1" ]]; then', source)
-        self.assertIn('--collect-all mlx', source)
-        self.assertIn('--hidden-import mlx_whisper', source)
+        self.assertNotIn("MLX_VERSION", source)
+        self.assertNotIn("MLX_WHISPER_VERSION", source)
+        self.assertNotIn("mlx-whisper", source)
+        self.assertNotIn("mlx-metal", source)
+        self.assertNotIn("--hidden-import mlx_whisper", source)
+        self.assertNotIn("IS_APPLE_SILICON", source)
+        self.assertNotIn("uname -m", source)
 
     def test_rust_bridge_is_bundled_and_models_are_cached_in_sonarpad(self):
         source = text(RUST_BRIDGE)
@@ -177,7 +105,7 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         values = json.loads(text(ROOT / "i18n" / "media_transcription_it.json"))
         self.assertEqual(values["media_transcription.title"], "Trascrivi file media")
         self.assertEqual(values["media_transcription.browse_input"], "Scegli file media...")
-        self.assertEqual(values["media_transcription.browse_output"], "Cambia file di destinazione...")
+        self.assertEqual(values["media_transcription.browse_output"], "Cambia cartella di destinazione...")
         self.assertEqual(values["media_transcription.model.small"], "Piccolo")
         self.assertEqual(values["media_transcription.model.medium"], "Medio")
         self.assertEqual(values["media_transcription.model.large"], "Grande v3")
@@ -189,6 +117,20 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertTrue(keys)
         for locale_map in locale_maps[1:]:
             self.assertEqual(set(locale_map), keys)
+
+    def test_destination_button_says_folder_in_every_language(self):
+        expected = {
+            "it": "Cambia cartella di destinazione...",
+            "en": "Change destination folder...",
+            "fr": "Changer le dossier de destination...",
+            "es": "Cambiar carpeta de destino...",
+            "pt": "Alterar pasta de destino...",
+            "cs": "Změnit cílovou složku...",
+            "pl": "Zmień folder docelowy...",
+        }
+        for lang, value in expected.items():
+            values = json.loads(text(ROOT / "i18n" / f"media_transcription_{lang}.json"))
+            self.assertEqual(values["media_transcription.browse_output"], value)
 
     def test_tools_menu_registers_and_opens_transcription_dialog(self):
         source = text(MAIN)

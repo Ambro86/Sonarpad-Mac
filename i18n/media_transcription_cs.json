@@ -3,7 +3,7 @@
   "media_transcription.input": "Zdrojový mediální soubor:",
   "media_transcription.output": "Cílový soubor:",
   "media_transcription.browse_input": "Vybrat mediální soubor...",
-  "media_transcription.browse_output": "Změnit cílový soubor...",
+  "media_transcription.browse_output": "Změnit cílovou složku...",
   "media_transcription.open_title": "Vyberte mediální soubor k přepisu",
   "media_transcription.save_title": "Vyberte cílový soubor přepisu",
   "media_transcription.model": "Model:",

@@ -5,7 +5,6 @@ import re
 ROOT = Path(__file__).resolve().parent
 LANGS = ("it", "en", "fr", "es", "pt", "cs", "pl")
 NEW_UI_KEYS = {
-    "editor_text_label",
     "weather_results_label",
     "cinema_details_label",
     "italian_directories_location_label",
@@ -42,6 +41,12 @@ def test_textctrls_use_visible_context_or_an_explicit_accessibility_label():
         following = "\n".join(lines[end + 1 : end + 7])
         explicit = f"{variable}.set_accessibility_label(" in following
         if explicit:
+            continue
+
+        # The main document editor intentionally has no explicit AX label on macOS.
+        # VoiceOver then exposes it simply as a text field without repeating an
+        # accessibility label or surfacing the native scrollbar as a separate item.
+        if path.name == "main.rs" and variable == "text_ctrl":
             continue
 
         # On macOS a nearby visible StaticText is intentionally the single spoken label.

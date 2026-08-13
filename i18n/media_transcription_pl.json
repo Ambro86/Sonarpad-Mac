@@ -3,7 +3,7 @@
   "media_transcription.input": "Źródłowy plik multimedialny:",
   "media_transcription.output": "Plik docelowy:",
   "media_transcription.browse_input": "Wybierz plik multimedialny...",
-  "media_transcription.browse_output": "Zmień plik docelowy...",
+  "media_transcription.browse_output": "Zmień folder docelowy...",
   "media_transcription.open_title": "Wybierz plik multimedialny do transkrypcji",
   "media_transcription.save_title": "Wybierz plik docelowy transkrypcji",
   "media_transcription.model": "Model:",

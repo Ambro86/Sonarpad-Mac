@@ -3,7 +3,7 @@
   "media_transcription.input": "Fichier multimédia source :",
   "media_transcription.output": "Fichier de destination :",
   "media_transcription.browse_input": "Choisir un fichier multimédia...",
-  "media_transcription.browse_output": "Changer le fichier de destination...",
+  "media_transcription.browse_output": "Changer le dossier de destination...",
   "media_transcription.open_title": "Choisir le fichier multimédia à transcrire",
   "media_transcription.save_title": "Choisir le fichier de destination de la transcription",
   "media_transcription.model": "Modèle :",
