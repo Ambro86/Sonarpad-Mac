@@ -43,6 +43,27 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         for module in ("av", "ctranslate2", "faster_whisper", "onnxruntime"):
             self.assertIn(module, source)
 
+
+    def test_short_inputs_are_predecoded_to_numpy_before_faster_whisper(self):
+        source = text(BRIDGE)
+        self.assertIn("def decode_audio_mono_16k(path):", source)
+        self.assertIn("audio = decode_audio_mono_16k(input_path)", source)
+        self.assertIn("model.transcribe(\n        audio,", source)
+        self.assertNotIn("model.transcribe(\n        input_path,", source)
+
+    def test_pyav_decoder_uses_concrete_audio_stream_not_audio_index_lookup(self):
+        source = text(BRIDGE)
+        self.assertIn("def first_audio_stream(container):", source)
+        self.assertIn("for frame in container.decode(audio_stream):", source)
+        self.assertNotIn("container.decode(audio=0)", source)
+        self.assertNotIn("container.streams.audio", source)
+
+    def test_worker_errors_are_logged_with_exception_type(self):
+        bridge_source = text(BRIDGE)
+        rust_source = text(RUST_BRIDGE)
+        self.assertIn('f"{type(exc).__name__}: {exc}"', bridge_source)
+        self.assertIn('transcription.worker failed error=', rust_source)
+
     def test_build_script_pins_stable_cpu_runtime_family_for_every_mac(self):
         source = text(BUILD_SCRIPT)
         self.assertIn('FASTER_WHISPER_VERSION="${FASTER_WHISPER_VERSION:-1.2.1}"', source)

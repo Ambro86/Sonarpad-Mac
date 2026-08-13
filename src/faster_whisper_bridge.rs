@@ -286,11 +286,16 @@ pub fn transcribe_media(
                         }
                         return Ok(result);
                     }
-                    return Err(if result.error.trim().is_empty() {
+                    let error_text = if result.error.trim().is_empty() {
                         "faster-whisper worker returned an unknown error".to_string()
                     } else {
                         result.error
-                    });
+                    };
+                    crate::append_podcast_log(&format!(
+                        "transcription.worker failed error={}",
+                        error_text.replace(['\r', '\n'], " ")
+                    ));
+                    return Err(error_text);
                 }
                 let stderr_text = stderr_rx
                     .recv_timeout(Duration::from_millis(250))

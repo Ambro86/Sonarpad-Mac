@@ -31,6 +31,52 @@ def configure_stdio_utf8():
         pass
 
 
+def first_audio_stream(container):
+    """Return the first actual audio Stream without PyAV's typed index lookup."""
+    for stream in container.streams:
+        if getattr(stream, "type", "") == "audio":
+            return stream
+    return None
+
+
+def decode_audio_mono_16k(path):
+    """Decode to mono float32/16 kHz before handing audio to faster-whisper.
+
+    Passing an ndarray makes faster-whisper skip its own PyAV decode path.
+    Selecting the concrete Stream object also avoids PyAV's audio=0 tuple lookup,
+    which can raise IndexError on some otherwise playable media files.
+    """
+    import av  # type: ignore
+    import numpy as np  # type: ignore
+
+    chunks = []
+    with av.open(path, metadata_errors="ignore") as container:
+        audio_stream = first_audio_stream(container)
+        if audio_stream is None:
+            raise RuntimeError("input file has no audio stream")
+        resampler = av.AudioResampler(
+            format="s16",
+            layout="mono",
+            rate=WHISPER_SAMPLE_RATE,
+        )
+
+        def append_frame(frame):
+            samples = frame.to_ndarray().reshape(-1)
+            if samples.size:
+                chunks.append(np.ascontiguousarray(samples, dtype=np.int16))
+
+        for frame in container.decode(audio_stream):
+            for resampled in resampler.resample(frame):
+                append_frame(resampled)
+        for resampled in resampler.resample(None):
+            append_frame(resampled)
+
+    if not chunks:
+        raise RuntimeError("input audio stream contains no decodable samples")
+    samples = np.concatenate(chunks)
+    return samples.astype(np.float32) / 32768.0
+
+
 def audio_duration_seconds(path):
     try:
         import av  # type: ignore
@@ -38,7 +84,9 @@ def audio_duration_seconds(path):
         with av.open(path) as container:
             if container.duration is not None and container.duration > 0:
                 return float(container.duration) / float(av.time_base)
-            for stream in container.streams.audio:
+            for stream in container.streams:
+                if getattr(stream, "type", "") != "audio":
+                    continue
                 if (
                     stream.duration is not None
                     and stream.duration > 0
@@ -142,7 +190,8 @@ def iter_resampled_audio_chunks(path, chunk_seconds=LONG_AUDIO_CHUNK_SECONDS):
     buffer_start_samples = 0
 
     with av.open(path, metadata_errors="ignore") as container:
-        if not container.streams.audio:
+        audio_stream = first_audio_stream(container)
+        if audio_stream is None:
             raise RuntimeError("input file has no audio stream")
         resampler = av.AudioResampler(
             format="s16",
@@ -158,7 +207,7 @@ def iter_resampled_audio_chunks(path, chunk_seconds=LONG_AUDIO_CHUNK_SECONDS):
                 pending.append(samples)
                 pending_samples += int(samples.size)
 
-        for frame in container.decode(audio=0):
+        for frame in container.decode(audio_stream):
             for resampled in resampler.resample(frame):
                 append_frame(resampled)
             if pending_samples >= ready_samples:
@@ -282,8 +331,11 @@ def transcribe_input(model, input_path, language, timestamps):
         )
 
     last_progress = 0
+    audio = decode_audio_mono_16k(input_path)
+    if total_duration <= 0:
+        total_duration = float(audio.shape[0]) / WHISPER_SAMPLE_RATE
     segments, info = model.transcribe(
-        input_path,
+        audio,
         language=language or None,
         vad_filter=False,
         beam_size=5,
@@ -347,7 +399,7 @@ def worker_loop(model):
             result["compute_type"] = active_compute_type(model)
             print_json(result)
         except Exception as exc:
-            print_json({"ok": False, "error": str(exc)})
+            print_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
     return 0
 
 
@@ -410,7 +462,7 @@ def main():
         print_json(result)
         return 0
     except Exception as exc:
-        print_json({"ok": False, "error": str(exc)})
+        print_json({"ok": False, "error": f"{type(exc).__name__}: {exc}"})
         return 1
 
 
