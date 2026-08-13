@@ -1004,7 +1004,23 @@ jobs:
           test -x "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/transcription/faster_whisper_bridge/faster_whisper_bridge"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name '*.dylib' -print
           codesign --verify --deep --strict --verbose=2 "${MOUNT_DIR}/Sonarpad.app"
-          hdiutil detach "${MOUNT_DIR}" -quiet
+          # codesign/diskimages-helper can briefly keep files in the mounted DMG open.
+          # Retry a normal detach before falling back to a forced detach so a valid build
+          # does not fail with hdiutil exit code 16 (resource busy).
+          sync
+          detached=0
+          for attempt in 1 2 3; do
+            if hdiutil detach "${MOUNT_DIR}" -quiet; then
+              detached=1
+              break
+            fi
+            echo "DMG detach attempt ${attempt}/3 failed; retrying..."
+            sleep $(( attempt * 2 ))
+          done
+          if [ "${detached}" -ne 1 ]; then
+            echo "DMG is still busy after normal retries; forcing detach."
+            hdiutil detach "${MOUNT_DIR}" -force -quiet
+          fi
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4

@@ -35,6 +35,10 @@ pub struct BridgeTranscriptionResult {
     pub text: String,
     #[serde(default)]
     pub error: String,
+    #[serde(default)]
+    pub backend: String,
+    #[serde(default)]
+    pub compute_type: String,
 }
 
 pub type BridgePercentCallback = Box<dyn FnMut(i32) + Send>;
@@ -272,6 +276,11 @@ pub fn transcribe_media(
                 }
                 if let Some(result) = bridge_result {
                     if result.ok {
+                        crate::append_podcast_log(&format!(
+                            "transcription.worker completed backend={} compute_type={}",
+                            if result.backend.is_empty() { "unknown" } else { &result.backend },
+                            if result.compute_type.is_empty() { "unknown" } else { &result.compute_type },
+                        ));
                         if let Some(callback) = callbacks.transcription.as_mut() {
                             callback(100);
                         }

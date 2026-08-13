@@ -2,8 +2,10 @@
 import argparse
 import json
 import os
+import platform
 import sys
 import wave
+from types import SimpleNamespace
 
 
 BRIDGE_PROTOCOL_VERSION = 2
@@ -66,10 +68,157 @@ def audio_duration_seconds(path):
         return 0.0
 
 
-def candidate_backends():
-    # macOS builds do not have a supported CUDA backend in CTranslate2.
-    # Keep the same Windows bridge protocol and use the optimized int8 CPU path.
-    return [("cpu", "int8")]
+def is_apple_silicon():
+    return sys.platform == "darwin" and platform.machine().lower() in ("arm64", "aarch64")
+
+
+def mlx_model_repo(model_name):
+    mapping = {
+        "small": "mlx-community/whisper-small-mlx",
+        "medium": "mlx-community/whisper-medium-mlx",
+        "large-v3": "mlx-community/whisper-large-v3-mlx",
+    }
+    try:
+        return mapping[model_name]
+    except KeyError as exc:
+        raise RuntimeError(f"unsupported MLX Whisper model: {model_name}") from exc
+
+
+def decode_audio_mono_16k(path):
+    """Decode a complete short input with PyAV so MLX never needs an external ffmpeg."""
+    import av  # type: ignore
+    import numpy as np  # type: ignore
+
+    chunks = []
+    with av.open(path, metadata_errors="ignore") as container:
+        if not container.streams.audio:
+            raise RuntimeError("input file has no audio stream")
+        resampler = av.AudioResampler(format="s16", layout="mono", rate=WHISPER_SAMPLE_RATE)
+        for frame in container.decode(audio=0):
+            for resampled in resampler.resample(frame):
+                samples = resampled.to_ndarray().reshape(-1)
+                if samples.size:
+                    chunks.append(np.ascontiguousarray(samples, dtype=np.int16))
+        for resampled in resampler.resample(None):
+            samples = resampled.to_ndarray().reshape(-1)
+            if samples.size:
+                chunks.append(np.ascontiguousarray(samples, dtype=np.int16))
+    if not chunks:
+        raise RuntimeError("input file contains no decodable audio samples")
+    return np.concatenate(chunks).astype(np.float32) / 32768.0
+
+
+class MlxWhisperModel:
+    """Adapter that exposes the faster-whisper transcribe shape on Apple Silicon."""
+
+    backend = "metal"
+    compute_type = "float16"
+
+    def __init__(self, model_name, download_root=""):
+        if not is_apple_silicon():
+            raise RuntimeError("MLX Metal backend requires Apple Silicon")
+        if download_root:
+            hf_root = os.path.join(download_root, "mlx-huggingface")
+            os.makedirs(hf_root, exist_ok=True)
+            os.environ["HF_HOME"] = hf_root
+            os.environ["HF_HUB_CACHE"] = os.path.join(hf_root, "hub")
+            os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+        import mlx.core as mx  # type: ignore
+        import mlx_whisper  # type: ignore
+
+        if not mx.metal.is_available():
+            raise RuntimeError("MLX Metal backend is not available")
+        mx.set_default_device(mx.gpu)
+        # Querying the GPU also fails early if the bundled Metal backend is unusable.
+        mx.device_info(mx.gpu)
+        self._mlx = mlx_whisper
+        self._repo = mlx_model_repo(model_name)
+
+    def transcribe(
+        self,
+        audio,
+        language=None,
+        vad_filter=False,
+        beam_size=5,
+        condition_on_previous_text=False,
+        **_kwargs,
+    ):
+        del vad_filter
+        if isinstance(audio, (str, os.PathLike)):
+            audio = decode_audio_mono_16k(os.fspath(audio))
+        result = self._mlx.transcribe(
+            audio,
+            path_or_hf_repo=self._repo,
+            language=language or None,
+            verbose=None,
+            beam_size=beam_size,
+            condition_on_previous_text=condition_on_previous_text,
+        )
+        raw_segments = result.get("segments") or []
+        segments = [
+            SimpleNamespace(
+                text=str(segment.get("text", "") or ""),
+                start=float(segment.get("start", 0.0) or 0.0),
+                end=float(segment.get("end", 0.0) or 0.0),
+            )
+            for segment in raw_segments
+        ]
+        info = SimpleNamespace(language=str(result.get("language", "") or ""))
+        return segments, info
+
+
+class MetalThenCpuModel:
+    """Prefer MLX/Metal and switch permanently to faster-whisper CPU if Metal fails."""
+
+    def __init__(self, metal_model, cpu_factory):
+        self._active = metal_model
+        self._cpu_factory = cpu_factory
+        self.backend = "metal"
+        self.compute_type = "float16"
+        self._fell_back = False
+
+    def transcribe(self, *args, **kwargs):
+        try:
+            return self._active.transcribe(*args, **kwargs)
+        except Exception as metal_error:
+            if self._fell_back:
+                raise
+            print(
+                f"BACKEND_FALLBACK:metal->cpu:{metal_error}",
+                file=sys.stderr,
+                flush=True,
+            )
+            self._active = self._cpu_factory()
+            self._fell_back = True
+            self.backend = "cpu"
+            self.compute_type = "int8"
+            return self._active.transcribe(*args, **kwargs)
+
+
+def create_transcription_model(model_name, download_root):
+    from faster_whisper import WhisperModel  # type: ignore
+
+    def cpu_factory():
+        model_kwargs = {"device": "cpu", "compute_type": "int8"}
+        if download_root:
+            model_kwargs["download_root"] = download_root
+        return WhisperModel(model_name, **model_kwargs)
+
+    if is_apple_silicon():
+        try:
+            metal_model = MlxWhisperModel(model_name, download_root)
+            return MetalThenCpuModel(metal_model, cpu_factory)
+        except Exception as exc:
+            print(f"BACKEND_FALLBACK:metal_init->cpu:{exc}", file=sys.stderr, flush=True)
+    return cpu_factory()
+
+
+def active_backend(model):
+    return str(getattr(model, "backend", "cpu") or "cpu")
+
+
+def active_compute_type(model):
+    return str(getattr(model, "compute_type", "int8") or "int8")
 
 
 def format_timestamp(seconds):
@@ -297,13 +446,13 @@ def transcribe_input(model, input_path, language, timestamps):
     return {"ok": True, "text": transcript, "language": detected_language}
 
 
-def worker_loop(model, selected_device, selected_compute_type):
+def worker_loop(model):
     print_json(
         {
             "ready": True,
             "bridge_version": BRIDGE_PROTOCOL_VERSION,
-            "backend": selected_device,
-            "compute_type": selected_compute_type,
+            "backend": active_backend(model),
+            "compute_type": active_compute_type(model),
         }
     )
 
@@ -331,8 +480,8 @@ def worker_loop(model, selected_device, selected_compute_type):
                 str(request.get("language", "") or ""),
                 bool(request.get("timestamps", False)),
             )
-            result["backend"] = selected_device
-            result["compute_type"] = selected_compute_type
+            result["backend"] = active_backend(model)
+            result["compute_type"] = active_compute_type(model)
             print_json(result)
         except Exception as exc:
             print_json({"ok": False, "error": str(exc)})
@@ -361,7 +510,8 @@ def main():
             import ctranslate2  # type: ignore
             import faster_whisper  # type: ignore
             import onnxruntime  # type: ignore
-            print_json({
+
+            payload = {
                 "ok": True,
                 "bridge_version": BRIDGE_PROTOCOL_VERSION,
                 "backend": "cpu",
@@ -369,7 +519,19 @@ def main():
                 "ctranslate2": getattr(ctranslate2, "__version__", ""),
                 "onnxruntime": getattr(onnxruntime, "__version__", ""),
                 "av": getattr(av, "__version__", ""),
-            })
+            }
+            if is_apple_silicon():
+                import mlx.core as mx  # type: ignore
+                import mlx_whisper  # type: ignore
+
+                if not mx.metal.is_available():
+                    raise RuntimeError("MLX Metal backend is not available")
+                mx.set_default_device(mx.gpu)
+                gpu_info = mx.device_info(mx.gpu)
+                payload["backend"] = "metal"
+                payload["mlx_whisper"] = getattr(mlx_whisper, "__version__", "")
+                payload["metal_device"] = str(gpu_info.get("device_name", "Apple GPU"))
+            print_json(payload)
             return 0
         except Exception as exc:
             print_json({"ok": False, "error": f"self-test failed: {exc}"})
@@ -383,42 +545,16 @@ def main():
         return 1
 
     try:
-        from faster_whisper import WhisperModel  # type: ignore
-    except Exception as exc:
-        print_json({"ok": False, "error": f"faster-whisper import failed: {exc}"})
-        return 1
-
-    try:
         print("STAGE:model", flush=True)
-        model = None
-        selected_device = "cpu"
-        selected_compute_type = "int8"
-        last_init_error = ""
-        for device, compute_type in candidate_backends():
-            model_kwargs = {
-                "device": device,
-                "compute_type": compute_type,
-            }
-            if args.download_root:
-                model_kwargs["download_root"] = args.download_root
-            try:
-                model = WhisperModel(args.model, **model_kwargs)
-                selected_device = device
-                selected_compute_type = compute_type
-                break
-            except Exception as exc:
-                last_init_error = f"{device}/{compute_type}: {exc}"
-
-        if model is None:
-            print_json({"ok": False, "error": f"model init failed: {last_init_error}"})
-            return 1
+        model = create_transcription_model(args.model, args.download_root)
+        print(f"BACKEND:{active_backend(model)}", flush=True)
         if args.worker:
-            return worker_loop(model, selected_device, selected_compute_type)
+            return worker_loop(model)
 
         print("STAGE:transcribing", flush=True)
         result = transcribe_input(model, args.input, args.language, args.timestamps)
-        result["backend"] = selected_device
-        result["compute_type"] = selected_compute_type
+        result["backend"] = active_backend(model)
+        result["compute_type"] = active_compute_type(model)
         print_json(result)
         return 0
     except Exception as exc:
