@@ -24,7 +24,7 @@ QUOTA:{json}
 RESULT:{json}
 ```
 
-`QUOTA` viene emesso quando l’API richiede una decisione interattiva sulla quota o sul modello. La pipeline usa Pyannote per il parlato e Gemini API per le descrizioni, con audit di timestamp/copertura, recovery pass e continuità del catalogo personaggi.
+`QUOTA` viene emesso quando l’API richiede una decisione interattiva sulla quota o sul modello. `OVERLOAD` viene emesso dopo tre risposte Gemini 503 consecutive per alta domanda e permette all’utente di attendere o annullare senza perdere il checkpoint. La pipeline usa Pyannote per il parlato e Gemini API per le descrizioni, con audit di timestamp/copertura, recovery pass e continuità del catalogo personaggi.
 
 Il worker non include e non avvia `ffmpeg` o `ffprobe`: Sonarpad usa il proprio FFmpeg incluso nel bundle per creare WAV/chunk e per il rendering finale. Anche TTS, ducking, scheduling e salvataggio progetto/catalogo rimangono nel processo Rust.
 

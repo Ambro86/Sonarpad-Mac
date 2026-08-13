@@ -31,6 +31,9 @@ _MODEL_ID_ALIASES = {
 }
 _VALIDATED_GENERATE_MODELS = set()
 _QUOTA_DECISION_HANDLER = None
+_OVERLOAD_DECISION_HANDLER = None
+OVERLOAD_PROMPT_AFTER_CONSECUTIVE_ERRORS = 3
+OVERLOAD_WAIT_AFTER_USER_CONFIRM_SEC = 30
 
 # Windows Winsock codes that are usually transient (timeout / reset / refused).
 _WIN_TRANSIENT_SOCKET_ERRORS = frozenset({
@@ -207,6 +210,18 @@ def set_quota_decision_handler(handler):
 # --- Global Client Instance ---
 _GEMINI_CLIENT = None
 
+
+
+def set_overload_decision_handler(handler):
+    """Set the callback used for repeated Gemini 503 high-demand errors.
+
+    The callback receives ``(current_model, exception)`` and returns True to
+    keep waiting or False to stop the current job.  It is deliberately
+    separate from quota handling because a capacity spike is temporary and
+    switching models is not required.
+    """
+    global _OVERLOAD_DECISION_HANDLER
+    _OVERLOAD_DECISION_HANDLER = handler
 
 def _create_gemini_client(api_key):
     """Create a Gemini client with a finite per-request HTTP timeout."""
@@ -661,6 +676,34 @@ def is_retryable_transient_error(exc: BaseException) -> bool:
     return any(_single_exception_is_retryable(item) for item in chain)
 
 
+def is_high_demand_unavailable_error(exc: BaseException) -> bool:
+    """Return True only for Gemini HTTP 503 high-demand/capacity responses."""
+    seen = set()
+    current: BaseException | None = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        message = str(current).casefold()
+        code = getattr(current, "code", None)
+        status_code = getattr(current, "status_code", None)
+        response_code = getattr(getattr(current, "response", None), "status_code", None)
+        structured_503 = any(
+            candidate == 503 or str(candidate) == "503"
+            for candidate in (code, status_code, response_code)
+            if candidate is not None
+        )
+        textual_503 = re.search(r"(?<!\d)503(?!\d)", message) is not None
+        high_demand = (
+            "high demand" in message
+            or "spikes in demand" in message
+            or "currently experiencing high demand" in message
+        )
+        unavailable = "unavailable" in message or "service unavailable" in message
+        if (structured_503 or textual_503) and high_demand and unavailable:
+            return True
+        current = current.__cause__ or current.__context__
+    return False
+
+
 def is_quota_exhausted_error(exc: BaseException) -> bool:
     """Return True for Gemini 429/resource-exhausted quota responses."""
     seen = set()
@@ -781,6 +824,7 @@ def generate_content_with_retry(client, model, contents, config, status_callback
     configured_model = config_model.get_setting("gemini_model_override")
     current_model = normalize_model_id(configured_model or model)
     quota_prompted_models = set()
+    overload_failures_since_prompt = 0
     attempt = 0
 
     while True:
@@ -856,7 +900,45 @@ def generate_content_with_retry(client, model, contents, config, status_callback
                     updated_settings["gemini_model_override"] = normalized_new_model
                     config_model.save_settings(updated_settings)
                     attempt = 0
+                    overload_failures_since_prompt = 0
                     continue
+
+            if is_high_demand_unavailable_error(exc):
+                overload_failures_since_prompt += 1
+                if (
+                    _OVERLOAD_DECISION_HANDLER is not None
+                    and overload_failures_since_prompt
+                    >= OVERLOAD_PROMPT_AFTER_CONSECUTIVE_ERRORS
+                ):
+                    app_logger.warning(
+                        "Gemini high-demand 503 persisted for %d consecutive attempts "
+                        "on model %s; asking the user whether to wait or stop.",
+                        overload_failures_since_prompt, current_model,
+                    )
+                    decision = _OVERLOAD_DECISION_HANDLER(current_model, exc)
+                    if not decision:
+                        raise GeminiRetryCancelledError(
+                            _(
+                                "Processing stopped by the user while Gemini is "
+                                "temporarily overloaded."
+                            )
+                        ) from exc
+                    overload_failures_since_prompt = 0
+                    wait_msg = _(
+                        "Gemini is temporarily overloaded. Waiting %(delay)d seconds "
+                        "before retrying..."
+                    ) % {"delay": OVERLOAD_WAIT_AFTER_USER_CONFIRM_SEC}
+                    if status_callback:
+                        status_callback(wait_msg)
+                    app_logger.info(
+                        "User chose to wait after Gemini high-demand 503; retrying "
+                        "model %s in %ds.",
+                        current_model, OVERLOAD_WAIT_AFTER_USER_CONFIRM_SEC,
+                    )
+                    time.sleep(OVERLOAD_WAIT_AFTER_USER_CONFIRM_SEC)
+                    continue
+            else:
+                overload_failures_since_prompt = 0
 
             retry_msg = _(
                 "Connection or temporary API error (attempt %(attempt)d). "

@@ -280,6 +280,38 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('tr("audio_description.browse_input")', AUDIO)
         self.assertIn('tr("audio_description.browse_output")', AUDIO)
 
+    def test_create_dialog_browse_buttons_precede_path_fields_in_keyboard_order(self):
+        start = AUDIO.index("pub fn open_create_dialog")
+        end = AUDIO.index("fn format_mmss", start)
+        create_dialog = AUDIO[start:end]
+        positions = [
+            create_dialog.index("let input_btn = Button::builder"),
+            create_dialog.index("let input = TextCtrl::builder"),
+            create_dialog.index("let output_btn = Button::builder"),
+            create_dialog.index("let output = TextCtrl::builder"),
+        ]
+        self.assertEqual(positions, sorted(positions))
+        self.assertLess(
+            create_dialog.index("input_row.add(&input_btn"),
+            create_dialog.index("input_row.add(&input,"),
+        )
+        self.assertLess(
+            create_dialog.index("output_row.add(&output_btn"),
+            create_dialog.index("output_row.add(&output,"),
+        )
+
+    def test_worker_stderr_is_streamed_into_the_single_sonarpad_log(self):
+        bridge_source = BRIDGE
+        logger_source = (
+            ROOT / "bridge" / "audio_description_runtime" / "audio_describer" / "utils" / "logger.py"
+        ).read_text(encoding="utf-8")
+        self.assertIn('audio_description.worker {line}', bridge_source)
+        self.assertIn("read_until(b'\\n'", bridge_source)
+        self.assertNotIn("read_to_end(&mut raw)", bridge_source)
+        self.assertNotIn("logging.FileHandler", logger_source)
+        self.assertNotIn("sonarpad_audio_description_bridge.log", logger_source)
+        self.assertIn("logging.StreamHandler(sys.stderr)", logger_source)
+
     def test_create_dialog_makes_new_character_catalog_explicit_before_start(self):
         start = AUDIO.index("pub fn open_create_dialog")
         end = AUDIO.index("fn format_mmss", start)

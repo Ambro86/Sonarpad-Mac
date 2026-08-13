@@ -1,6 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Write};
+use std::collections::VecDeque;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Child, Command, Stdio};
@@ -116,6 +117,14 @@ struct BridgeQuota {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct BridgeOverload {
+    #[serde(default)]
+    model: String,
+    #[serde(default)]
+    error: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 pub struct AudioDescriptionBridgeCheckpoint {
     #[serde(default)]
     pub completed_chunks: usize,
@@ -136,10 +145,18 @@ pub enum AudioDescriptionQuotaDecision {
     Stop,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AudioDescriptionOverloadDecision {
+    Wait,
+    Stop,
+}
+
 pub type AudioDescriptionBridgePercentCallback = Box<dyn FnMut(i32) + Send>;
 pub type AudioDescriptionBridgeStatusCallback = Box<dyn FnMut(&str, &str) + Send>;
 pub type AudioDescriptionBridgeQuotaCallback =
     Box<dyn FnMut(&str, &str) -> AudioDescriptionQuotaDecision + Send>;
+pub type AudioDescriptionBridgeOverloadCallback =
+    Box<dyn FnMut(&str, &str) -> AudioDescriptionOverloadDecision + Send>;
 pub type AudioDescriptionBridgeCheckpointCallback =
     Box<dyn FnMut(&AudioDescriptionBridgeCheckpoint) + Send>;
 
@@ -148,6 +165,7 @@ pub struct AudioDescriptionBridgeCallbacks {
     pub progress: Option<AudioDescriptionBridgePercentCallback>,
     pub status: Option<AudioDescriptionBridgeStatusCallback>,
     pub quota: Option<AudioDescriptionBridgeQuotaCallback>,
+    pub overload: Option<AudioDescriptionBridgeOverloadCallback>,
     pub checkpoint: Option<AudioDescriptionBridgeCheckpointCallback>,
 }
 
@@ -294,14 +312,36 @@ pub fn run_audio_description_bridge(
             .take()
             .ok_or_else(|| "audio-description worker stderr unavailable".to_string())?;
         let stderr_thread = std::thread::spawn(move || {
+            const STDERR_TAIL_LINES: usize = 40;
             let mut reader = BufReader::new(stderr);
-            let mut raw = Vec::new();
-            if let Err(error) = reader.read_to_end(&mut raw) {
-                crate::append_podcast_log(&format!(
-                    "Audio description: reading worker stderr failed: {error}"
-                ));
+            let mut raw_line = Vec::new();
+            let mut tail = VecDeque::<String>::with_capacity(STDERR_TAIL_LINES);
+            loop {
+                raw_line.clear();
+                match reader.read_until(b'\n', &mut raw_line) {
+                    Ok(0) => break,
+                    Ok(_) => {
+                        let line = decode_bridge_text(&raw_line).trim().to_string();
+                        if line.is_empty() {
+                            continue;
+                        }
+                        crate::append_podcast_log(&format!(
+                            "audio_description.worker {line}"
+                        ));
+                        if tail.len() == STDERR_TAIL_LINES {
+                            tail.pop_front();
+                        }
+                        tail.push_back(line);
+                    }
+                    Err(error) => {
+                        crate::append_podcast_log(&format!(
+                            "Audio description: reading worker stderr failed: {error}"
+                        ));
+                        break;
+                    }
+                }
             }
-            decode_bridge_text(&raw)
+            tail.into_iter().collect::<Vec<_>>().join("\n")
         });
 
         let (line_tx, line_rx) = mpsc::channel::<Result<String, String>>();
@@ -406,6 +446,46 @@ pub fn run_audio_description_bridge(
                                 "flush quota decision to audio-description worker failed: {error}"
                             )
                         })?;
+                    } else if let Some(raw_overload) = line.strip_prefix("OVERLOAD:") {
+                        let overload = serde_json::from_str::<BridgeOverload>(raw_overload)
+                            .map_err(|error| {
+                                format!(
+                                    "invalid overload event from audio-description worker: {error}"
+                                )
+                            })?;
+                        crate::append_podcast_log(&format!(
+                            "audio_description.overload model={} error={}",
+                            overload.model, overload.error
+                        ));
+                        let decision = callbacks
+                            .overload
+                            .as_mut()
+                            .map(|callback| callback(&overload.model, &overload.error))
+                            .unwrap_or(AudioDescriptionOverloadDecision::Wait);
+                        let reply = match decision {
+                            AudioDescriptionOverloadDecision::Wait => {
+                                crate::append_podcast_log(
+                                    "audio_description.overload decision=wait",
+                                );
+                                serde_json::json!({"action": "wait"})
+                            }
+                            AudioDescriptionOverloadDecision::Stop => {
+                                crate::append_podcast_log(
+                                    "audio_description.overload decision=stop",
+                                );
+                                serde_json::json!({"action": "stop"})
+                            }
+                        };
+                        writeln!(child_stdin, "{reply}").map_err(|error| {
+                            format!(
+                                "write overload decision to audio-description worker failed: {error}"
+                            )
+                        })?;
+                        child_stdin.flush().map_err(|error| {
+                            format!(
+                                "flush overload decision to audio-description worker failed: {error}"
+                            )
+                        })?;
                     } else if let Some(raw_result) = line.strip_prefix("RESULT:") {
                         result = serde_json::from_str(raw_result).ok();
                     } else if !line.is_empty() {
@@ -447,12 +527,6 @@ pub fn run_audio_description_bridge(
             .wait()
             .map_err(|error| format!("wait audio-description worker failed: {error}"))?;
         let stderr_text = stderr_thread.join().unwrap_or_default();
-        if !stderr_text.trim().is_empty() {
-            crate::append_podcast_log(&format!(
-                "Audio description worker stderr: {}",
-                stderr_text.trim()
-            ));
-        }
         let output = result.ok_or_else(|| {
             if stderr_text.trim().is_empty() {
                 format!("audio-description worker returned no result ({status})")

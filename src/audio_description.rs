@@ -1,6 +1,7 @@
 use crate::audio_description_bridge::{
     AudioDescriptionBridgeCallbacks, AudioDescriptionBridgeCheckpoint, AudioDescriptionBridgeRequest,
-    AudioDescriptionBridgeResult, AudioDescriptionBridgeResume, AudioDescriptionPreparedChunk,
+    AudioDescriptionBridgeResult, AudioDescriptionBridgeResume, AudioDescriptionOverloadDecision,
+    AudioDescriptionPreparedChunk,
     AudioDescriptionQuotaDecision, BridgeCharacter, BridgeDescription, BridgeInterval,
     run_audio_description_bridge,
 };
@@ -294,6 +295,7 @@ struct ProgressState {
     status: String,
     done: Option<Result<JobOutcome, String>>,
     quota: Option<QuotaUiRequest>,
+    overload: Option<OverloadUiRequest>,
 }
 
 #[derive(Clone)]
@@ -301,6 +303,13 @@ struct QuotaUiRequest {
     model: String,
     error: String,
     sender: mpsc::SyncSender<AudioDescriptionQuotaDecision>,
+}
+
+#[derive(Clone)]
+struct OverloadUiRequest {
+    model: String,
+    error: String,
+    sender: mpsc::SyncSender<AudioDescriptionOverloadDecision>,
 }
 
 fn tr_map() -> &'static HashMap<String, String> {
@@ -1955,6 +1964,7 @@ fn create_audio_description(
         let status_state = state.clone();
         let progress_state = state.clone();
         let quota_state = state.clone();
+        let overload_state = state.clone();
         let checkpoint_job = job.clone();
         let checkpoint_target = checkpoint_path.clone();
         let analysis = run_audio_description_bridge(
@@ -1977,6 +1987,15 @@ fn create_audio_description(
                         sender: tx,
                     });
                     rx.recv().unwrap_or(AudioDescriptionQuotaDecision::Stop)
+                })),
+                overload: Some(Box::new(move |model, error| {
+                    let (tx, rx) = mpsc::sync_channel(1);
+                    overload_state.lock().unwrap().overload = Some(OverloadUiRequest {
+                        model: model.to_string(),
+                        error: error.to_string(),
+                        sender: tx,
+                    });
+                    rx.recv().unwrap_or(AudioDescriptionOverloadDecision::Stop)
                 })),
                 checkpoint: Some(Box::new(move |checkpoint| {
                     if let Err(error) = save_partial_checkpoint(
@@ -2216,6 +2235,50 @@ fn choose_output(parent: &Dialog, input: &Path) -> Option<PathBuf> {
     }
 }
 
+fn overload_dialog(
+    parent: &dyn WxWidget,
+    model: &str,
+    error: &str,
+) -> AudioDescriptionOverloadDecision {
+    let d = Dialog::builder(parent, &tr("audio_description.overload.title"))
+        .with_size(620, 250)
+        .build();
+    let p = Panel::builder(&d).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let msg = trf(
+        "audio_description.overload.message",
+        &[("model", model.to_string()), ("error", error.to_string())],
+    );
+    root.add(
+        &StaticText::builder(&p).with_label(&msg).build(),
+        0,
+        SizerFlag::Expand | SizerFlag::All,
+        8,
+    );
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    let wait = Button::builder(&p)
+        .with_id(7101)
+        .with_label(&tr("audio_description.overload.wait"))
+        .build();
+    let stop = Button::builder(&p)
+        .with_id(ID_CANCEL)
+        .with_label(&tr("audio_description.cancel"))
+        .build();
+    row.add(&wait, 0, SizerFlag::All, 5);
+    row.add(&stop, 0, SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+    p.set_sizer(root, true);
+    let d1 = d;
+    wait.on_click(move |_| d1.end_modal(7101));
+    let d2 = d;
+    stop.on_click(move |_| d2.end_modal(ID_CANCEL));
+    if d.show_modal() == 7101 {
+        AudioDescriptionOverloadDecision::Wait
+    } else {
+        AudioDescriptionOverloadDecision::Stop
+    }
+}
+
 fn quota_dialog(
     parent: &dyn WxWidget,
     model: &str,
@@ -2342,6 +2405,7 @@ fn run_with_progress(
         status: tr("audio_description.status.running"),
         done: None,
         quota: None,
+        overload: None,
     }));
     let cancel = Arc::new(AtomicBool::new(false));
     let st = state.clone();
@@ -2396,6 +2460,11 @@ fn run_with_progress(
     let gauge_tick = progress_gauge;
     let api_key = job.gemini_api_key.clone();
     timer_tick.on_tick(move |_| {
+        let overload = { state_tick.lock().unwrap().overload.take() };
+        if let Some(o) = overload {
+            let decision = overload_dialog(&dialog_tick, &o.model, &o.error);
+            let _ = o.sender.send(decision);
+        }
         let quota = { state_tick.lock().unwrap().quota.take() };
         if let Some(q) = quota {
             let decision = quota_dialog(&dialog_tick, &q.model, &q.error, &api_key);
@@ -2479,10 +2548,13 @@ pub fn open_create_dialog(
         .build();
     let p = Panel::builder(&d).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
-    let input = TextCtrl::builder(&p).build();
     let input_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.input"))
         .build();
+    let input_btn = Button::builder(&p)
+        .with_label(&tr("audio_description.browse_input"))
+        .build();
+    let input = TextCtrl::builder(&p).build();
     let input_row = BoxSizer::builder(Orientation::Horizontal).build();
     input_row.add(
         &input_label,
@@ -2490,16 +2562,16 @@ pub fn open_create_dialog(
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    input_row.add(&input, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    let input_btn = Button::builder(&p)
-        .with_label(&tr("audio_description.browse_input"))
-        .build();
     input_row.add(&input_btn, 0, SizerFlag::All, 5);
+    input_row.add(&input, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
-    let output = TextCtrl::builder(&p).build();
     let output_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.output"))
         .build();
+    let output_btn = Button::builder(&p)
+        .with_label(&tr("audio_description.browse_output"))
+        .build();
+    let output = TextCtrl::builder(&p).build();
     let output_row = BoxSizer::builder(Orientation::Horizontal).build();
     output_row.add(
         &output_label,
@@ -2507,11 +2579,8 @@ pub fn open_create_dialog(
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    output_row.add(&output, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    let output_btn = Button::builder(&p)
-        .with_label(&tr("audio_description.browse_output"))
-        .build();
     output_row.add(&output_btn, 0, SizerFlag::All, 5);
+    output_row.add(&output, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&output_row, 0, SizerFlag::Expand, 0);
     let language = Choice::builder(&p).build();
     let langs = language_choices();

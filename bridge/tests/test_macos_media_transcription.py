@@ -169,10 +169,10 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
 
         # Creation order is also keyboard focus order in wxWidgets for these controls.
         positions = [
-            source.index("let input = TextCtrl::builder"),
             source.index("let input_button = Button::builder"),
-            source.index("let output = TextCtrl::builder"),
+            source.index("let input = TextCtrl::builder"),
             source.index("let output_button = Button::builder"),
+            source.index("let output = TextCtrl::builder"),
             source.index("let model = Choice::builder"),
             source.index("let audio_language = Choice::builder"),
             source.index("let start = Button::builder"),

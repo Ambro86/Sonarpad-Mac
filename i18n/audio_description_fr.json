@@ -150,5 +150,8 @@
   "audio_description.resume.title": "Continuer l’audiodescription interrompue",
   "audio_description.resume.open_title": "Ouvrir une audiodescription interrompue",
   "audio_description.resume.invalid": "Impossible de continuer l’audiodescription interrompue :\\n{error}",
-  "audio_description.completion.details": "Détails de l’achèvement"
+  "audio_description.completion.details": "Détails de l’achèvement",
+  "audio_description.overload.title": "Gemini temporairement surchargé",
+  "audio_description.overload.message": "Le modèle {model} reçoit trop de requêtes et Gemini a renvoyé plusieurs fois 503 UNAVAILABLE. Voulez-vous attendre et réessayer, ou annuler l’audiodescription ?\n\nLe travail déjà terminé reste enregistré.\n\nDétails : {error}",
+  "audio_description.overload.wait": "Attendre et réessayer"
 }

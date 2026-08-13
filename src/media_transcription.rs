@@ -348,12 +348,12 @@ pub fn open_dialog(parent: &Frame) {
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    let input = TextCtrl::builder(&panel).build();
-    input_row.add(&input, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let input_button = Button::builder(&panel)
         .with_label(&tr("media_transcription.browse_input"))
         .build();
     input_row.add(&input_button, 0, SizerFlag::All, 5);
+    let input = TextCtrl::builder(&panel).build();
+    input_row.add(&input, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
 
     let output_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -365,12 +365,12 @@ pub fn open_dialog(parent: &Frame) {
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    let output = TextCtrl::builder(&panel).build();
-    output_row.add(&output, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let output_button = Button::builder(&panel)
         .with_label(&tr("media_transcription.browse_output"))
         .build();
     output_row.add(&output_button, 0, SizerFlag::All, 5);
+    let output = TextCtrl::builder(&panel).build();
+    output_row.add(&output, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&output_row, 0, SizerFlag::Expand, 0);
 
     let model_row = BoxSizer::builder(Orientation::Horizontal).build();

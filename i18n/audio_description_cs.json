@@ -150,5 +150,8 @@
   "audio_description.resume.title": "Pokračovat v přerušeném audiopopisu",
   "audio_description.resume.open_title": "Otevřít přerušený audiopopis",
   "audio_description.resume.invalid": "V přerušeném audiopopisu nelze pokračovat:\\n{error}",
-  "audio_description.completion.details": "Podrobnosti dokončení"
+  "audio_description.completion.details": "Podrobnosti dokončení",
+  "audio_description.overload.title": "Gemini je dočasně přetížený",
+  "audio_description.overload.message": "Model {model} přijímá příliš mnoho požadavků a Gemini opakovaně vrátil 503 UNAVAILABLE. Chcete počkat a zkusit to znovu, nebo audiopopis zrušit?\n\nJiž dokončená práce zůstane uložena.\n\nPodrobnosti: {error}",
+  "audio_description.overload.wait": "Počkat a zkusit znovu"
 }
