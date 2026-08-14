@@ -22,10 +22,12 @@ def is_runtime_genai_module(name):
 genai_datas = collect_data_files("google.genai")
 genai_datas += copy_metadata("google-genai")
 genai_binaries = collect_dynamic_libs("google.genai")
+certifi_datas = collect_data_files("certifi")
 genai_hiddenimports = collect_submodules("google.genai", filter=is_runtime_genai_module)
 
 added_datas = [
     *genai_datas,
+    *certifi_datas,
     (
         str(runtime / "audio_describer" / "assets" / "pyannote-segmentation"),
         "assets/pyannote-segmentation",
@@ -44,6 +46,7 @@ a = Analysis(
         *collect_submodules("google.auth"),
         "onnxruntime",
         "numpy",
+        "certifi",
     ],
     excludes=[
         "google.genai.tests",

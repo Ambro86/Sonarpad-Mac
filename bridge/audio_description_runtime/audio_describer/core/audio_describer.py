@@ -21,8 +21,9 @@ _UPLOAD_POLL_MAX_ATTEMPTS = 100
 _UPLOAD_POLL_INTERVAL_SEC = 5
 # Prefer inline video for smaller files (avoids Files API processing failures).
 # Gemini allows ~100MB inline; keep headroom for prompt/base64 overhead in the request.
-_INLINE_VIDEO_MAX_BYTES = 18 * 1024 * 1024
-# Still try inline as a fallback after Files API FAILED for slightly larger clips.
+_INLINE_VIDEO_MAX_BYTES = 48 * 1024 * 1024
+# Still try inline as a fallback after Files API FAILED or a permission-denied
+# generateContent call that references an uploaded file.
 _INLINE_FALLBACK_MAX_BYTES = 50 * 1024 * 1024
 # Gemini Files API rejects media at or above 2 GiB. Large movies are extracted
 # and uploaded one analysis chunk at a time instead of uploading the whole file.
@@ -108,6 +109,19 @@ def _target_language_details():
     examples = _LANGUAGE_EXAMPLES.get(prompt_code, _LANGUAGE_EXAMPLES.get(detection_code, _LANGUAGE_EXAMPLES["en"]))
     return detection_code, name, examples
 
+
+
+
+def _is_permission_denied_error(exc):
+    """Return True for Gemini HTTP 403 / PERMISSION_DENIED errors."""
+    code = getattr(exc, "code", None)
+    try:
+        if int(code) == 403:
+            return True
+    except (TypeError, ValueError):
+        pass
+    text = str(exc).upper()
+    return "403" in text and "PERMISSION_DENIED" in text
 
 class _TransientGeminiFileProcessingError(GeminiAPIError):
     """Gemini accepted an upload but transiently failed to process it."""
@@ -1234,11 +1248,43 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
             )
             minute_fallback_used = False
             try:
-                response = gemini.generate_content_with_retry(
-                    client, model=model_name_to_use, contents=api_contents,
-                    config=gen_config, status_callback=_update_status,
-                    prohibited_content_max_attempts=2,
-                )
+                try:
+                    response = gemini.generate_content_with_retry(
+                        client, model=model_name_to_use, contents=api_contents,
+                        config=gen_config, status_callback=_update_status,
+                        prohibited_content_max_attempts=2,
+                    )
+                except Exception as exc:
+                    chunk_size = os.path.getsize(current_chunk_path)
+                    if (
+                        current_chunk_file_obj is not None
+                        and chunk_size <= _INLINE_FALLBACK_MAX_BYTES
+                        and _is_permission_denied_error(exc)
+                    ):
+                        _update_status(
+                            _("Gemini denied the uploaded clip; retrying inline (%s MB)...")
+                            % f"{chunk_size / (1024 * 1024):.1f}"
+                        )
+                        app_logger.warning(
+                            "Files API generateContent returned permission denied for chunk %d; "
+                            "retrying inline (%d bytes).",
+                            i + 1, chunk_size,
+                        )
+                        _cleanup_uploaded_file(
+                            client, current_chunk_file_obj, _update_status
+                        )
+                        if current_chunk_file_obj in per_chunk_uploaded_files:
+                            per_chunk_uploaded_files.remove(current_chunk_file_obj)
+                        current_chunk_file_obj = None
+                        video_part = _build_inline_video_part(current_chunk_path)
+                        api_contents = [chunk_prompt_text, video_part]
+                        response = gemini.generate_content_with_retry(
+                            client, model=model_name_to_use, contents=api_contents,
+                            config=gen_config, status_callback=_update_status,
+                            prohibited_content_max_attempts=2,
+                        )
+                    else:
+                        raise
                 gemini.save_raw_ai_output(
                     os.path.basename(video_path), "unified_raw_response",
                     response, suffix=f"_chunk{i+1}"

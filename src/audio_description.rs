@@ -153,12 +153,15 @@ struct AudioDescriptionPartialCheckpoint {
 
 #[derive(Clone, Debug)]
 struct AudioDescriptionResumeSettings {
-    checkpoint_path: PathBuf,
-    input_path: PathBuf,
-    output_path: PathBuf,
     gemini_model: String,
     completed_chunks: usize,
     total_chunks: usize,
+}
+
+#[derive(Clone, Debug)]
+struct AudioDescriptionResumeSelection {
+    checkpoint_path: PathBuf,
+    gemini_model: String,
 }
 
 #[derive(Clone, Debug)]
@@ -1578,9 +1581,6 @@ fn save_partial_checkpoint(
 fn load_resume_settings(path: &Path) -> Result<AudioDescriptionResumeSettings, String> {
     let checkpoint = load_partial_checkpoint(path)?;
     Ok(AudioDescriptionResumeSettings {
-        checkpoint_path: path.to_path_buf(),
-        input_path: checkpoint.source_path,
-        output_path: checkpoint.output_mp3_path,
         gemini_model: checkpoint.gemini_model,
         completed_chunks: checkpoint.completed_chunks,
         total_chunks: checkpoint.total_chunks,
@@ -2352,12 +2352,55 @@ fn browse_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
     }
 }
 
-fn choose_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
-    let candidates = discover_resume_candidates();
-    let has_candidates = !candidates.is_empty();
+fn ensure_resume_model_choice(choice: &Choice, values: &Rc<RefCell<Vec<String>>>, value: &str) {
+    let value = value.trim();
+    if value.is_empty() {
+        return;
+    }
+    let index = {
+        let mut values = values.borrow_mut();
+        if let Some(index) = values.iter().position(|item| item == value) {
+            index
+        } else {
+            choice.append(value);
+            values.push(value.to_string());
+            values.len() - 1
+        }
+    };
+    choice.set_selection(index as u32);
+}
+
+fn choose_resume_checkpoint(
+    parent: &Dialog,
+    api_key: &str,
+    fallback_model: &str,
+) -> Option<AudioDescriptionResumeSelection> {
+    let candidates = Rc::new(RefCell::new(discover_resume_candidates()));
+    let has_candidates = !candidates.borrow().is_empty();
+
+    let mut initial_models = fetch_gemini_models(api_key).unwrap_or_else(|error| {
+        append_podcast_log(&format!(
+            "audio_description.resume_selector.model_refresh_failed error={error}"
+        ));
+        Vec::new()
+    });
+    for candidate in candidates.borrow().iter() {
+        if let Ok(resume) = load_resume_settings(&candidate.path) {
+            let model = resume.gemini_model.trim();
+            if !model.is_empty() && !initial_models.iter().any(|item| item == model) {
+                initial_models.push(model.to_string());
+            }
+        }
+    }
+    let fallback_model = fallback_model.trim();
+    if !fallback_model.is_empty() && !initial_models.iter().any(|item| item == fallback_model) {
+        initial_models.push(fallback_model.to_string());
+    }
+    let model_values = Rc::new(RefCell::new(initial_models));
+
     let selector = Dialog::builder(parent, &tr("audio_description.resume.open_title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(680, 240)
+        .with_size(680, 320)
         .build();
     let panel = Panel::builder(&selector).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -2382,7 +2425,7 @@ fn choose_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
     );
     let choice = Choice::builder(&panel).build();
     choice.set_accessibility_label(&tr("audio_description.resume.choose_label"));
-    for candidate in &candidates {
+    for candidate in candidates.borrow().iter() {
         choice.append(&candidate.label);
     }
     if has_candidates {
@@ -2390,6 +2433,37 @@ fn choose_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
     }
     choice.enable(has_candidates);
     root.add(&choice, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&tr("audio_description.resume.model"))
+            .build(),
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        8,
+    );
+    let model_choice = Choice::builder(&panel).build();
+    model_choice.set_accessibility_label(&tr("audio_description.resume.model"));
+    for model in model_values.borrow().iter() {
+        model_choice.append(model);
+    }
+    if has_candidates {
+        if let Some(candidate) = candidates.borrow().first()
+            && let Ok(resume) = load_resume_settings(&candidate.path)
+        {
+            let preferred = if resume.gemini_model.trim().is_empty() {
+                fallback_model
+            } else {
+                resume.gemini_model.trim()
+            };
+            ensure_resume_model_choice(&model_choice, &model_values, preferred);
+        }
+    } else if !fallback_model.is_empty() {
+        ensure_resume_model_choice(&model_choice, &model_values, fallback_model);
+    } else if !model_values.borrow().is_empty() {
+        model_choice.set_selection(0);
+    }
+    root.add(&model_choice, 0, SizerFlag::Expand | SizerFlag::All, 8);
 
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let continue_button = Button::builder(&panel)
@@ -2417,27 +2491,99 @@ fn choose_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
         ID_AUDIO_DESCRIPTION_RESUME_BROWSE
     });
     selector.set_escape_id(ID_CANCEL);
-    let selected = Rc::new(RefCell::new(None::<PathBuf>));
+    let selected = Rc::new(RefCell::new(None::<AudioDescriptionResumeSelection>));
 
-    let selector_continue = selector;
-    let selected_continue = Rc::clone(&selected);
-    let candidates_continue = candidates.clone();
-    continue_button.on_click(move |_| {
-        if let Some(index) = choice.get_selection()
-            && let Some(candidate) = candidates_continue.get(index as usize)
-        {
-            *selected_continue.borrow_mut() = Some(candidate.path.clone());
-            selector_continue.end_modal(ID_OK);
+    let candidates_changed = Rc::clone(&candidates);
+    let model_values_changed = Rc::clone(&model_values);
+    let fallback_model_changed = fallback_model.to_string();
+    choice.on_selection_changed(move |_| {
+        let Some(index) = choice.get_selection() else {
+            return;
+        };
+        let Some(candidate) = candidates_changed.borrow().get(index as usize).cloned() else {
+            return;
+        };
+        if let Ok(resume) = load_resume_settings(&candidate.path) {
+            let preferred = if resume.gemini_model.trim().is_empty() {
+                fallback_model_changed.as_str()
+            } else {
+                resume.gemini_model.trim()
+            };
+            ensure_resume_model_choice(&model_choice, &model_values_changed, preferred);
         }
     });
 
-    let selector_browse = selector;
-    let selected_browse = Rc::clone(&selected);
-    browse_button.on_click(move |_| {
-        if let Some(path) = browse_resume_checkpoint(&selector_browse) {
-            *selected_browse.borrow_mut() = Some(path);
-            selector_browse.end_modal(ID_OK);
+    let selector_continue = selector;
+    let selected_continue = Rc::clone(&selected);
+    let candidates_continue = Rc::clone(&candidates);
+    continue_button.on_click(move |_| {
+        let Some(index) = choice.get_selection() else {
+            return;
+        };
+        let Some(candidate) = candidates_continue.borrow().get(index as usize).cloned() else {
+            return;
+        };
+        let selected_model = model_choice.get_string_selection().unwrap_or_default();
+        if selected_model.trim().is_empty() {
+            show_error(&selector_continue, &tr("audio_description.error.model"));
+            model_choice.set_focus();
+            return;
         }
+        *selected_continue.borrow_mut() = Some(AudioDescriptionResumeSelection {
+            checkpoint_path: candidate.path,
+            gemini_model: selected_model,
+        });
+        selector_continue.end_modal(ID_OK);
+    });
+
+    let selector_browse = selector;
+    let candidates_browse = Rc::clone(&candidates);
+    let model_values_browse = Rc::clone(&model_values);
+    let fallback_model_browse = fallback_model.to_string();
+    browse_button.on_click(move |_| {
+        let Some(path) = browse_resume_checkpoint(&selector_browse) else {
+            return;
+        };
+        let resume = match load_resume_settings(&path) {
+            Ok(value) => value,
+            Err(error) => {
+                show_error(
+                    &selector_browse,
+                    &trf("audio_description.resume.invalid", &[("error", error)]),
+                );
+                return;
+            }
+        };
+        let label = resume_candidate_label(&path)
+            .unwrap_or_else(|| resume_candidate_project_name(&path));
+        let index = {
+            let mut candidates = candidates_browse.borrow_mut();
+            if let Some(index) = candidates.iter().position(|item| item.path == path) {
+                index
+            } else {
+                let modified = fs::metadata(&path)
+                    .ok()
+                    .and_then(|metadata| metadata.modified().ok())
+                    .unwrap_or(UNIX_EPOCH);
+                candidates.push(AudioDescriptionResumeCandidate {
+                    path: path.clone(),
+                    label: label.clone(),
+                    modified,
+                });
+                choice.append(&label);
+                candidates.len() - 1
+            }
+        };
+        choice.enable(true);
+        continue_button.enable(true);
+        choice.set_selection(index as u32);
+        let preferred = if resume.gemini_model.trim().is_empty() {
+            fallback_model_browse.as_str()
+        } else {
+            resume.gemini_model.trim()
+        };
+        ensure_resume_model_choice(&model_choice, &model_values_browse, preferred);
+        choice.set_focus();
     });
 
     let selector_cancel = selector;
@@ -2780,6 +2926,108 @@ fn voice_matches_language(voice: &VoiceInfo, language: &str) -> bool {
         .eq_ignore_ascii_case(&wanted)
 }
 
+fn execute_audio_description_job(
+    parent: &Frame,
+    dialog: &Dialog,
+    settings: &Arc<Mutex<Settings>>,
+    rt: &Arc<Runtime>,
+    job: CreateJob,
+    selected_model: String,
+) -> bool {
+    {
+        let mut st = settings.lock().unwrap();
+        st.audio_description_gemini_api_key = job.gemini_api_key.clone();
+        st.audio_description_gemini_model = selected_model;
+        st.audio_description_language = job.language_code.clone();
+        st.audio_description_tts_engine = job.tts_engine.clone();
+        st.audio_description_tts_voice = job.tts_voice.clone();
+        st.audio_description_verbosity = job.verbosity.as_bridge().to_string();
+        st.audio_description_extended_pauses = job.allow_extended_pauses;
+        st.audio_description_recognize_characters = job.recognize_characters;
+        st.audio_description_save_project = job.save_project;
+        st.audio_description_keep_character_catalog = job.keep_character_catalog;
+        st.audio_description_character_catalog = job
+            .catalog
+            .as_ref()
+            .map(|c| c.path.to_string_lossy().to_string())
+            .unwrap_or_default();
+        if job.resume_checkpoint_path.is_none() {
+            remember_audio_description_project_folder(&mut st, &job.output_path);
+        }
+        st.save();
+    }
+    match run_with_progress(parent, job, rt.clone()) {
+        Ok(out) => {
+            let output_to_open = out.output_path.clone();
+            let mut msg = trf(
+                "audio_description.success_details",
+                &[
+                    ("path", out.output_path.display().to_string()),
+                    ("count", out.generated.to_string()),
+                    ("normal", (out.inserted - out.extended).to_string()),
+                    ("pauses", out.extended.to_string()),
+                    ("dropped", out.dropped.to_string()),
+                ],
+            );
+            if out.dropped_mandatory > 0 {
+                msg.push_str(&format!(
+                    "\n\n{}",
+                    trf(
+                        "audio_description.warning.mandatory_dropped",
+                        &[("count", out.dropped_mandatory.to_string())]
+                    )
+                ));
+            }
+            if let Some(p) = out.project_path {
+                msg.push_str(&format!(
+                    "\n\n{}",
+                    trf(
+                        "audio_description.project_saved",
+                        &[("path", p.display().to_string())]
+                    )
+                ));
+            }
+            if let Some(p) = out.catalog_path {
+                msg.push_str(&format!(
+                    "\n\n{}",
+                    trf(
+                        "audio_description.catalog_output",
+                        &[("path", p.display().to_string())]
+                    )
+                ));
+            }
+            show_completion(dialog, &msg);
+            append_podcast_log(&format!(
+                "audio_description.create.open_output_requested path={}",
+                output_to_open.display()
+            ));
+            if let Err(error) = crate::open_local_media_with_mpv(&output_to_open) {
+                append_podcast_log(&format!(
+                    "audio_description.create.open_output_failed path={} err={}",
+                    output_to_open.display(),
+                    error
+                ));
+                show_error(dialog, &error);
+            } else {
+                append_podcast_log(&format!(
+                    "audio_description.create.open_output_completed path={}",
+                    output_to_open.display()
+                ));
+            }
+            false
+        }
+        Err(error) => {
+            if error == "cancelled" {
+                append_podcast_log("audio_description.create.closed_after_cancel");
+                true
+            } else {
+                show_error(dialog, &error);
+                false
+            }
+        }
+    }
+}
+
 pub fn open_create_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
@@ -3083,64 +3331,6 @@ pub fn open_create_dialog(
     root.add_sizer(&actions, 0, SizerFlag::Expand, 0);
     p.set_sizer(root, true);
 
-    let set_resume_ui: Rc<dyn Fn(bool)> = {
-        let panel = p;
-        let dialog = d;
-        Rc::new(move |resume_mode| {
-            input_label.show(!resume_mode);
-            input.show(!resume_mode);
-            input_btn.show(!resume_mode);
-            output_label.show(!resume_mode);
-            output.show(!resume_mode);
-            output_btn.show(!resume_mode);
-            language_label.show(!resume_mode);
-            language.show(!resume_mode);
-            verbosity_label.show(!resume_mode);
-            verbosity.show(!resume_mode);
-            extended.show(!resume_mode);
-            recognize.show(!resume_mode);
-            save_project_box.show(!resume_mode);
-            api_label.show(!resume_mode);
-            api.show(!resume_mode);
-            api_get.show(!resume_mode);
-            refresh.show(!resume_mode);
-            engine_label.show(!resume_mode);
-            engine.show(!resume_mode);
-            voice_label.show(!resume_mode);
-            voice.show(!resume_mode);
-            modify.show(!resume_mode);
-            continue_interrupted.show(!resume_mode);
-
-            if resume_mode {
-                keep_catalog.show(false);
-                catalog_label.show(false);
-                catalog_choice.show(false);
-                catalog_name_label.show(false);
-                catalog_name.show(false);
-                model_label.set_label(&tr("audio_description.resume.model"));
-                start.set_label(&tr("audio_description.resume.start"));
-            } else {
-                let recognize_on = recognize.get_value();
-                keep_catalog.show(recognize_on);
-                let show_catalog = recognize_on && keep_catalog.get_value();
-                catalog_label.show(show_catalog);
-                catalog_choice.show(show_catalog);
-                let show_name = show_catalog
-                    && catalog_choice.get_selection().unwrap_or(0) == 0;
-                catalog_name_label.show(show_name);
-                catalog_name.show(show_name);
-                model_label.set_label(&tr("audio_description.gemini_model"));
-                start.set_label(&tr("audio_description.start"));
-            }
-            model_label.show(true);
-            model.show(true);
-            start.show(true);
-            close.show(true);
-            panel.layout();
-            dialog.layout();
-        })
-    };
-
     let d_input = d;
     input_btn.on_click(move |_| {
         if let Some(path) = choose_input(&d_input) {
@@ -3280,13 +3470,17 @@ pub fn open_create_dialog(
         open_project_requested_button.set(true);
         d_modify.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
     });
-    let resume_settings = Rc::new(RefCell::new(None::<AudioDescriptionResumeSettings>));
-    let resume_settings_button = Rc::clone(&resume_settings);
-    let resume_ui_button = Rc::clone(&set_resume_ui);
     let settings_resume = settings.clone();
+    let rt_resume = rt.clone();
+    let parent_resume = *parent;
+    let fallback_resume_model = saved.audio_description_gemini_model.clone();
     let d_resume = d;
     continue_interrupted.on_click(move |_| {
-        let Some(path) = choose_resume_checkpoint(&d_resume) else {
+        let Some(selection) = choose_resume_checkpoint(
+            &d_resume,
+            &api.get_value(),
+            &fallback_resume_model,
+        ) else {
             append_podcast_log(
                 "audio_description.create.resume_selector_cancelled_closing_creation_window",
             );
@@ -3295,10 +3489,10 @@ pub fn open_create_dialog(
         };
         {
             let mut settings = settings_resume.lock().unwrap();
-            remember_audio_description_project_folder(&mut settings, &path);
+            remember_audio_description_project_folder(&mut settings, &selection.checkpoint_path);
             settings.save();
         }
-        let resume = match load_resume_settings(&path) {
+        let resume = match load_resume_settings(&selection.checkpoint_path) {
             Ok(value) => value,
             Err(error) => {
                 show_error(
@@ -3308,48 +3502,37 @@ pub fn open_create_dialog(
                 return;
             }
         };
-        input.set_value(&resume.input_path.to_string_lossy());
-        output.set_value(&resume.output_path.to_string_lossy());
-        let selected_model = if resume.gemini_model.trim().is_empty() {
-            model.get_string_selection().unwrap_or_default()
-        } else {
-            resume.gemini_model.clone()
-        };
-        let mut resume_models = match fetch_gemini_models(&api.get_value()) {
-            Ok(models) => models,
+        let job = match job_from_checkpoint(
+            &selection.checkpoint_path,
+            api.get_value(),
+            selection.gemini_model.clone(),
+        ) {
+            Ok(job) => job,
             Err(error) => {
-                append_podcast_log(&format!(
-                    "audio_description.create.resume_model_refresh_failed error={error}"
-                ));
-                Vec::new()
+                show_error(
+                    &d_resume,
+                    &trf("audio_description.resume.invalid", &[("error", error)]),
+                );
+                return;
             }
         };
-        if !selected_model.trim().is_empty()
-            && !resume_models.iter().any(|item| item == &selected_model)
-        {
-            resume_models.insert(0, selected_model.clone());
-        }
-        if resume_models.is_empty() {
-            resume_models.push(selected_model.clone());
-        }
-        model.clear();
-        for item in &resume_models {
-            model.append(item);
-        }
-        let selected_index = resume_models
-            .iter()
-            .position(|item| item == &selected_model)
-            .unwrap_or(0);
-        model.set_selection(selected_index as u32);
-        *resume_settings_button.borrow_mut() = Some(resume.clone());
-        resume_ui_button(true);
         append_podcast_log(&format!(
-            "audio_description.create.resume_selected chunk={}/{} path={}",
+            "audio_description.create.resume_selected chunk={}/{} model={} path={}",
             resume.completed_chunks,
             resume.total_chunks,
-            resume.checkpoint_path.display()
+            selection.gemini_model,
+            selection.checkpoint_path.display()
         ));
-        model.set_focus();
+        if execute_audio_description_job(
+            &parent_resume,
+            &d_resume,
+            &settings_resume,
+            &rt_resume,
+            job,
+            selection.gemini_model,
+        ) {
+            d_resume.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
+        }
     });
     d.set_escape_id(ID_AUDIO_DESCRIPTION_CLOSE);
     let d_close = d;
@@ -3378,180 +3561,84 @@ pub fn open_create_dialog(
     let parent_run = *parent;
     let settings_run = settings.clone();
     let rt_run = rt.clone();
-    let resume_settings_run = Rc::clone(&resume_settings);
-    let resume_ui_run = Rc::clone(&set_resume_ui);
+    let saved_start = saved.clone();
     start.on_click(move |_| {
         let model_value = model
             .get_string_selection()
-            .unwrap_or_else(|| saved.audio_description_gemini_model.clone());
-        let job = if let Some(resume) = resume_settings_run.borrow().as_ref() {
-            match job_from_checkpoint(
-                &resume.checkpoint_path,
-                api.get_value(),
-                model_value.clone(),
-            ) {
-                Ok(job) => job,
-                Err(error) => {
-                    show_error(
-                        &d,
-                        &trf("audio_description.resume.invalid", &[("error", error)]),
-                    );
+            .unwrap_or_else(|| saved_start.audio_description_gemini_model.clone());
+        if model_value.trim().is_empty() {
+            show_error(&d, &tr("audio_description.error.model"));
+            model.set_focus();
+            return;
+        }
+        let input_path = PathBuf::from(input.get_value());
+        let output_path = PathBuf::from(output.get_value());
+        let lang_idx = language.get_selection().unwrap_or(0) as usize;
+        let language_code = langs.get(lang_idx).map(|x| x.1).unwrap_or("it").to_string();
+        let verbosity_value = match verbosity.get_selection().unwrap_or(2) {
+            0 => Verbosity::Brief,
+            1 => Verbosity::Standard,
+            _ => Verbosity::Detailed,
+        };
+        let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
+            "system".to_string()
+        } else {
+            "microsoft".to_string()
+        };
+        let voice_idx = voice.get_selection().unwrap_or(0) as usize;
+        let voice_value = active_voices
+            .borrow()
+            .get(voice_idx)
+            .map(|v| v.short_name.clone())
+            .unwrap_or_default();
+        let catalog = if keep_catalog.get_value() {
+            let sel = catalog_choice.get_selection().unwrap_or(0) as usize;
+            if sel == 0 {
+                let name = catalog_name.get_value().trim().to_string();
+                if name.is_empty() {
+                    show_error(&d, &tr("audio_description.character_catalog.name_error"));
+                    catalog_name.set_focus();
                     return;
                 }
+                Some(CharacterCatalog {
+                    name: name.clone(),
+                    path: catalog_path_for_name(&name),
+                    characters: Vec::new(),
+                })
+            } else {
+                catalogs.borrow().get(sel - 1).cloned()
             }
         } else {
-            let input_path = PathBuf::from(input.get_value());
-            let output_path = PathBuf::from(output.get_value());
-            let lang_idx = language.get_selection().unwrap_or(0) as usize;
-            let language_code = langs.get(lang_idx).map(|x| x.1).unwrap_or("it").to_string();
-            let verbosity_value = match verbosity.get_selection().unwrap_or(2) {
-                0 => Verbosity::Brief,
-                1 => Verbosity::Standard,
-                _ => Verbosity::Detailed,
-            };
-            let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
-                "system".to_string()
-            } else {
-                "microsoft".to_string()
-            };
-            let voice_idx = voice.get_selection().unwrap_or(0) as usize;
-            let voice_value = active_voices
-                .borrow()
-                .get(voice_idx)
-                .map(|v| v.short_name.clone())
-                .unwrap_or_default();
-            let catalog = if keep_catalog.get_value() {
-                let sel = catalog_choice.get_selection().unwrap_or(0) as usize;
-                if sel == 0 {
-                    let name = catalog_name.get_value().trim().to_string();
-                    if name.is_empty() {
-                        show_error(&d, &tr("audio_description.character_catalog.name_error"));
-                        catalog_name.set_focus();
-                        return;
-                    }
-                    Some(CharacterCatalog {
-                        name: name.clone(),
-                        path: catalog_path_for_name(&name),
-                        characters: Vec::new(),
-                    })
-                } else {
-                    catalogs.borrow().get(sel - 1).cloned()
-                }
-            } else {
-                None
-            };
-            CreateJob {
-                input_path,
-                output_path,
-                language_code,
-                verbosity: verbosity_value,
-                allow_extended_pauses: extended.get_value(),
-                recognize_characters: recognize.get_value(),
-                save_project: save_project_box.get_value(),
-                keep_character_catalog: keep_catalog.get_value(),
-                catalog,
-                tts_engine: engine_value,
-                tts_voice: voice_value,
-                rate: saved.rate,
-                pitch: saved.pitch,
-                volume: saved.volume,
-                gemini_api_key: api.get_value(),
-                gemini_model: model_value.clone(),
-                resume_checkpoint_path: None,
-            }
+            None
         };
-        {
-            let mut st = settings_run.lock().unwrap();
-            st.audio_description_gemini_api_key = job.gemini_api_key.clone();
-            st.audio_description_gemini_model = model_value;
-            st.audio_description_language = job.language_code.clone();
-            st.audio_description_tts_engine = job.tts_engine.clone();
-            st.audio_description_tts_voice = job.tts_voice.clone();
-            st.audio_description_verbosity = job.verbosity.as_bridge().to_string();
-            st.audio_description_extended_pauses = job.allow_extended_pauses;
-            st.audio_description_recognize_characters = job.recognize_characters;
-            st.audio_description_save_project = job.save_project;
-            st.audio_description_keep_character_catalog = job.keep_character_catalog;
-            st.audio_description_character_catalog = job
-                .catalog
-                .as_ref()
-                .map(|c| c.path.to_string_lossy().to_string())
-                .unwrap_or_default();
-            if job.resume_checkpoint_path.is_none() {
-                remember_audio_description_project_folder(&mut st, &job.output_path);
-            }
-            st.save();
-        }
-        match run_with_progress(&parent_run, job, rt_run.clone()) {
-            Ok(out) => {
-                let output_to_open = out.output_path.clone();
-                let mut msg = trf(
-                    "audio_description.success_details",
-                    &[
-                        ("path", out.output_path.display().to_string()),
-                        ("count", out.generated.to_string()),
-                        ("normal", (out.inserted - out.extended).to_string()),
-                        ("pauses", out.extended.to_string()),
-                        ("dropped", out.dropped.to_string()),
-                    ],
-                );
-                if out.dropped_mandatory > 0 {
-                    msg.push_str(&format!(
-                        "\n\n{}",
-                        trf(
-                            "audio_description.warning.mandatory_dropped",
-                            &[("count", out.dropped_mandatory.to_string())]
-                        )
-                    ));
-                }
-                if let Some(p) = out.project_path {
-                    msg.push_str(&format!(
-                        "\n\n{}",
-                        trf(
-                            "audio_description.project_saved",
-                            &[("path", p.display().to_string())]
-                        )
-                    ));
-                }
-                if let Some(p) = out.catalog_path {
-                    msg.push_str(&format!(
-                        "\n\n{}",
-                        trf(
-                            "audio_description.catalog_output",
-                            &[("path", p.display().to_string())]
-                        )
-                    ));
-                }
-                show_completion(&d, &msg);
-                if resume_settings_run.borrow_mut().take().is_some() {
-                    resume_ui_run(false);
-                }
-                append_podcast_log(&format!(
-                    "audio_description.create.open_output_requested path={}",
-                    output_to_open.display()
-                ));
-                if let Err(error) = crate::open_local_media_with_mpv(&output_to_open) {
-                    append_podcast_log(&format!(
-                        "audio_description.create.open_output_failed path={} err={}",
-                        output_to_open.display(),
-                        error
-                    ));
-                    show_error(&d, &error);
-                } else {
-                    append_podcast_log(&format!(
-                        "audio_description.create.open_output_completed path={}",
-                        output_to_open.display()
-                    ));
-                }
-            }
-            Err(e) => {
-                if e == "cancelled" {
-                    append_podcast_log("audio_description.create.closed_after_cancel");
-                    d.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
-                } else {
-                    show_error(&d, &e);
-                }
-            }
+        let job = CreateJob {
+            input_path,
+            output_path,
+            language_code,
+            verbosity: verbosity_value,
+            allow_extended_pauses: extended.get_value(),
+            recognize_characters: recognize.get_value(),
+            save_project: save_project_box.get_value(),
+            keep_character_catalog: keep_catalog.get_value(),
+            catalog,
+            tts_engine: engine_value,
+            tts_voice: voice_value,
+            rate: saved_start.rate,
+            pitch: saved_start.pitch,
+            volume: saved_start.volume,
+            gemini_api_key: api.get_value(),
+            gemini_model: model_value.clone(),
+            resume_checkpoint_path: None,
+        };
+        if execute_audio_description_job(
+            &parent_run,
+            &d,
+            &settings_run,
+            &rt_run,
+            job,
+            model_value,
+        ) {
+            d.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
         }
     });
     d.show_modal();

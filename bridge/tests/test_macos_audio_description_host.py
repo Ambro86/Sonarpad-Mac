@@ -134,23 +134,27 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("audio_description.create.close_requested_button", create_dialog)
         self.assertIn("audio_description.create.close_requested_window", create_dialog)
         self.assertIn("audio_description.create.quit_requested_menu", create_dialog)
-        self.assertIn("audio_description.create.closed_after_cancel", create_dialog)
+        helper_start = AUDIO.index("fn execute_audio_description_job")
+        helper_end = AUDIO.index("pub fn open_create_dialog", helper_start)
+        helper = AUDIO[helper_start:helper_end]
+        self.assertIn("audio_description.create.closed_after_cancel", helper)
+        self.assertIn('if error == "cancelled"', helper)
         self.assertRegex(
             create_dialog,
-            r'(?s)if e\s*==\s*"cancelled".*d\.end_modal\(ID_AUDIO_DESCRIPTION_CLOSE\)',
+            r'(?s)execute_audio_description_job\(.*d\.end_modal\(ID_AUDIO_DESCRIPTION_CLOSE\)',
         )
         self.assertIn("parent.close(false)", create_dialog)
 
     def test_success_ok_opens_generated_audio_and_keeps_create_dialog_open(self):
-        start = AUDIO.index("pub fn open_create_dialog")
-        end = AUDIO.index("fn format_mmss", start)
-        create_dialog = AUDIO[start:end]
-        success_start = create_dialog.index("Ok(out)")
-        success_end = create_dialog.index("Err(e)", success_start)
-        success = create_dialog[success_start:success_end]
+        start = AUDIO.index("fn execute_audio_description_job")
+        end = AUDIO.index("pub fn open_create_dialog", start)
+        helper = AUDIO[start:end]
+        success_start = helper.index("Ok(out)")
+        success_end = helper.index("Err(error) =>", success_start)
+        success = helper[success_start:success_end]
         self.assertLess(success.index("show_completion"), success.index("open_local_media_with_mpv"))
         self.assertIn("audio_description.create.open_output_completed", success)
-        self.assertNotIn("d.end_modal", success)
+        self.assertNotIn("end_modal", success)
 
     def test_project_export_uses_event_loop_and_closes_modal_layers(self):
         progress_start = AUDIO.index("fn run_project_export_with_progress")

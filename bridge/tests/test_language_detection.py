@@ -44,6 +44,15 @@ class LanguageDetectorTests(unittest.TestCase):
         self.assertEqual(result.language, "en")
         opener.assert_called_once()
 
+    def test_macos_ssl_context_prefers_certifi_ca_bundle(self):
+        fake_certifi = mock.Mock()
+        fake_certifi.where.return_value = "/tmp/cacert.pem"
+        with mock.patch.object(language_detector, "certifi", fake_certifi), mock.patch.object(
+            language_detector.ssl, "create_default_context", return_value=object()
+        ) as create_context:
+            language_detector._trusted_ssl_context()
+        create_context.assert_called_once_with(cafile="/tmp/cacert.pem")
+
     def test_locale_variants_match(self):
         self.assertTrue(language_detector.languages_match("pt-BR", "pt"))
         self.assertTrue(language_detector.languages_match("zh-CN", "zh-TW"))

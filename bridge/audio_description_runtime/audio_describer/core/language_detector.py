@@ -8,9 +8,15 @@ generation must still succeed when this unofficial endpoint is unavailable.
 
 import json
 import re
+import ssl
 from dataclasses import dataclass
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
+
+try:
+    import certifi
+except ImportError:  # pragma: no cover - fallback for unusual developer envs
+    certifi = None
 
 
 _GOOGLE_TRANSLATE_URL = "https://translate.googleapis.com/translate_a/single"
@@ -48,6 +54,16 @@ def _confidence_from_response(payload):
     return None
 
 
+def _trusted_ssl_context():
+    """Build an HTTPS context that also works inside the macOS PyInstaller app."""
+    if certifi is not None:
+        try:
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            pass
+    return ssl.create_default_context()
+
+
 def detect_language(text, target_language="en", timeout=10, opener=urlopen):
     """Detect *text* through Google Translate, or return ``None`` if unsure.
 
@@ -74,7 +90,13 @@ def detect_language(text, target_language="en", timeout=10, opener=urlopen):
         f"{_GOOGLE_TRANSLATE_URL}?{query}",
         headers={"User-Agent": "Mozilla/5.0"},
     )
-    with opener(request, timeout=timeout) as response:
+    if opener is urlopen:
+        response_ctx = opener(request, timeout=timeout, context=_trusted_ssl_context())
+    else:
+        # Keep dependency injection simple for tests and embedders that provide
+        # an urllib-compatible opener without a ``context`` keyword.
+        response_ctx = opener(request, timeout=timeout)
+    with response_ctx as response:
         payload = json.loads(response.read().decode("utf-8"))
 
     language = normalize_language_code(payload.get("src"))

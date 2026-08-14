@@ -40,6 +40,7 @@ fi
 "$PYTHON_BIN" -m pip install --only-binary=cryptography \
   "google-genai==${GOOGLE_GENAI_VERSION}" \
   "google-api-core==${GOOGLE_API_CORE_VERSION}" \
+  "certifi>=2024.8.30" \
   "cryptography==${CRYPTOGRAPHY_VERSION}" \
   "onnxruntime==${ONNXRUNTIME_VERSION}" \
   "${NUMPY_SPEC}" \

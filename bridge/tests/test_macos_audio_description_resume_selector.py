@@ -13,7 +13,10 @@ class MacAudioDescriptionResumeSelectorTests(unittest.TestCase):
     def test_continue_uses_project_selector_instead_of_direct_file_dialog(self):
         audio = AUDIO.read_text(encoding="utf-8")
         self.assertIn("fn discover_resume_candidates()", audio)
-        self.assertIn("fn choose_resume_checkpoint(parent: &Dialog)", audio)
+        self.assertIn("fn choose_resume_checkpoint(", audio)
+        self.assertIn("Option<AudioDescriptionResumeSelection>", audio)
+        self.assertIn('tr("audio_description.resume.model")', audio)
+        self.assertIn("model_choice.set_accessibility_label", audio)
         self.assertIn('tr("audio_description.resume.choose_label")', audio)
         self.assertIn("Choice::builder(&panel)", audio)
 
@@ -37,7 +40,7 @@ class MacAudioDescriptionResumeSelectorTests(unittest.TestCase):
         self.assertIn("audio_description_recent_project_folders", audio)
         self.assertIn("truncate(MAX_RECENT_PROJECT_FOLDERS)", audio)
         self.assertIn("remember_audio_description_project_folder", audio)
-        self.assertIn("remember_audio_description_project_folder(&mut settings, &path);", audio)
+        self.assertIn("remember_audio_description_project_folder(&mut settings, &selection.checkpoint_path);", audio)
         self.assertIn("remember_audio_description_project_folder(&mut st, &job.output_path);", audio)
 
     def test_empty_selector_disables_continue_and_focuses_browse(self):
@@ -55,6 +58,27 @@ class MacAudioDescriptionResumeSelectorTests(unittest.TestCase):
         resume = audio[start:end]
         self.assertIn("resume_selector_cancelled_closing_creation_window", resume)
         self.assertIn("d_resume.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);", resume)
+
+
+    def test_single_continue_starts_resume_job_directly(self):
+        audio = AUDIO.read_text(encoding="utf-8")
+        start = audio.index("continue_interrupted.on_click")
+        end = audio.index("d.set_escape_id", start)
+        resume = audio[start:end]
+        self.assertIn("job_from_checkpoint(", resume)
+        self.assertIn("selection.gemini_model.clone()", resume)
+        self.assertIn("execute_audio_description_job(", resume)
+        self.assertNotIn("set_resume_ui", resume)
+        self.assertNotIn("model.set_focus()", resume)
+
+    def test_browse_keeps_selector_open_for_model_choice(self):
+        audio = AUDIO.read_text(encoding="utf-8")
+        start = audio.index("browse_button.on_click", audio.index("fn choose_resume_checkpoint"))
+        end = audio.index("let selector_cancel", start)
+        browse = audio[start:end]
+        self.assertIn("choice.set_selection(index as u32);", browse)
+        self.assertIn("ensure_resume_model_choice", browse)
+        self.assertNotIn("end_modal(ID_OK)", browse)
 
     def test_resume_selector_labels_are_localized_in_all_macos_locales(self):
         locales = ["it", "en", "fr", "es", "pt", "cs", "pl"]
