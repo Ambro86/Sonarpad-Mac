@@ -51,7 +51,17 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
-          brew update
+          for attempt in 1 2 3; do
+            if brew update; then
+              break
+            fi
+            if [ "${attempt}" -eq 3 ]; then
+              echo "brew update failed after 3 attempts" >&2
+              exit 1
+            fi
+            echo "brew update failed (attempt ${attempt}/3); retrying in 15 seconds..." >&2
+            sleep 15
+          done
           brew install cmake ninja nasm
           cmake --version
           ninja --version
