@@ -430,6 +430,27 @@ struct Settings {
     audio_description_recent_project_folders: Vec<String>,
 }
 
+#[derive(Clone)]
+struct AudioDescriptionLaunchContext {
+    main_parent: Frame,
+    settings: Arc<Mutex<Settings>>,
+    rt: Arc<Runtime>,
+    voices_data: Arc<Mutex<Vec<edge_tts::VoiceInfo>>>,
+}
+
+impl AudioDescriptionLaunchContext {
+    fn open_with_input(&self, dialog_parent: &dyn WxWidget, input_path: PathBuf) {
+        audio_description::open_create_dialog_with_input(
+            dialog_parent,
+            &self.main_parent,
+            &self.settings,
+            &self.rt,
+            &self.voices_data,
+            input_path,
+        );
+    }
+}
+
 impl Settings {
     fn load() -> Self {
         if let Some(data) = read_app_storage_text("settings.json")
@@ -18644,6 +18665,7 @@ fn open_youtube_results_dialog(
     settings: &Arc<Mutex<Settings>>,
     results: Vec<YoutubeSearchResult>,
     search_context: Option<YoutubeSearchContext>,
+    audio_context: &AudioDescriptionLaunchContext,
 ) {
     let ui = current_ui_strings();
     if results.is_empty() {
@@ -18769,12 +18791,16 @@ fn open_youtube_results_dialog(
     root.add_sizer(&options, 0, SizerFlag::Expand, 0);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let save_button = Button::builder(&panel).with_label(&ui.youtube_save).build();
+    let create_audio_description_button = Button::builder(&panel)
+        .with_label(&audio_description::menu_label())
+        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
     buttons.add_spacer(1);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&create_audio_description_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -18787,27 +18813,39 @@ fn open_youtube_results_dialog(
                 .iter()
                 .any(|favorite| favorite.url == result.url)
     }));
+    create_audio_description_button.show(
+        results.first().is_some_and(|result| !result.is_collection),
+    );
     panel.layout();
     dialog.layout();
     let youtube_pending_result =
         Arc::new(Mutex::new(None::<Result<YoutubeResultsPayload, String>>));
     let youtube_pending_playback = Arc::new(Mutex::new(None::<Result<(), String>>));
     let youtube_pending_save = Arc::new(Mutex::new(None::<Result<PathBuf, String>>));
+    let youtube_pending_audio_description =
+        Arc::new(Mutex::new(None::<Result<PathBuf, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_open_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_save_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
+    let youtube_audio_description_progress =
+        Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_more_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
     let youtube_result_timer_tick = Rc::clone(&youtube_result_timer);
     let youtube_pending_result_timer = Arc::clone(&youtube_pending_result);
     let youtube_pending_playback_timer = Arc::clone(&youtube_pending_playback);
     let youtube_pending_save_timer = Arc::clone(&youtube_pending_save);
+    let youtube_pending_audio_description_timer =
+        Arc::clone(&youtube_pending_audio_description);
     let youtube_busy_timer = Arc::clone(&youtube_busy);
     let settings_timer = Arc::clone(settings);
+    let audio_context_timer = audio_context.clone();
     let choice_open_focus_timer = choice;
     let choice_save_focus_timer = choice;
     let youtube_open_progress_timer = Rc::clone(&youtube_open_progress);
     let youtube_save_progress_timer = Rc::clone(&youtube_save_progress);
+    let youtube_audio_description_progress_timer =
+        Rc::clone(&youtube_audio_description_progress);
     let youtube_more_progress_timer = Rc::clone(&youtube_more_progress);
     let dialog_timer = dialog;
     youtube_result_timer_tick.on_tick(move |_| {
@@ -18822,7 +18860,13 @@ fn open_youtube_results_dialog(
             youtube_busy_timer.store(false, Ordering::SeqCst);
             match result {
                 Ok((entries, context)) => {
-                    open_youtube_results_dialog(&dialog_timer, &settings_timer, entries, context)
+                    open_youtube_results_dialog(
+                        &dialog_timer,
+                        &settings_timer,
+                        entries,
+                        context,
+                        &audio_context_timer,
+                    )
                 }
                 Err(err) => {
                     show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
@@ -18854,6 +18898,32 @@ fn open_youtube_results_dialog(
                 ),
                 Err(err) => {
                     show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
+                }
+            }
+            choice_save_focus_timer.set_focus();
+        }
+        let audio_description_result = youtube_pending_audio_description_timer
+            .lock()
+            .unwrap()
+            .take();
+        if let Some(audio_description_result) = audio_description_result {
+            if let Some(progress_dialog) =
+                youtube_audio_description_progress_timer.borrow_mut().take()
+            {
+                progress_dialog.destroy();
+            }
+            youtube_busy_timer.store(false, Ordering::SeqCst);
+            match audio_description_result {
+                Ok(path) => {
+                    show_message_subdialog(
+                        &dialog_timer,
+                        &current_ui_strings().youtube_title,
+                        &youtube_save_completed_message(&path),
+                    );
+                    audio_context_timer.open_with_input(&dialog_timer, path);
+                }
+                Err(err) => {
+                    show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err);
                 }
             }
             choice_save_focus_timer.set_focus();
@@ -18959,6 +19029,7 @@ fn open_youtube_results_dialog(
     let panel_favorite_visibility = panel;
     let dialog_favorite_visibility = dialog;
     let favorite_button_visibility = favorite_button;
+    let create_audio_description_button_visibility = create_audio_description_button;
     choice.on_selection_changed(move |_| {
         let visible = choice_favorite_visibility
             .get_selection()
@@ -18971,6 +19042,11 @@ fn open_youtube_results_dialog(
                         .any(|favorite| favorite.url == result.url)
             });
         favorite_button_visibility.show(visible);
+        let audio_description_visible = choice_favorite_visibility
+            .get_selection()
+            .and_then(|selection| results_favorite_visibility.get(selection as usize))
+            .is_some_and(|result| !result.is_collection);
+        create_audio_description_button_visibility.show(audio_description_visible);
         panel_favorite_visibility.layout();
         dialog_favorite_visibility.layout();
     });
@@ -19066,6 +19142,65 @@ fn open_youtube_results_dialog(
             youtube_busy_save.store(false, Ordering::SeqCst);
         }
     });
+    let choice_audio_description = choice;
+    let results_audio_description = Rc::clone(&results);
+    let quality_choice_audio_description = quality_choice;
+    let dialog_audio_description = dialog;
+    let youtube_pending_audio_description_click =
+        Arc::clone(&youtube_pending_audio_description);
+    let youtube_busy_audio_description = Arc::clone(&youtube_busy);
+    let youtube_audio_description_progress_click =
+        Rc::clone(&youtube_audio_description_progress);
+    create_audio_description_button.on_click(move |_| {
+        if let Some(sel) = choice_audio_description.get_selection()
+            && let Some(result) = results_audio_description.get(sel as usize)
+            && !result.is_collection
+        {
+            if youtube_busy_audio_description.swap(true, Ordering::SeqCst) {
+                return;
+            }
+            let quality = if quality_choice_audio_description
+                .get_selection()
+                .unwrap_or(0)
+                == 0
+            {
+                "best"
+            } else {
+                "standard"
+            };
+            let output_path =
+                match prompt_youtube_save_path(&dialog_audio_description, &result.title, "mp4") {
+                    Ok(Some(path)) => path,
+                    Ok(None) => {
+                        youtube_busy_audio_description.store(false, Ordering::SeqCst);
+                        return;
+                    }
+                    Err(err) => {
+                        youtube_busy_audio_description.store(false, Ordering::SeqCst);
+                        show_message_subdialog(
+                            &dialog_audio_description,
+                            &current_ui_strings().youtube_title,
+                            &err,
+                        );
+                        return;
+                    }
+                };
+            let url = result.url.clone();
+            let quality = quality.to_string();
+            let pending = Arc::clone(&youtube_pending_audio_description_click);
+            if youtube_audio_description_progress_click.borrow().is_none() {
+                *youtube_audio_description_progress_click.borrow_mut() =
+                    Some(open_youtube_save_progress_dialog(&dialog_audio_description));
+            }
+            std::thread::spawn(move || {
+                let result = save_youtube_to_path(&url, "mp4", &quality, output_path);
+                *pending.lock().unwrap() = Some(result);
+            });
+        } else {
+            youtube_busy_audio_description.store(false, Ordering::SeqCst);
+        }
+    });
+
     let choice_favorite = choice;
     let results_favorite = Rc::clone(&results);
     let settings_favorite = Arc::clone(settings);
@@ -19143,11 +19278,22 @@ fn open_youtube_results_dialog(
     let youtube_result_timer_destroy = Rc::clone(&youtube_result_timer);
     let youtube_more_progress_destroy = Rc::clone(&youtube_more_progress);
     let youtube_open_progress_destroy = Rc::clone(&youtube_open_progress);
+    let youtube_save_progress_destroy = Rc::clone(&youtube_save_progress);
+    let youtube_audio_description_progress_destroy =
+        Rc::clone(&youtube_audio_description_progress);
     dialog.on_destroy(move |event| {
         if let Some(progress_dialog) = youtube_more_progress_destroy.borrow_mut().take() {
             progress_dialog.destroy();
         }
         if let Some(progress_dialog) = youtube_open_progress_destroy.borrow_mut().take() {
+            progress_dialog.destroy();
+        }
+        if let Some(progress_dialog) = youtube_save_progress_destroy.borrow_mut().take() {
+            progress_dialog.destroy();
+        }
+        if let Some(progress_dialog) =
+            youtube_audio_description_progress_destroy.borrow_mut().take()
+        {
             progress_dialog.destroy();
         }
         youtube_result_timer_destroy.stop();
@@ -19159,11 +19305,19 @@ fn open_youtube_results_dialog(
     dialog.destroy();
 }
 
-fn open_youtube_dialog(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
-    open_youtube_dialog_ready(parent, settings);
+fn open_youtube_dialog(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
+    open_youtube_dialog_ready(parent, settings, audio_context);
 }
 
-fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
+fn open_youtube_dialog_ready(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, &ui.youtube_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -19246,6 +19400,7 @@ fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     let youtube_busy_timer = Arc::clone(&youtube_busy);
     let youtube_search_progress_timer = Rc::clone(&youtube_search_progress);
     let settings_timer = Arc::clone(settings);
+    let audio_context_timer = audio_context.clone();
     let dialog_timer = dialog;
     youtube_result_timer_tick.on_tick(move |_| {
         let result = youtube_pending_result_timer.lock().unwrap().take();
@@ -19256,7 +19411,13 @@ fn open_youtube_dialog_ready(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
             youtube_busy_timer.store(false, Ordering::SeqCst);
             match result {
                 Ok((results, context)) => {
-                    open_youtube_results_dialog(&dialog_timer, &settings_timer, results, context)
+                    open_youtube_results_dialog(
+                        &dialog_timer,
+                        &settings_timer,
+                        results,
+                        context,
+                        &audio_context_timer,
+                    )
                 }
                 Err(err) => {
                     show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
@@ -21889,25 +22050,37 @@ fn la7_play_code_available(parent: &Frame) -> bool {
     false
 }
 
-fn open_la7_play_browser_dialog(parent: &Frame) {
+fn open_la7_play_browser_dialog(
+    parent: &Frame,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
     if !la7_play_code_available(parent) {
         return;
     }
-    open_la7_play_page_dialog(parent, la7_play::root_page());
+    open_la7_play_page_dialog(parent, la7_play::root_page(), audio_context);
 }
 
-fn open_la7_play_page_dialog(parent: &Frame, page: la7_play::BrowsePage) {
-    open_la7_play_page_dialog_inner(parent, &page.title, page.items);
+fn open_la7_play_page_dialog(
+    parent: &Frame,
+    page: la7_play::BrowsePage,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
+    open_la7_play_page_dialog_inner(parent, &page.title, page.items, audio_context);
 }
 
-fn open_la7_play_page_subdialog(parent: &Dialog, page: la7_play::BrowsePage) {
-    open_la7_play_page_subdialog_inner(parent, &page.title, page.items);
+fn open_la7_play_page_subdialog(
+    parent: &Dialog,
+    page: la7_play::BrowsePage,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
+    open_la7_play_page_subdialog_inner(parent, &page.title, page.items, audio_context);
 }
 
 fn open_la7_play_page_dialog_inner(
     parent: &Frame,
     title: &str,
     items: Vec<la7_play::BrowseItem>,
+    audio_context: &AudioDescriptionLaunchContext,
 ) {
     let ui = current_ui_strings();
     if items.is_empty() {
@@ -21918,13 +22091,14 @@ fn open_la7_play_page_dialog_inner(
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 240)
         .build();
-    open_la7_play_items_modal(&dialog, items);
+    open_la7_play_items_modal(&dialog, items, audio_context);
 }
 
 fn open_la7_play_page_subdialog_inner(
     parent: &Dialog,
     title: &str,
     items: Vec<la7_play::BrowseItem>,
+    audio_context: &AudioDescriptionLaunchContext,
 ) {
     let ui = current_ui_strings();
     if items.is_empty() {
@@ -21935,10 +22109,14 @@ fn open_la7_play_page_subdialog_inner(
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 240)
         .build();
-    open_la7_play_items_modal(&dialog, items);
+    open_la7_play_items_modal(&dialog, items, audio_context);
 }
 
-fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) {
+fn open_la7_play_items_modal(
+    dialog: &Dialog,
+    items: Vec<la7_play::BrowseItem>,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
     let ui = current_ui_strings();
     let panel = Panel::builder(dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -21969,6 +22147,9 @@ fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) 
     let save_button = Button::builder(&panel)
         .with_label(&ui.rai_save_content)
         .build();
+    let create_audio_description_button = Button::builder(&panel)
+        .with_label(&audio_description::menu_label())
+        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
@@ -21976,6 +22157,7 @@ fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) 
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&create_audio_description_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -21987,18 +22169,29 @@ fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) 
             .get(sel as usize)
             .is_some_and(|item| item.kind == la7_play::ItemKind::Media);
         update_choice_button_visibility(dialog, &panel, &save_button, visible);
+        update_choice_button_visibility(
+            dialog,
+            &panel,
+            &create_audio_description_button,
+            visible,
+        );
     }
 
     let choice_open = choice;
     let items_open = Rc::clone(&items_rc);
     let parent_open = *dialog;
+    let audio_context_open = audio_context.clone();
     open_button.on_click(move |_| {
         if let Some(sel) = choice_open.get_selection()
             && let Some(item) = items_open.get(sel as usize)
         {
             match item.kind {
                 la7_play::ItemKind::Page => match la7_play::load_page(&item.target) {
-                    Ok(page) => open_la7_play_page_subdialog(&parent_open, page),
+                    Ok(page) => open_la7_play_page_subdialog(
+                        &parent_open,
+                        page,
+                        &audio_context_open,
+                    ),
                     Err(err) => show_message_subdialog(
                         &parent_open,
                         la7_play::menu_label(),
@@ -22042,10 +22235,47 @@ fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) 
         }
     });
 
+    let choice_audio_description = choice;
+    let items_audio_description = Rc::clone(&items_rc);
+    let parent_audio_description = *dialog;
+    let audio_context_create = audio_context.clone();
+    create_audio_description_button.on_click(move |_| {
+        if let Some(sel) = choice_audio_description.get_selection()
+            && let Some(item) = items_audio_description.get(sel as usize)
+            && item.kind == la7_play::ItemKind::Media
+        {
+            match la7_play::resolve_vod(&item.target).and_then(|url| {
+                save_la7_video_for_audio_description(
+                    &parent_audio_description,
+                    &url,
+                    &item.title,
+                )
+            }) {
+                Ok(Some(path)) => {
+                    show_message_subdialog(
+                        &parent_audio_description,
+                        la7_play::menu_label(),
+                        &current_ui_strings().rai_save_completed,
+                    );
+                    audio_context_create.open_with_input(&parent_audio_description, path);
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    show_message_subdialog(
+                        &parent_audio_description,
+                        la7_play::menu_label(),
+                        &err,
+                    );
+                }
+            }
+        }
+    });
+
     let choice_visibility = choice;
     let dialog_visibility = *dialog;
     let panel_visibility = panel;
     let save_button_visibility = save_button;
+    let create_audio_description_button_visibility = create_audio_description_button;
     let items_visibility = Rc::clone(&items_rc);
     choice.on_selection_changed(move |_| {
         let visible = choice_visibility
@@ -22058,14 +22288,25 @@ fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) 
             &save_button_visibility,
             visible,
         );
+        update_choice_button_visibility(
+            &dialog_visibility,
+            &panel_visibility,
+            &create_audio_description_button_visibility,
+            visible,
+        );
     });
 
     let parent_search = *dialog;
+    let audio_context_search = audio_context.clone();
     let search_ctrl_button = search_ctrl;
     let perform_search = Rc::new(move || {
         let query = search_ctrl_button.get_value().trim().to_string();
         match la7_play::search(&query) {
-            Ok(page) => open_la7_play_page_subdialog(&parent_search, page),
+            Ok(page) => open_la7_play_page_subdialog(
+                &parent_search,
+                page,
+                &audio_context_search,
+            ),
             Err(err) => show_message_subdialog(&parent_search, la7_play::menu_label(), &err),
         }
     });
@@ -22078,6 +22319,54 @@ fn open_la7_play_items_modal(dialog: &Dialog, items: Vec<la7_play::BrowseItem>) 
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
     dialog.destroy();
+}
+
+fn save_video_path_for_audio_description(
+    parent: &Dialog,
+    suggested_name: &str,
+) -> Result<Option<PathBuf>, String> {
+    let ui = current_ui_strings();
+    let default_file = format!("{}.mp4", sanitize_filename(suggested_name));
+    let dialog = FileDialog::builder(parent)
+        .with_message(&ui.rai_save_content)
+        .with_default_file(&default_file)
+        .with_wildcard("File MP4 (*.mp4)|*.mp4|Tutti|*.*")
+        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+        .build();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+    if dialog_result != ID_OK {
+        return Ok(None);
+    }
+    dialog
+        .get_path()
+        .map(PathBuf::from)
+        .map(Some)
+        .ok_or_else(|| ui.save_folder_not_selected.clone())
+}
+
+fn save_la7_video_for_audio_description(
+    parent: &Dialog,
+    url: &str,
+    suggested_name: &str,
+) -> Result<Option<PathBuf>, String> {
+    let Some(path) = save_video_path_for_audio_description(parent, suggested_name)? else {
+        return Ok(None);
+    };
+    append_podcast_log(&format!(
+        "la7.audio_description.download_begin url={} output={}",
+        url,
+        path.display()
+    ));
+    run_ffmpeg_save(parent, &["-y", "-i", url, "-c", "copy"], &path)?;
+    append_podcast_log(&format!(
+        "la7.audio_description.download_complete output={}",
+        path.display()
+    ));
+    Ok(Some(path))
 }
 
 fn open_la7_live_with_mpv(target: &str) -> Result<(), String> {
@@ -22243,13 +22532,17 @@ fn open_raiplay_search_dialog(parent: &Frame) -> Option<String> {
     result
 }
 
-fn open_raiplay_browser_dialog(parent: &Frame, search_query: Option<String>) {
+fn open_raiplay_browser_dialog(
+    parent: &Frame,
+    search_query: Option<String>,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
     let page = match search_query {
         Some(query) => raiplay::search(&query),
         None => raiplay::load_root_page(),
     };
     match page {
-        Ok(page) => open_raiplay_page_dialog(parent, page),
+        Ok(page) => open_raiplay_page_dialog(parent, page, audio_context),
         Err(err) => {
             if !handle_rai_missing_code(parent, &err) {
                 show_message_dialog(
@@ -22262,14 +22555,27 @@ fn open_raiplay_browser_dialog(parent: &Frame, search_query: Option<String>) {
     }
 }
 
-fn open_raiplay_page_dialog(parent: &Frame, page: raiplay::BrowsePage) {
-    open_raiplay_page_dialog_inner(parent, &page.title, page.items);
+fn open_raiplay_page_dialog(
+    parent: &Frame,
+    page: raiplay::BrowsePage,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
+    open_raiplay_page_dialog_inner(parent, &page.title, page.items, audio_context);
 }
-fn open_raiplay_page_subdialog(parent: &Dialog, page: raiplay::BrowsePage) {
-    open_raiplay_page_subdialog_inner(parent, &page.title, page.items);
+fn open_raiplay_page_subdialog(
+    parent: &Dialog,
+    page: raiplay::BrowsePage,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
+    open_raiplay_page_subdialog_inner(parent, &page.title, page.items, audio_context);
 }
 
-fn open_raiplay_page_dialog_inner(parent: &Frame, title: &str, items: Vec<raiplay::BrowseItem>) {
+fn open_raiplay_page_dialog_inner(
+    parent: &Frame,
+    title: &str,
+    items: Vec<raiplay::BrowseItem>,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
     let ui = current_ui_strings();
     if items.is_empty() {
         show_message_dialog(parent, title, &ui.rai_no_items);
@@ -22279,12 +22585,13 @@ fn open_raiplay_page_dialog_inner(parent: &Frame, title: &str, items: Vec<raipla
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 240)
         .build();
-    open_raiplay_items_modal(&dialog, items);
+    open_raiplay_items_modal(&dialog, items, audio_context);
 }
 fn open_raiplay_page_subdialog_inner(
     parent: &Dialog,
     title: &str,
     items: Vec<raiplay::BrowseItem>,
+    audio_context: &AudioDescriptionLaunchContext,
 ) {
     let ui = current_ui_strings();
     if items.is_empty() {
@@ -22295,10 +22602,14 @@ fn open_raiplay_page_subdialog_inner(
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 240)
         .build();
-    open_raiplay_items_modal(&dialog, items);
+    open_raiplay_items_modal(&dialog, items, audio_context);
 }
 
-fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
+fn open_raiplay_items_modal(
+    dialog: &Dialog,
+    items: Vec<raiplay::BrowseItem>,
+    audio_context: &AudioDescriptionLaunchContext,
+) {
     let ui = current_ui_strings();
     let panel = Panel::builder(dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -22332,6 +22643,9 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
     let save_button = Button::builder(&panel)
         .with_label(&ui.rai_save_content)
         .build();
+    let create_audio_description_button = Button::builder(&panel)
+        .with_label(&audio_description::menu_label())
+        .build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
@@ -22339,6 +22653,7 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&create_audio_description_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -22349,10 +22664,17 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
             .get(sel as usize)
             .is_some_and(|item| item.media_url.is_some());
         update_choice_button_visibility(dialog, &panel, &save_button, visible);
+        update_choice_button_visibility(
+            dialog,
+            &panel,
+            &create_audio_description_button,
+            visible,
+        );
     }
     let choice_open = choice;
     let items_open = Rc::clone(&items_rc);
     let parent_open = *dialog;
+    let audio_context_open = audio_context.clone();
     open_button.on_click(move |_| {
         if let Some(sel) = choice_open.get_selection()
             && let Some(item) = items_open.get(sel as usize)
@@ -22361,7 +22683,11 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
                 raiplay::BrowseItemKind::Page => {
                     if let Some(path) = &item.path_id {
                         match raiplay::load_page(path) {
-                            Ok(page) => open_raiplay_page_subdialog(&parent_open, page),
+                            Ok(page) => open_raiplay_page_subdialog(
+                                &parent_open,
+                                page,
+                                &audio_context_open,
+                            ),
                             Err(err) => show_message_subdialog(
                                 &parent_open,
                                 &current_ui_strings().raiplay_label,
@@ -22407,10 +22733,47 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
             }
         }
     });
+    let choice_audio_description = choice;
+    let items_audio_description = Rc::clone(&items_rc);
+    let parent_audio_description = *dialog;
+    let audio_context_create = audio_context.clone();
+    create_audio_description_button.on_click(move |_| {
+        if let Some(sel) = choice_audio_description.get_selection()
+            && let Some(item) = items_audio_description.get(sel as usize)
+            && let Some(url) = &item.media_url
+        {
+            match raiplay::resolve_playback_target(url).and_then(|target| {
+                save_raiplay_video_for_audio_description(
+                    &parent_audio_description,
+                    &target,
+                    &item.title,
+                )
+            }) {
+                Ok(Some(path)) => {
+                    show_message_subdialog(
+                        &parent_audio_description,
+                        &current_ui_strings().raiplay_label,
+                        &current_ui_strings().rai_save_completed,
+                    );
+                    audio_context_create.open_with_input(&parent_audio_description, path);
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    show_message_subdialog(
+                        &parent_audio_description,
+                        &current_ui_strings().raiplay_label,
+                        &err,
+                    );
+                }
+            }
+        }
+    });
+
     let choice_visibility = choice;
     let dialog_visibility = *dialog;
     let panel_visibility = panel;
     let save_button_visibility = save_button;
+    let create_audio_description_button_visibility = create_audio_description_button;
     let items_visibility = Rc::clone(&items_rc);
     choice.on_selection_changed(move |_| {
         let visible = choice_visibility
@@ -22423,13 +22786,24 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
             &save_button_visibility,
             visible,
         );
+        update_choice_button_visibility(
+            &dialog_visibility,
+            &panel_visibility,
+            &create_audio_description_button_visibility,
+            visible,
+        );
     });
     let parent_search = *dialog;
+    let audio_context_search = audio_context.clone();
     let search_ctrl_button = search_ctrl;
     let perform_search = Rc::new(move || {
         let query = search_ctrl_button.get_value().trim().to_string();
         match raiplay::search(&query) {
-            Ok(page) => open_raiplay_page_subdialog(&parent_search, page),
+            Ok(page) => open_raiplay_page_subdialog(
+                &parent_search,
+                page,
+                &audio_context_search,
+            ),
             Err(err) => {
                 show_message_subdialog(&parent_search, &current_ui_strings().raiplay_label, &err)
             }
@@ -22443,6 +22817,31 @@ fn open_raiplay_items_modal(dialog: &Dialog, items: Vec<raiplay::BrowseItem>) {
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
     dialog.destroy();
+}
+
+fn save_raiplay_video_for_audio_description(
+    parent: &Dialog,
+    target: &raiplay::PlaybackTarget,
+    suggested_name: &str,
+) -> Result<Option<PathBuf>, String> {
+    let Some(path) = save_video_path_for_audio_description(parent, suggested_name)? else {
+        return Ok(None);
+    };
+    append_podcast_log(&format!(
+        "raiplay.audio_description.download_begin url={} output={}",
+        target.media_url(),
+        path.display()
+    ));
+    run_ffmpeg_save(
+        parent,
+        &["-y", "-i", target.media_url(), "-c", "copy"],
+        &path,
+    )?;
+    append_podcast_log(&format!(
+        "raiplay.audio_description.download_complete output={}",
+        path.display()
+    ));
+    Ok(Some(path))
 }
 
 fn open_raiplaysound_browser_dialog(parent: &Frame) {
@@ -26298,7 +26697,13 @@ fn main() {
             } else if event.get_id() == ID_TOOLS_MEDIA_TRANSCRIPTION {
                 media_transcription::open_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_YOUTUBE {
-                open_youtube_dialog(&f_menu, &settings_menu);
+                let audio_context = AudioDescriptionLaunchContext {
+                    main_parent: f_menu,
+                    settings: Arc::clone(&settings_menu),
+                    rt: Arc::clone(&rt_audio_description_menu),
+                    voices_data: Arc::clone(&voices_audio_description_menu),
+                };
+                open_youtube_dialog(&f_menu, &settings_menu, &audio_context);
             } else if event.get_id() == ID_TOOLS_TRECCANI {
                 if Settings::load().ui_language == "it" {
                     open_treccani_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));
@@ -26320,12 +26725,30 @@ fn main() {
             } else if event.get_id() == ID_RAI_AUDIO_DESCRIPTIONS {
                 open_rai_audio_descriptions_dialog(&f_menu);
             } else if event.get_id() == ID_RAIPLAY_BROWSE {
-                open_raiplay_browser_dialog(&f_menu, None);
+                let audio_context = AudioDescriptionLaunchContext {
+                    main_parent: f_menu,
+                    settings: Arc::clone(&settings_menu),
+                    rt: Arc::clone(&rt_audio_description_menu),
+                    voices_data: Arc::clone(&voices_audio_description_menu),
+                };
+                open_raiplay_browser_dialog(&f_menu, None, &audio_context);
             } else if event.get_id() == ID_LA7_PLAY {
-                open_la7_play_browser_dialog(&f_menu);
+                let audio_context = AudioDescriptionLaunchContext {
+                    main_parent: f_menu,
+                    settings: Arc::clone(&settings_menu),
+                    rt: Arc::clone(&rt_audio_description_menu),
+                    voices_data: Arc::clone(&voices_audio_description_menu),
+                };
+                open_la7_play_browser_dialog(&f_menu, &audio_context);
             } else if event.get_id() == ID_RAIPLAY_SEARCH {
                 if let Some(query) = open_raiplay_search_dialog(&f_menu) {
-                    open_raiplay_browser_dialog(&f_menu, Some(query));
+                    let audio_context = AudioDescriptionLaunchContext {
+                        main_parent: f_menu,
+                        settings: Arc::clone(&settings_menu),
+                        rt: Arc::clone(&rt_audio_description_menu),
+                        voices_data: Arc::clone(&voices_audio_description_menu),
+                    };
+                    open_raiplay_browser_dialog(&f_menu, Some(query), &audio_context);
                 }
             } else if event.get_id() == ID_RAIPLAY_SOUND {
                 open_raiplaysound_browser_dialog(&f_menu);

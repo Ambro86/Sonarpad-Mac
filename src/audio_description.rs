@@ -3034,8 +3034,37 @@ pub fn open_create_dialog(
     rt: &Arc<Runtime>,
     voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
 ) {
+    open_create_dialog_impl(parent, parent, settings, rt, voices_data, None);
+}
+
+pub fn open_create_dialog_with_input(
+    dialog_parent: &dyn WxWidget,
+    main_parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    rt: &Arc<Runtime>,
+    voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
+    input_path: PathBuf,
+) {
+    open_create_dialog_impl(
+        dialog_parent,
+        main_parent,
+        settings,
+        rt,
+        voices_data,
+        Some(input_path),
+    );
+}
+
+fn open_create_dialog_impl(
+    dialog_parent: &dyn WxWidget,
+    main_parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    rt: &Arc<Runtime>,
+    voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
+    initial_input: Option<PathBuf>,
+) {
     let saved = settings.lock().unwrap().clone();
-    let d = Dialog::builder(parent, &tr("audio_description.title"))
+    let d = Dialog::builder(dialog_parent, &tr("audio_description.title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 680)
         .build();
@@ -3331,6 +3360,30 @@ pub fn open_create_dialog(
     root.add_sizer(&actions, 0, SizerFlag::Expand, 0);
     p.set_sizer(root, true);
 
+    if let Some(path) = initial_input.as_ref() {
+        input.set_value(&path.to_string_lossy());
+        if catalog_choice.get_selection().unwrap_or(0) == 0
+            && catalog_name.get_value().trim().is_empty()
+        {
+            let suggested = suggested_catalog_name(&path.to_string_lossy());
+            if !suggested.is_empty() {
+                catalog_name.set_value(&suggested);
+            }
+        }
+        let stem = path
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .unwrap_or("video");
+        let destination = default_output_dir()
+            .join(format!("{}_audiodescritto.mp3", sanitize_filename(stem)));
+        output.set_value(&destination.to_string_lossy());
+        append_podcast_log(&format!(
+            "audio_description.create.prefilled_input source={} output={}",
+            path.display(),
+            destination.display()
+        ));
+    }
+
     let d_input = d;
     input_btn.on_click(move |_| {
         if let Some(path) = choose_input(&d_input) {
@@ -3472,7 +3525,7 @@ pub fn open_create_dialog(
     });
     let settings_resume = settings.clone();
     let rt_resume = rt.clone();
-    let parent_resume = *parent;
+    let parent_resume = *main_parent;
     let fallback_resume_model = saved.audio_description_gemini_model.clone();
     let d_resume = d;
     continue_interrupted.on_click(move |_| {
@@ -3558,7 +3611,7 @@ pub fn open_create_dialog(
             event.skip(true);
         }
     });
-    let parent_run = *parent;
+    let parent_run = *main_parent;
     let settings_run = settings.clone();
     let rt_run = rt.clone();
     let saved_start = saved.clone();
@@ -3645,10 +3698,10 @@ pub fn open_create_dialog(
     d.destroy();
     if quit_requested.get() {
         append_podcast_log("audio_description.create.quit_forwarded_to_main");
-        parent.close(false);
+        main_parent.close(false);
     } else if open_project_requested.get() {
         append_podcast_log("audio_description.create.open_project_after_close");
-        open_project_editor(parent, rt, voices_data);
+        open_project_editor(main_parent, rt, voices_data);
     }
 }
 
