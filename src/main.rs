@@ -426,6 +426,8 @@ struct Settings {
     audio_description_character_catalog: String,
     #[serde(default = "default_audio_description_save_folder")]
     audio_description_save_folder: String,
+    #[serde(default)]
+    audio_description_recent_project_folders: Vec<String>,
 }
 
 impl Settings {
@@ -480,6 +482,7 @@ impl Settings {
             audio_description_keep_character_catalog: false,
             audio_description_character_catalog: String::new(),
             audio_description_save_folder: default_audio_description_save_folder(),
+            audio_description_recent_project_folders: Vec::new(),
         };
         normalize_settings_data(&mut settings);
         settings
@@ -8989,6 +8992,23 @@ fn normalize_settings_data(settings: &mut Settings) {
     if settings.audio_description_save_folder.is_empty() {
         settings.audio_description_save_folder = default_audio_description_save_folder();
     }
+    let mut normalized_audio_description_recent_project_folders = Vec::new();
+    for folder in settings.audio_description_recent_project_folders.clone() {
+        let folder = folder.trim().to_string();
+        if folder.is_empty()
+            || normalized_audio_description_recent_project_folders
+                .iter()
+                .any(|known: &String| known.eq_ignore_ascii_case(&folder))
+        {
+            continue;
+        }
+        normalized_audio_description_recent_project_folders.push(folder);
+        if normalized_audio_description_recent_project_folders.len() >= 8 {
+            break;
+        }
+    }
+    settings.audio_description_recent_project_folders =
+        normalized_audio_description_recent_project_folders;
     settings.media_seek_seconds = normalize_media_seek_seconds(settings.media_seek_seconds);
     settings.news_language = normalize_news_language(&settings.news_language);
     if settings.article_sources.is_empty() {

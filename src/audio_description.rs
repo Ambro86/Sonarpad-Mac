@@ -46,6 +46,9 @@ const ID_AUDIO_DESCRIPTION_START: i32 = 7100;
 const ID_AUDIO_DESCRIPTION_PROGRESS_CANCEL: i32 = 7101;
 const ID_AUDIO_DESCRIPTION_CLOSE: i32 = 7102;
 const ID_AUDIO_DESCRIPTION_PROJECT_CLOSE: i32 = 7103;
+const ID_AUDIO_DESCRIPTION_RESUME_BROWSE: i32 = 7104;
+const CHECKPOINT_SUFFIX: &str = ".sonarpad-ad.partial.json";
+const MAX_RECENT_PROJECT_FOLDERS: usize = 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Verbosity {
@@ -156,6 +159,13 @@ struct AudioDescriptionResumeSettings {
     gemini_model: String,
     completed_chunks: usize,
     total_chunks: usize,
+}
+
+#[derive(Clone, Debug)]
+struct AudioDescriptionResumeCandidate {
+    path: PathBuf,
+    label: String,
+    modified: SystemTime,
 }
 
 #[derive(Clone, Debug)]
@@ -2202,16 +2212,251 @@ fn choose_input(parent: &Dialog) -> Option<PathBuf> {
         None
     }
 }
-fn choose_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
+fn resume_candidate_project_name(path: &Path) -> String {
+    let filename = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let without_checkpoint = filename
+        .strip_suffix(CHECKPOINT_SUFFIX)
+        .unwrap_or(filename);
+    let without_audio_description = without_checkpoint
+        .strip_suffix("_audiodescritto")
+        .unwrap_or(without_checkpoint);
+    without_audio_description.replace('_', " ")
+}
+
+fn resume_candidate_label(path: &Path) -> Option<String> {
+    let resume = load_resume_settings(path).ok()?;
+    let name = resume_candidate_project_name(path);
+    let folder = path
+        .parent()
+        .and_then(Path::file_name)
+        .and_then(|value| value.to_str())
+        .unwrap_or_default();
+    let progress = format!("{}/{}", resume.completed_chunks, resume.total_chunks);
+    Some(if folder.is_empty() {
+        format!("{name} — {progress}")
+    } else {
+        format!("{name} — {progress} — {folder}")
+    })
+}
+
+fn is_resume_checkpoint_path(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .map(|name| name.to_ascii_lowercase().ends_with(CHECKPOINT_SUFFIX))
+            .unwrap_or(false)
+}
+
+fn remember_audio_description_project_folder(settings: &mut Settings, path: &Path) {
+    let Some(folder) = path.parent().filter(|folder| !folder.as_os_str().is_empty()) else {
+        return;
+    };
+    let folder = folder.to_string_lossy().trim().to_string();
+    if folder.is_empty() {
+        return;
+    }
+    settings
+        .audio_description_recent_project_folders
+        .retain(|known| !known.eq_ignore_ascii_case(&folder));
+    settings
+        .audio_description_recent_project_folders
+        .insert(0, folder);
+    settings
+        .audio_description_recent_project_folders
+        .truncate(MAX_RECENT_PROJECT_FOLDERS);
+}
+
+fn resume_candidate_directories() -> Vec<PathBuf> {
+    let settings = Settings::load();
+    let mut directories = Vec::new();
+    for folder in std::iter::once(settings.audio_description_save_folder)
+        .chain(settings.audio_description_recent_project_folders)
+    {
+        let folder = folder.trim();
+        if folder.is_empty() {
+            continue;
+        }
+        let path = PathBuf::from(folder);
+        let key = path.to_string_lossy();
+        if directories.iter().any(|known: &PathBuf| {
+            known.to_string_lossy().eq_ignore_ascii_case(&key)
+        }) {
+            continue;
+        }
+        directories.push(path);
+    }
+    directories
+}
+
+fn discover_resume_candidates() -> Vec<AudioDescriptionResumeCandidate> {
+    let mut candidates = Vec::new();
+    let mut seen = Vec::<String>::new();
+    for directory in resume_candidate_directories() {
+        let Ok(entries) = fs::read_dir(&directory) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !is_resume_checkpoint_path(&path) {
+                continue;
+            }
+            let key = path.to_string_lossy().to_string();
+            if seen.iter().any(|known| known.eq_ignore_ascii_case(&key)) {
+                continue;
+            }
+            let Some(label) = resume_candidate_label(&path) else {
+                append_podcast_log(&format!(
+                    "audio_description.resume_selector.invalid_checkpoint path={}",
+                    path.display()
+                ));
+                continue;
+            };
+            let modified = entry
+                .metadata()
+                .ok()
+                .and_then(|metadata| metadata.modified().ok())
+                .unwrap_or(UNIX_EPOCH);
+            seen.push(key);
+            candidates.push(AudioDescriptionResumeCandidate {
+                path,
+                label,
+                modified,
+            });
+        }
+    }
+    candidates.sort_by(|left, right| {
+        right
+            .modified
+            .cmp(&left.modified)
+            .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
+    });
+    candidates
+}
+
+fn browse_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
     let d = FileDialog::builder(parent)
         .with_message(&tr("audio_description.resume.open_title"))
         .with_wildcard(
-            "Checkpoint audiodescrizione|*.sonarpad-ad.partial.json|JSON|*.json|Tutti|*.*",
+            "Checkpoint audiodescrizione Sonarpad|*.sonarpad-ad.partial.json",
         )
         .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
         .build();
     if d.show_modal() == ID_OK {
         d.get_path().map(PathBuf::from)
+    } else {
+        None
+    }
+}
+
+fn choose_resume_checkpoint(parent: &Dialog) -> Option<PathBuf> {
+    let candidates = discover_resume_candidates();
+    let has_candidates = !candidates.is_empty();
+    let selector = Dialog::builder(parent, &tr("audio_description.resume.open_title"))
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(680, 240)
+        .build();
+    let panel = Panel::builder(&selector).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let hint = if has_candidates {
+        tr("audio_description.resume.choose_hint")
+    } else {
+        tr("audio_description.resume.none_found")
+    };
+    root.add(
+        &StaticText::builder(&panel).with_label(&hint).build(),
+        0,
+        SizerFlag::Expand | SizerFlag::All,
+        8,
+    );
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&tr("audio_description.resume.choose_label"))
+            .build(),
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        8,
+    );
+    let choice = Choice::builder(&panel).build();
+    choice.set_accessibility_label(&tr("audio_description.resume.choose_label"));
+    for candidate in &candidates {
+        choice.append(&candidate.label);
+    }
+    if has_candidates {
+        choice.set_selection(0);
+    }
+    choice.enable(has_candidates);
+    root.add(&choice, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let continue_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&tr("audio_description.resume.start"))
+        .build();
+    let browse_button = Button::builder(&panel)
+        .with_id(ID_AUDIO_DESCRIPTION_RESUME_BROWSE)
+        .with_label(&tr("audio_description.resume.browse_other"))
+        .build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&tr("audio_description.cancel"))
+        .build();
+    continue_button.enable(has_candidates);
+    buttons.add(&continue_button, 0, SizerFlag::All, 8);
+    buttons.add(&browse_button, 0, SizerFlag::All, 8);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 8);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    selector.set_affirmative_id(if has_candidates {
+        ID_OK
+    } else {
+        ID_AUDIO_DESCRIPTION_RESUME_BROWSE
+    });
+    selector.set_escape_id(ID_CANCEL);
+    let selected = Rc::new(RefCell::new(None::<PathBuf>));
+
+    let selector_continue = selector;
+    let selected_continue = Rc::clone(&selected);
+    let candidates_continue = candidates.clone();
+    continue_button.on_click(move |_| {
+        if let Some(index) = choice.get_selection()
+            && let Some(candidate) = candidates_continue.get(index as usize)
+        {
+            *selected_continue.borrow_mut() = Some(candidate.path.clone());
+            selector_continue.end_modal(ID_OK);
+        }
+    });
+
+    let selector_browse = selector;
+    let selected_browse = Rc::clone(&selected);
+    browse_button.on_click(move |_| {
+        if let Some(path) = browse_resume_checkpoint(&selector_browse) {
+            *selected_browse.borrow_mut() = Some(path);
+            selector_browse.end_modal(ID_OK);
+        }
+    });
+
+    let selector_cancel = selector;
+    cancel_button.on_click(move |_| selector_cancel.end_modal(ID_CANCEL));
+    let selector_close = selector;
+    selector.on_close(move |event| {
+        selector_close.end_modal(ID_CANCEL);
+        event.skip(false);
+    });
+
+    if has_candidates {
+        choice.set_focus();
+    } else {
+        browse_button.set_focus();
+    }
+    let result = selector.show_modal();
+    selector.destroy();
+    if result == ID_OK {
+        selected.borrow().clone()
     } else {
         None
     }
@@ -3038,11 +3283,21 @@ pub fn open_create_dialog(
     let resume_settings = Rc::new(RefCell::new(None::<AudioDescriptionResumeSettings>));
     let resume_settings_button = Rc::clone(&resume_settings);
     let resume_ui_button = Rc::clone(&set_resume_ui);
+    let settings_resume = settings.clone();
     let d_resume = d;
     continue_interrupted.on_click(move |_| {
         let Some(path) = choose_resume_checkpoint(&d_resume) else {
+            append_podcast_log(
+                "audio_description.create.resume_selector_cancelled_closing_creation_window",
+            );
+            d_resume.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
             return;
         };
+        {
+            let mut settings = settings_resume.lock().unwrap();
+            remember_audio_description_project_folder(&mut settings, &path);
+            settings.save();
+        }
         let resume = match load_resume_settings(&path) {
             Ok(value) => value,
             Err(error) => {
@@ -3222,6 +3477,9 @@ pub fn open_create_dialog(
                 .as_ref()
                 .map(|c| c.path.to_string_lossy().to_string())
                 .unwrap_or_default();
+            if job.resume_checkpoint_path.is_none() {
+                remember_audio_description_project_folder(&mut st, &job.output_path);
+            }
             st.save();
         }
         match run_with_progress(&parent_run, job, rt_run.clone()) {

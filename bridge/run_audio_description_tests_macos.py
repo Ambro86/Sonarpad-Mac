@@ -23,6 +23,7 @@ MODULES = (
     "test_language_detection",
     "test_speech_detector",
     "test_macos_audio_description_host",
+    "test_macos_audio_description_resume_selector",
     "test_macos_media_transcription",
     "test_macos_la7_play",
     "test_macos_log_retention",
