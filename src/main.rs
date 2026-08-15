@@ -17133,6 +17133,14 @@ fn bundled_ytdlp_candidate(executable: &Path) -> Option<PathBuf> {
         .map(|contents_dir| contents_dir.join("Resources").join("yt-dlp"))
 }
 
+#[cfg(target_os = "macos")]
+fn bundled_deno_candidate(ytdlp: &Path) -> Option<PathBuf> {
+    ytdlp
+        .parent()
+        .map(|resources_dir| resources_dir.join("deno"))
+        .filter(|deno| deno.is_file())
+}
+
 fn ytdlp_executable_path() -> PathBuf {
     #[cfg(target_os = "macos")]
     if let Ok(exe) = std::env::current_exe()
@@ -17404,6 +17412,16 @@ fn ytdlp_command(ytdlp: &Path) -> Command {
     let mut command = Command::new(ytdlp);
     // Parità Windows: forza UTF-8 per tutto l'output catturato di yt-dlp.
     command.arg("--encoding").arg("utf-8");
+    #[cfg(target_os = "macos")]
+    if let Some(deno) = bundled_deno_candidate(ytdlp) {
+        append_podcast_log(&format!(
+            "ytdlp.js_runtime.selected runtime=deno path={}",
+            deno.display()
+        ));
+        command
+            .arg("--js-runtimes")
+            .arg(format!("deno:{}", deno.display()));
+    }
     command.stdin(Stdio::null());
     command
 }
@@ -18261,6 +18279,13 @@ fn configure_youtube_mpv_command(
             "--script-opts=ytdl_hook-ytdl_path={}",
             ytdlp.to_string_lossy()
         ));
+        #[cfg(target_os = "macos")]
+        if let Some(deno) = bundled_deno_candidate(&ytdlp) {
+            command.arg(format!(
+                "--ytdl-raw-options=js-runtimes=deno:{}",
+                deno.display()
+            ));
+        }
     }
     if allow_bookmarks {
         command

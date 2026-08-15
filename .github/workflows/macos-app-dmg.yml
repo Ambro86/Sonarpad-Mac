@@ -11,6 +11,7 @@ on:
 
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  DENO_VERSION: "2.8.1"
 
 jobs:
   build-macos:
@@ -503,10 +504,20 @@ jobs:
           if [ "${{ matrix.build_flavor }}" = "intel" ]; then
             curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
             xattr -cr "${RESOURCES_DIR}/yt-dlp" || true
+            DENO_ARCH="x86_64"
           else
             curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "${RESOURCES_DIR}/yt-dlp"
+            DENO_ARCH="aarch64"
           fi
           chmod +x "${RESOURCES_DIR}/yt-dlp"
+          DENO_ARCHIVE="dist/deno-${DENO_ARCH}-apple-darwin.zip"
+          curl -L --fail \
+            "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-${DENO_ARCH}-apple-darwin.zip" \
+            -o "${DENO_ARCHIVE}"
+          ditto -x -k "${DENO_ARCHIVE}" "${RESOURCES_DIR}"
+          chmod +x "${RESOURCES_DIR}/deno"
+          xattr -cr "${RESOURCES_DIR}/deno" || true
+          "${RESOURCES_DIR}/deno" --version
           cat > "${RESOURCES_DIR}/mpv-input.conf" <<'EOF'
           UP add volume 5
           DOWN add volume -5
@@ -691,6 +702,7 @@ jobs:
           MPV_APP_DIR="${APP_DIR}/Contents/Resources/mpv.app"
           MPV_BIN="${MPV_APP_DIR}/Contents/MacOS/mpv"
           YTDLP_BIN="${APP_DIR}/Contents/Resources/yt-dlp"
+          DENO_BIN="${APP_DIR}/Contents/Resources/deno"
           YTDLP_ENTITLEMENTS="dist/ytdlp-entitlements.plist"
           YTDLP_IS_MACHO=false
 
@@ -773,6 +785,15 @@ jobs:
             else
               echo "Skipping standalone codesign for non-Mach-O yt-dlp: $(file "${YTDLP_BIN}")"
             fi
+          fi
+
+          if [ -f "${DENO_BIN}" ]; then
+            chmod +x "${DENO_BIN}"
+            xattr -cr "${DENO_BIN}" || true
+            codesign --force --options runtime --timestamp \
+              --sign "Developer ID Application" \
+              "${DENO_BIN}"
+            codesign --verify --strict --verbose=4 "${DENO_BIN}"
           fi
 
           codesign --force --deep --options runtime --timestamp \
@@ -913,6 +934,7 @@ jobs:
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/ffmpeg/bin/ffmpeg"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/mpv.app/Contents/MacOS/mpv"
           test -f "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/yt-dlp"
+          test -x "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/deno"
           test -x "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/audio-description/audio_description_bridge/audio_description_bridge"
           test -x "${MOUNT_DIR}/Sonarpad.app/Contents/Resources/transcription/faster_whisper_bridge/faster_whisper_bridge"
           find "${MOUNT_DIR}/Sonarpad.app/Contents/Frameworks" -type f -name 'libcurl*.dylib' | grep .

@@ -33,7 +33,6 @@ pub(crate) enum ItemKind {
 
 #[derive(Clone, Debug)]
 pub(crate) struct BrowseItem {
-    pub(crate) id: String,
     pub(crate) title: String,
     pub(crate) description: Option<String>,
     pub(crate) kind: ItemKind,
@@ -43,18 +42,16 @@ pub(crate) struct BrowseItem {
 #[derive(Clone, Debug)]
 pub(crate) struct BrowsePage {
     pub(crate) title: String,
-    pub(crate) source: String,
     pub(crate) items: Vec<BrowseItem>,
 }
 
 pub(crate) fn root_page() -> BrowsePage {
     BrowsePage {
         title: tr("la7.root"),
-        source: "root".into(),
         items: vec![
-            page("live", &tr("la7.live"), "live"),
-            page("catchup", &tr("la7.catchup"), "rivedi"),
-            page("programs", &tr("la7.programs"), "programs"),
+            page(&tr("la7.live"), "live"),
+            page(&tr("la7.catchup"), "rivedi"),
+            page(&tr("la7.programs"), "programs"),
         ],
     }
 }
@@ -66,10 +63,9 @@ pub(crate) fn load_page(source: &str) -> Result<BrowsePage, String> {
     if source == "live" {
         return Ok(BrowsePage {
             title: tr("la7.live"),
-            source: source.into(),
             items: vec![
-                live("live-la7", &tr("la7.live_la7"), "la7"),
-                live("live-la7-cinema", &tr("la7.live_cinema"), "la7 cinema"),
+                live(&tr("la7.live_la7"), "la7"),
+                live(&tr("la7.live_cinema"), "la7 cinema"),
             ],
         });
     }
@@ -136,7 +132,7 @@ fn rivedi_days() -> Result<BrowsePage, String> {
     let name = selector(".giorno-text");
     let mut items = Vec::new();
 
-    for (index, row) in document.select(&rows).enumerate() {
+    for row in document.select(&rows) {
         let href = row
             .select(&links)
             .next()
@@ -154,16 +150,11 @@ fn rivedi_days() -> Result<BrowsePage, String> {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-        items.push(page(
-            &format!("day-{index}"),
-            &title,
-            &format!("day:{}", absolute(href)),
-        ));
+        items.push(page(&title, &format!("day:{}", absolute(href))));
     }
     items.reverse();
     Ok(BrowsePage {
         title: tr("la7.catchup"),
-        source: "rivedi".into(),
         items,
     })
 }
@@ -178,7 +169,7 @@ fn rivedi_day(url: &str) -> Result<BrowsePage, String> {
     let plot = selector(".occhiello");
     let mut items = Vec::new();
 
-    for (index, row) in document.select(&rows).enumerate() {
+    for row in document.select(&rows) {
         let href = row
             .select(&links)
             .next()
@@ -194,17 +185,11 @@ fn rivedi_day(url: &str) -> Result<BrowsePage, String> {
         } else {
             format!("{time_text} — {name}")
         };
-        items.push(media(
-            &format!("episode-{index}"),
-            &title,
-            &absolute(href),
-            opt_text(&row, &plot),
-        ));
+        items.push(media(&title, &absolute(href), opt_text(&row, &plot)));
     }
 
     Ok(BrowsePage {
         title: tr("la7.catchup"),
-        source: format!("day:{url}"),
         items,
     })
 }
@@ -278,23 +263,18 @@ fn programs_page(query: Option<&str>) -> Result<BrowsePage, String> {
 
     let mut items = Vec::new();
     let mut media_seen = HashSet::new();
-    for (program_index, (title, target)) in matched_programs.into_iter().enumerate() {
-        items.push(page(
-            &format!("program-{program_index}"),
-            &title,
-            &format!("program:{target}"),
-        ));
+    for (title, target) in matched_programs {
+        items.push(page(&title, &format!("program:{target}")));
 
         // Nei risultati di ricerca le clip editoriali del programma vengono
         // mostrate come contenuti separati. La cartella del programma resta
         // riservata alle puntate complete e all'archivio Rivedi LA7.
         if query.is_some() {
-            for (clip_index, clip) in program_search_clips(&target).into_iter().enumerate() {
+            for clip in program_search_clips(&target) {
                 if !media_seen.insert(clip.target.clone()) {
                     continue;
                 }
                 items.push(BrowseItem {
-                    id: format!("search-clip-{program_index}-{clip_index}"),
                     title: clip.title,
                     description: clip.description.or_else(|| Some(title.clone())),
                     kind: ItemKind::Media,
@@ -311,14 +291,10 @@ fn programs_page(query: Option<&str>) -> Result<BrowsePage, String> {
         items.len()
     ));
 
-    let source = query
-        .map(|value| format!("search:{value}"))
-        .unwrap_or_else(|| "programs".into());
     Ok(BrowsePage {
         title: query
             .map(|value| format!("{}: {value}", tr("la7.search")))
             .unwrap_or_else(|| tr("la7.programs")),
-        source,
         items,
     })
 }
@@ -365,7 +341,7 @@ fn program_search_clips(program_url: &str) -> Vec<BrowseItem> {
         if !date.is_empty() {
             title = format!("{title} ({date})");
         }
-        clips.push(media(&format!("clip-{}", clips.len()), &title, &link, None));
+        clips.push(media(&title, &link, None));
     }
     clips
 }
@@ -410,7 +386,6 @@ fn program_episodes(url: &str) -> Result<BrowsePage, String> {
 
     Ok(BrowsePage {
         title: program_title_from_href(url),
-        source: format!("program:{url}"),
         items,
     })
 }
@@ -446,12 +421,7 @@ fn push_program_episode(
     if !date.is_empty() {
         title = format!("{title} ({date})");
     }
-    items.push(media(
-        &format!("media-{}", items.len()),
-        &title,
-        &link,
-        opt_text(row, &plots),
-    ));
+    items.push(media(&title, &link, opt_text(row, &plots)));
 }
 
 fn is_program_episode_url(url: &str) -> bool {
@@ -630,9 +600,8 @@ fn absolute(href: &str) -> String {
         .unwrap_or_else(|| href.to_string())
 }
 
-fn page(id: &str, title: &str, target: &str) -> BrowseItem {
+fn page(title: &str, target: &str) -> BrowseItem {
     BrowseItem {
-        id: id.into(),
         title: title.into(),
         description: None,
         kind: ItemKind::Page,
@@ -640,9 +609,8 @@ fn page(id: &str, title: &str, target: &str) -> BrowseItem {
     }
 }
 
-fn live(id: &str, title: &str, target: &str) -> BrowseItem {
+fn live(title: &str, target: &str) -> BrowseItem {
     BrowseItem {
-        id: id.into(),
         title: title.into(),
         description: None,
         kind: ItemKind::Live,
@@ -650,9 +618,8 @@ fn live(id: &str, title: &str, target: &str) -> BrowseItem {
     }
 }
 
-fn media(id: &str, title: &str, target: &str, description: Option<String>) -> BrowseItem {
+fn media(title: &str, target: &str, description: Option<String>) -> BrowseItem {
     BrowseItem {
-        id: id.into(),
         title: title.into(),
         description,
         kind: ItemKind::Media,

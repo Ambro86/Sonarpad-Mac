@@ -15,7 +15,14 @@ class MacYoutubeWindowsParityTests(unittest.TestCase):
     def test_ytdlp_command_matches_windows_encoding_and_stdin(self):
         b = block('fn ytdlp_command(ytdlp: &Path)', '#[cfg(all(target_os = "macos", target_arch = "x86_64"))]')
         self.assertIn('.arg("--encoding").arg("utf-8")', b)
+        self.assertIn('.arg("--js-runtimes")', b)
+        self.assertIn('format!("deno:{}", deno.display())', b)
         self.assertIn('command.stdin(Stdio::null())', b)
+
+    def test_macos_uses_deno_bundled_next_to_ytdlp(self):
+        b = block('fn bundled_deno_candidate', 'fn ytdlp_executable_path')
+        self.assertIn('resources_dir.join("deno")', b)
+        self.assertIn('.filter(|deno| deno.is_file())', b)
 
     def test_open_uses_exact_windows_lightweight_preflight(self):
         b = block('fn probe_youtube_stream_playable', 'fn configure_youtube_mpv_command')
@@ -28,6 +35,7 @@ class MacYoutubeWindowsParityTests(unittest.TestCase):
         b = block('fn configure_youtube_mpv_command', 'fn find_youtube_temp_download')
         self.assertIn('.arg(url)', b)
         self.assertIn('ytdl_hook-ytdl_path={}', b)
+        self.assertIn('--ytdl-raw-options=js-runtimes=deno:{}', b)
         self.assertIn('best[height<=360][ext=mp4]/18/best[height<=480]/best', MAIN)
         self.assertIn('--aid=auto', b)
         self.assertIn('--audio-channels=stereo', b)
