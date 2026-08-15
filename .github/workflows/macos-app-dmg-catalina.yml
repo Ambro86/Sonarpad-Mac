@@ -447,15 +447,17 @@ jobs:
           test -x "${MPV_APP_DIR}/Contents/MacOS/mpv"
           echo "MPV_APP_DIR=${MPV_APP_DIR}" >> "${GITHUB_ENV}"
 
-      - name: Download Python zipapp yt-dlp for Intel
+      - name: Download standalone yt-dlp for Intel
         shell: bash
         run: |
           set -euxo pipefail
           mkdir -p dist/yt-dlp-intel
-          curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp" -o "dist/yt-dlp-intel/yt-dlp"
+          curl -L --fail "https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos" -o "dist/yt-dlp-intel/yt-dlp"
           chmod +x dist/yt-dlp-intel/yt-dlp
           file dist/yt-dlp-intel/yt-dlp
-          python3 dist/yt-dlp-intel/yt-dlp --version
+          file dist/yt-dlp-intel/yt-dlp | grep -q 'Mach-O'
+          lipo dist/yt-dlp-intel/yt-dlp -verify_arch x86_64
+          dist/yt-dlp-intel/yt-dlp --version
 
       - name: Package .app and .dmg
         shell: bash
@@ -469,9 +471,14 @@ jobs:
           check_max_macos_version() {
             local binary="$1"
             local max_supported="$2"
+            local architecture="${3:-}"
             local output
             local found_version
-            output="$(vtool -show-build "${binary}" 2>/dev/null || true)"
+            if [ -n "${architecture}" ]; then
+              output="$(vtool -arch "${architecture}" -show-build "${binary}" 2>/dev/null || true)"
+            else
+              output="$(vtool -show-build "${binary}" 2>/dev/null || true)"
+            fi
             found_version="$(
               echo "${output}" | sed -n 's/.*minos \([0-9][0-9.]*\).*/\1/p' | head -n 1
             )"
@@ -544,6 +551,11 @@ jobs:
           plutil -lint "${MPV_INFO_PLIST}"
           cp "dist/yt-dlp-intel/yt-dlp" "${RESOURCES_DIR}/yt-dlp"
           chmod +x "${RESOURCES_DIR}/yt-dlp"
+          xattr -cr "${RESOURCES_DIR}/yt-dlp" || true
+          if ! check_max_macos_version "${RESOURCES_DIR}/yt-dlp" "10.15" "x86_64"; then
+            echo "The bundled yt-dlp executable is not compatible with macOS Catalina."
+            exit 1
+          fi
           DENO_ARCHIVE="dist/deno-x86_64-apple-darwin.zip"
           curl -L --fail \
             "https://github.com/denoland/deno/releases/download/v${DENO_VERSION}/deno-x86_64-apple-darwin.zip" \
