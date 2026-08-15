@@ -690,6 +690,22 @@ jobs:
         shell: bash
         run: |
           set -euxo pipefail
+
+          codesign_with_retry() {
+            local attempt
+            for attempt in 1 2 3 4 5; do
+              if /usr/bin/codesign "$@"; then
+                return 0
+              fi
+              if [ "${attempt}" -eq 5 ]; then
+                echo "codesign failed after ${attempt} attempts" >&2
+                return 1
+              fi
+              echo "codesign failed (attempt ${attempt}/5); retrying timestamp service..." >&2
+              sleep $((attempt * 5))
+            done
+          }
+
           APP_NAME="Sonarpad"
           APP_DIR="dist/stage/${APP_NAME}.app"
           FRAMEWORKS_DIR="${APP_DIR}/Contents/Frameworks"
@@ -718,14 +734,14 @@ jobs:
           PLIST
 
           if [ -f "${FFMPEG_BIN}" ]; then
-            codesign --force --options runtime --timestamp \
+            codesign_with_retry --force --options runtime --timestamp \
               --sign "Developer ID Application" \
               "${FFMPEG_BIN}"
           fi
 
           if [ -d "${FFMPEG_LIB_DIR}" ]; then
             find "${FFMPEG_LIB_DIR}" -type f -perm -111 -print0 | while IFS= read -r -d '' bin; do
-              codesign --force --options runtime --timestamp \
+              codesign_with_retry --force --options runtime --timestamp \
                 --sign "Developer ID Application" \
                 "${bin}"
             done
@@ -735,7 +751,7 @@ jobs:
             xattr -cr "${AUDIO_DESCRIPTION_DIR}" || true
             find "${AUDIO_DESCRIPTION_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
               if file "${bin}" | grep -q "Mach-O"; then
-                codesign --force --options runtime --timestamp \
+                codesign_with_retry --force --options runtime --timestamp \
                   --sign "Developer ID Application" \
                   "${bin}"
               fi
@@ -747,7 +763,7 @@ jobs:
             xattr -cr "${TRANSCRIPTION_DIR}" || true
             find "${TRANSCRIPTION_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
               if file "${bin}" | grep -q "Mach-O"; then
-                codesign --force --options runtime --timestamp \
+                codesign_with_retry --force --options runtime --timestamp \
                   --sign "Developer ID Application" \
                   "${bin}"
               fi
@@ -756,18 +772,18 @@ jobs:
           fi
 
           find "${FRAMEWORKS_DIR}" -type f -print0 | while IFS= read -r -d '' bin; do
-            codesign --force --options runtime --timestamp \
+            codesign_with_retry --force --options runtime --timestamp \
               --sign "Developer ID Application" \
               "${bin}"
           done
 
           if [ -f "${MPV_BIN}" ]; then
             find "${MPV_APP_DIR}" -type f -perm -111 -print0 | while IFS= read -r -d '' bin; do
-              codesign --force --options runtime --timestamp \
+              codesign_with_retry --force --options runtime --timestamp \
                 --sign "Developer ID Application" \
                 "${bin}"
             done
-            codesign --force --deep --options runtime --timestamp \
+            codesign_with_retry --force --deep --options runtime --timestamp \
               --sign "Developer ID Application" \
               "${MPV_APP_DIR}"
           fi
@@ -777,7 +793,7 @@ jobs:
             xattr -cr "${YTDLP_BIN}" || true
             if file "${YTDLP_BIN}" | grep -q "Mach-O"; then
               YTDLP_IS_MACHO=true
-              codesign --force --options runtime --timestamp \
+              codesign_with_retry --force --options runtime --timestamp \
                 --entitlements "${YTDLP_ENTITLEMENTS}" \
                 --sign "Developer ID Application" \
                 "${YTDLP_BIN}"
@@ -790,24 +806,24 @@ jobs:
           if [ -f "${DENO_BIN}" ]; then
             chmod +x "${DENO_BIN}"
             xattr -cr "${DENO_BIN}" || true
-            codesign --force --options runtime --timestamp \
+            codesign_with_retry --force --options runtime --timestamp \
               --sign "Developer ID Application" \
               "${DENO_BIN}"
             codesign --verify --strict --verbose=4 "${DENO_BIN}"
           fi
 
-          codesign --force --deep --options runtime --timestamp \
+          codesign_with_retry --force --deep --options runtime --timestamp \
             --sign "Developer ID Application" \
             "${APP_DIR}"
 
           if [ -f "${YTDLP_BIN}" ] && [ "${YTDLP_IS_MACHO}" = "true" ]; then
-            codesign --force --options runtime --timestamp \
+            codesign_with_retry --force --options runtime --timestamp \
               --entitlements "${YTDLP_ENTITLEMENTS}" \
               --sign "Developer ID Application" \
               "${YTDLP_BIN}"
           fi
 
-          codesign --force --options runtime --timestamp \
+          codesign_with_retry --force --options runtime --timestamp \
             --sign "Developer ID Application" \
             "${APP_DIR}"
 

@@ -28,6 +28,15 @@ class MacBundledDenoTests(unittest.TestCase):
                     source,
                 )
 
+    def test_timestamped_codesign_operations_are_retried(self):
+        for workflow in WORKFLOWS:
+            source = workflow.read_text(encoding="utf-8")
+            with self.subTest(workflow=workflow.name):
+                self.assertIn("codesign_with_retry()", source)
+                self.assertIn("for attempt in 1 2 3 4 5", source)
+                self.assertIn("/usr/bin/codesign \"$@\"", source)
+                self.assertNotIn("codesign --force --options runtime --timestamp", source)
+
 
 if __name__ == "__main__":
     unittest.main()
