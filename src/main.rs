@@ -18202,6 +18202,7 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
 }
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "18/best[height<=360][ext=mp4]/best[height<=480]/best";
+const YOUTUBE_DOWNLOAD_EXTRACTOR_ARGS: &str = "youtube:player_client=android";
 const YOUTUBE_OPEN_CANCELLED: &str = "__SONARPAD_YOUTUBE_OPEN_CANCELLED__";
 const YTDLP_SOCKET_TIMEOUT_SECS: &str = "10";
 const YTDLP_PROGRESS_TEMPLATE_PREFIX: &str = "SONARPAD_PROGRESS";
@@ -18429,6 +18430,8 @@ fn save_youtube_mp3_with_ffmpeg(
     let mut command = ytdlp_command(ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
     command
+        .arg("--extractor-args")
+        .arg(YOUTUBE_DOWNLOAD_EXTRACTOR_ARGS)
         .arg("--no-playlist")
         .arg("--socket-timeout")
         .arg(YTDLP_SOCKET_TIMEOUT_SECS)
@@ -18548,6 +18551,8 @@ fn save_youtube_to_path(
     let mut command = ytdlp_command(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
     command
+        .arg("--extractor-args")
+        .arg(YOUTUBE_DOWNLOAD_EXTRACTOR_ARGS)
         .arg("--no-playlist")
         .arg("--socket-timeout")
         .arg(YTDLP_SOCKET_TIMEOUT_SECS)
@@ -29185,6 +29190,7 @@ mod ytdlp_path_tests {
             .expect("function after YouTube save");
         let save = &source[start..end];
         assert!(save.contains("18/bestaudio[ext=mp3]/bestaudio/best"));
+        assert!(source.contains("youtube:player_client=android"));
         assert!(save.contains("best[ext=mp4]/best"));
         assert!(save.contains("best[ext=mp4][height<=720]/best[height<=720]/best"));
         assert!(save.contains("--merge-output-format"));
