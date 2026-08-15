@@ -84,6 +84,7 @@ struct CreateJob {
     allow_extended_pauses: bool,
     recognize_characters: bool,
     save_project: bool,
+    delete_input_after_success: bool,
     keep_character_catalog: bool,
     catalog: Option<CharacterCatalog>,
     tts_engine: String,
@@ -135,6 +136,8 @@ struct AudioDescriptionPartialCheckpoint {
     allow_extended_pauses: bool,
     recognize_characters: bool,
     save_project: bool,
+    #[serde(default)]
+    delete_input_after_success: bool,
     keep_character_catalog: bool,
     tts_engine: String,
     tts_voice: String,
@@ -1548,6 +1551,7 @@ fn save_partial_checkpoint(
         allow_extended_pauses: job.allow_extended_pauses,
         recognize_characters: job.recognize_characters,
         save_project: job.save_project,
+        delete_input_after_success: job.delete_input_after_success,
         keep_character_catalog: job.keep_character_catalog,
         tts_engine: job.tts_engine.clone(),
         tts_voice: job.tts_voice.clone(),
@@ -1606,6 +1610,7 @@ fn job_from_checkpoint(
         allow_extended_pauses: checkpoint.allow_extended_pauses,
         recognize_characters: checkpoint.recognize_characters,
         save_project: checkpoint.save_project,
+        delete_input_after_success: checkpoint.delete_input_after_success,
         keep_character_catalog: checkpoint.keep_character_catalog,
         catalog,
         tts_engine: checkpoint.tts_engine,
@@ -2926,6 +2931,26 @@ fn voice_matches_language(voice: &VoiceInfo, language: &str) -> bool {
         .eq_ignore_ascii_case(&wanted)
 }
 
+fn should_delete_input_after_success(delete_requested: bool, save_project: bool) -> bool {
+    delete_requested && !save_project
+}
+
+#[cfg(target_os = "macos")]
+fn move_input_video_to_trash(path: &Path) -> Result<(), String> {
+    use objc2_foundation::{NSFileManager, NSURL};
+
+    let url = NSURL::from_file_path(path)
+        .ok_or_else(|| format!("invalid file URL: {}", path.display()))?;
+    NSFileManager::defaultManager()
+        .trashItemAtURL_resultingItemURL_error(&url, None)
+        .map_err(|error| error.localizedDescription().to_string())
+}
+
+#[cfg(not(target_os = "macos"))]
+fn move_input_video_to_trash(_path: &Path) -> Result<(), String> {
+    Err("moving files to the Trash is not supported on this platform".to_string())
+}
+
 fn execute_audio_description_job(
     parent: &Frame,
     dialog: &Dialog,
@@ -2934,6 +2959,11 @@ fn execute_audio_description_job(
     job: CreateJob,
     selected_model: String,
 ) -> bool {
+    let input_to_trash = should_delete_input_after_success(
+        job.delete_input_after_success,
+        job.save_project,
+    )
+    .then(|| job.input_path.clone());
     {
         let mut st = settings.lock().unwrap();
         st.audio_description_gemini_api_key = job.gemini_api_key.clone();
@@ -2945,6 +2975,7 @@ fn execute_audio_description_job(
         st.audio_description_extended_pauses = job.allow_extended_pauses;
         st.audio_description_recognize_characters = job.recognize_characters;
         st.audio_description_save_project = job.save_project;
+        st.audio_description_delete_video_after = job.delete_input_after_success;
         st.audio_description_keep_character_catalog = job.keep_character_catalog;
         st.audio_description_character_catalog = job
             .catalog
@@ -2959,6 +2990,9 @@ fn execute_audio_description_job(
     match run_with_progress(parent, job, rt.clone()) {
         Ok(out) => {
             let output_to_open = out.output_path.clone();
+            let trash_result = input_to_trash
+                .as_ref()
+                .map(|path| (path, move_input_video_to_trash(path)));
             let mut msg = trf(
                 "audio_description.success_details",
                 &[
@@ -2995,6 +3029,39 @@ fn execute_audio_description_job(
                         &[("path", p.display().to_string())]
                     )
                 ));
+            }
+            if let Some((path, result)) = trash_result {
+                match result {
+                    Ok(()) => {
+                        append_podcast_log(&format!(
+                            "audio_description.create.input_trashed path={}",
+                            path.display()
+                        ));
+                        msg.push_str(&format!(
+                            "\n\n{}",
+                            trf(
+                                "audio_description.input_trashed",
+                                &[("path", path.display().to_string())]
+                            )
+                        ));
+                    }
+                    Err(error) => {
+                        append_podcast_log(&format!(
+                            "audio_description.create.input_trash_failed path={} error={error}",
+                            path.display()
+                        ));
+                        msg.push_str(&format!(
+                            "\n\n{}",
+                            trf(
+                                "audio_description.input_trash_failed",
+                                &[
+                                    ("path", path.display().to_string()),
+                                    ("error", error),
+                                ]
+                            )
+                        ));
+                    }
+                }
             }
             show_completion(dialog, &msg);
             append_podcast_log(&format!(
@@ -3164,6 +3231,12 @@ fn open_create_dialog_impl(
         .build();
     save_project_box.set_value(saved.audio_description_save_project);
     root.add(&save_project_box, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let delete_input_box = CheckBox::builder(&p)
+        .with_label(&tr("audio_description.delete_video_after"))
+        .build();
+    delete_input_box.set_value(saved.audio_description_delete_video_after);
+    delete_input_box.show(!saved.audio_description_save_project);
+    root.add(&delete_input_box, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let keep_catalog = CheckBox::builder(&p)
         .with_label(&tr("audio_description.keep_character_catalog"))
         .build();
@@ -3413,6 +3486,15 @@ fn open_create_dialog_impl(
         if let Some(path) = choose_output(&d_output, &ip) {
             output.set_value(&path.to_string_lossy());
         }
+    });
+    let delete_input_toggle = delete_input_box;
+    let panel_save_project = p;
+    let dialog_save_project = d;
+    save_project_box.on_toggled(move |_| {
+        let show_delete_input = !save_project_box.get_value();
+        delete_input_toggle.show(show_delete_input);
+        panel_save_project.layout();
+        dialog_save_project.layout();
     });
     let catalog_label_toggle = catalog_label;
     let catalog_choice_toggle = catalog_choice;
@@ -3672,6 +3754,7 @@ fn open_create_dialog_impl(
             allow_extended_pauses: extended.get_value(),
             recognize_characters: recognize.get_value(),
             save_project: save_project_box.get_value(),
+            delete_input_after_success: delete_input_box.get_value(),
             keep_character_catalog: keep_catalog.get_value(),
             catalog,
             tts_engine: engine_value,
@@ -5335,6 +5418,7 @@ pub fn open_project_editor(
 mod tests {
     use super::{
         AUDIO_DESCRIPTION_LANGUAGES, ProjectDescription, project_description_search_order,
+        should_delete_input_after_success,
     };
     use std::collections::HashMap;
 
@@ -5415,6 +5499,33 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn delete_video_controls_are_localized_in_every_ui_language() {
+        for (ui_language, raw) in UI_TRANSLATIONS {
+            let translations: HashMap<String, String> =
+                serde_json::from_str(raw).expect("valid audio-description translations");
+            for key in [
+                "audio_description.delete_video_after",
+                "audio_description.input_trashed",
+                "audio_description.input_trash_failed",
+            ] {
+                assert!(
+                    translations
+                        .get(key)
+                        .is_some_and(|label| !label.trim().is_empty()),
+                    "missing {key} for UI language {ui_language}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn project_saving_always_prevents_deleting_the_source_video() {
+        assert!(should_delete_input_after_success(true, false));
+        assert!(!should_delete_input_after_success(true, true));
+        assert!(!should_delete_input_after_success(false, false));
     }
 
     #[test]

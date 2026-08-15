@@ -774,11 +774,12 @@ fn pdfium_library_file_name() -> &'static str {
 }
 
 fn normalize_pdf_paragraphs(text: &str) -> String {
+    let sanitized = text.replace('\0', " ");
     let mut out = String::new();
     let mut current = String::new();
-    let avg_len = average_pdf_line_len(text);
+    let avg_len = average_pdf_line_len(&sanitized);
     let mut last_line = String::new();
-    for raw_line in text.lines() {
+    for raw_line in sanitized.lines() {
         let line = raw_line.trim();
         if line.is_empty() {
             flush_pdf_paragraph(&mut out, &mut current);
@@ -1052,7 +1053,7 @@ fn looks_like_list_item(line: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::is_probably_meaningful_pdf_text;
+    use super::{is_probably_meaningful_pdf_text, normalize_pdf_paragraphs};
 
     #[test]
     fn pdf_text_heuristic_accepts_normal_text() {
@@ -1064,6 +1065,14 @@ mod tests {
     fn pdf_text_heuristic_rejects_scan_garbage() {
         let text = "x\u{0003}?\u{0010}&?\u{0007}??\\\\???\n.?\\?\\\0?\u{000B}\t?\nendstream";
         assert!(!is_probably_meaningful_pdf_text(text));
+    }
+
+    #[test]
+    fn pdf_normalization_removes_embedded_nul_characters() {
+        let normalized = normalize_pdf_paragraphs("Testo prima\0testo dopo");
+
+        assert_eq!(normalized, "Testo prima testo dopo");
+        assert!(!normalized.contains('\0'));
     }
 }
 

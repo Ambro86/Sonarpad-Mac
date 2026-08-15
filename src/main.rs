@@ -421,6 +421,8 @@ struct Settings {
     #[serde(default)]
     audio_description_save_project: bool,
     #[serde(default)]
+    audio_description_delete_video_after: bool,
+    #[serde(default)]
     audio_description_keep_character_catalog: bool,
     #[serde(default)]
     audio_description_character_catalog: String,
@@ -500,6 +502,7 @@ impl Settings {
             audio_description_extended_pauses: false,
             audio_description_recognize_characters: true,
             audio_description_save_project: false,
+            audio_description_delete_video_after: false,
             audio_description_keep_character_catalog: false,
             audio_description_character_catalog: String::new(),
             audio_description_save_folder: default_audio_description_save_folder(),
