@@ -18202,7 +18202,7 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
 }
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "18/best[height<=360][ext=mp4]/best[height<=480]/best";
-const YOUTUBE_DOWNLOAD_EXTRACTOR_ARGS: &str = "youtube:player_client=android";
+const YOUTUBE_PLAYER_EXTRACTOR_ARGS: &str = "youtube:player_client=android";
 const YOUTUBE_OPEN_CANCELLED: &str = "__SONARPAD_YOUTUBE_OPEN_CANCELLED__";
 const YTDLP_SOCKET_TIMEOUT_SECS: &str = "10";
 const YTDLP_PROGRESS_TEMPLATE_PREFIX: &str = "SONARPAD_PROGRESS";
@@ -18216,6 +18216,8 @@ fn ytdlp_download_progress_template() -> String {
 
 fn resolve_youtube_playback_url(ytdlp: &Path, url: &str) -> Result<String, String> {
     let output = ytdlp_command(ytdlp)
+        .arg("--extractor-args")
+        .arg(YOUTUBE_PLAYER_EXTRACTOR_ARGS)
         .arg("--no-playlist")
         .arg("--no-warnings")
         .arg("--socket-timeout")
@@ -18431,7 +18433,7 @@ fn save_youtube_mp3_with_ffmpeg(
     configure_ytdlp_for_current_macos(&mut command);
     command
         .arg("--extractor-args")
-        .arg(YOUTUBE_DOWNLOAD_EXTRACTOR_ARGS)
+        .arg(YOUTUBE_PLAYER_EXTRACTOR_ARGS)
         .arg("--no-playlist")
         .arg("--socket-timeout")
         .arg(YTDLP_SOCKET_TIMEOUT_SECS)
@@ -18552,7 +18554,7 @@ fn save_youtube_to_path(
     configure_ytdlp_for_current_macos(&mut command);
     command
         .arg("--extractor-args")
-        .arg(YOUTUBE_DOWNLOAD_EXTRACTOR_ARGS)
+        .arg(YOUTUBE_PLAYER_EXTRACTOR_ARGS)
         .arg("--no-playlist")
         .arg("--socket-timeout")
         .arg(YTDLP_SOCKET_TIMEOUT_SECS)
@@ -29155,7 +29157,7 @@ mod ytdlp_path_tests {
         assert!(opener.contains(".spawn()"));
         assert!(!opener.contains("ytdl://"));
         assert!(!opener.contains("try_ytdl_first"));
-        assert!(!opener.contains("player_client="));
+        assert!(opener.contains("YOUTUBE_PLAYER_EXTRACTOR_ARGS"));
     }
 
     #[test]
