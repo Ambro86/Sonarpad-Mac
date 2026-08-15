@@ -934,6 +934,8 @@ struct UiStrings {
     youtube_favorites_label: String,
     youtube_format_label: String,
     youtube_quality_label: String,
+    youtube_open_channel: String,
+    youtube_open_video: String,
     youtube_save: String,
     youtube_add_favorite: String,
     youtube_no_results: String,
@@ -17685,6 +17687,54 @@ fn is_youtube_url(value: &str) -> bool {
         })
 }
 
+fn direct_external_media_url(value: &str) -> Option<String> {
+    let value = value.trim();
+    let parsed = Url::parse(value).ok()?;
+    if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+        return None;
+    }
+    (!is_youtube_url(value)).then(|| value.to_string())
+}
+
+fn external_media_title(url: &str) -> Result<String, String> {
+    let ytdlp = ytdlp_executable_path();
+    let mut command = ytdlp_command(&ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
+    command
+        .arg("--no-playlist")
+        .arg("--no-warnings")
+        .arg("--skip-download")
+        .arg("--print")
+        .arg("title")
+        .arg("--")
+        .arg(url);
+    ytdlp_log_command_state("external_title", &ytdlp, &command);
+    let output = command.output().map_err(|err| err.to_string())?;
+    ytdlp_log_output(
+        "external_title",
+        output.status,
+        &output.stdout,
+        &output.stderr,
+    );
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+    }
+    output
+        .stdout
+        .split(|byte| *byte == b'\n')
+        .map(|line| String::from_utf8_lossy(line).trim().to_string())
+        .find(|title| !title.is_empty())
+        .ok_or_else(|| "yt-dlp non ha restituito il titolo del video.".to_string())
+}
+
+fn youtube_result_title_for_save(result: &YoutubeSearchResult) -> String {
+    if direct_external_media_url(&result.url).is_some() && result.title == result.url {
+        external_media_title(&result.url).unwrap_or_else(|_| result.title.clone())
+    } else {
+        result.title.clone()
+    }
+}
+
 fn youtube_collect_direct_results(
     value: &serde_json::Value,
     include_collections: bool,
@@ -17986,6 +18036,16 @@ fn youtube_next_page(context: &YoutubeSearchContext) -> Result<YoutubeResultsPay
 }
 
 fn youtube_search(query: &str) -> Result<YoutubeResultsPayload, String> {
+    if let Some(url) = direct_external_media_url(query) {
+        return Ok((
+            vec![YoutubeSearchResult {
+                title: url.clone(),
+                url,
+                is_collection: false,
+            }],
+            None,
+        ));
+    }
     match youtube_direct_search(query) {
         Ok((results, context)) if !results.is_empty() => Ok((results, context)),
         Ok(_) if is_youtube_url(query) => youtube_search_page_ytdlp(query, 0).map(|results| {
@@ -18214,42 +18274,11 @@ fn ytdlp_download_progress_template() -> String {
     )
 }
 
-fn resolve_youtube_playback_url(ytdlp: &Path, url: &str) -> Result<String, String> {
-    let output = ytdlp_command(ytdlp)
-        .arg("--extractor-args")
-        .arg(YOUTUBE_PLAYER_EXTRACTOR_ARGS)
-        .arg("--no-playlist")
-        .arg("--no-warnings")
-        .arg("--socket-timeout")
-        .arg(YTDLP_SOCKET_TIMEOUT_SECS)
-        .arg("-f")
-        .arg(YOUTUBE_MPV_STREAM_FORMAT)
-        .arg("-g")
-        .arg("--")
-        .arg(url)
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output()
-        .map_err(|err| err.to_string())?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    if !output.status.success() {
-        let error = format!("{stderr}\n{stdout}");
-        return Err(error.trim().to_string());
-    }
-    let playback_url = stdout
-        .lines()
-        .map(str::trim)
-        .find(|line| line.starts_with("https://") || line.starts_with("http://"))
-        .ok_or_else(|| "yt-dlp non ha restituito uno stream riproducibile.".to_string())?;
-    append_podcast_log("youtube.resolve.done format=18 url_redacted=true");
-    Ok(playback_url.to_string())
-}
-
 fn configure_youtube_mpv_command(
     command: &mut Command,
     url: &str,
     title: &str,
+    ipc_path: Option<&Path>,
 ) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
@@ -18280,21 +18309,25 @@ fn configure_youtube_mpv_command(
         .arg("--volume-max=300")
         // Parità Windows: il flusso YouTube è aperto come vero video, con audio auto.
         .arg("--aid=auto")
-        .arg("--audio-channels=stereo")
-        .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
+        .arg("--audio-channels=stereo");
+    if is_youtube_url(url) {
+        command.arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
+    }
+    if let Some(ipc_path) = ipc_path {
+        command.arg(format!("--input-ipc-server={}", ipc_path.display()));
+    }
     attach_mpv_accessibility_script(command, &accessibility_script);
     if ytdlp.exists() {
         command.arg(format!(
             "--script-opts=ytdl_hook-ytdl_path={}",
             ytdlp.to_string_lossy()
         ));
+        let raw_options = format!("extractor-args={YOUTUBE_PLAYER_EXTRACTOR_ARGS}");
         #[cfg(target_os = "macos")]
-        if let Some(deno) = bundled_deno_candidate(&ytdlp) {
-            command.arg(format!(
-                "--ytdl-raw-options=js-runtimes=deno:{}",
-                deno.display()
-            ));
-        }
+        let raw_options = bundled_deno_candidate(&ytdlp)
+            .map(|deno| format!("{raw_options},js-runtimes=deno:{}", deno.display()))
+            .unwrap_or(raw_options);
+        command.arg(format!("--ytdl-raw-options={raw_options}"));
     }
     if allow_bookmarks {
         command
@@ -18308,15 +18341,21 @@ fn configure_youtube_mpv_command(
     } else {
         command.arg("--resume-playback=no");
     }
-    command.arg(format!("--title=Sonarpad - {title}"));
+    if !title.trim().is_empty() {
+        command.arg(format!("--title=Sonarpad - {title}"));
+    }
     Ok(())
 }
 
-fn spawn_youtube_mpv(url: &str, title: &str) -> Result<std::process::Child, String> {
+fn spawn_youtube_mpv(
+    url: &str,
+    title: &str,
+    ipc_path: Option<&Path>,
+) -> Result<std::process::Child, String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let mut command = Command::new(&mpv_executable);
-    configure_youtube_mpv_command(&mut command, url, title)?;
+    configure_youtube_mpv_command(&mut command, url, title, ipc_path)?;
     append_podcast_log(&format!(
         "youtube.mpv.spawn title={} url={} mpv={}",
         title,
@@ -18334,9 +18373,133 @@ fn spawn_youtube_mpv(url: &str, title: &str) -> Result<std::process::Child, Stri
     Ok(child)
 }
 
-fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
-    let _child = spawn_youtube_mpv(url, title)?;
-    Ok(())
+fn youtube_playback_failed_message() -> &'static str {
+    match normalize_ui_language(&Settings::load().ui_language).as_str() {
+        "en" => "MPV could not open the video. It may be members-only, private, or unavailable.",
+        "fr" => "MPV n’a pas pu ouvrir la vidéo. Elle est peut-être réservée aux membres, privée ou indisponible.",
+        "es" => "MPV no pudo abrir el vídeo. Puede ser exclusivo para miembros, privado o no estar disponible.",
+        "pt" => "O MPV não conseguiu abrir o vídeo. Pode ser exclusivo para membros, privado ou estar indisponível.",
+        "cs" => "MPV nemohl video otevřít. Může být pouze pro členy, soukromé nebo nedostupné.",
+        "pl" => "MPV nie mógł otworzyć filmu. Może być dostępny tylko dla wspierających, prywatny lub niedostępny.",
+        _ => "MPV non è riuscito ad aprire il video. Potrebbe essere riservato agli abbonati, privato o non disponibile.",
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn wait_for_youtube_mpv_start(
+    child: &mut std::process::Child,
+    ipc_path: &Path,
+    cancel_requested: &AtomicBool,
+) -> Result<(), String> {
+    use std::os::unix::net::UnixStream;
+
+    let cleanup = || {
+        let _ = std::fs::remove_file(ipc_path);
+    };
+    let mut stream = None;
+    for _ in 0..100 {
+        if cancel_requested.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            cleanup();
+            return Err(YOUTUBE_OPEN_CANCELLED.to_string());
+        }
+        if let Some(status) = child.try_wait().map_err(|err| err.to_string())? {
+            cleanup();
+            append_podcast_log(&format!("youtube.mpv.early_exit status={status}"));
+            return Err(youtube_playback_failed_message().to_string());
+        }
+        if let Ok(ipc) = UnixStream::connect(ipc_path) {
+            stream = Some(ipc);
+            break;
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let Some(mut stream) = stream else {
+        let _ = child.kill();
+        let _ = child.wait();
+        cleanup();
+        return Err(youtube_playback_failed_message().to_string());
+    };
+    stream
+        .set_read_timeout(Some(Duration::from_millis(250)))
+        .map_err(|err| err.to_string())?;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut pending = Vec::new();
+    let mut buffer = [0_u8; 4096];
+    while Instant::now() < deadline {
+        if cancel_requested.load(Ordering::SeqCst) {
+            let _ = child.kill();
+            let _ = child.wait();
+            cleanup();
+            return Err(YOUTUBE_OPEN_CANCELLED.to_string());
+        }
+        match stream.read(&mut buffer) {
+            Ok(0) => break,
+            Ok(read) => {
+                pending.extend_from_slice(&buffer[..read]);
+                while let Some(newline) = pending.iter().position(|byte| *byte == b'\n') {
+                    let line = pending.drain(..=newline).collect::<Vec<_>>();
+                    let Ok(event) = serde_json::from_slice::<serde_json::Value>(&line) else {
+                        continue;
+                    };
+                    match event.get("event").and_then(serde_json::Value::as_str) {
+                        Some("file-loaded") => {
+                            cleanup();
+                            append_podcast_log("youtube.mpv.file_loaded");
+                            return Ok(());
+                        }
+                        Some("end-file") => {
+                            cleanup();
+                            append_podcast_log(&format!("youtube.mpv.load_failed event={event}"));
+                            return Err(youtube_playback_failed_message().to_string());
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
+                ) => {}
+            Err(err) => {
+                cleanup();
+                return Err(format!("lettura stato MPV fallita: {err}"));
+            }
+        }
+        if let Some(status) = child.try_wait().map_err(|err| err.to_string())? {
+            cleanup();
+            append_podcast_log(&format!("youtube.mpv.exit_before_load status={status}"));
+            return Err(youtube_playback_failed_message().to_string());
+        }
+    }
+    let _ = child.kill();
+    let _ = child.wait();
+    cleanup();
+    Err(youtube_playback_failed_message().to_string())
+}
+
+fn open_youtube_with_mpv(
+    url: &str,
+    title: &str,
+    cancel_requested: &AtomicBool,
+) -> Result<(), String> {
+    #[cfg(target_os = "macos")]
+    {
+        let ipc_path = Path::new("/tmp").join(format!(
+            "spd-youtube-{}.sock",
+            Uuid::new_v4().simple()
+        ));
+        let _ = std::fs::remove_file(&ipc_path);
+        let mut child = spawn_youtube_mpv(url, title, Some(&ipc_path))?;
+        return wait_for_youtube_mpv_start(&mut child, &ipc_path, cancel_requested);
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _child = spawn_youtube_mpv(url, title, None)?;
+        Ok(())
+    }
 }
 
 fn open_youtube_with_windows_flow(
@@ -18347,12 +18510,7 @@ fn open_youtube_with_windows_flow(
     if cancel_requested.load(Ordering::SeqCst) {
         return Err(YOUTUBE_OPEN_CANCELLED.to_string());
     }
-    let ytdlp = ytdlp_executable_path();
-    let playback_url = resolve_youtube_playback_url(&ytdlp, url)?;
-    if cancel_requested.load(Ordering::SeqCst) {
-        return Err(YOUTUBE_OPEN_CANCELLED.to_string());
-    }
-    open_youtube_with_mpv(&playback_url, title)
+    open_youtube_with_mpv(url, title, &cancel_requested)
 }
 
 fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
@@ -18431,6 +18589,11 @@ fn save_youtube_mp3_with_ffmpeg(
 
     let mut command = ytdlp_command(ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
+    let audio_format = if is_youtube_url(url) {
+        "18/bestaudio[ext=mp3]/bestaudio/best"
+    } else {
+        "bestaudio[language=ita]/bestaudio/best"
+    };
     command
         .arg("--extractor-args")
         .arg(YOUTUBE_PLAYER_EXTRACTOR_ARGS)
@@ -18442,7 +18605,7 @@ fn save_youtube_mp3_with_ffmpeg(
         .arg("--progress-template")
         .arg(ytdlp_download_progress_template())
         .arg("-f")
-        .arg("18/bestaudio[ext=mp3]/bestaudio/best")
+        .arg(audio_format)
         .arg("-o")
         .arg(temp_template.to_string_lossy().to_string())
         .arg("--")
@@ -18575,12 +18738,22 @@ fn save_youtube_to_path(
             .arg("--ffmpeg-location")
             .arg(ffmpeg_path.to_string_lossy().to_string());
     }
-    if quality == "best" {
+    if is_youtube_url(url) && quality == "best" {
         command.args(["-f", "best[ext=mp4]/best"]);
-    } else {
+    } else if is_youtube_url(url) {
         command.args([
             "-f",
             "best[ext=mp4][height<=720]/best[height<=720]/best",
+        ]);
+    } else if quality == "best" {
+        command.args([
+            "-f",
+            "bestvideo+bestaudio[language=ita]/bestvideo+bestaudio/best",
+        ]);
+    } else {
+        command.args([
+            "-f",
+            "bestvideo[height<=720]+bestaudio[language=ita]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
         ]);
     }
     command.arg("--").arg(url);
@@ -18749,6 +18922,7 @@ fn open_youtube_results_dialog(
     results: Vec<YoutubeSearchResult>,
     search_context: Option<YoutubeSearchContext>,
     audio_context: &AudioDescriptionLaunchContext,
+    auto_open_direct_url: bool,
 ) {
     let ui = current_ui_strings();
     if results.is_empty() {
@@ -18785,7 +18959,9 @@ fn open_youtube_results_dialog(
     root.add_sizer(&favorite_row, 0, SizerFlag::Expand, 0);
     let favorite_buttons = BoxSizer::builder(Orientation::Horizontal).build();
     favorite_buttons.add_spacer(1);
-    let favorite_open_button = Button::builder(&panel).with_label(&ui.open).build();
+    let favorite_open_button = Button::builder(&panel)
+        .with_label(&ui.youtube_open_channel)
+        .build();
     favorite_buttons.add(&favorite_open_button, 0, SizerFlag::All, 5);
     let favorite_remove_button = Button::builder(&panel)
         .with_label(if Settings::load().ui_language == "it" {
@@ -18820,7 +18996,13 @@ fn open_youtube_results_dialog(
     }
     choice.set_selection(0);
     results_row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    let open_button = Button::builder(&panel).with_label(&ui.open).build();
+    let open_button = Button::builder(&panel)
+        .with_label(if results[0].is_collection {
+            &ui.youtube_open_channel
+        } else {
+            &ui.youtube_open_video
+        })
+        .build();
     results_row.add(&open_button, 0, SizerFlag::All, 5);
     let more_button = Button::builder(&panel)
         .with_label(if Settings::load().ui_language == "it" {
@@ -18950,6 +19132,7 @@ fn open_youtube_results_dialog(
                         entries,
                         context,
                         &audio_context_timer,
+                        false,
                     )
                 }
                 Err(err) => {
@@ -19116,22 +19299,26 @@ fn open_youtube_results_dialog(
     let dialog_favorite_visibility = dialog;
     let favorite_button_visibility = favorite_button;
     let create_audio_description_button_visibility = create_audio_description_button;
+    let open_button_selection = open_button;
     choice.on_selection_changed(move |_| {
-        let visible = choice_favorite_visibility
+        let selected_result = choice_favorite_visibility
             .get_selection()
-            .and_then(|selection| results_favorite_visibility.get(selection as usize))
-            .is_some_and(|result| {
-                result.is_collection
-                    && !favorites_visibility
-                        .borrow()
-                        .iter()
-                        .any(|favorite| favorite.url == result.url)
-            });
+            .and_then(|selection| results_favorite_visibility.get(selection as usize));
+        let is_collection = selected_result.is_some_and(|result| result.is_collection);
+        let visible = selected_result.is_some_and(|result| {
+            result.is_collection
+                && !favorites_visibility
+                    .borrow()
+                    .iter()
+                    .any(|favorite| favorite.url == result.url)
+        });
         favorite_button_visibility.show(visible);
-        let audio_description_visible = choice_favorite_visibility
-            .get_selection()
-            .and_then(|selection| results_favorite_visibility.get(selection as usize))
-            .is_some_and(|result| !result.is_collection);
+        open_button_selection.set_label(if is_collection {
+            &current_ui_strings().youtube_open_channel
+        } else {
+            &current_ui_strings().youtube_open_video
+        });
+        let audio_description_visible = selected_result.is_some_and(|result| !result.is_collection);
         create_audio_description_button_visibility.show(audio_description_visible);
         panel_favorite_visibility.layout();
         dialog_favorite_visibility.layout();
@@ -19143,7 +19330,7 @@ fn open_youtube_results_dialog(
     let youtube_open_cancel_requested_open = Arc::clone(&youtube_open_cancel_requested);
     let youtube_busy_open = Arc::clone(&youtube_busy);
     let youtube_open_progress_click = Rc::clone(&youtube_open_progress);
-    open_button.on_click(move |_| {
+    let perform_open = Rc::new(move || {
         if let Some(sel) = choice_open.get_selection()
             && let Some(result) = results_open.get(sel as usize)
         {
@@ -19163,7 +19350,11 @@ fn open_youtube_results_dialog(
                 });
             } else {
                 let url = result.url.clone();
-                let title = result.title.clone();
+                let title = if direct_external_media_url(&url).is_some() {
+                    String::new()
+                } else {
+                    result.title.clone()
+                };
                 let pending = Arc::clone(&youtube_pending_playback_open);
                 youtube_open_cancel_requested_open.store(false, Ordering::SeqCst);
                 let cancel_requested = Arc::clone(&youtube_open_cancel_requested_open);
@@ -19186,6 +19377,8 @@ fn open_youtube_results_dialog(
             }
         }
     });
+    let perform_open_click = Rc::clone(&perform_open);
+    open_button.on_click(move |_| perform_open_click());
     let choice_save = choice;
     let results_save = Rc::clone(&results);
     let format_choice_save = format_choice;
@@ -19211,7 +19404,8 @@ fn open_youtube_results_dialog(
             } else {
                 "standard"
             };
-            let output_path = match prompt_youtube_save_path(&dialog_save, &result.title, format) {
+            let save_title = youtube_result_title_for_save(result);
+            let output_path = match prompt_youtube_save_path(&dialog_save, &save_title, format) {
                 Ok(Some(path)) => path,
                 Ok(None) => {
                     youtube_busy_save.store(false, Ordering::SeqCst);
@@ -19265,8 +19459,9 @@ fn open_youtube_results_dialog(
             } else {
                 "standard"
             };
+            let save_title = youtube_result_title_for_save(result);
             let output_path =
-                match prompt_youtube_save_path(&dialog_audio_description, &result.title, "mp4") {
+                match prompt_youtube_save_path(&dialog_audio_description, &save_title, "mp4") {
                     Ok(Some(path)) => path,
                     Ok(None) => {
                         youtube_busy_audio_description.store(false, Ordering::SeqCst);
@@ -19398,6 +19593,10 @@ fn open_youtube_results_dialog(
     });
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    if auto_open_direct_url {
+        dialog.show(true);
+        perform_open();
+    }
     dialog.show_modal();
     dialog.destroy();
 }
@@ -19514,6 +19713,7 @@ fn open_youtube_dialog_ready(
                         results,
                         context,
                         &audio_context_timer,
+                        false,
                     )
                 }
                 Err(err) => {
@@ -19527,12 +19727,31 @@ fn open_youtube_dialog_ready(
     let youtube_busy_search = Arc::clone(&youtube_busy);
     let youtube_search_progress_search = Rc::clone(&youtube_search_progress);
     let dialog_search_progress = dialog;
+    let settings_direct_open = Arc::clone(settings);
+    let audio_context_direct_open = audio_context.clone();
     let perform_search = Rc::new(move || {
         let query = query_ctrl_search.get_value().trim().to_string();
         if query.is_empty() {
             return;
         }
         if youtube_busy_search.swap(true, Ordering::SeqCst) {
+            return;
+        }
+        if let Some(url) = direct_external_media_url(&query) {
+            youtube_busy_search.store(false, Ordering::SeqCst);
+            let title = external_media_title(&url).unwrap_or_else(|_| url.clone());
+            open_youtube_results_dialog(
+                &dialog_search_progress,
+                &settings_direct_open,
+                vec![YoutubeSearchResult {
+                    title,
+                    url,
+                    is_collection: false,
+                }],
+                None,
+                &audio_context_direct_open,
+                true,
+            );
             return;
         }
         if youtube_search_progress_search.borrow().is_none() {
@@ -29102,7 +29321,8 @@ mod wxstd_translation_tests {
 #[cfg(all(test, target_os = "macos"))]
 mod ytdlp_path_tests {
     use super::{
-        attach_mpv_accessibility_script, bundled_ytdlp_candidate, ytdlp_verbose_probe_enabled,
+        attach_mpv_accessibility_script, bundled_ytdlp_candidate, ui_strings,
+        youtube_search, ytdlp_verbose_probe_enabled,
     };
     use std::path::{Path, PathBuf};
     use std::process::Command;
@@ -29139,20 +29359,21 @@ mod ytdlp_path_tests {
     }
 
     #[test]
-    fn youtube_playback_resolves_progressive_stream_then_starts_mpv() {
+    fn youtube_playback_passes_original_url_to_mpv_ytdl_hook() {
         let source = include_str!("main.rs");
         let start = source
-            .find("fn resolve_youtube_playback_url")
-            .expect("YouTube playback resolver");
+            .find("fn configure_youtube_mpv_command")
+            .expect("YouTube MPV configuration");
         let end = source[start..]
             .find("fn find_youtube_temp_download")
             .map(|offset| start + offset)
             .expect("function after YouTube opener");
         let opener = &source[start..end];
 
-        assert!(opener.contains(".arg(\"-g\")"));
-        assert!(opener.contains("resolve_youtube_playback_url(&ytdlp, url)?"));
+        assert!(!opener.contains(".arg(\"-g\")"));
+        assert!(opener.contains("open_youtube_with_mpv(url, title, &cancel_requested)"));
         assert!(opener.contains("ytdl_hook-ytdl_path"));
+        assert!(opener.contains("--ytdl-raw-options={raw_options}"));
         assert!(source.contains("18/best[height<=360][ext=mp4]/best[height<=480]/best"));
         assert!(opener.contains(".spawn()"));
         assert!(!opener.contains("ytdl://"));
@@ -29173,10 +29394,10 @@ mod ytdlp_path_tests {
         let opener = &source[start..end];
         assert!(source.contains("open_youtube_open_progress_dialog"));
         assert!(source.contains("Some(Arc::clone(&cancel_requested))"));
-        assert!(opener.contains("resolve_youtube_playback_url(&ytdlp, url)?"));
-        assert!(opener.contains("open_youtube_with_mpv(&playback_url, title)"));
-        assert!(!opener.contains("input-ipc-server"));
-        assert!(!opener.contains("file-loaded"));
+        assert!(opener.contains("open_youtube_with_mpv(url, title, &cancel_requested)"));
+        assert!(source.contains("--input-ipc-server={}"));
+        assert!(source.contains("Some(\"file-loaded\")"));
+        assert!(source.contains("Some(\"end-file\")"));
         assert!(source.contains("err != YOUTUBE_OPEN_CANCELLED"));
     }
 
@@ -29195,11 +29416,63 @@ mod ytdlp_path_tests {
         assert!(source.contains("youtube:player_client=android"));
         assert!(save.contains("best[ext=mp4]/best"));
         assert!(save.contains("best[ext=mp4][height<=720]/best[height<=720]/best"));
+        assert!(save.contains("bestaudio[language=ita]/bestaudio/best"));
+        assert!(save.contains(
+            "bestvideo+bestaudio[language=ita]/bestvideo+bestaudio/best"
+        ));
+        assert!(save.contains(
+            "bestvideo[height<=720]+bestaudio[language=ita]/bestvideo[height<=720]+bestaudio/best[height<=720]/best"
+        ));
         assert!(save.contains("--merge-output-format"));
         assert!(save.contains("--progress-template"));
         assert!(!save.contains("player_client="));
         assert!(!save.contains("youtube_save_client_profile_count"));
         assert!(!save.contains("--force-overwrites"));
+    }
+
+    #[test]
+    fn youtube_open_labels_are_localized_for_every_ui_language() {
+        for language in ["it", "en", "fr", "es", "pt", "cs", "pl"] {
+            let ui = ui_strings(language);
+            assert!(!ui.youtube_open_channel.trim().is_empty());
+            assert!(!ui.youtube_open_video.trim().is_empty());
+            assert_ne!(ui.youtube_open_channel, ui.youtube_open_video);
+        }
+    }
+
+    #[test]
+    fn external_media_url_bypasses_youtube_search() {
+        let url = "https://example.com/video/123";
+        let (results, context) = youtube_search(url).expect("direct external media URL");
+        assert!(context.is_none());
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].url, url);
+        assert!(!results[0].is_collection);
+
+        let source = include_str!("main.rs");
+        let start = source
+            .find("fn open_youtube_dialog_ready")
+            .expect("YouTube initial dialog");
+        let end = source[start..]
+            .find("struct NewCalendarReminder")
+            .map(|offset| start + offset)
+            .expect("function after YouTube initial dialog");
+        let dialog = &source[start..end];
+        assert!(dialog.contains("if let Some(url) = direct_external_media_url(&query)"));
+        assert!(dialog.contains("let title = external_media_title(&url)"));
+        assert!(dialog.contains("open_youtube_results_dialog("));
+        assert!(dialog.contains("&audio_context_direct_open"));
+        assert!(dialog.contains("true,"));
+        assert!(source.contains("if auto_open_direct_url"));
+        assert!(source.contains("perform_open();"));
+        assert!(source.contains("if !title.trim().is_empty()"));
+        assert!(source.contains("if is_youtube_url(url)"));
+        assert!(
+            source
+                .matches("let save_title = youtube_result_title_for_save(result);")
+                .count()
+                >= 2
+        );
     }
 
     #[test]
