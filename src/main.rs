@@ -38,14 +38,14 @@ use std::cell::{Cell, RefCell};
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
-use std::io::{BufReader, Cursor};
+use std::io::{BufRead, BufReader, Cursor, Read};
 #[cfg(any(target_os = "macos", windows))]
-use std::io::{Read, Write};
+use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
@@ -17401,7 +17401,10 @@ fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
 }
 
 fn ytdlp_command(ytdlp: &Path) -> Command {
-    Command::new(ytdlp)
+    let mut command = Command::new(ytdlp);
+    command.arg("--encoding").arg("utf-8");
+    command.stdin(Stdio::null());
+    command
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -17448,9 +17451,16 @@ fn ytdlp_log_basic_diagnostics(context: &str, _ytdlp: &Path) {
     append_podcast_log(&format!("ytdlp.{context}.diagnostics.skipped_macos"));
 }
 
+const YTDLP_SOCKET_TIMEOUT_SECS: &str = "10";
+const YTDLP_PROGRESS_TEMPLATE_PREFIX: &str = "SONARPAD_PROGRESS";
+const YOUTUBE_OPERATION_CANCELLED: &str = "__SONARPAD_YOUTUBE_CANCELLED__";
+
 fn is_youtube_bot_check_error(message: &str) -> bool {
     let lower = message.to_ascii_lowercase();
-    lower.contains("confirm you're not a bot") || lower.contains("confirm you’re not a bot")
+    lower.contains("confirm you're not a bot")
+        || lower.contains("confirm you’re not a bot")
+        || lower.contains("sign in to confirm you’re not a bot")
+        || lower.contains("sign in to confirm you're not a bot")
 }
 
 fn is_youtube_format_unavailable_error(message: &str) -> bool {
@@ -17459,14 +17469,36 @@ fn is_youtube_format_unavailable_error(message: &str) -> bool {
         .contains("requested format is not available")
 }
 
-fn is_youtube_drm_error(stderr: &str) -> bool {
-    let lower = stderr.to_ascii_lowercase();
-    lower.contains("drm")
-        || lower.contains("widevine")
-        || lower.contains("license")
-        || lower.contains("licence")
-        || lower.contains("encrypted")
-        || lower.contains("protected")
+fn is_youtube_retryable_download_error(message: &str) -> bool {
+    let lower = message.to_ascii_lowercase();
+    lower.contains("requested format is not available")
+        || lower.contains("unable to download video data")
+        || lower.contains("downloaded file is empty")
+        || lower.contains("http error 404")
+        || lower.contains("http error 403")
+        || lower.contains("fragment")
+        || lower.contains("timed out")
+        || lower.contains("timeout")
+        || lower.contains("connection reset")
+}
+
+fn is_youtube_drm_error(message: &str) -> bool {
+    // Keep this intentionally narrow. The old Mac code matched generic words
+    // such as "protected", "license" or "encrypted", which turned unrelated
+    // yt-dlp/network/format failures into false DRM errors. This mirrors the
+    // proven Windows logic: only explicit yt-dlp DRM diagnostics count.
+    let lower = message.to_ascii_lowercase();
+    lower.contains("known to use drm protection")
+        || lower.contains("uses drm protection")
+        || lower.contains("[drm]")
+        || lower.contains("drm protected")
+        || lower.contains("drm-protected")
+        || lower.contains("widevine protected")
+        || lower.contains("widevine drm")
+}
+
+fn youtube_cancelled_message() -> &'static str {
+    YOUTUBE_OPERATION_CANCELLED
 }
 
 fn youtube_drm_message() -> &'static str {
@@ -17557,6 +17589,149 @@ fn configure_youtube_metadata_language(command: &mut Command) {
     if Settings::load().ui_language == "it" {
         command.args(["--extractor-args", "youtube:lang=it"]);
     }
+}
+
+struct CapturedYtdlpOutput {
+    status: std::process::ExitStatus,
+    stdout: Vec<u8>,
+    stderr: Vec<u8>,
+}
+
+fn ytdlp_download_progress_template() -> String {
+    format!(
+        "download:{prefix}:%(progress.downloaded_bytes)s:%(progress.total_bytes)s:%(progress.total_bytes_estimate)s",
+        prefix = YTDLP_PROGRESS_TEMPLATE_PREFIX
+    )
+}
+
+fn parse_ytdlp_progress_pct(line: &str) -> Option<u32> {
+    let marker = format!("{YTDLP_PROGRESS_TEMPLATE_PREFIX}:");
+    let payload = line.split_once(&marker)?.1.trim();
+    let mut parts = payload.split(':');
+    let downloaded = parts.next()?.trim().parse::<u64>().ok()?;
+    let total = parts
+        .next()
+        .and_then(|value| value.trim().parse::<u64>().ok())
+        .filter(|value| *value > 0)
+        .or_else(|| {
+            parts
+                .next()
+                .and_then(|value| value.trim().parse::<u64>().ok())
+                .filter(|value| *value > 0)
+        })?;
+    Some(
+        ((downloaded as f64 / total as f64) * 100.0)
+            .clamp(0.0, 100.0)
+            .round() as u32,
+    )
+}
+
+fn spawn_ytdlp_capture_reader<R: Read + Send + 'static>(
+    pipe: R,
+    progress: Option<Arc<AtomicU32>>,
+) -> std::thread::JoinHandle<Vec<u8>> {
+    std::thread::spawn(move || {
+        let mut reader = BufReader::new(pipe);
+        let mut captured = Vec::new();
+        loop {
+            let mut line = Vec::new();
+            let read = match reader.read_until(b'\n', &mut line) {
+                Ok(read) => read,
+                Err(_) => break,
+            };
+            if read == 0 {
+                break;
+            }
+            if let Some(progress) = progress.as_ref() {
+                let line_text = String::from_utf8_lossy(&line);
+                if let Some(percent) = parse_ytdlp_progress_pct(&line_text) {
+                    progress.fetch_max(percent.min(100), Ordering::Relaxed);
+                }
+            }
+            if captured.len() < 262_144 {
+                let remaining = 262_144usize.saturating_sub(captured.len());
+                captured.extend_from_slice(&line[..line.len().min(remaining)]);
+            }
+        }
+        captured
+    })
+}
+
+fn terminate_ytdlp_child(child: &mut std::process::Child) {
+    #[cfg(target_os = "macos")]
+    {
+        let pid = child.id().to_string();
+        let _ = Command::new("/usr/bin/pkill")
+            .args(["-TERM", "-P", &pid])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    }
+    let _ = child.kill();
+}
+
+fn run_ytdlp_cancellable(
+    mut command: Command,
+    context: &str,
+    cancelled: Option<Arc<AtomicBool>>,
+    progress: Option<Arc<AtomicU32>>,
+) -> Result<CapturedYtdlpOutput, String> {
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|err| {
+        ytdlp_log_spawn_error(context, &err);
+        format!("yt-dlp non avviato: {err}")
+    })?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| "Impossibile leggere l'output di yt-dlp.".to_string())?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| "Impossibile leggere gli errori di yt-dlp.".to_string())?;
+    let stdout_thread = spawn_ytdlp_capture_reader(stdout, progress.clone());
+    let stderr_thread = spawn_ytdlp_capture_reader(stderr, progress);
+
+    let mut was_cancelled = false;
+    let status = loop {
+        if cancelled
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            was_cancelled = true;
+            terminate_ytdlp_child(&mut child);
+            break child
+                .wait()
+                .map_err(|err| format!("Impossibile arrestare yt-dlp: {err}"))?;
+        }
+
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) => std::thread::sleep(Duration::from_millis(50)),
+            Err(err) => {
+                terminate_ytdlp_child(&mut child);
+                let _ = child.wait();
+                let _ = stdout_thread.join();
+                let _ = stderr_thread.join();
+                return Err(format!("Errore durante l'attesa di yt-dlp: {err}"));
+            }
+        }
+    };
+
+    let stdout = stdout_thread.join().unwrap_or_default();
+    let stderr = stderr_thread.join().unwrap_or_default();
+
+    if was_cancelled {
+        append_podcast_log(&format!("ytdlp.{context}.cancelled"));
+        return Err(youtube_cancelled_message().to_string());
+    }
+
+    Ok(CapturedYtdlpOutput {
+        status,
+        stdout,
+        stderr,
+    })
 }
 
 const YOUTUBE_SEARCH_LIMIT: usize = 15;
@@ -18215,74 +18390,129 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
         .collect())
 }
 
-const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
+const YOUTUBE_MPV_STREAM_FORMAT: &str =
+    "best[height<=360][ext=mp4]/18/best[height<=480]/best";
+
+fn probe_youtube_stream_playable_fast(
+    url: &str,
+    cancelled: Option<Arc<AtomicBool>>,
+) -> Result<(), String> {
+    let ytdlp = ytdlp_executable_path();
+    ytdlp_log_path_state("open", &ytdlp);
+    append_podcast_log(&format!("ytdlp.open.preflight_begin url={url}"));
+
+    let mut last_details = String::new();
+    for profile in 0..youtube_save_client_profile_count() {
+        if cancelled
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            return Err(youtube_cancelled_message().to_string());
+        }
+
+        let mut command = ytdlp_command(&ytdlp);
+        configure_ytdlp_for_current_macos(&mut command);
+        if profile > 0 {
+            configure_youtube_save_client_profile(&mut command, profile);
+        }
+        command
+            .arg("--no-playlist")
+            .arg("--socket-timeout")
+            .arg(YTDLP_SOCKET_TIMEOUT_SECS)
+            .arg("--no-warnings")
+            .arg("--skip-download")
+            .arg("--print")
+            .arg("id")
+            .arg("--")
+            .arg(url);
+        ytdlp_log_command_state("open_preflight", &ytdlp, &command);
+
+        let output = run_ytdlp_cancellable(
+            command,
+            "open_preflight",
+            cancelled.clone(),
+            None,
+        )?;
+        ytdlp_log_output(
+            "open_preflight",
+            output.status,
+            &output.stdout,
+            &output.stderr,
+        );
+
+        if output.status.success()
+            && String::from_utf8_lossy(&output.stdout)
+                .lines()
+                .any(|line| !line.trim().is_empty())
+        {
+            append_podcast_log(&format!(
+                "ytdlp.open.preflight_success profile={profile}"
+            ));
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let details = format!("{stderr}\n{stdout}").trim().to_string();
+        last_details = if details.is_empty() {
+            "yt-dlp non ha confermato che il video sia riproducibile.".to_string()
+        } else {
+            details
+        };
+
+        if is_youtube_drm_error(&last_details) {
+            append_podcast_log(&format!(
+                "ytdlp.open.explicit_drm profile={profile}"
+            ));
+            return Err(youtube_drm_message().to_string());
+        }
+
+        append_podcast_log(&format!(
+            "ytdlp.open.preflight_failed profile={} bot_check={} details_len={}",
+            profile,
+            is_youtube_bot_check_error(&last_details),
+            last_details.len()
+        ));
+
+        // The normal path intentionally mirrors Windows and performs only one
+        // lightweight preflight. Alternate YouTube clients are fallback-only,
+        // so a healthy video never pays for several extractor passes.
+        if profile == 0
+            && !is_youtube_bot_check_error(&last_details)
+            && !is_youtube_retryable_download_error(&last_details)
+        {
+            break;
+        }
+    }
+
+    Err(if is_youtube_bot_check_error(&last_details) {
+        youtube_bot_check_message().to_string()
+    } else {
+        last_details
+    })
+}
+
+fn open_youtube_with_mpv_controlled(
+    url: &str,
+    title: &str,
+    cancelled: Option<Arc<AtomicBool>>,
+) -> Result<(), String> {
+    probe_youtube_stream_playable_fast(url, cancelled.clone())?;
+    if cancelled
+        .as_ref()
+        .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    {
+        return Err(youtube_cancelled_message().to_string());
+    }
+    append_podcast_log(&format!(
+        "youtube.open.preflight_ok title={} original_url={} mpv_ytdlp_direct=true",
+        title, url
+    ));
+    open_stream_with_mpv(url, title, None, true)
+}
 
 fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
-    let mpv_executable =
-        podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
-    let ytdlp = ytdlp_executable_path();
-    let mut command = Command::new(&mpv_executable);
-    let allow_bookmarks = media_bookmarks_enabled();
-    let mpv_config_dir = prepare_mpv_runtime_dirs(allow_bookmarks)?;
-    let mpv_input_conf = bundled_mpv_input_conf_path();
-    let accessibility_script = write_mpv_accessibility_script(&mpv_config_dir, title, None)?;
-    append_podcast_log(&format!(
-        "youtube.mpv.accessibility_script title={} path={}",
-        title,
-        accessibility_script.display()
-    ));
-    if let Some(parent_dir) = mpv_executable.parent()
-        && !parent_dir.as_os_str().is_empty()
-    {
-        command.current_dir(parent_dir);
-    }
-    command
-        .arg(url)
-        .arg(format!("--config-dir={}", mpv_config_dir.display()))
-        .arg(format!("--input-conf={}", mpv_input_conf.display()))
-        .arg("--force-window=yes")
-        .arg("--idle=no")
-        .arg("--no-terminal")
-        .arg("--osc=yes")
-        .arg("--input-default-bindings=yes")
-        .arg("--volume-max=300")
-        .arg("--no-video")
-        .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
-    attach_mpv_accessibility_script(&mut command, &accessibility_script);
-    if ytdlp.exists() {
-        command.arg(format!(
-            "--script-opts=ytdl_hook-ytdl_path={}",
-            ytdlp.to_string_lossy()
-        ));
-    }
-    if allow_bookmarks {
-        command
-            .arg(format!(
-                "--watch-later-dir={}",
-                mpv_watch_later_dir().display()
-            ))
-            .arg("--save-position-on-quit")
-            .arg("--resume-playback=yes")
-            .arg("--watch-later-options=start");
-    } else {
-        command.arg("--resume-playback=no");
-    }
-    command.arg(format!("--title=Sonarpad - {title}"));
-    append_podcast_log(&format!(
-        "youtube.mpv.spawn title={} url={} mpv={}",
-        title,
-        url,
-        mpv_executable.display()
-    ));
-    let child = command
-        .spawn()
-        .map_err(|err| format!("avvio mpv fallito: {err}"))?;
-    append_podcast_log(&format!(
-        "youtube.mpv.started pid={} title={}",
-        child.id(),
-        title
-    ));
-    Ok(())
+    open_youtube_with_mpv_controlled(url, title, None)
 }
 
 fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
@@ -18346,6 +18576,8 @@ fn save_youtube_mp3_with_ffmpeg(
     downloads_dir: &Path,
     output_path: &Path,
     ytdlp: &Path,
+    progress: Option<Arc<AtomicU32>>,
+    cancelled: Option<Arc<AtomicBool>>,
 ) -> Result<(), String> {
     let ffmpeg = ffmpeg_executable_path()
         .ok_or_else(|| "FFmpeg non trovato: impossibile convertire in MP3.".to_string())?;
@@ -18358,9 +18590,20 @@ fn save_youtube_mp3_with_ffmpeg(
         temp_template.display(),
         ffmpeg.display()
     ));
+
     let mut last_details = String::new();
     let mut download_succeeded = false;
     for profile in 0..youtube_save_client_profile_count() {
+        if cancelled
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            return Err(youtube_cancelled_message().to_string());
+        }
+        if let Some(progress) = progress.as_ref() {
+            progress.store(0, Ordering::Relaxed);
+        }
+
         append_podcast_log(&format!(
             "ytdlp.save_mp3_download.attempt profile={profile}"
         ));
@@ -18370,9 +18613,16 @@ fn save_youtube_mp3_with_ffmpeg(
         command
             .arg("--no-playlist")
             .arg("--socket-timeout")
-            .arg("10")
+            .arg(YTDLP_SOCKET_TIMEOUT_SECS)
             .arg("--no-warnings")
             .arg("--force-overwrites")
+            .arg("--newline")
+            .arg("--progress-template")
+            .arg(ytdlp_download_progress_template())
+            .arg("--extractor-retries")
+            .arg("3")
+            .arg("--fragment-retries")
+            .arg("3")
             .arg("-f")
             .arg(youtube_mp3_download_format_for_profile(profile))
             .arg("-o")
@@ -18380,10 +18630,13 @@ fn save_youtube_mp3_with_ffmpeg(
             .arg("--")
             .arg(url);
         ytdlp_log_command_state("save_mp3_download", ytdlp, &command);
-        let output = command.output().map_err(|err| {
-            ytdlp_log_spawn_error("save_mp3_download", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
+
+        let output = run_ytdlp_cancellable(
+            command,
+            "save_mp3_download",
+            cancelled.clone(),
+            progress.clone(),
+        )?;
         ytdlp_log_output(
             "save_mp3_download",
             output.status,
@@ -18394,6 +18647,7 @@ fn save_youtube_mp3_with_ffmpeg(
             download_succeeded = true;
             break;
         }
+
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let details = format!("{stderr}\n{stdout}").trim().to_string();
@@ -18402,13 +18656,18 @@ fn save_youtube_mp3_with_ffmpeg(
         } else {
             details
         };
-        if is_youtube_drm_error(&stderr)
-            && !is_youtube_bot_check_error(&last_details)
-            && !is_youtube_format_unavailable_error(&last_details)
-        {
+
+        if is_youtube_drm_error(&last_details) {
             return Err(youtube_drm_message().to_string());
         }
+        append_podcast_log(&format!(
+            "ytdlp.save_mp3_download.failed profile={} retryable={} bot_check={}",
+            profile,
+            is_youtube_retryable_download_error(&last_details),
+            is_youtube_bot_check_error(&last_details)
+        ));
     }
+
     if !download_succeeded {
         return Err(if is_youtube_bot_check_error(&last_details) {
             youtube_bot_check_message().to_string()
@@ -18416,6 +18675,17 @@ fn save_youtube_mp3_with_ffmpeg(
             last_details
         });
     }
+
+    if let Some(progress) = progress.as_ref() {
+        progress.store(92, Ordering::Relaxed);
+    }
+    if cancelled
+        .as_ref()
+        .is_some_and(|flag| flag.load(Ordering::Relaxed))
+    {
+        return Err(youtube_cancelled_message().to_string());
+    }
+
     let downloaded_path = find_youtube_temp_download(downloads_dir, &prefix)?;
     append_podcast_log(&format!(
         "ytdlp.save_mp3.ffmpeg_begin input={} output={}",
@@ -18440,6 +18710,7 @@ fn save_youtube_mp3_with_ffmpeg(
         &ffmpeg_output.stdout,
         &ffmpeg_output.stderr,
     );
+
     if ffmpeg_output.status.success() {
         if let Err(err) = std::fs::remove_file(&downloaded_path) {
             append_podcast_log(&format!(
@@ -18447,6 +18718,9 @@ fn save_youtube_mp3_with_ffmpeg(
                 downloaded_path.display(),
                 err
             ));
+        }
+        if let Some(progress) = progress.as_ref() {
+            progress.store(100, Ordering::Relaxed);
         }
         Ok(())
     } else {
@@ -18465,11 +18739,13 @@ fn save_youtube_mp3_with_ffmpeg(
     }
 }
 
-fn save_youtube_to_path(
+fn save_youtube_to_path_with_control(
     url: &str,
     format: &str,
     quality: &str,
     output_path: PathBuf,
+    progress: Option<Arc<AtomicU32>>,
+    cancelled: Option<Arc<AtomicBool>>,
 ) -> Result<PathBuf, String> {
     let ytdlp = ytdlp_executable_path();
     let downloads_dir = app_storage_path("downloads");
@@ -18483,18 +18759,38 @@ fn save_youtube_to_path(
         quality,
         output_path.display()
     ));
+
     std::fs::create_dir_all(&downloads_dir)
         .map_err(|err| format!("Impossibile creare la cartella download temporanea: {err}"))?;
     if let Some(parent_dir) = output_path.parent() {
         std::fs::create_dir_all(parent_dir)
             .map_err(|err| format!("Impossibile creare la cartella download: {err}"))?;
     }
+
     if format == "mp3" {
-        save_youtube_mp3_with_ffmpeg(url, &downloads_dir, &output_path, &ytdlp)?;
+        save_youtube_mp3_with_ffmpeg(
+            url,
+            &downloads_dir,
+            &output_path,
+            &ytdlp,
+            progress,
+            cancelled,
+        )?;
         return Ok(output_path);
     }
+
     let mut last_details = String::new();
     for profile in 0..youtube_save_client_profile_count() {
+        if cancelled
+            .as_ref()
+            .is_some_and(|flag| flag.load(Ordering::Relaxed))
+        {
+            return Err(youtube_cancelled_message().to_string());
+        }
+        if let Some(progress) = progress.as_ref() {
+            progress.store(0, Ordering::Relaxed);
+        }
+
         append_podcast_log(&format!("ytdlp.save.attempt profile={profile}"));
         let mut command = ytdlp_command(&ytdlp);
         configure_ytdlp_for_current_macos(&mut command);
@@ -18502,11 +18798,21 @@ fn save_youtube_to_path(
         command
             .arg("--no-playlist")
             .arg("--socket-timeout")
-            .arg("10")
+            .arg(YTDLP_SOCKET_TIMEOUT_SECS)
             .arg("--no-warnings")
             .arg("--force-overwrites")
+            .arg("--newline")
+            .arg("--progress-template")
+            .arg(ytdlp_download_progress_template())
+            .arg("--extractor-retries")
+            .arg("3")
+            .arg("--fragment-retries")
+            .arg("3")
+            .arg("--merge-output-format")
+            .arg("mp4")
             .arg("-o")
             .arg(output_path.to_string_lossy().to_string());
+
         if let Some(ffmpeg_path) = ffmpeg_executable_path() {
             append_podcast_log(&format!("ytdlp.save.ffmpeg path={}", ffmpeg_path.display()));
             command
@@ -18515,24 +18821,36 @@ fn save_youtube_to_path(
         } else {
             append_podcast_log("ytdlp.save.ffmpeg missing");
         }
+
         if quality == "best" {
-            command.args(["-f", "best[ext=mp4]/best"]);
+            command.args([
+                "-f",
+                "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            ]);
         } else {
             command.args([
                 "-f",
-                "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best",
+                "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[height<=720]/best",
             ]);
         }
         command.arg("--").arg(url);
         ytdlp_log_command_state("save", &ytdlp, &command);
-        let output = command.output().map_err(|err| {
-            ytdlp_log_spawn_error("save", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
+
+        let output = run_ytdlp_cancellable(
+            command,
+            "save",
+            cancelled.clone(),
+            progress.clone(),
+        )?;
         ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
+
         if output.status.success() {
+            if let Some(progress) = progress.as_ref() {
+                progress.store(100, Ordering::Relaxed);
+            }
             return Ok(output_path);
         }
+
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let details = format!("{stderr}\n{stdout}").trim().to_string();
@@ -18541,18 +18859,37 @@ fn save_youtube_to_path(
         } else {
             details
         };
-        if is_youtube_drm_error(&stderr)
-            && !is_youtube_bot_check_error(&last_details)
-            && !is_youtube_format_unavailable_error(&last_details)
-        {
+
+        if is_youtube_drm_error(&last_details) {
+            append_podcast_log(&format!(
+                "ytdlp.save.explicit_drm profile={profile}"
+            ));
             return Err(youtube_drm_message().to_string());
         }
+
+        append_podcast_log(&format!(
+            "ytdlp.save.failed profile={} retryable={} bot_check={} format_unavailable={}",
+            profile,
+            is_youtube_retryable_download_error(&last_details),
+            is_youtube_bot_check_error(&last_details),
+            is_youtube_format_unavailable_error(&last_details)
+        ));
     }
+
     Err(if is_youtube_bot_check_error(&last_details) {
         youtube_bot_check_message().to_string()
     } else {
         last_details
     })
+}
+
+fn save_youtube_to_path(
+    url: &str,
+    format: &str,
+    quality: &str,
+    output_path: PathBuf,
+) -> Result<PathBuf, String> {
+    save_youtube_to_path_with_control(url, format, quality, output_path, None, None)
 }
 
 type YoutubeResultsPayload = (Vec<YoutubeSearchResult>, Option<YoutubeSearchContext>);
@@ -18586,6 +18923,8 @@ struct YoutubeSearchProgressDialog {
     timer: Rc<Timer<Dialog>>,
     gauge: Gauge,
     progress_value: Rc<Cell<i32>>,
+    cancelled: Arc<AtomicBool>,
+    actual_progress: Option<Arc<AtomicU32>>,
 }
 
 impl YoutubeSearchProgressDialog {
@@ -18596,6 +18935,14 @@ impl YoutubeSearchProgressDialog {
         }
         self.progress_value.set(value);
         self.gauge.set_value(value);
+    }
+
+    fn cancel_flag(&self) -> Arc<AtomicBool> {
+        Arc::clone(&self.cancelled)
+    }
+
+    fn actual_progress_flag(&self) -> Option<Arc<AtomicU32>> {
+        self.actual_progress.as_ref().map(Arc::clone)
     }
 
     fn destroy(self) {
@@ -18612,19 +18959,46 @@ fn open_youtube_save_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProg
     open_youtube_progress_dialog(parent, youtube_save_progress_label())
 }
 
+fn open_youtube_standard_save_progress_dialog(
+    parent: &dyn WxWidget,
+) -> YoutubeSearchProgressDialog {
+    open_youtube_progress_dialog_with_options(
+        parent,
+        youtube_save_progress_label(),
+        true,
+        true,
+    )
+}
+
 fn open_youtube_open_progress_dialog(parent: &dyn WxWidget) -> YoutubeSearchProgressDialog {
-    open_youtube_progress_dialog(parent, youtube_open_progress_label())
+    open_youtube_progress_dialog_with_options(
+        parent,
+        youtube_open_progress_label(),
+        true,
+        false,
+    )
 }
 
 fn open_youtube_progress_dialog(parent: &dyn WxWidget, label: &str) -> YoutubeSearchProgressDialog {
+    open_youtube_progress_dialog_with_options(parent, label, false, false)
+}
+
+fn open_youtube_progress_dialog_with_options(
+    parent: &dyn WxWidget,
+    label: &str,
+    cancellable: bool,
+    track_actual_progress: bool,
+) -> YoutubeSearchProgressDialog {
+    let dialog_height = if cancellable { 185 } else { 135 };
     let dialog = Dialog::builder(parent, label)
         .with_style(DialogStyle::Caption)
-        .with_size(340, 135)
+        .with_size(360, dialog_height)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+    let status_label = StaticText::builder(&panel).with_label(label).build();
     root.add(
-        &StaticText::builder(&panel).with_label(label).build(),
+        &status_label,
         1,
         SizerFlag::Expand | SizerFlag::All,
         16,
@@ -18636,14 +19010,65 @@ fn open_youtube_progress_dialog(parent: &dyn WxWidget, label: &str) -> YoutubeSe
         SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom,
         16,
     );
+
+    let cancelled = Arc::new(AtomicBool::new(false));
+    if cancellable {
+        let button_row = BoxSizer::builder(Orientation::Horizontal).build();
+        button_row.add_spacer(1);
+        let cancel_button = Button::builder(&panel)
+            .with_label(&current_ui_strings().cancel)
+            .build();
+        button_row.add(&cancel_button, 0, SizerFlag::All, 8);
+        root.add_sizer(&button_row, 0, SizerFlag::Expand, 0);
+
+        let cancel_flag_click = Arc::clone(&cancelled);
+        let status_label_click = status_label;
+        let cancel_button_click = cancel_button;
+        cancel_button.on_click(move |_| {
+            if !cancel_flag_click.swap(true, Ordering::SeqCst) {
+                cancel_button_click.enable(false);
+                status_label_click.set_label(if Settings::load().ui_language == "it" {
+                    "Annullamento in corso..."
+                } else {
+                    "Cancelling..."
+                });
+            }
+        });
+
+        let cancel_flag_close = Arc::clone(&cancelled);
+        let status_label_close = status_label;
+        let cancel_button_close = cancel_button;
+        dialog.on_close(move |event| {
+            if !cancel_flag_close.swap(true, Ordering::SeqCst) {
+                cancel_button_close.enable(false);
+                status_label_close.set_label(if Settings::load().ui_language == "it" {
+                    "Annullamento in corso..."
+                } else {
+                    "Cancelling..."
+                });
+            }
+            event.skip(false);
+        });
+    }
+
     panel.set_sizer(root, true);
     dialog.show(true);
+
+    let actual_progress = track_actual_progress.then(|| Arc::new(AtomicU32::new(0)));
     let timer = Rc::new(Timer::new(&dialog));
     let timer_tick = Rc::clone(&timer);
     let progress_value = Rc::new(Cell::new(8i32));
     let progress_value_tick = Rc::clone(&progress_value);
+    let actual_progress_tick = actual_progress.as_ref().map(Arc::clone);
     let gauge_tick = gauge;
     timer_tick.on_tick(move |_| {
+        if let Some(actual_progress) = actual_progress_tick.as_ref() {
+            let actual = actual_progress.load(Ordering::Relaxed).min(100);
+            if actual > 0 {
+                gauge_tick.set_value(actual as i32);
+                return;
+            }
+        }
         let mut value = progress_value_tick.get().saturating_add(7);
         if value >= 95 {
             value = 8;
@@ -18651,12 +19076,15 @@ fn open_youtube_progress_dialog(parent: &dyn WxWidget, label: &str) -> YoutubeSe
         progress_value_tick.set(value);
         gauge_tick.set_value(value);
     });
-    timer.start(250, false);
+    timer.start(200, false);
+
     YoutubeSearchProgressDialog {
         dialog,
         timer,
         gauge,
         progress_value,
+        cancelled,
+        actual_progress,
     }
 }
 
@@ -18879,7 +19307,9 @@ fn open_youtube_results_dialog(
                 progress_dialog.destroy();
             }
             youtube_busy_timer.store(false, Ordering::SeqCst);
-            if let Err(err) = playback_result {
+            if let Err(err) = playback_result
+                && err != youtube_cancelled_message()
+            {
                 show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err);
             }
             choice_open_focus_timer.set_focus();
@@ -18896,6 +19326,7 @@ fn open_youtube_results_dialog(
                     &current_ui_strings().youtube_title,
                     &youtube_save_completed_message(&path),
                 ),
+                Err(err) if err == youtube_cancelled_message() => {}
                 Err(err) => {
                     show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
                 }
@@ -19068,7 +19499,7 @@ fn open_youtube_results_dialog(
                 let pending = Arc::clone(&youtube_pending_result_open);
                 if youtube_open_progress_click.borrow().is_none() {
                     *youtube_open_progress_click.borrow_mut() =
-                        Some(open_youtube_open_progress_dialog(&dialog_timer));
+                        Some(open_youtube_search_progress_dialog(&dialog_timer));
                 }
                 std::thread::spawn(move || {
                     let result = youtube_collection_entries(&url);
@@ -19078,12 +19509,12 @@ fn open_youtube_results_dialog(
                 let url = result.url.clone();
                 let title = result.title.clone();
                 let pending = Arc::clone(&youtube_pending_playback_open);
-                if youtube_open_progress_click.borrow().is_none() {
-                    *youtube_open_progress_click.borrow_mut() =
-                        Some(open_youtube_open_progress_dialog(&dialog_timer));
-                }
+                let progress_dialog = open_youtube_open_progress_dialog(&dialog_timer);
+                let cancel_flag = progress_dialog.cancel_flag();
+                *youtube_open_progress_click.borrow_mut() = Some(progress_dialog);
                 std::thread::spawn(move || {
-                    let result = open_youtube_with_mpv(&url, &title);
+                    let result =
+                        open_youtube_with_mpv_controlled(&url, &title, Some(cancel_flag));
                     *pending.lock().unwrap() = Some(result);
                 });
             }
@@ -19130,12 +19561,19 @@ fn open_youtube_results_dialog(
             let format = format.to_string();
             let quality = quality.to_string();
             let pending = Arc::clone(&youtube_pending_save_click);
-            if youtube_save_progress_click.borrow().is_none() {
-                *youtube_save_progress_click.borrow_mut() =
-                    Some(open_youtube_save_progress_dialog(&dialog_save));
-            }
+            let progress_dialog = open_youtube_standard_save_progress_dialog(&dialog_save);
+            let cancel_flag = progress_dialog.cancel_flag();
+            let progress_flag = progress_dialog.actual_progress_flag();
+            *youtube_save_progress_click.borrow_mut() = Some(progress_dialog);
             std::thread::spawn(move || {
-                let result = save_youtube_to_path(&url, &format, &quality, output_path);
+                let result = save_youtube_to_path_with_control(
+                    &url,
+                    &format,
+                    &quality,
+                    output_path,
+                    progress_flag,
+                    Some(cancel_flag),
+                );
                 *pending.lock().unwrap() = Some(result);
             });
         } else {
@@ -25114,6 +25552,21 @@ fn open_stream_with_mpv_recordable(
     if let Some(user_agent) = user_agent.map(str::trim).filter(|value| !value.is_empty()) {
         command.arg(format!("--user-agent={user_agent}"));
     }
+    if is_youtube_url(url) {
+        let ytdlp = ytdlp_executable_path();
+        command
+            .arg(format!(
+                "--script-opts=ytdl_hook-ytdl_path={}",
+                ytdlp.to_string_lossy()
+            ))
+            .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
+        append_podcast_log(&format!(
+            "mpv.recordable.youtube_fast_path title={} ytdlp={} format={}",
+            title,
+            ytdlp.display(),
+            YOUTUBE_MPV_STREAM_FORMAT
+        ));
+    }
 
     let accessibility_script =
         write_mpv_accessibility_script(&mpv_config_dir, title, recording.as_ref())?;
@@ -29042,21 +29495,23 @@ mod ytdlp_path_tests {
     }
 
     #[test]
-    fn youtube_playback_does_not_run_a_blocking_ytdlp_probe_before_mpv() {
+    fn youtube_playback_uses_windows_style_fast_preflight_and_mpv_ytdlp_hook() {
         let source = include_str!("main.rs");
-        let start = source
-            .find("fn open_youtube_with_mpv")
+        let probe_start = source
+            .find("fn probe_youtube_stream_playable_fast")
+            .expect("YouTube fast preflight");
+        let probe_end = source[probe_start..]
+            .find("fn open_youtube_with_mpv_controlled")
+            .map(|offset| probe_start + offset)
             .expect("YouTube MPV opener");
-        let end = source[start..]
-            .find("fn find_youtube_temp_download")
-            .map(|offset| start + offset)
-            .expect("function after YouTube MPV opener");
-        let opener = &source[start..end];
+        let probe = &source[probe_start..probe_end];
+        assert!(probe.contains("--skip-download"));
+        assert!(probe.contains(".arg(\"--print\")"));
+        assert!(probe.contains(".arg(\"id\")"));
+        assert!(!probe.contains(".arg(\"-g\")"));
 
-        assert!(!opener.contains("probe_youtube_stream_playable"));
-        assert!(!opener.contains("command.output()"));
-        assert!(opener.contains("ytdl_hook-ytdl_path"));
-        assert!(opener.contains(".spawn()"));
+        assert!(source.contains("--script-opts=ytdl_hook-ytdl_path={}"));
+        assert!(source.contains("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
     }
 }
 
