@@ -39,12 +39,8 @@ use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::io::{BufReader, Cursor};
-#[cfg(target_os = "macos")]
-use std::io::BufRead;
 #[cfg(any(target_os = "macos", windows))]
 use std::io::{Read, Write};
-#[cfg(target_os = "macos")]
-use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
@@ -14984,7 +14980,7 @@ fn open_cinema_dialog(parent: &Frame) {
                         .and_then(|sel| movies_timer.borrow().get(sel as usize).cloned())
                         .map(|movie| movie.title)
                         .unwrap_or_else(|| current_ui_strings().cinema_title.clone());
-                    if let Err(err) = open_youtube_with_mpv(&url, &title) {
+                    if let Err(err) = open_youtube_with_windows_flow(&url, &title, Arc::new(AtomicBool::new(false))) {
                         show_message_subdialog(
                             &dialog_timer,
                             &current_ui_strings().cinema_title,
@@ -17405,7 +17401,11 @@ fn ytdlp_log_spawn_error(context: &str, err: &std::io::Error) {
 }
 
 fn ytdlp_command(ytdlp: &Path) -> Command {
-    Command::new(ytdlp)
+    let mut command = Command::new(ytdlp);
+    // Parità Windows: forza UTF-8 per tutto l'output catturato di yt-dlp.
+    command.arg("--encoding").arg("utf-8");
+    command.stdin(Stdio::null());
+    command
 }
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
@@ -17457,20 +17457,12 @@ fn is_youtube_bot_check_error(message: &str) -> bool {
     lower.contains("confirm you're not a bot") || lower.contains("confirm you’re not a bot")
 }
 
-fn is_youtube_format_unavailable_error(message: &str) -> bool {
-    message
-        .to_ascii_lowercase()
-        .contains("requested format is not available")
-}
-
 fn is_youtube_drm_error(stderr: &str) -> bool {
     let lower = stderr.to_ascii_lowercase();
     lower.contains("known to use drm protection")
         || lower.contains("uses drm protection")
-        || lower.contains("drm protected")
-        || lower.contains("drm-protected")
+        || lower.contains("not be supported")
         || lower.contains("[drm]")
-        || lower.contains("widevine")
 }
 
 fn youtube_drm_message() -> &'static str {
@@ -17481,13 +17473,6 @@ fn youtube_drm_message() -> &'static str {
     }
 }
 
-fn youtube_open_drm_message() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "Questo contenuto risulta protetto da DRM e non può essere aperto."
-    } else {
-        "This content appears to be DRM-protected and cannot be opened."
-    }
-}
 
 fn youtube_bot_check_message() -> &'static str {
     if Settings::load().ui_language == "it" {
@@ -17501,35 +17486,6 @@ fn youtube_tools_available() -> bool {
     true
 }
 
-fn youtube_save_client_profile_count() -> usize {
-    3
-}
-
-fn configure_youtube_save_client_profile(command: &mut Command, profile: usize) {
-    match profile {
-        1 => {
-            command.args([
-                "--extractor-args",
-                "youtube:player_client=web,web_safari,mweb",
-            ]);
-        }
-        2 => {
-            command.args([
-                "--extractor-args",
-                "youtube:player_client=tv,tv_simply,mweb;player_skip=webpage",
-            ]);
-        }
-        _ => {}
-    }
-}
-
-fn youtube_mp3_download_format_for_profile(profile: usize) -> &'static str {
-    if profile == 0 {
-        "bestaudio/best"
-    } else {
-        "best"
-    }
-}
 
 #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
 fn ytdlp_verbose_probe_enabled(value: Option<&str>) -> bool {
@@ -18229,13 +18185,44 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
 const YOUTUBE_OPEN_CANCELLED: &str = "__SONARPAD_YOUTUBE_OPEN_CANCELLED__";
+const YTDLP_SOCKET_TIMEOUT_SECS: &str = "10";
+const YTDLP_PROGRESS_TEMPLATE_PREFIX: &str = "SONARPAD_PROGRESS";
+
+fn ytdlp_download_progress_template() -> String {
+    format!(
+        "download:{prefix}:%(progress.downloaded_bytes)s:%(progress.total_bytes)s:%(progress.total_bytes_estimate)s",
+        prefix = YTDLP_PROGRESS_TEMPLATE_PREFIX
+    )
+}
+
+// Port letterale del preflight Windows: non blocca l'apertura in caso di errore,
+// serve solo a fare la stessa verifica leggera prima di passare l'URL a mpv.
+fn probe_youtube_stream_playable(ytdlp: &Path, url: &str) -> Result<(), String> {
+    let output = ytdlp_command(ytdlp)
+        .arg("--no-playlist")
+        .arg("--no-warnings")
+        .arg("--skip-download")
+        .arg("--print")
+        .arg("id")
+        .arg("--")
+        .arg(url)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| err.to_string())?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let error = format!("{stderr}\n{stdout}");
+    Err(error.trim().to_string())
+}
 
 fn configure_youtube_mpv_command(
     command: &mut Command,
     url: &str,
     title: &str,
-    ipc_socket: Option<&Path>,
-    log_path: Option<&Path>,
 ) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
@@ -18264,7 +18251,9 @@ fn configure_youtube_mpv_command(
         .arg("--osc=yes")
         .arg("--input-default-bindings=yes")
         .arg("--volume-max=300")
-        .arg("--no-video")
+        // Parità Windows: il flusso YouTube è aperto come vero video, con audio auto.
+        .arg("--aid=auto")
+        .arg("--audio-channels=stereo")
         .arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
     attach_mpv_accessibility_script(command, &accessibility_script);
     if ytdlp.exists() {
@@ -18272,14 +18261,6 @@ fn configure_youtube_mpv_command(
             "--script-opts=ytdl_hook-ytdl_path={}",
             ytdlp.to_string_lossy()
         ));
-    }
-    if let Some(ipc_socket) = ipc_socket {
-        command.arg(format!("--input-ipc-server={}", ipc_socket.display()));
-    }
-    if let Some(log_path) = log_path {
-        command
-            .arg(format!("--log-file={}", log_path.display()))
-            .arg("--msg-level=ytdl_hook=debug");
     }
     if allow_bookmarks {
         command
@@ -18297,22 +18278,16 @@ fn configure_youtube_mpv_command(
     Ok(())
 }
 
-fn spawn_youtube_mpv(
-    url: &str,
-    title: &str,
-    ipc_socket: Option<&Path>,
-    log_path: Option<&Path>,
-) -> Result<std::process::Child, String> {
+fn spawn_youtube_mpv(url: &str, title: &str) -> Result<std::process::Child, String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let mut command = Command::new(&mpv_executable);
-    configure_youtube_mpv_command(&mut command, url, title, ipc_socket, log_path)?;
+    configure_youtube_mpv_command(&mut command, url, title)?;
     append_podcast_log(&format!(
-        "youtube.mpv.spawn title={} url={} mpv={} wait_for_file_loaded={}",
+        "youtube.mpv.spawn title={} url={} mpv={}",
         title,
         url,
-        mpv_executable.display(),
-        ipc_socket.is_some()
+        mpv_executable.display()
     ));
     let child = command
         .spawn()
@@ -18326,215 +18301,30 @@ fn spawn_youtube_mpv(
 }
 
 fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
-    let _child = spawn_youtube_mpv(url, title, None, None)?;
+    let _child = spawn_youtube_mpv(url, title)?;
     Ok(())
 }
 
-#[cfg(target_os = "macos")]
-fn youtube_mpv_runtime_paths() -> (PathBuf, PathBuf) {
-    let token = Uuid::new_v4();
-    (
-        PathBuf::from("/tmp").join(format!("sonarpad-youtube-{token}.sock")),
-        PathBuf::from("/tmp").join(format!("sonarpad-youtube-{token}.log")),
-    )
-}
-
-#[cfg(target_os = "macos")]
-fn cleanup_youtube_mpv_runtime_paths(ipc_socket: &Path, log_path: &Path) {
-    let _ = std::fs::remove_file(ipc_socket);
-    let _ = std::fs::remove_file(log_path);
-}
-
-#[cfg(target_os = "macos")]
-fn youtube_mpv_log_text(log_path: &Path) -> String {
-    std::fs::read_to_string(log_path).unwrap_or_default()
-}
-
-#[cfg(target_os = "macos")]
-fn youtube_open_failure_message(details: &str) -> String {
-    if is_youtube_drm_error(details) {
-        return youtube_open_drm_message().to_string();
-    }
-    if is_youtube_bot_check_error(details) {
-        return youtube_bot_check_message().to_string();
-    }
-    if is_youtube_format_unavailable_error(details) {
-        return if Settings::load().ui_language == "it" {
-            "Il formato richiesto da YouTube non è disponibile per questo video.".to_string()
-        } else {
-            "The requested YouTube format is not available for this video.".to_string()
-        };
-    }
-    if Settings::load().ui_language == "it" {
-        "Impossibile aprire questo video YouTube.".to_string()
-    } else {
-        "Unable to open this YouTube video.".to_string()
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn wait_for_youtube_mpv_file_loaded(
-    child: &mut std::process::Child,
-    ipc_socket: &Path,
-    log_path: &Path,
-    cancel_requested: &AtomicBool,
-) -> Result<(), String> {
-    let started = Instant::now();
-    let mut reader: Option<BufReader<UnixStream>> = None;
-
-    loop {
-        if cancel_requested.load(Ordering::SeqCst) {
-            append_podcast_log("youtube.mpv.open.cancel_requested");
-            let _ = child.kill();
-            let _ = child.wait();
-            cleanup_youtube_mpv_runtime_paths(ipc_socket, log_path);
-            return Err(YOUTUBE_OPEN_CANCELLED.to_string());
-        }
-
-        if let Some(status) = child
-            .try_wait()
-            .map_err(|err| format!("controllo mpv fallito: {err}"))?
-        {
-            let details = youtube_mpv_log_text(log_path);
-            append_podcast_log(&format!(
-                "youtube.mpv.exited_before_file_loaded status={} elapsed_ms={} details={}",
-                status,
-                started.elapsed().as_millis(),
-                details.replace('\n', " | ")
-            ));
-            let message = youtube_open_failure_message(&details);
-            cleanup_youtube_mpv_runtime_paths(ipc_socket, log_path);
-            return Err(message);
-        }
-
-        if reader.is_none() {
-            match UnixStream::connect(ipc_socket) {
-                Ok(stream) => {
-                    stream
-                        .set_read_timeout(Some(Duration::from_millis(200)))
-                        .map_err(|err| format!("configurazione IPC mpv fallita: {err}"))?;
-                    let mut writer = stream
-                        .try_clone()
-                        .map_err(|err| format!("duplicazione IPC mpv fallita: {err}"))?;
-                    let _ = writer.write_all(
-                        b"{\"command\":[\"get_property\",\"track-list\"],\"request_id\":4242}\n",
-                    );
-                    append_podcast_log(&format!(
-                        "youtube.mpv.ipc_connected elapsed_ms={}",
-                        started.elapsed().as_millis()
-                    ));
-                    reader = Some(BufReader::new(stream));
-                }
-                Err(err) => {
-                    if started.elapsed() >= Duration::from_secs(10) {
-                        let details = youtube_mpv_log_text(log_path);
-                        append_podcast_log(&format!(
-                            "youtube.mpv.ipc_timeout err={} details={}",
-                            err,
-                            details.replace('\n', " | ")
-                        ));
-                        let _ = child.kill();
-                        let _ = child.wait();
-                        let message = youtube_open_failure_message(&details);
-                        cleanup_youtube_mpv_runtime_paths(ipc_socket, log_path);
-                        return Err(message);
-                    }
-                    std::thread::sleep(Duration::from_millis(50));
-                    continue;
-                }
-            }
-        }
-
-        let mut reconnect_ipc = false;
-        let Some(ipc_reader) = reader.as_mut() else {
-            continue;
-        };
-        let mut line = String::new();
-        match ipc_reader.read_line(&mut line) {
-            Ok(0) => {
-                reconnect_ipc = true;
-            }
-            Ok(_) => {
-                let value = serde_json::from_str::<serde_json::Value>(&line).ok();
-                if value
-                    .as_ref()
-                    .and_then(|value| value.get("event"))
-                    .and_then(|value| value.as_str())
-                    == Some("file-loaded")
-                {
-                    append_podcast_log(&format!(
-                        "youtube.mpv.file_loaded elapsed_ms={}",
-                        started.elapsed().as_millis()
-                    ));
-                    cleanup_youtube_mpv_runtime_paths(ipc_socket, log_path);
-                    return Ok(());
-                }
-
-                if let Some(value) = value.as_ref()
-                    && value.get("request_id").and_then(|value| value.as_i64()) == Some(4242)
-                    && value.get("error").and_then(|value| value.as_str()) == Some("success")
-                    && value
-                        .get("data")
-                        .and_then(|value| value.as_array())
-                        .is_some_and(|tracks| !tracks.is_empty())
-                {
-                    append_podcast_log(&format!(
-                        "youtube.mpv.track_list_ready elapsed_ms={}",
-                        started.elapsed().as_millis()
-                    ));
-                    cleanup_youtube_mpv_runtime_paths(ipc_socket, log_path);
-                    return Ok(());
-                }
-
-                if value
-                    .as_ref()
-                    .and_then(|value| value.get("event"))
-                    .and_then(|value| value.as_str())
-                    == Some("end-file")
-                {
-                    let details = youtube_mpv_log_text(log_path);
-                    append_podcast_log(&format!(
-                        "youtube.mpv.end_file_before_loaded elapsed_ms={} details={}",
-                        started.elapsed().as_millis(),
-                        details.replace('\n', " | ")
-                    ));
-                    let message = youtube_open_failure_message(&details);
-                    cleanup_youtube_mpv_runtime_paths(ipc_socket, log_path);
-                    return Err(message);
-                }
-            }
-            Err(err)
-                if matches!(
-                    err.kind(),
-                    std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut
-                ) => {}
-            Err(err) => {
-                append_podcast_log(&format!("youtube.mpv.ipc_read_error {err}"));
-                reconnect_ipc = true;
-            }
-        }
-        if reconnect_ipc {
-            reader = None;
-            std::thread::sleep(Duration::from_millis(25));
-        }
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn open_youtube_with_mpv_until_loaded(
+// Stesso flusso Windows, con l'unica eccezione richiesta sul Mac: durante
+// preflight + spawn resta visibile la finestra "Apertura in corso" e il suo
+// pulsante Annulla. Come Windows, un errore del preflight viene solo loggato e
+// non impedisce a mpv di tentare l'apertura dell'URL originale.
+fn open_youtube_with_windows_flow(
     url: &str,
     title: &str,
     cancel_requested: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    let (ipc_socket, log_path) = youtube_mpv_runtime_paths();
-    cleanup_youtube_mpv_runtime_paths(&ipc_socket, &log_path);
-    let mut child = spawn_youtube_mpv(url, title, Some(&ipc_socket), Some(&log_path))?;
-    wait_for_youtube_mpv_file_loaded(
-        &mut child,
-        &ipc_socket,
-        &log_path,
-        cancel_requested.as_ref(),
-    )
+    if cancel_requested.load(Ordering::SeqCst) {
+        return Err(YOUTUBE_OPEN_CANCELLED.to_string());
+    }
+    let ytdlp = ytdlp_executable_path();
+    if let Err(error) = probe_youtube_stream_playable(&ytdlp, url) {
+        append_podcast_log(&format!("YouTube preflight failed: {error}"));
+    }
+    if cancel_requested.load(Ordering::SeqCst) {
+        return Err(YOUTUBE_OPEN_CANCELLED.to_string());
+    }
+    open_youtube_with_mpv(url, title)
 }
 
 fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
@@ -18610,64 +18400,50 @@ fn save_youtube_mp3_with_ffmpeg(
         temp_template.display(),
         ffmpeg.display()
     ));
-    let mut last_details = String::new();
-    let mut download_succeeded = false;
-    for profile in 0..youtube_save_client_profile_count() {
-        append_podcast_log(&format!(
-            "ytdlp.save_mp3_download.attempt profile={profile}"
-        ));
-        let mut command = ytdlp_command(ytdlp);
-        configure_ytdlp_for_current_macos(&mut command);
-        configure_youtube_save_client_profile(&mut command, profile);
-        command
-            .arg("--no-playlist")
-            .arg("--socket-timeout")
-            .arg("10")
-            .arg("--no-warnings")
-            .arg("--force-overwrites")
-            .arg("-f")
-            .arg(youtube_mp3_download_format_for_profile(profile))
-            .arg("-o")
-            .arg(temp_template.to_string_lossy().to_string())
-            .arg("--")
-            .arg(url);
-        ytdlp_log_command_state("save_mp3_download", ytdlp, &command);
-        let output = command.output().map_err(|err| {
-            ytdlp_log_spawn_error("save_mp3_download", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
-        ytdlp_log_output(
-            "save_mp3_download",
-            output.status,
-            &output.stdout,
-            &output.stderr,
-        );
-        if output.status.success() {
-            download_succeeded = true;
-            break;
-        }
+
+    let mut command = ytdlp_command(ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
+    command
+        .arg("--no-playlist")
+        .arg("--socket-timeout")
+        .arg(YTDLP_SOCKET_TIMEOUT_SECS)
+        .arg("--no-warnings")
+        .arg("--newline")
+        .arg("--progress-template")
+        .arg(ytdlp_download_progress_template())
+        .arg("-f")
+        .arg("bestaudio[ext=mp3]/bestaudio/best")
+        .arg("-o")
+        .arg(temp_template.to_string_lossy().to_string())
+        .arg("--")
+        .arg(url);
+    ytdlp_log_command_state("save_mp3_download", ytdlp, &command);
+    let output = command.output().map_err(|err| {
+        ytdlp_log_spawn_error("save_mp3_download", &err);
+        format!("yt-dlp non avviato: {err}")
+    })?;
+    ytdlp_log_output(
+        "save_mp3_download",
+        output.status,
+        &output.stdout,
+        &output.stderr,
+    );
+    if !output.status.success() {
         let stderr = String::from_utf8_lossy(&output.stderr);
         let stdout = String::from_utf8_lossy(&output.stdout);
         let details = format!("{stderr}\n{stdout}").trim().to_string();
-        last_details = if details.is_empty() {
+        if is_youtube_drm_error(&details) {
+            return Err(youtube_drm_message().to_string());
+        }
+        return Err(if is_youtube_bot_check_error(&details) {
+            youtube_bot_check_message().to_string()
+        } else if details.is_empty() {
             "yt-dlp non ha completato il download audio.".to_string()
         } else {
             details
-        };
-        if is_youtube_drm_error(&stderr)
-            && !is_youtube_bot_check_error(&last_details)
-            && !is_youtube_format_unavailable_error(&last_details)
-        {
-            return Err(youtube_drm_message().to_string());
-        }
-    }
-    if !download_succeeded {
-        return Err(if is_youtube_bot_check_error(&last_details) {
-            youtube_bot_check_message().to_string()
-        } else {
-            last_details
         });
     }
+
     let downloaded_path = find_youtube_temp_download(downloads_dir, &prefix)?;
     append_podcast_log(&format!(
         "ytdlp.save_mp3.ffmpeg_begin input={} output={}",
@@ -18681,8 +18457,6 @@ fn save_youtube_mp3_with_ffmpeg(
         .arg("-vn")
         .arg("-codec:a")
         .arg("libmp3lame")
-        .arg("-q:a")
-        .arg("2")
         .arg(output_path.to_string_lossy().to_string())
         .output()
         .map_err(|err| format!("avvio FFmpeg fallito: {err}"))?;
@@ -18745,65 +18519,60 @@ fn save_youtube_to_path(
         save_youtube_mp3_with_ffmpeg(url, &downloads_dir, &output_path, &ytdlp)?;
         return Ok(output_path);
     }
-    let mut last_details = String::new();
-    for profile in 0..youtube_save_client_profile_count() {
-        append_podcast_log(&format!("ytdlp.save.attempt profile={profile}"));
-        let mut command = ytdlp_command(&ytdlp);
-        configure_ytdlp_for_current_macos(&mut command);
-        configure_youtube_save_client_profile(&mut command, profile);
+
+    let mut command = ytdlp_command(&ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
+    command
+        .arg("--no-playlist")
+        .arg("--socket-timeout")
+        .arg(YTDLP_SOCKET_TIMEOUT_SECS)
+        .arg("--no-warnings")
+        .arg("--newline")
+        .arg("--progress-template")
+        .arg(ytdlp_download_progress_template())
+        .arg("--merge-output-format")
+        .arg("mp4")
+        .arg("-o")
+        .arg(output_path.to_string_lossy().to_string());
+
+    // Windows non usa profili client alternativi: una sola estrazione e gli
+    // stessi selettori MP4. Sul Mac indichiamo solo il FFmpeg bundled, perché
+    // non è necessariamente nel PATH dell'app bundle.
+    if let Some(ffmpeg_path) = ffmpeg_executable_path() {
         command
-            .arg("--no-playlist")
-            .arg("--socket-timeout")
-            .arg("10")
-            .arg("--no-warnings")
-            .arg("--force-overwrites")
-            .arg("-o")
-            .arg(output_path.to_string_lossy().to_string());
-        if let Some(ffmpeg_path) = ffmpeg_executable_path() {
-            append_podcast_log(&format!("ytdlp.save.ffmpeg path={}", ffmpeg_path.display()));
-            command
-                .arg("--ffmpeg-location")
-                .arg(ffmpeg_path.to_string_lossy().to_string());
-        } else {
-            append_podcast_log("ytdlp.save.ffmpeg missing");
-        }
-        if quality == "best" {
-            command.args(["-f", "best[ext=mp4]/best"]);
-        } else {
-            command.args([
-                "-f",
-                "best[ext=mp4][height<=720]/best[height<=720][ext=mp4]/best[ext=mp4]/best",
-            ]);
-        }
-        command.arg("--").arg(url);
-        ytdlp_log_command_state("save", &ytdlp, &command);
-        let output = command.output().map_err(|err| {
-            ytdlp_log_spawn_error("save", &err);
-            format!("yt-dlp non avviato: {err}")
-        })?;
-        ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
-        if output.status.success() {
-            return Ok(output_path);
-        }
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let details = format!("{stderr}\n{stdout}").trim().to_string();
-        last_details = if details.is_empty() {
-            "yt-dlp non ha completato il salvataggio.".to_string()
-        } else {
-            details
-        };
-        if is_youtube_drm_error(&stderr)
-            && !is_youtube_bot_check_error(&last_details)
-            && !is_youtube_format_unavailable_error(&last_details)
-        {
-            return Err(youtube_drm_message().to_string());
-        }
+            .arg("--ffmpeg-location")
+            .arg(ffmpeg_path.to_string_lossy().to_string());
     }
-    Err(if is_youtube_bot_check_error(&last_details) {
-        youtube_bot_check_message().to_string()
+    if quality == "best" {
+        command.args(["-f", "best[ext=mp4]/best"]);
     } else {
-        last_details
+        command.args([
+            "-f",
+            "best[ext=mp4][height<=720]/best[height<=720]/best",
+        ]);
+    }
+    command.arg("--").arg(url);
+    ytdlp_log_command_state("save", &ytdlp, &command);
+    let output = command.output().map_err(|err| {
+        ytdlp_log_spawn_error("save", &err);
+        format!("yt-dlp non avviato: {err}")
+    })?;
+    ytdlp_log_output("save", output.status, &output.stdout, &output.stderr);
+    if output.status.success() {
+        return Ok(output_path);
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let details = format!("{stderr}\n{stdout}").trim().to_string();
+    if is_youtube_drm_error(&details) {
+        return Err(youtube_drm_message().to_string());
+    }
+    Err(if is_youtube_bot_check_error(&details) {
+        youtube_bot_check_message().to_string()
+    } else if details.is_empty() {
+        "yt-dlp non ha completato il salvataggio.".to_string()
+    } else {
+        details
     })
 }
 
@@ -19375,14 +19144,11 @@ fn open_youtube_results_dialog(
                     );
                 }
                 std::thread::spawn(move || {
-                    #[cfg(target_os = "macos")]
-                    let result = open_youtube_with_mpv_until_loaded(
+                    let result = open_youtube_with_windows_flow(
                         &url,
                         &title,
                         cancel_requested,
                     );
-                    #[cfg(not(target_os = "macos"))]
-                    let result = open_youtube_with_mpv(&url, &title);
                     *pending.lock().unwrap() = Some(result);
                 });
             }
@@ -29341,47 +29107,88 @@ mod ytdlp_path_tests {
     }
 
     #[test]
-    fn youtube_playback_does_not_run_a_blocking_ytdlp_probe_before_mpv() {
+    fn youtube_playback_matches_windows_preflight_then_mpv_flow() {
         let source = include_str!("main.rs");
         let start = source
-            .find("fn configure_youtube_mpv_command")
-            .expect("YouTube MPV command builder");
+            .find("fn probe_youtube_stream_playable")
+            .expect("YouTube Windows-style preflight");
         let end = source[start..]
             .find("fn find_youtube_temp_download")
             .map(|offset| start + offset)
-            .expect("function after YouTube MPV opener");
+            .expect("function after YouTube opener");
         let opener = &source[start..end];
 
-        assert!(!opener.contains("probe_youtube_stream_playable"));
-        assert!(!opener.contains("yt-dlp -g"));
-        assert!(!opener.contains("--skip-download"));
+        assert!(opener.contains("--skip-download"));
+        assert!(opener.contains(".arg(\"--print\")"));
+        assert!(opener.contains(".arg(\"id\")"));
+        assert!(opener.contains("YouTube preflight failed"));
         assert!(opener.contains("ytdl_hook-ytdl_path"));
+        assert!(opener.contains("best[height<=360][ext=mp4]/18/best[height<=480]/best"));
         assert!(opener.contains(".spawn()"));
+        assert!(!opener.contains("ytdl://"));
+        assert!(!opener.contains("try_ytdl_first"));
+        assert!(!opener.contains("player_client="));
     }
 
     #[test]
-    fn youtube_macos_open_waits_for_real_mpv_load_and_supports_cancel() {
+    fn youtube_macos_keeps_only_the_requested_opening_progress_exception() {
         let source = include_str!("main.rs");
-        assert!(source.contains("--input-ipc-server="));
-        assert!(source.contains("youtube.mpv.file_loaded"));
+        let start = source
+            .find("fn open_youtube_with_windows_flow")
+            .expect("Windows parity opener");
+        let end = source[start..]
+            .find("fn find_youtube_temp_download")
+            .map(|offset| start + offset)
+            .expect("function after opener");
+        let opener = &source[start..end];
+        assert!(source.contains("open_youtube_open_progress_dialog"));
         assert!(source.contains("Some(Arc::clone(&cancel_requested))"));
-        assert!(source.contains("child.kill()"));
+        assert!(opener.contains("probe_youtube_stream_playable(&ytdlp, url)"));
+        assert!(opener.contains("open_youtube_with_mpv(url, title)"));
+        assert!(!opener.contains("input-ipc-server"));
+        assert!(!opener.contains("file-loaded"));
         assert!(source.contains("err != YOUTUBE_OPEN_CANCELLED"));
     }
 
     #[test]
-    fn youtube_drm_detection_avoids_generic_false_positives() {
+    fn youtube_download_uses_windows_single_attempt_selectors() {
+        let source = include_str!("main.rs");
+        let start = source
+            .find("fn save_youtube_mp3_with_ffmpeg")
+            .expect("YouTube save helper");
+        let end = source[start..]
+            .find("type YoutubeResultsPayload")
+            .map(|offset| start + offset)
+            .expect("function after YouTube save");
+        let save = &source[start..end];
+        assert!(save.contains("bestaudio[ext=mp3]/bestaudio/best"));
+        assert!(save.contains("best[ext=mp4]/best"));
+        assert!(save.contains("best[ext=mp4][height<=720]/best[height<=720]/best"));
+        assert!(save.contains("--merge-output-format"));
+        assert!(save.contains("--progress-template"));
+        assert!(!save.contains("player_client="));
+        assert!(!save.contains("youtube_save_client_profile_count"));
+        assert!(!save.contains("--force-overwrites"));
+    }
+
+    #[test]
+    fn youtube_drm_detection_matches_windows_classifier() {
         assert!(super::is_youtube_drm_error(
             "ERROR: This video is known to use DRM protection"
         ));
-        assert!(super::is_youtube_drm_error("[drm] Widevine protected stream"));
-        assert!(!super::is_youtube_drm_error(
-            "ERROR: requested format is not available; protected field missing"
+        assert!(super::is_youtube_drm_error(
+            "ERROR: This video uses DRM protection"
         ));
+        assert!(super::is_youtube_drm_error("[drm] protected stream"));
+        assert!(super::is_youtube_drm_error(
+            "This DRM method may not be supported"
+        ));
+        assert!(!super::is_youtube_drm_error("Widevine protected stream"));
         assert!(!super::is_youtube_drm_error(
             "HTTP Error 403: license endpoint was not contacted"
         ));
     }
+
 }
 
 #[cfg(test)]

@@ -10,43 +10,40 @@ def section(start: str, end: str) -> str:
     return SOURCE[a:b]
 
 
-def test_youtube_open_has_no_separate_ytdlp_preflight():
-    block = section('fn configure_youtube_mpv_command', 'fn find_youtube_temp_download')
-    assert '--skip-download' not in block
-    assert 'probe_youtube_stream_playable' not in block
-    assert 'command.output()' not in block
-    assert 'ytdl_hook-ytdl_path' in block
-    assert '.spawn()' in block
+def test_youtube_open_matches_stable_windows_two_stage_flow():
+    preflight = section('fn probe_youtube_stream_playable', 'fn configure_youtube_mpv_command')
+    opener = section('fn open_youtube_with_windows_flow', 'fn find_youtube_temp_download')
+    assert '--skip-download' in preflight
+    assert '.arg("--print")' in preflight
+    assert '.arg("id")' in preflight
+    assert 'probe_youtube_stream_playable(&ytdlp, url)' in opener
+    assert 'open_youtube_with_mpv(url, title)' in opener
 
 
-def test_youtube_open_progress_waits_for_real_file_loaded():
-    block = section('fn wait_for_youtube_mpv_file_loaded', 'fn find_youtube_temp_download')
-    assert '--input-ipc-server=' in SOURCE
-    assert 'Some("file-loaded")' in block
-    assert 'youtube.mpv.file_loaded' in block
-    assert 'track-list' in SOURCE
+def test_youtube_mpv_uses_normal_url_and_stable_windows_format():
+    b = section('fn configure_youtube_mpv_command', 'fn spawn_youtube_mpv')
+    assert '.arg(url)' in b
+    assert 'ytdl_hook-ytdl_path={}' in b
+    assert 'best[height<=360][ext=mp4]/18/best[height<=480]/best' in SOURCE
+    assert 'ytdl://' not in b
+    assert '--no-video' not in b
 
 
-def test_youtube_open_cancel_kills_mpv_and_suppresses_fake_error():
-    assert 'Some(Arc::clone(&cancel_requested))' in SOURCE
-    assert 'cancel_requested.store(true, Ordering::SeqCst)' in SOURCE
-    assert 'child.kill()' in SOURCE
+def test_mac_opening_progress_is_preserved():
+    b = section('let choice_open = choice;', 'let choice_save = choice;')
+    assert 'open_youtube_open_progress_dialog' in b
+    assert 'Some(Arc::clone(&cancel_requested))' in b
+    assert 'open_youtube_with_windows_flow' in b
     assert 'err != YOUTUBE_OPEN_CANCELLED' in SOURCE
 
 
-def test_drm_detection_is_specific_not_generic():
-    block = section('fn is_youtube_drm_error', 'fn youtube_drm_message')
-    assert 'known to use drm protection' in block
-    assert 'drm protected' in block
-    assert '[drm]' in block
-    assert 'widevine' in block
-    assert 'lower.contains("license")' not in block
-    assert 'lower.contains("licence")' not in block
-    assert 'lower.contains("encrypted")' not in block
-    assert 'lower.contains("protected")' not in block
+def test_save_does_not_use_experimental_client_profiles():
+    b = section('fn save_youtube_mp3_with_ffmpeg', 'type YoutubeResultsPayload')
+    assert 'player_client=' not in b
+    assert 'youtube_save_client_profile_count' not in b
+    assert '--force-overwrites' not in b
 
 
 def test_audio_description_download_path_still_exists():
-    # Regression guard: this YouTube change must not remove the existing AD flow.
     assert 'youtube_pending_audio_description' in SOURCE
     assert 'audio_context_timer.open_with_input(&dialog_timer, path)' in SOURCE
