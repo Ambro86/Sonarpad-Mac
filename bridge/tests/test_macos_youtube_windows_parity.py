@@ -24,30 +24,28 @@ class MacYoutubeWindowsParityTests(unittest.TestCase):
         self.assertIn('resources_dir.join("deno")', b)
         self.assertIn('.filter(|deno| deno.is_file())', b)
 
-    def test_open_uses_exact_windows_lightweight_preflight(self):
-        b = block('fn probe_youtube_stream_playable', 'fn configure_youtube_mpv_command')
-        for expected in ('--no-playlist', '--no-warnings', '--skip-download', '--print', '.arg("id")', '.arg("--")'):
+    def test_open_resolves_stable_progressive_stream_before_mpv(self):
+        b = block('fn resolve_youtube_playback_url', 'fn configure_youtube_mpv_command')
+        for expected in ('--no-playlist', '--no-warnings', 'YOUTUBE_MPV_STREAM_FORMAT', '.arg("-g")', '.arg("--")'):
             self.assertIn(expected, b)
-        self.assertNotIn('.arg("-g")', b)
         self.assertNotIn('player_client=', b)
 
-    def test_open_passes_original_url_to_mpv_with_windows_format(self):
+    def test_mpv_receives_resolved_url_with_stable_format_options(self):
         b = block('fn configure_youtube_mpv_command', 'fn find_youtube_temp_download')
         self.assertIn('.arg(url)', b)
         self.assertIn('ytdl_hook-ytdl_path={}', b)
         self.assertIn('--ytdl-raw-options=js-runtimes=deno:{}', b)
-        self.assertIn('best[height<=360][ext=mp4]/18/best[height<=480]/best', MAIN)
+        self.assertIn('18/best[height<=360][ext=mp4]/best[height<=480]/best', MAIN)
         self.assertIn('--aid=auto', b)
         self.assertIn('--audio-channels=stereo', b)
         self.assertNotIn('--no-video', b)
         self.assertNotIn('ytdl://', b)
         self.assertNotIn('try_ytdl_first', b)
 
-    def test_preflight_failure_is_logged_but_does_not_block_mpv_like_windows(self):
+    def test_resolved_url_is_passed_to_mpv(self):
         b = block('fn open_youtube_with_windows_flow', 'fn find_youtube_temp_download')
-        self.assertIn('if let Err(error) = probe_youtube_stream_playable(&ytdlp, url)', b)
-        self.assertIn('YouTube preflight failed', b)
-        self.assertIn('open_youtube_with_mpv(url, title)', b)
+        self.assertIn('resolve_youtube_playback_url(&ytdlp, url)?', b)
+        self.assertIn('open_youtube_with_mpv(&playback_url, title)', b)
 
     def test_mac_keeps_opening_progress_and_cancel_only(self):
         b = block('let choice_open = choice;', 'let choice_save = choice;')
@@ -67,7 +65,7 @@ class MacYoutubeWindowsParityTests(unittest.TestCase):
 
     def test_save_uses_windows_selectors(self):
         b = block('fn save_youtube_mp3_with_ffmpeg', 'type YoutubeResultsPayload')
-        self.assertIn('bestaudio[ext=mp3]/bestaudio/best', b)
+        self.assertIn('18/bestaudio[ext=mp3]/bestaudio/best', b)
         self.assertIn('best[ext=mp4]/best', b)
         self.assertIn('best[ext=mp4][height<=720]/best[height<=720]/best', b)
         self.assertIn('--merge-output-format', b)

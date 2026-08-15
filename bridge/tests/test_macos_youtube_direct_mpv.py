@@ -10,21 +10,20 @@ def section(start: str, end: str) -> str:
     return SOURCE[a:b]
 
 
-def test_youtube_open_matches_stable_windows_two_stage_flow():
-    preflight = section('fn probe_youtube_stream_playable', 'fn configure_youtube_mpv_command')
+def test_youtube_open_resolves_stream_before_starting_mpv():
+    resolver = section('fn resolve_youtube_playback_url', 'fn configure_youtube_mpv_command')
     opener = section('fn open_youtube_with_windows_flow', 'fn find_youtube_temp_download')
-    assert '--skip-download' in preflight
-    assert '.arg("--print")' in preflight
-    assert '.arg("id")' in preflight
-    assert 'probe_youtube_stream_playable(&ytdlp, url)' in opener
-    assert 'open_youtube_with_mpv(url, title)' in opener
+    assert '.arg("-g")' in resolver
+    assert 'YOUTUBE_MPV_STREAM_FORMAT' in resolver
+    assert 'resolve_youtube_playback_url(&ytdlp, url)?' in opener
+    assert 'open_youtube_with_mpv(&playback_url, title)' in opener
 
 
 def test_youtube_mpv_uses_normal_url_and_stable_windows_format():
     b = section('fn configure_youtube_mpv_command', 'fn spawn_youtube_mpv')
     assert '.arg(url)' in b
     assert 'ytdl_hook-ytdl_path={}' in b
-    assert 'best[height<=360][ext=mp4]/18/best[height<=480]/best' in SOURCE
+    assert '18/best[height<=360][ext=mp4]/best[height<=480]/best' in SOURCE
     assert 'ytdl://' not in b
     assert '--no-video' not in b
 

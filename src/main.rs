@@ -18201,7 +18201,7 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
         .collect())
 }
 
-const YOUTUBE_MPV_STREAM_FORMAT: &str = "best[height<=360][ext=mp4]/18/best[height<=480]/best";
+const YOUTUBE_MPV_STREAM_FORMAT: &str = "18/best[height<=360][ext=mp4]/best[height<=480]/best";
 const YOUTUBE_OPEN_CANCELLED: &str = "__SONARPAD_YOUTUBE_OPEN_CANCELLED__";
 const YTDLP_SOCKET_TIMEOUT_SECS: &str = "10";
 const YTDLP_PROGRESS_TEMPLATE_PREFIX: &str = "SONARPAD_PROGRESS";
@@ -18213,28 +18213,34 @@ fn ytdlp_download_progress_template() -> String {
     )
 }
 
-// Port letterale del preflight Windows: non blocca l'apertura in caso di errore,
-// serve solo a fare la stessa verifica leggera prima di passare l'URL a mpv.
-fn probe_youtube_stream_playable(ytdlp: &Path, url: &str) -> Result<(), String> {
+fn resolve_youtube_playback_url(ytdlp: &Path, url: &str) -> Result<String, String> {
     let output = ytdlp_command(ytdlp)
         .arg("--no-playlist")
         .arg("--no-warnings")
-        .arg("--skip-download")
-        .arg("--print")
-        .arg("id")
+        .arg("--socket-timeout")
+        .arg(YTDLP_SOCKET_TIMEOUT_SECS)
+        .arg("-f")
+        .arg(YOUTUBE_MPV_STREAM_FORMAT)
+        .arg("-g")
         .arg("--")
         .arg(url)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .output()
         .map_err(|err| err.to_string())?;
-    if output.status.success() {
-        return Ok(());
-    }
     let stdout = String::from_utf8_lossy(&output.stdout);
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let error = format!("{stderr}\n{stdout}");
-    Err(error.trim().to_string())
+    if !output.status.success() {
+        let error = format!("{stderr}\n{stdout}");
+        return Err(error.trim().to_string());
+    }
+    let playback_url = stdout
+        .lines()
+        .map(str::trim)
+        .find(|line| line.starts_with("https://") || line.starts_with("http://"))
+        .ok_or_else(|| "yt-dlp non ha restituito uno stream riproducibile.".to_string())?;
+    append_podcast_log("youtube.resolve.done format=18 url_redacted=true");
+    Ok(playback_url.to_string())
 }
 
 fn configure_youtube_mpv_command(
@@ -18330,10 +18336,6 @@ fn open_youtube_with_mpv(url: &str, title: &str) -> Result<(), String> {
     Ok(())
 }
 
-// Stesso flusso Windows, con l'unica eccezione richiesta sul Mac: durante
-// preflight + spawn resta visibile la finestra "Apertura in corso" e il suo
-// pulsante Annulla. Come Windows, un errore del preflight viene solo loggato e
-// non impedisce a mpv di tentare l'apertura dell'URL originale.
 fn open_youtube_with_windows_flow(
     url: &str,
     title: &str,
@@ -18343,13 +18345,11 @@ fn open_youtube_with_windows_flow(
         return Err(YOUTUBE_OPEN_CANCELLED.to_string());
     }
     let ytdlp = ytdlp_executable_path();
-    if let Err(error) = probe_youtube_stream_playable(&ytdlp, url) {
-        append_podcast_log(&format!("YouTube preflight failed: {error}"));
-    }
+    let playback_url = resolve_youtube_playback_url(&ytdlp, url)?;
     if cancel_requested.load(Ordering::SeqCst) {
         return Err(YOUTUBE_OPEN_CANCELLED.to_string());
     }
-    open_youtube_with_mpv(url, title)
+    open_youtube_with_mpv(&playback_url, title)
 }
 
 fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
@@ -18437,7 +18437,7 @@ fn save_youtube_mp3_with_ffmpeg(
         .arg("--progress-template")
         .arg(ytdlp_download_progress_template())
         .arg("-f")
-        .arg("bestaudio[ext=mp3]/bestaudio/best")
+        .arg("18/bestaudio[ext=mp3]/bestaudio/best")
         .arg("-o")
         .arg(temp_template.to_string_lossy().to_string())
         .arg("--")
@@ -29132,23 +29132,21 @@ mod ytdlp_path_tests {
     }
 
     #[test]
-    fn youtube_playback_matches_windows_preflight_then_mpv_flow() {
+    fn youtube_playback_resolves_progressive_stream_then_starts_mpv() {
         let source = include_str!("main.rs");
         let start = source
-            .find("fn probe_youtube_stream_playable")
-            .expect("YouTube Windows-style preflight");
+            .find("fn resolve_youtube_playback_url")
+            .expect("YouTube playback resolver");
         let end = source[start..]
             .find("fn find_youtube_temp_download")
             .map(|offset| start + offset)
             .expect("function after YouTube opener");
         let opener = &source[start..end];
 
-        assert!(opener.contains("--skip-download"));
-        assert!(opener.contains(".arg(\"--print\")"));
-        assert!(opener.contains(".arg(\"id\")"));
-        assert!(opener.contains("YouTube preflight failed"));
+        assert!(opener.contains(".arg(\"-g\")"));
+        assert!(opener.contains("resolve_youtube_playback_url(&ytdlp, url)?"));
         assert!(opener.contains("ytdl_hook-ytdl_path"));
-        assert!(opener.contains("best[height<=360][ext=mp4]/18/best[height<=480]/best"));
+        assert!(source.contains("18/best[height<=360][ext=mp4]/best[height<=480]/best"));
         assert!(opener.contains(".spawn()"));
         assert!(!opener.contains("ytdl://"));
         assert!(!opener.contains("try_ytdl_first"));
@@ -29168,8 +29166,8 @@ mod ytdlp_path_tests {
         let opener = &source[start..end];
         assert!(source.contains("open_youtube_open_progress_dialog"));
         assert!(source.contains("Some(Arc::clone(&cancel_requested))"));
-        assert!(opener.contains("probe_youtube_stream_playable(&ytdlp, url)"));
-        assert!(opener.contains("open_youtube_with_mpv(url, title)"));
+        assert!(opener.contains("resolve_youtube_playback_url(&ytdlp, url)?"));
+        assert!(opener.contains("open_youtube_with_mpv(&playback_url, title)"));
         assert!(!opener.contains("input-ipc-server"));
         assert!(!opener.contains("file-loaded"));
         assert!(source.contains("err != YOUTUBE_OPEN_CANCELLED"));
@@ -29186,7 +29184,7 @@ mod ytdlp_path_tests {
             .map(|offset| start + offset)
             .expect("function after YouTube save");
         let save = &source[start..end];
-        assert!(save.contains("bestaudio[ext=mp3]/bestaudio/best"));
+        assert!(save.contains("18/bestaudio[ext=mp3]/bestaudio/best"));
         assert!(save.contains("best[ext=mp4]/best"));
         assert!(save.contains("best[ext=mp4][height<=720]/best[height<=720]/best"));
         assert!(save.contains("--merge-output-format"));
