@@ -388,6 +388,8 @@ struct Settings {
     read_only_mode: bool,
     #[serde(default = "default_auto_check_updates")]
     auto_check_updates: bool,
+    #[serde(default)]
+    last_changelog_version: Option<String>,
     #[serde(default = "default_audiobook_format")]
     last_audiobook_format: String,
     #[serde(default)]
@@ -486,6 +488,7 @@ impl Settings {
             disable_blank_line_pauses: false,
             read_only_mode: false,
             auto_check_updates: default_auto_check_updates(),
+            last_changelog_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
@@ -2169,6 +2172,22 @@ fn open_donations_dialog(parent: &Frame) {
     });
     dialog.show_modal();
     dialog.destroy();
+}
+
+fn changelog_needs_first_show_after_update(settings: &Arc<Mutex<Settings>>) -> bool {
+    let current_version = env!("CARGO_PKG_VERSION");
+    settings
+        .lock()
+        .unwrap()
+        .last_changelog_version
+        .as_deref()
+        .is_none_or(|shown_version| shown_version != current_version)
+}
+
+fn mark_changelog_shown_for_current_version(settings: &Arc<Mutex<Settings>>) {
+    let mut settings = settings.lock().unwrap();
+    settings.last_changelog_version = Some(env!("CARGO_PKG_VERSION").to_string());
+    settings.save();
 }
 
 fn open_changelog_dialog(parent: &Frame) {
@@ -29284,6 +29303,11 @@ Non posso scaricare la pagina web al posto dell'audio.",
 
         frame.show(true);
         frame.centre();
+
+        if changelog_needs_first_show_after_update(&settings) {
+            open_changelog_dialog(&frame);
+            mark_changelog_shown_for_current_version(&settings);
+        }
     });
 }
 

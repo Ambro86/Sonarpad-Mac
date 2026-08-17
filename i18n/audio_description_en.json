@@ -103,7 +103,7 @@
   "audio_description.quota.title": "Gemini quota exhausted",
   "audio_description.recognize_characters": "Try to recognize characters and use their names",
   "audio_description.save_project": "Also save the project for future editing",
-  "audio_description.delete_video_after": "Delete video after audio description. The original video is required to edit a project.",
+  "audio_description.delete_video_after": "Move the video file to the Trash after the audio description",
   "audio_description.input_trashed": "Original video moved to the Trash: {path}",
   "audio_description.input_trash_failed": "The audio description was created, but the original video could not be moved to the Trash: {path}\n\nDetails: {error}",
   "audio_description.save_title": "Save the audio-described MP3",
