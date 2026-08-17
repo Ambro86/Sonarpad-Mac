@@ -150,7 +150,7 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         end = AUDIO.index("pub fn open_create_dialog", start)
         helper = AUDIO[start:end]
         success_start = helper.index("Ok(out)")
-        success_end = helper.index("Err(error) =>", success_start)
+        success_end = helper.index("\n        Err(error) =>", success_start)
         success = helper[success_start:success_end]
         self.assertLess(success.index("show_completion"), success.index("open_local_media_with_mpv"))
         self.assertIn("audio_description.create.open_output_completed", success)
