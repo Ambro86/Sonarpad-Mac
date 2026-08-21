@@ -15356,10 +15356,14 @@ fn convert_media_codec_args(
                 "mpeg4".to_string(),
                 "-q:v".to_string(),
                 "4".to_string(),
+                "-pix_fmt".to_string(),
+                "yuv420p".to_string(),
                 "-c:a".to_string(),
                 "libmp3lame".to_string(),
                 "-b:a".to_string(),
                 format!("{bitrate}k"),
+                "-ac".to_string(),
+                "2".to_string(),
             ]
         }
         ConvertMediaFormat::Opus => vec![
@@ -15471,12 +15475,19 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
         args
     ));
 
-    command.stdout(std::process::Stdio::piped());
+    // FFmpeg writes diagnostics/progress to stderr. Do not pipe stdout without
+    // consuming it: a noisy tool could otherwise block on a full pipe.
+    command.stdout(std::process::Stdio::null());
     command.stderr(std::process::Stdio::piped());
 
     let mut child = match command.spawn() {
         Ok(c) => c,
         Err(e) => {
+            append_podcast_log(&format!(
+                "convert_media.ffmpeg.spawn_failed ffmpeg={} err={}",
+                ffmpeg.display(),
+                e
+            ));
             let mut s = state_thread.lock().unwrap();
             s.finished = true;
             s.result = Some(Err(format!("avvio FFmpeg fallito: {e}")));
@@ -15501,7 +15512,12 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
 
         full_stderr.push_str(&line);
         if full_stderr.len() > 8000 {
-            full_stderr.replace_range(..full_stderr.len() - 4000, "");
+            let keep_from = full_stderr
+                .char_indices()
+                .map(|(index, _)| index)
+                .find(|index| *index >= full_stderr.len().saturating_sub(4000))
+                .unwrap_or(0);
+            full_stderr.drain(..keep_from);
         }
 
         if total_secs == 0.0 && line.contains("Duration: ") {
@@ -15538,10 +15554,20 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
     }
 
     let status_res = child.wait();
+    let stderr_tail = full_stderr
+        .trim()
+        .replace('\r', " ")
+        .replace('\n', " ");
     let mut s = state_thread.lock().unwrap();
     s.finished = true;
     match status_res {
         Ok(status) => {
+            append_podcast_log(&format!(
+                "convert_media.ffmpeg.end success={} status_code={:?} stderr_tail={}",
+                status.success(),
+                status.code(),
+                stderr_tail
+            ));
             if status.success() {
                 s.percent = 100;
                 s.result = Some(Ok(()));
@@ -15550,6 +15576,12 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
             }
         }
         Err(e) => {
+            append_podcast_log(&format!(
+                "convert_media.ffmpeg.wait_failed ffmpeg={} err={} stderr_tail={}",
+                ffmpeg.display(),
+                e,
+                stderr_tail
+            ));
             s.result = Some(Err(format!("Errore attendendo FFmpeg: {e}")));
         }
     }
@@ -23570,16 +23602,19 @@ impl MpvRecordingConfig {
                 "-loglevel".to_string(),
                 "warning".to_string(),
                 "-y".to_string(),
+                "-fflags".to_string(),
+                "+genpts+discardcorrupt".to_string(),
                 "-i".to_string(),
                 url.to_string(),
-                "-map".to_string(),
-                "0:v:0?".to_string(),
-                "-map".to_string(),
-                "0:a?".to_string(),
+                // Do not use -map here: FFmpeg's automatic stream selection picks
+                // the highest-resolution video stream and the best audio stream.
+                // This avoids feeding every HLS rendition to mpv's recorder.
+                "-sn".to_string(),
+                "-dn".to_string(),
                 "-c".to_string(),
                 "copy".to_string(),
                 "-f".to_string(),
-                "mp4".to_string(),
+                "matroska".to_string(),
             ],
             auto_start: false,
         }
@@ -23596,6 +23631,8 @@ impl MpvRecordingConfig {
                 "-loglevel".to_string(),
                 "warning".to_string(),
                 "-y".to_string(),
+                "-fflags".to_string(),
+                "+genpts+discardcorrupt".to_string(),
                 "-i".to_string(),
                 url.to_string(),
                 "-map".to_string(),
@@ -23609,7 +23646,7 @@ impl MpvRecordingConfig {
                 "-disposition:a:0".to_string(),
                 "default".to_string(),
                 "-f".to_string(),
-                "mp4".to_string(),
+                "matroska".to_string(),
             ],
             auto_start: false,
         }
@@ -23627,6 +23664,8 @@ impl MpvRecordingConfig {
                 "-loglevel".to_string(),
                 "warning".to_string(),
                 "-y".to_string(),
+                "-fflags".to_string(),
+                "+genpts+discardcorrupt".to_string(),
                 "-i".to_string(),
                 video_url.to_string(),
                 "-i".to_string(),
@@ -23638,7 +23677,7 @@ impl MpvRecordingConfig {
                 "-c".to_string(),
                 "copy".to_string(),
                 "-f".to_string(),
-                "mp4".to_string(),
+                "matroska".to_string(),
             ],
             auto_start: false,
         }
@@ -25197,9 +25236,10 @@ local function ffmpeg_available_command()
 end
 
 local function mp4_path_for_recording(path)
-    local mp4_path = tostring(path or ""):gsub("%.ts$", ".mp4")
-    if mp4_path == path then
-        mp4_path = tostring(path or "") .. ".mp4"
+    local source = tostring(path or "")
+    local mp4_path = source:gsub("%.[^./]+$", ".mp4")
+    if mp4_path == source then
+        mp4_path = source .. ".mp4"
     end
     return mp4_path
 end
@@ -25210,6 +25250,26 @@ local function mp3_path_for_recording(path)
         mp3_path = tostring(path or "") .. ".mp3"
     end
     return mp3_path
+end
+
+local function ffmpeg_recording_command(path)
+    local parts = {shell_quote(ffmpeg_path)}
+    for _, arg in ipairs(ffmpeg_args) do
+        table.insert(parts, shell_quote(arg))
+    end
+    table.insert(parts, shell_quote(path))
+    return table.concat(parts, " ")
+end
+
+local function media_validation_command(path)
+    local quoted_ffmpeg = shell_quote(ffmpeg_path)
+    local quoted_path = shell_quote(path)
+    local base = quoted_ffmpeg .. " -nostdin -hide_banner -loglevel error"
+    local start_probe = base .. " -i " .. quoted_path
+        .. " -t 2 -map 0:v:0? -map 0:a:0? -c copy -f null - >/dev/null 2>&1"
+    local tail_probe = base .. " -sseof -3 -i " .. quoted_path
+        .. " -t 2 -map 0:v:0? -map 0:a:0? -c copy -f null - >/dev/null 2>&1"
+    return ffmpeg_available_command() .. " && " .. start_probe .. " && " .. tail_probe
 end
 
 local function append_recording_manifest_command_for(path, title, kind)
@@ -25261,33 +25321,41 @@ local function finalize_recording_command(path)
     local convert_log = tostring(path or "") .. ".ffmpeg.log"
     local convert_command = ffmpeg_available_command()
         .. " && " .. shell_quote(ffmpeg_path)
-        .. " -hide_banner -loglevel warning -y -i " .. shell_quote(path)
+        .. " -nostdin -hide_banner -loglevel warning -y -i " .. shell_quote(path)
         .. " -map 0 -c copy -movflags +faststart -f mp4 " .. shell_quote(mp4_path)
         .. " > " .. shell_quote(convert_log) .. " 2>&1"
+    local validate_mp4 = media_validation_command(mp4_path)
+    local validate_source = media_validation_command(path)
     return "if [ ! -s " .. shell_quote(path) .. " ]; then echo sonarpad_recording_missing_or_empty path=" .. shell_quote(path) .. "; exit 4; fi; "
         .. "echo sonarpad_recording_convert_begin src=" .. shell_quote(path) .. " dst=" .. shell_quote(mp4_path) .. "; "
-        .. "if " .. convert_command .. " && [ -s " .. shell_quote(mp4_path) .. " ]; then "
-        .. "rm -f " .. shell_quote(path) .. "; echo sonarpad_recording_converted_to_mp4 path=" .. shell_quote(mp4_path) .. "; "
+        .. "if " .. convert_command .. " && [ -s " .. shell_quote(mp4_path) .. " ] && " .. validate_mp4 .. "; then "
+        .. "rm -f " .. shell_quote(path) .. "; echo sonarpad_recording_validated path=" .. shell_quote(mp4_path) .. "; echo sonarpad_recording_converted_to_mp4 path=" .. shell_quote(mp4_path) .. "; "
         .. append_recording_manifest_command_for(mp4_path, recording_title, recording_kind)
-        .. "; else echo sonarpad_recording_convert_failed keeping_ts=" .. shell_quote(path) .. " log=" .. shell_quote(convert_log) .. "; "
+        .. "; else echo sonarpad_recording_convert_or_validation_failed source=" .. shell_quote(path) .. " candidate=" .. shell_quote(mp4_path) .. " log=" .. shell_quote(convert_log) .. "; "
+        .. "rm -f " .. shell_quote(mp4_path) .. "; if " .. validate_source .. "; then echo sonarpad_recording_source_validated_fallback path=" .. shell_quote(path) .. "; "
         .. append_recording_manifest_command(path)
-        .. "; fi"
+        .. "; else echo sonarpad_recording_source_invalid path=" .. shell_quote(path) .. "; tail -n 40 " .. shell_quote(convert_log) .. " 2>/dev/null || true; exit 6; fi; fi"
 end
 
 local function stop_ffmpeg_command(saved_path)
-    return "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. "); fi; "
-        .. "if [ -n \"$pid\" ]; then kill -INT \"$pid\" 2>/dev/null; "
-        .. "for i in 1 2 3 4 5 6 7 8 9 10; do kill -0 \"$pid\" 2>/dev/null || break; sleep 0.2; done; fi; "
-        .. "rm -f " .. shell_quote(pid_file) .. "; "
-        .. append_recording_manifest_command(saved_path)
+    local recorder_log = tostring(saved_path or "") .. ".record.log"
+    return "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. " 2>/dev/null); fi; "
+        .. "if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then kill -TERM \"$pid\" 2>/dev/null || true; "
+        .. "for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40; do kill -0 \"$pid\" 2>/dev/null || break; sleep 0.1; done; "
+        .. "if kill -0 \"$pid\" 2>/dev/null; then echo sonarpad_ffmpeg_recorder_force_kill pid=$pid; kill -KILL \"$pid\" 2>/dev/null || true; sleep 0.2; fi; "
+        .. "echo sonarpad_ffmpeg_recorder_stopped pid=$pid; else echo sonarpad_ffmpeg_recorder_not_alive pid=$pid; fi; "
+        .. "rm -f " .. shell_quote(pid_file) .. "; sleep 0.2; "
+        .. "echo sonarpad_ffmpeg_recorder_log_tail_begin log=" .. shell_quote(recorder_log) .. "; tail -n 20 " .. shell_quote(recorder_log) .. " 2>/dev/null || true; echo sonarpad_ffmpeg_recorder_log_tail_end; "
+        .. "if [ ! -s " .. shell_quote(saved_path) .. " ]; then echo sonarpad_ffmpeg_recorder_empty path=" .. shell_quote(saved_path) .. "; exit 5; fi; "
+        .. finalize_recording_command(saved_path)
 end
 
 local function check_recording_process_later(path)
     mp.add_timeout(1.0, function()
-        local command = "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. "); fi; "
+        local recorder_log = tostring(path or "") .. ".record.log"
+        local command = "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. " 2>/dev/null); fi; "
             .. "if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then echo sonarpad_recording_process_alive pid=$pid path=" .. shell_quote(path) .. "; exit 0; "
-            .. "elif [ -s " .. shell_quote(path) .. " ]; then echo sonarpad_recording_file_exists path=" .. shell_quote(path) .. "; exit 0; "
-            .. "else echo sonarpad_recording_process_not_alive path=" .. shell_quote(path) .. "; exit 3; fi"
+            .. "else echo sonarpad_recording_process_not_alive path=" .. shell_quote(path) .. "; tail -n 40 " .. shell_quote(recorder_log) .. " 2>/dev/null || true; exit 3; fi"
         local result = run_shell_sync(command)
         local status = result and result.status or "nil"
         log_line("recording.start_check status=" .. tostring(status) .. " path=" .. tostring(path))
@@ -25297,6 +25365,26 @@ local function check_recording_process_later(path)
             log_line("recording.start_check_failed_reset path=" .. tostring(path))
             speak(msg_recording_failed)
         end
+    end)
+end
+
+local function monitor_tv_recording_process(path)
+    mp.add_timeout(5.0, function()
+        if not recording or current_recording_path ~= path or recording_kind ~= "tv" then
+            return
+        end
+        local recorder_log = tostring(path or "") .. ".record.log"
+        local command = "pid=''; if [ -f " .. shell_quote(pid_file) .. " ]; then pid=$(cat " .. shell_quote(pid_file) .. " 2>/dev/null); fi; "
+            .. "if [ -n \"$pid\" ] && kill -0 \"$pid\" 2>/dev/null; then exit 0; fi; tail -n 40 " .. shell_quote(recorder_log) .. " 2>/dev/null || true; exit 3"
+        local result = run_shell_sync(command)
+        if result == nil or result.status ~= 0 then
+            recording = false
+            current_recording_path = nil
+            log_line("recording.ffmpeg_monitor_failed path=" .. tostring(path))
+            speak(msg_recording_failed)
+            return
+        end
+        monitor_tv_recording_process(path)
     end)
 end
 
@@ -25322,14 +25410,18 @@ local function start_recording()
         return
     end
     local ok, err = pcall(function()
+        -- Record the exact stream already opened by this mpv instance. This is
+        -- intentionally preferred over reopening the channel with an external
+        -- FFmpeg process, because mpv already owns the working URL/headers/
+        -- cookies/variant selection for the current channel.
         mp.set_property("stream-record", current_recording_path)
     end)
     if ok then
         recording = true
-        log_line("recording.stream_record_started path=" .. tostring(current_recording_path))
+        log_line("recording.stream_record_started backend=mpv path=" .. tostring(current_recording_path))
         speak(msg_recording_started)
     else
-        log_line("recording.stream_record_failed error=" .. tostring(err) .. " path=" .. tostring(current_recording_path))
+        log_line("recording.stream_record_failed backend=mpv error=" .. tostring(err) .. " path=" .. tostring(current_recording_path))
         current_recording_path = nil
         speak(msg_recording_failed)
     end
@@ -25347,17 +25439,23 @@ local function stop_recording(announce)
         log_line("recording.stop_missing_path")
         return
     end
-    log_line("recording.stop_requested path=" .. tostring(saved_path) .. " announce=" .. tostring(announce))
-    pcall(function()
+    log_line("recording.stop_requested backend=mpv path=" .. tostring(saved_path) .. " announce=" .. tostring(announce))
+    local stop_ok, stop_err = pcall(function()
         mp.set_property("stream-record", "")
     end)
+    if not stop_ok then
+        log_line("recording.stream_record_stop_property_failed error=" .. tostring(stop_err) .. " path=" .. tostring(saved_path))
+    end
+    -- Give mpv a short moment to flush the recorder before FFmpeg validates and
+    -- remuxes the resulting TS. finalize_recording_command only queues the file
+    -- for audiodescription after validation succeeds.
     local command = "sleep 0.4; " .. finalize_recording_command(saved_path)
     if announce then
         run_shell_async(command, function(success, result, error)
             local status = result and result.status or "nil"
             local stdout = result and tostring(result.stdout or ""):gsub("\n", " ") or ""
             local stderr = result and tostring(result.stderr or ""):gsub("\n", " ") or ""
-            log_line("recording.stream_record_stop_done success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error) .. " stdout=" .. stdout .. " stderr=" .. stderr .. " path=" .. tostring(saved_path))
+            log_line("recording.stream_record_stop_done backend=mpv success=" .. tostring(success) .. " status=" .. tostring(status) .. " error=" .. tostring(error) .. " stdout=" .. stdout .. " stderr=" .. stderr .. " path=" .. tostring(saved_path))
             if success and result and result.status == 0 then
                 speak(msg_recording_saved)
             else
@@ -25367,7 +25465,7 @@ local function stop_recording(announce)
     else
         local result = run_shell_sync(command)
         local status = result and result.status or "nil"
-        log_line("recording.stream_record_stop_done_sync status=" .. tostring(status) .. " path=" .. tostring(saved_path))
+        log_line("recording.stream_record_stop_done_sync backend=mpv status=" .. tostring(status) .. " path=" .. tostring(saved_path))
     end
 end
 

@@ -251,8 +251,13 @@ fn run_job(job: &ScheduledTvJob) -> Result<(), String> {
     let timestamp = Local::now().format("%Y-%m-%d %H-%M-%S");
     let ts_path = recordings_dir.join(format!("{safe_title} - {timestamp}.ts"));
     let mp4_path = ts_path.with_extension("mp4");
+    let recorder_log = ts_path.with_extension("ts.mpv.log");
     let mpv = scheduled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let duration_seconds = job.duration_minutes.saturating_mul(60);
+
+    // Scheduled recordings deliberately use mpv too. This keeps channel opening
+    // and recording on the same backend used by Sonarpad playback instead of
+    // asking an external FFmpeg process to reopen a stream that mpv can handle.
     let mut command = Command::new(&mpv);
     command
         .arg("--no-config")
@@ -260,6 +265,7 @@ fn run_job(job: &ScheduledTvJob) -> Result<(), String> {
         .arg("--force-window=no")
         .arg("--vo=null")
         .arg("--ao=null")
+        .arg(format!("--log-file={}", recorder_log.display()))
         .arg(format!("--stream-record={}", ts_path.display()))
         .arg(format!("--length={duration_seconds}"));
     let user_agent = channel.playback_user_agent().trim();
@@ -268,7 +274,7 @@ fn run_job(job: &ScheduledTvJob) -> Result<(), String> {
     }
     command.arg(&resolved_url);
     crate::append_podcast_log(&format!(
-        "tv.schedule.record_start id={} channel={} scheduled_start={} duration_seconds={} output={} mpv={}",
+        "tv.schedule.record_start id={} channel={} scheduled_start={} duration_seconds={} output={} mpv={} backend=mpv",
         job.id,
         channel.name,
         job.start,
@@ -279,12 +285,42 @@ fn run_job(job: &ScheduledTvJob) -> Result<(), String> {
     let status = command
         .status()
         .map_err(|error| format!("avvio mpv programmato fallito: {error}"))?;
+    let recorder_tail = read_log_tail(&recorder_log, 40);
+    crate::append_podcast_log(&format!(
+        "tv.schedule.mpv_end id={} status_code={:?} output_exists={} log={} tail={}",
+        job.id,
+        status.code(),
+        ts_path.is_file(),
+        recorder_log.display(),
+        recorder_tail
+    ));
     if !status.success() && !ts_path.is_file() {
-        return Err(format!("mpv ha restituito lo stato {status}"));
+        return Err(if recorder_tail.is_empty() {
+            format!("mpv ha restituito lo stato {status}")
+        } else {
+            format!("mpv ha restituito lo stato {status}: {recorder_tail}")
+        });
     }
-    if !ts_path.is_file() {
-        return Err("La registrazione programmata non ha creato alcun file.".to_string());
+    if !ts_path.is_file()
+        || std::fs::metadata(&ts_path)
+            .map(|metadata| metadata.len() == 0)
+            .unwrap_or(true)
+    {
+        return Err("La registrazione programmata non ha creato un file valido.".to_string());
     }
+
+    // Do not trust existence alone: the same FFmpeg bundled with Sonarpad is
+    // used only after recording to verify that both the beginning and the tail
+    // of mpv's file are readable.
+    validate_media_file(&ts_path).map_err(|error| {
+        crate::append_podcast_log(&format!(
+            "tv.schedule.record_validation_failed id={} output={} err={error} mpv_tail={}",
+            job.id,
+            ts_path.display(),
+            recorder_tail
+        ));
+        format!("registrazione programmata non valida: {error}")
+    })?;
 
     let final_path = match convert_to_mp4(&channel, &ts_path, &mp4_path) {
         Ok(()) => {
@@ -304,9 +340,17 @@ fn run_job(job: &ScheduledTvJob) -> Result<(), String> {
             ts_path
         }
     };
+    validate_media_file(&final_path).map_err(|error| {
+        crate::append_podcast_log(&format!(
+            "tv.schedule.final_validation_failed id={} output={} err={error}",
+            job.id,
+            final_path.display()
+        ));
+        format!("file finale della registrazione non valido: {error}")
+    })?;
     append_manifest(&final_path, &channel.name)?;
     crate::append_podcast_log(&format!(
-        "tv.schedule.record_saved id={} channel={} output={}",
+        "tv.schedule.record_saved id={} channel={} output={} validated=true backend=mpv",
         job.id,
         channel.name,
         final_path.display()
@@ -332,6 +376,55 @@ fn run_job(job: &ScheduledTvJob) -> Result<(), String> {
                 job.id,
                 final_path.display()
             )),
+        }
+    }
+    Ok(())
+}
+
+fn read_log_tail(path: &Path, max_lines: usize) -> String {
+    let Ok(text) = std::fs::read_to_string(path) else {
+        return String::new();
+    };
+    let lines = text.lines().collect::<Vec<_>>();
+    let start = lines.len().saturating_sub(max_lines);
+    lines[start..].join(" | ")
+}
+
+fn validate_media_file(path: &Path) -> Result<(), String> {
+    let ffmpeg = crate::ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
+    for (label, seek_tail) in [("start", false), ("tail", true)] {
+        let mut command = Command::new(&ffmpeg);
+        command
+            .arg("-nostdin")
+            .arg("-hide_banner")
+            .arg("-loglevel")
+            .arg("error");
+        if seek_tail {
+            command.arg("-sseof").arg("-3");
+        }
+        let output = command
+            .arg("-i")
+            .arg(path)
+            .arg("-t")
+            .arg("2")
+            .arg("-map")
+            .arg("0:v:0?")
+            .arg("-map")
+            .arg("0:a:0?")
+            .arg("-c")
+            .arg("copy")
+            .arg("-f")
+            .arg("null")
+            .arg("-")
+            .output()
+            .map_err(|error| format!("avvio validazione {label} fallito: {error}"))?;
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            return Err(if stderr.is_empty() {
+                format!("validazione {label} fallita con stato {}", output.status)
+            } else {
+                format!("validazione {label} fallita: {stderr}")
+            });
         }
     }
     Ok(())
@@ -372,7 +465,7 @@ fn convert_to_mp4(
         .output()
         .map_err(|error| format!("avvio ffmpeg fallito: {error}"))?;
     if output.status.success() && destination.is_file() {
-        Ok(())
+        validate_media_file(destination)
     } else {
         let stderr = String::from_utf8_lossy(&output.stderr).trim().to_string();
         Err(if stderr.is_empty() {

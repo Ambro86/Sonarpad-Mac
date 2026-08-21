@@ -117,7 +117,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v13-audiodescription
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v15-tv-recorder
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -205,10 +205,17 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]asetrate[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]volume[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]scale[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]format[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]wav[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]segment[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]hls[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -protocols | grep -E '[[:space:]]crypto$' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -protocols | grep -E '[[:space:]]https$' >/dev/null
             "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]matroska[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]mp4[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]avi[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]mpeg4[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]pcm_s16le[[:space:]]' >/dev/null
           }
           if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
@@ -270,7 +277,6 @@ jobs:
             --disable-everything \
             --disable-autodetect \
             --disable-avdevice \
-            --disable-swscale \
             --disable-iconv \
             --disable-bzlib \
             --disable-lzma \
@@ -285,6 +291,7 @@ jobs:
             --enable-static \
             --enable-securetransport \
             --enable-protocol=file \
+            --enable-protocol=crypto \
             --enable-protocol=http \
             --enable-protocol=https \
             --enable-protocol=tcp \
@@ -305,6 +312,7 @@ jobs:
             --enable-muxer=ipod \
             --enable-muxer=mp3 \
             --enable-muxer=mp4 \
+            --enable-muxer=avi \
             --enable-muxer=matroska \
             --enable-muxer=segment \
             --enable-muxer=wav \
@@ -341,11 +349,14 @@ jobs:
             --enable-decoder=wmav2 \
             --enable-decoder=opus \
             --enable-encoder=aac \
+            --enable-encoder=mpeg4 \
             --enable-encoder=pcm_s16le \
             --enable-filter=atrim \
             --enable-filter=aresample \
             --enable-filter=asetrate \
             --enable-filter=volume \
+            --enable-filter=scale \
+            --enable-filter=format \
             --enable-filter=anull
           make -j"$(sysctl -n hw.ncpu)"
           make install
