@@ -53,6 +53,31 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('let extension = "mkv";', AUDIO)
         self.assertIn("GEMINI_MAX_CHUNK_BYTES", AUDIO)
 
+    def test_audio_description_tts_applies_voice_dictionary_before_synthesis(self):
+        self.assertIn("apply_voice_dictionary_to_text(text)", AUDIO)
+        self.assertIn("&spoken_text", AUDIO)
+        self.assertIn("audio_description.voice_dictionary_applied", AUDIO)
+
+    def test_bundled_ffmpeg_supports_common_legacy_video_containers_and_duration_fallback(self):
+        for workflow in (WORKFLOW, CATALINA):
+            for flag in (
+                "--enable-demuxer=avi",
+                "--enable-demuxer=mpeg",
+                "--enable-demuxer=flv",
+                "--enable-demuxer=asf",
+                "--enable-muxer=null",
+                "--enable-decoder=mp2",
+                "--enable-decoder=adpcm_ms",
+                "--enable-decoder=adpcm_ima_wav",
+                "--enable-decoder=wmav1",
+                "--enable-decoder=wmav2",
+            ):
+                with self.subTest(workflow=workflow[:40], flag=flag):
+                    self.assertIn(flag, workflow)
+        self.assertIn("probe_media_duration_from_packets", AUDIO)
+        self.assertIn("parse_ffmpeg_progress_duration", AUDIO)
+        self.assertIn('duration_fallback=packet_timestamps', AUDIO)
+
     def test_mandatory_descriptions_are_scheduled_before_optional_ones(self):
         self.assertIn("mandatory", AUDIO)
         self.assertIn("slot_id", AUDIO)

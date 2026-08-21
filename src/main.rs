@@ -383,6 +383,8 @@ struct Settings {
     #[serde(default)]
     auto_media_bookmark: bool,
     #[serde(default)]
+    auto_audio_describe_tv_recordings: bool,
+    #[serde(default)]
     disable_blank_line_pauses: bool,
     #[serde(default)]
     read_only_mode: bool,
@@ -485,6 +487,7 @@ impl Settings {
             tv_favorites: Vec::new(),
             rai_luce_code: String::new(),
             auto_media_bookmark: false,
+            auto_audio_describe_tv_recordings: false,
             disable_blank_line_pauses: false,
             read_only_mode: false,
             auto_check_updates: default_auto_check_updates(),
@@ -13191,7 +13194,7 @@ fn open_settings_dialog(
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, if cfg!(target_os = "macos") { 590 } else { 520 })
+        .with_size(560, if cfg!(target_os = "macos") { 625 } else { 555 })
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -13371,6 +13374,22 @@ fn open_settings_dialog(
         SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
         5,
     );
+
+    let auto_audio_describe_tv_recordings_checkbox = CheckBox::builder(&panel)
+        .with_label("Apri Crea audiodescrizione al termine delle registrazioni TV")
+        .build();
+    auto_audio_describe_tv_recordings_checkbox
+        .set_value(settings_before.auto_audio_describe_tv_recordings);
+    if settings_before.ui_language == "it" {
+        root.add(
+            &auto_audio_describe_tv_recordings_checkbox,
+            0,
+            SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+            5,
+        );
+    } else {
+        auto_audio_describe_tv_recordings_checkbox.show(false);
+    }
 
     let disable_blank_line_pauses_checkbox = CheckBox::builder(&panel)
         .with_label(&ui.disable_blank_line_pauses_label)
@@ -13811,6 +13830,10 @@ fn open_settings_dialog(
             updated.rai_luce_code = rai_code_ctrl.get_value().trim().to_string();
         }
         updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
+        if settings_before.ui_language == "it" {
+            updated.auto_audio_describe_tv_recordings =
+                auto_audio_describe_tv_recordings_checkbox.get_value();
+        }
         updated.disable_blank_line_pauses = disable_blank_line_pauses_checkbox.get_value();
         updated.audio_description_save_folder =
             audio_description_folder_ctrl.get_value().trim().to_string();
@@ -13831,6 +13854,8 @@ fn open_settings_dialog(
             || settings_before.rai_luce_code != updated.rai_luce_code
             || settings_before.media_seek_seconds != updated.media_seek_seconds
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
+            || settings_before.auto_audio_describe_tv_recordings
+                != updated.auto_audio_describe_tv_recordings
             || settings_before.disable_blank_line_pauses != updated.disable_blank_line_pauses
             || settings_before.audio_description_save_folder
                 != updated.audio_description_save_folder
@@ -23822,6 +23847,103 @@ fn recordings_manifest_path() -> PathBuf {
     default_recordings_dir().join("recordings.tsv")
 }
 
+fn tv_audio_description_queue_dir() -> PathBuf {
+    app_storage_path("pending-tv-audio-description")
+}
+
+pub(crate) fn enqueue_tv_audio_description(path: &Path) -> Result<(), String> {
+    if !path.is_file() {
+        return Err(format!(
+            "il file della registrazione TV non esiste: {}",
+            path.display()
+        ));
+    }
+    let queue_dir = tv_audio_description_queue_dir();
+    std::fs::create_dir_all(&queue_dir).map_err(|error| {
+        format!(
+            "creazione coda audiodescrizione TV {} fallita: {error}",
+            queue_dir.display()
+        )
+    })?;
+    let request_path = queue_dir.join(format!("{}.request", uuid::Uuid::new_v4()));
+    std::fs::write(&request_path, path.to_string_lossy().as_bytes()).map_err(|error| {
+        format!(
+            "salvataggio richiesta audiodescrizione TV {} fallito: {error}",
+            request_path.display()
+        )
+    })?;
+    append_podcast_log(&format!(
+        "tv.audio_description.queued path={} request={}",
+        path.display(),
+        request_path.display()
+    ));
+    Ok(())
+}
+
+fn dequeue_tv_audio_description() -> Option<PathBuf> {
+    let queue_dir = tv_audio_description_queue_dir();
+    let mut requests = std::fs::read_dir(&queue_dir)
+        .ok()?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.extension().and_then(|value| value.to_str()) == Some("request"))
+        .collect::<Vec<_>>();
+    requests.sort();
+
+    for request_path in requests {
+        let raw_path = match std::fs::read_to_string(&request_path) {
+            Ok(value) => value,
+            Err(error) => {
+                append_podcast_log(&format!(
+                    "tv.audio_description.queue_read_failed request={} err={error}",
+                    request_path.display()
+                ));
+                let _ = std::fs::remove_file(&request_path);
+                continue;
+            }
+        };
+        let input_path = PathBuf::from(raw_path.trim());
+        if !input_path.is_file() {
+            append_podcast_log(&format!(
+                "tv.audio_description.queue_missing_input request={} path={}",
+                request_path.display(),
+                input_path.display()
+            ));
+            let _ = std::fs::remove_file(&request_path);
+            continue;
+        }
+        if let Err(error) = std::fs::remove_file(&request_path) {
+            append_podcast_log(&format!(
+                "tv.audio_description.queue_remove_failed request={} err={error}",
+                request_path.display()
+            ));
+            return None;
+        }
+        return Some(input_path);
+    }
+    None
+}
+
+#[cfg(target_os = "macos")]
+pub(crate) fn launch_main_app_for_pending_tv_audio_description() -> Result<(), String> {
+    let executable = std::env::current_exe()
+        .map_err(|error| format!("lettura percorso Sonarpad fallita: {error}"))?;
+    if let Some(app_bundle) = executable
+        .ancestors()
+        .find(|path| path.extension().and_then(|value| value.to_str()) == Some("app"))
+    {
+        Command::new("/usr/bin/open")
+            .arg(app_bundle)
+            .spawn()
+            .map_err(|error| format!("riapertura Sonarpad fallita: {error}"))?;
+    } else {
+        Command::new(&executable)
+            .spawn()
+            .map_err(|error| format!("riavvio Sonarpad fallito: {error}"))?;
+    }
+    Ok(())
+}
+
 #[derive(Clone, Debug)]
 struct RecordingEntry {
     path: PathBuf,
@@ -24468,6 +24590,8 @@ fn write_mpv_accessibility_script(
         .unwrap_or_else(|| sanitize_filename(title));
     let recording_extension = recording.map(|config| config.extension).unwrap_or(".mkv");
     let recording_kind = recording.map(|config| config.kind).unwrap_or("recording");
+    let auto_audio_describe_tv_recordings = Settings::load().auto_audio_describe_tv_recordings;
+    let audio_description_queue_dir = tv_audio_description_queue_dir();
     let manifest_path = recordings_manifest_path();
     let lua_log_path = app_storage_path("log.txt");
 
@@ -24512,6 +24636,18 @@ fn write_mpv_accessibility_script(
     script.push_str(&format!(
         "local recording_kind = {}\n",
         lua_string_literal(recording_kind)
+    ));
+    script.push_str(&format!(
+        "local auto_audio_describe_tv_recordings = {}\n",
+        if auto_audio_describe_tv_recordings {
+            "true"
+        } else {
+            "false"
+        }
+    ));
+    script.push_str(&format!(
+        "local audio_description_queue_dir = {}\n",
+        lua_string_literal(&audio_description_queue_dir.to_string_lossy())
     ));
     script.push_str(&format!(
         "local manifest_file = {}\n",
@@ -25078,11 +25214,21 @@ end
 
 local function append_recording_manifest_command_for(path, title, kind)
     local saved_at = os.date("%Y-%m-%d %H:%M:%S")
+    local effective_kind = kind or recording_kind
+    local queue_command = ""
+    if auto_audio_describe_tv_recordings and effective_kind == "tv" then
+        queue_command = "request_file=" .. shell_quote(audio_description_queue_dir) .. "/$(/bin/date +%s)-$$.request"
+            .. "; if /bin/mkdir -p " .. shell_quote(audio_description_queue_dir)
+            .. " && /usr/bin/printf '%s' " .. shell_quote(path) .. " > \"$request_file\"; then "
+            .. "echo sonarpad_tv_audio_description_queued path=" .. shell_quote(path)
+            .. "; else echo sonarpad_tv_audio_description_queue_failed path=" .. shell_quote(path) .. "; fi; "
+    end
     return "if [ -s " .. shell_quote(path) .. " ]; then /bin/mkdir -p " .. shell_quote(recordings_dir) .. "; /usr/bin/printf '%s\t%s\t%s\t%s\n' "
         .. shell_quote(path) .. " "
         .. shell_quote(title or recording_title) .. " "
-        .. shell_quote(kind or recording_kind) .. " "
-        .. shell_quote(saved_at) .. " >> " .. shell_quote(manifest_file) .. "; echo sonarpad_recording_saved path=" .. shell_quote(path) .. "; exit 0; "
+        .. shell_quote(effective_kind) .. " "
+        .. shell_quote(saved_at) .. " >> " .. shell_quote(manifest_file) .. "; " .. queue_command
+        .. "echo sonarpad_recording_saved path=" .. shell_quote(path) .. "; exit 0; "
         .. "else echo sonarpad_recording_missing_or_empty path=" .. shell_quote(path) .. "; exit 4; fi"
 end
 
@@ -26481,6 +26627,15 @@ fn main() {
         let pending_recent_article_open_timer = Rc::clone(&pending_recent_article_open);
         let btn_recent_articles_timer = btn_recent_articles;
         let btn_share_article_timer = btn_share_article;
+        let audio_description_context_timer = AudioDescriptionLaunchContext {
+            main_parent: frame,
+            settings: Arc::clone(&settings),
+            rt: Arc::clone(&rt),
+            voices_data: Arc::clone(&voices_data),
+        };
+        let tv_audio_description_dialog_open = Rc::new(Cell::new(false));
+        let tv_audio_description_dialog_open_timer =
+            Rc::clone(&tv_audio_description_dialog_open);
 
         timer_tick.on_tick(move |_| {
             let tts_status = pb_timer.lock().unwrap().status;
@@ -26805,6 +26960,23 @@ fn main() {
                         show_message_dialog(&frame_timer, &ui.open_document_title, &err);
                     }
                 }
+            }
+
+            let auto_audio_describe_tv_recordings = settings_timer
+                .lock()
+                .unwrap()
+                .auto_audio_describe_tv_recordings;
+            if !tv_audio_description_dialog_open_timer.get()
+                && auto_audio_describe_tv_recordings
+                && let Some(path) = dequeue_tv_audio_description()
+            {
+                append_podcast_log(&format!(
+                    "tv.audio_description.open_create_dialog path={}",
+                    path.display()
+                ));
+                tv_audio_description_dialog_open_timer.set(true);
+                audio_description_context_timer.open_with_input(&frame_timer, path);
+                tv_audio_description_dialog_open_timer.set(false);
             }
         });
         timer.start(200, false);

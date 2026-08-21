@@ -311,6 +311,29 @@ fn run_job(job: &ScheduledTvJob) -> Result<(), String> {
         channel.name,
         final_path.display()
     ));
+    if crate::Settings::load().auto_audio_describe_tv_recordings {
+        match crate::enqueue_tv_audio_description(&final_path) {
+            Ok(()) => {
+                crate::append_podcast_log(&format!(
+                    "tv.schedule.audio_description_queued id={} output={}",
+                    job.id,
+                    final_path.display()
+                ));
+                #[cfg(target_os = "macos")]
+                if let Err(error) = crate::launch_main_app_for_pending_tv_audio_description() {
+                    crate::append_podcast_log(&format!(
+                        "tv.schedule.audio_description_launch_failed id={} err={error}",
+                        job.id
+                    ));
+                }
+            }
+            Err(error) => crate::append_podcast_log(&format!(
+                "tv.schedule.audio_description_queue_failed id={} output={} err={error}",
+                job.id,
+                final_path.display()
+            )),
+        }
+    }
     Ok(())
 }
 

@@ -297,6 +297,10 @@ jobs:
             --enable-demuxer=mpegts \
             --enable-demuxer=matroska \
             --enable-demuxer=mov \
+            --enable-demuxer=avi \
+            --enable-demuxer=mpeg \
+            --enable-demuxer=flv \
+            --enable-demuxer=asf \
             --enable-demuxer=mp3 \
             --enable-muxer=ipod \
             --enable-muxer=mp3 \
@@ -304,6 +308,7 @@ jobs:
             --enable-muxer=matroska \
             --enable-muxer=segment \
             --enable-muxer=wav \
+            --enable-muxer=null \
             --enable-gpl \
             --enable-libmp3lame \
             --enable-encoder=libmp3lame \
@@ -328,7 +333,12 @@ jobs:
             --enable-decoder=hevc \
             --enable-decoder=mpeg2video \
             --enable-decoder=mpeg4 \
+            --enable-decoder=mp2 \
             --enable-decoder=mp3 \
+            --enable-decoder=adpcm_ms \
+            --enable-decoder=adpcm_ima_wav \
+            --enable-decoder=wmav1 \
+            --enable-decoder=wmav2 \
             --enable-decoder=opus \
             --enable-encoder=aac \
             --enable-encoder=pcm_s16le \

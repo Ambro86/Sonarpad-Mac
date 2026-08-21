@@ -767,6 +767,52 @@ fn parse_ffmpeg_duration(value: &str) -> Option<f64> {
     (total.is_finite() && total > 0.0).then_some(total)
 }
 
+fn parse_ffmpeg_progress_duration(value: &str) -> Option<f64> {
+    let mut best: Option<f64> = None;
+    let mut remainder = value;
+    while let Some(position) = remainder.find("time=") {
+        remainder = &remainder[position + "time=".len()..];
+        let token = remainder
+            .split(|ch: char| ch.is_ascii_whitespace())
+            .next()
+            .unwrap_or_default()
+            .trim();
+        if token != "N/A"
+            && let Some(duration) = parse_ffmpeg_duration(token)
+            && best.is_none_or(|current| duration > current)
+        {
+            best = Some(duration);
+        }
+        if remainder.is_empty() {
+            break;
+        }
+    }
+    best
+}
+
+fn probe_media_duration_from_packets(input: &Path) -> Option<f64> {
+    let output = std::process::Command::new(ffmpeg_path())
+        .arg("-hide_banner")
+        .arg("-loglevel")
+        .arg("info")
+        .arg("-i")
+        .arg(input)
+        .arg("-map")
+        .arg("0:v:0?")
+        .arg("-map")
+        .arg("0:a:0?")
+        .arg("-c")
+        .arg("copy")
+        .arg("-f")
+        .arg("null")
+        .arg("-")
+        .output()
+        .ok()?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    parse_ffmpeg_progress_duration(&stderr).or_else(|| parse_ffmpeg_progress_duration(&stdout))
+}
+
 fn probe_media(input: &Path) -> Result<MediaProbe, String> {
     let output = std::process::Command::new(ffmpeg_path())
         .arg("-hide_banner")
@@ -775,20 +821,37 @@ fn probe_media(input: &Path) -> Result<MediaProbe, String> {
         .output()
         .map_err(|e| format!("Analisi del file multimediale fallita: {e}"))?;
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let duration_sec = stderr
-        .lines()
-        .find_map(|line| {
-            let marker = "Duration:";
-            let pos = line.find(marker)?;
-            let tail = line[pos + marker.len()..].trim_start();
-            let value = tail.split(',').next()?.trim();
-            if value == "N/A" {
-                None
-            } else {
-                parse_ffmpeg_duration(value)
-            }
-        })
-        .ok_or_else(|| "FFmpeg non ha restituito la durata del video.".to_string())?;
+    let metadata_duration = stderr.lines().find_map(|line| {
+        let marker = "Duration:";
+        let pos = line.find(marker)?;
+        let tail = line[pos + marker.len()..].trim_start();
+        let value = tail.split(',').next()?.trim();
+        if value == "N/A" {
+            None
+        } else {
+            parse_ffmpeg_duration(value)
+        }
+    });
+    let duration_sec = if let Some(duration) = metadata_duration {
+        duration
+    } else if let Some(duration) = probe_media_duration_from_packets(input) {
+        append_podcast_log(&format!(
+            "audio_description.probe duration_fallback=packet_timestamps path={} duration={:.3}",
+            input.display(),
+            duration
+        ));
+        duration
+    } else {
+        let detail = stderr
+            .lines()
+            .rev()
+            .find(|line| !line.trim().is_empty())
+            .unwrap_or("nessun dettaglio FFmpeg")
+            .trim();
+        return Err(format!(
+            "FFmpeg non ha restituito la durata del video. Dettagli: {detail}"
+        ));
+    };
     let has_audio = stderr.lines().any(|line| line.contains(" Audio:"));
     Ok(MediaProbe {
         duration_sec,
@@ -1157,8 +1220,23 @@ fn synthesize_text_pcm(
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".to_string());
     }
+    let spoken_text = crate::apply_voice_dictionary_to_text(text);
+    if spoken_text != text {
+        append_podcast_log(&format!(
+            "audio_description.voice_dictionary_applied cue={} original_chars={} spoken_chars={}",
+            index,
+            text.chars().count(),
+            spoken_text.chars().count()
+        ));
+    }
     let mp3 = crate::synthesize_voice_chunk_blocking(
-        tts.engine, text, tts.voice, tts.rate, tts.pitch, tts.volume, rt,
+        tts.engine,
+        &spoken_text,
+        tts.voice,
+        tts.rate,
+        tts.pitch,
+        tts.volume,
+        rt,
     )?;
     let mut pcm = convert_mp3_bytes_to_pcm(&mp3, dir, index, cancel)?;
     if !crate::is_system_voice_engine(tts.engine) {
