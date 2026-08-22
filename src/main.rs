@@ -15587,54 +15587,6 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
     }
 }
 
-fn convert_media_progress(
-    parent: &Dialog,
-    args: Vec<String>,
-    _output_path: PathBuf,
-) -> Result<(), String> {
-    let ui = current_ui_strings();
-    let state = Arc::new(Mutex::new(ConvertProgress {
-        percent: 0,
-        finished: false,
-        result: None,
-    }));
-    let state_thread = Arc::clone(&state);
-
-    std::thread::spawn(move || {
-        run_convert_media_ffmpeg(&args, state_thread);
-    });
-
-    let progress = ProgressDialog::builder(
-        parent,
-        &ui.convert_media_title,
-        &ui.convert_media_running,
-        100,
-    )
-    .with_style(ProgressDialogStyle::Smooth | ProgressDialogStyle::CanAbort)
-    .build();
-
-    loop {
-        std::thread::sleep(Duration::from_millis(150));
-        let snapshot = {
-            let s = state.lock().unwrap();
-            (s.percent, s.finished, s.result.clone())
-        };
-
-        if snapshot.1 {
-            progress.destroy();
-            return snapshot
-                .2
-                .unwrap_or_else(|| Err("Errore sconosciuto".to_string()));
-        }
-
-        let msg = format!("{}... {}%", ui.convert_media_running, snapshot.0);
-        if !progress.update(snapshot.0, Some(&msg)) {
-            progress.destroy();
-            return Err("Annullato dall'utente".to_string());
-        }
-    }
-}
-
 fn choose_convert_media_file(parent: &Dialog, title: &str, wildcard: &str) -> Option<PathBuf> {
     let dialog = FileDialog::builder(parent)
         .with_message(title)
@@ -15889,12 +15841,98 @@ fn open_convert_media_dialog(parent: &Frame) {
         }
     });
 
+    // Keep FFmpeg work entirely off the wx/main thread.  The previous implementation
+    // spawned FFmpeg in a worker but then blocked this event handler in a sleep/poll loop,
+    // which made macOS mark Sonarpad as not responding.  A wx timer now polls the shared
+    // progress state while the normal event loop remains free to repaint and process input.
+    let conversion_job = Rc::new(RefCell::new(None::<Arc<Mutex<ConvertProgress>>>));
+    let conversion_busy = Arc::new(AtomicBool::new(false));
+    let conversion_timer = Rc::new(Timer::new(&dialog));
+
+    let conversion_timer_tick = Rc::clone(&conversion_timer);
+    let conversion_job_tick = Rc::clone(&conversion_job);
+    let conversion_busy_tick = Arc::clone(&conversion_busy);
+    let dialog_timer = dialog;
+    let status_text_timer = status_text;
+    let input_button_timer = input_button;
+    let output_button_timer = output_button;
+    let image_button_timer = image_button;
+    let format_choice_timer = format_choice;
+    let bitrate_ctrl_timer = bitrate_ctrl;
+    let ogg_choice_timer = ogg_choice;
+    let flac_choice_timer = flac_choice;
+    let wav_choice_timer = wav_choice;
+    let convert_button_timer = convert_button;
+    let close_button_timer = close_button;
+    conversion_timer_tick.on_tick(move |_| {
+        let state = conversion_job_tick.borrow().as_ref().cloned();
+        let Some(state) = state else {
+            return;
+        };
+        let snapshot = {
+            let state = state.lock().unwrap();
+            (state.percent, state.finished, state.result.clone())
+        };
+
+        let ui = current_ui_strings();
+        if !snapshot.1 {
+            status_text_timer.set_label(&format!(
+                "{} {}%",
+                ui.convert_media_running,
+                snapshot.0.clamp(0, 99)
+            ));
+            return;
+        }
+
+        *conversion_job_tick.borrow_mut() = None;
+        conversion_busy_tick.store(false, Ordering::SeqCst);
+        input_button_timer.enable(true);
+        output_button_timer.enable(true);
+        image_button_timer.enable(true);
+        format_choice_timer.enable(true);
+        bitrate_ctrl_timer.enable(true);
+        ogg_choice_timer.enable(true);
+        flac_choice_timer.enable(true);
+        wav_choice_timer.enable(true);
+        convert_button_timer.enable(true);
+        close_button_timer.enable(true);
+
+        match snapshot
+            .2
+            .unwrap_or_else(|| Err("Errore sconosciuto".to_string()))
+        {
+            Ok(()) => {
+                status_text_timer.set_label(&ui.convert_media_done);
+                show_message_subdialog(
+                    &dialog_timer,
+                    &ui.convert_media_title,
+                    &ui.convert_media_done,
+                );
+            }
+            Err(err) => {
+                status_text_timer.set_label(&ui.convert_media_ready);
+                show_message_subdialog(
+                    &dialog_timer,
+                    &ui.convert_media_title,
+                    &ui.convert_media_failed.replace("{error}", &err),
+                );
+            }
+        }
+    });
+    conversion_timer.start(150, false);
+
     let dialog_convert = dialog;
     let input_path_convert = Rc::clone(&input_path);
     let output_dir_convert = Rc::clone(&output_dir);
     let image_path_convert = Rc::clone(&image_path);
+    let conversion_job_convert = Rc::clone(&conversion_job);
+    let conversion_busy_convert = Arc::clone(&conversion_busy);
     let status_text_convert = status_text;
     convert_button.on_click(move |_| {
+        if conversion_busy_convert.load(Ordering::SeqCst) {
+            return;
+        }
+
         let ui = current_ui_strings();
         let Some(input) = input_path_convert.borrow().clone() else {
             show_message_subdialog(
@@ -15953,29 +15991,48 @@ fn open_convert_media_dialog(parent: &Frame) {
             flac_compression,
             wav_depth,
         });
-        status_text_convert.set_label(&ui.convert_media_running);
-        match convert_media_progress(&dialog_convert, args, output.clone()) {
-            Ok(()) => {
-                show_message_subdialog(
-                    &dialog_convert,
-                    &ui.convert_media_title,
-                    &ui.convert_media_done,
-                );
-            }
-            Err(err) => {
-                status_text_convert.set_label(&ui.convert_media_ready);
-                show_message_subdialog(
-                    &dialog_convert,
-                    &ui.convert_media_title,
-                    &ui.convert_media_failed.replace("{error}", &err),
-                );
-            }
+
+        let state = Arc::new(Mutex::new(ConvertProgress {
+            percent: 0,
+            finished: false,
+            result: None,
+        }));
+        *conversion_job_convert.borrow_mut() = Some(Arc::clone(&state));
+        conversion_busy_convert.store(true, Ordering::SeqCst);
+        input_button.enable(false);
+        output_button.enable(false);
+        image_button.enable(false);
+        format_choice.enable(false);
+        bitrate_ctrl.enable(false);
+        ogg_choice.enable(false);
+        flac_choice.enable(false);
+        wav_choice.enable(false);
+        convert_button.enable(false);
+        close_button.enable(false);
+        status_text_convert.set_label(&format!("{} 0%", ui.convert_media_running));
+        append_podcast_log(&format!(
+            "convert_media.worker_spawn output={}",
+            output.display()
+        ));
+
+        std::thread::spawn(move || {
+            run_convert_media_ffmpeg(&args, state);
+        });
+    });
+
+    let conversion_busy_close = Arc::clone(&conversion_busy);
+    dialog.on_close(move |event| {
+        if conversion_busy_close.load(Ordering::SeqCst) {
+            event.skip(false);
+        } else {
+            event.skip(true);
         }
     });
 
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
+    conversion_timer.stop();
     dialog.destroy();
 }
 
