@@ -385,7 +385,9 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         voice_change_start = AUDIO.index('fn change_project_voice(')
         voice_change_end = AUDIO.index('fn run_project_voice_validation_with_progress', voice_change_start)
         voice_change = AUDIO[voice_change_start:voice_change_end]
-        self.assertIn('for (index, description) in project.descriptions.iter().enumerate()', voice_change)
+        self.assertIn('let synthesis_tasks = project', voice_change)
+        self.assertIn('synthesize_description_tasks_parallel(', voice_change)
+        self.assertIn('AudioDescriptionSynthesisTask {', voice_change)
         self.assertIn('engine: tts_engine', voice_change)
         self.assertIn('voice: tts_voice', voice_change)
         self.assertIn('schedule_descriptions(', voice_change)
@@ -403,6 +405,14 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('Timer::new(&progress_dialog)', voice_progress)
         self.assertIn('progress_dialog.show_modal()', voice_progress)
         self.assertNotIn('thread::sleep', voice_progress)
+
+    def test_edge_audio_description_tts_uses_eight_workers_and_empty_retry(self):
+        self.assertIn("const EDGE_AUDIO_DESCRIPTION_PARALLELISM: usize = 8;", AUDIO)
+        self.assertIn("fn synthesize_description_tasks_parallel", AUDIO)
+        self.assertIn("synthesized.sort_by_key(|description| description.original_index);", AUDIO)
+        self.assertIn("fn audio_description_pcm_has_signal", AUDIO)
+        self.assertIn("fn wait_for_empty_tts_retry", AUDIO)
+        self.assertIn("audio_description.tts_empty_retry", AUDIO)
 
     def test_dropped_description_keeps_original_index_for_voice_fit_errors(self):
         dropped_start = AUDIO.index('struct DroppedDescription')

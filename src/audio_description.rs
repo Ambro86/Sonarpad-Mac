@@ -41,6 +41,8 @@ const EDGE_TRAILING_MIN_REMOVE_MS: u64 = 60;
 const EDGE_TRAILING_KEEP_MS: u64 = 30;
 const EDGE_TRAILING_SEEK_MS: u64 = 5;
 const EDGE_TRAILING_WINDOW_MS: u64 = 60;
+const EDGE_AUDIO_DESCRIPTION_PARALLELISM: usize = 8;
+const EMPTY_TTS_RETRY_DELAY_MS: u64 = 750;
 const MAX_CHARACTER_DESCRIPTION_CHARS: usize = 2_000;
 const ID_AUDIO_DESCRIPTION_START: i32 = 7100;
 const ID_AUDIO_DESCRIPTION_PROGRESS_CANCEL: i32 = 7101;
@@ -185,6 +187,18 @@ struct SynthesizedDescription {
     slot_end_sec: Option<f64>,
     pcm: Arc<[i16]>,
     duration_sec: f64,
+}
+
+#[derive(Clone, Debug)]
+struct AudioDescriptionSynthesisTask {
+    original_index: usize,
+    synthesis_index: usize,
+    text: String,
+    desired_start_sec: f64,
+    mandatory: bool,
+    slot_id: String,
+    slot_start_sec: Option<f64>,
+    slot_end_sec: Option<f64>,
 }
 
 #[derive(Clone, Debug)]
@@ -1067,8 +1081,17 @@ fn convert_mp3_bytes_to_pcm(
     index: usize,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<i16>, String> {
+    if bytes.is_empty() {
+        return Err("TTS audio vuoto: payload MP3 senza dati.".to_string());
+    }
+
     let mp3 = dir.join(format!("tts_{index:04}.mp3"));
     let wav = dir.join(format!("tts_{index:04}.wav"));
+    let cleanup = || {
+        let _ = fs::remove_file(&mp3);
+        let _ = fs::remove_file(&wav);
+    };
+
     fs::write(&mp3, bytes).map_err(|e| format!("Scrittura TTS temporaneo fallita: {e}"))?;
     let args = vec![
         "-hide_banner".into(),
@@ -1085,14 +1108,42 @@ fn convert_mp3_bytes_to_pcm(
         "pcm_s16le".into(),
         wav.to_string_lossy().to_string(),
     ];
-    run_ffmpeg(&args, cancel)?;
-    let reader = WavReader::open(&wav).map_err(|e| format!("TTS WAV non leggibile: {e}"))?;
+    if let Err(error) = run_ffmpeg(&args, cancel) {
+        cleanup();
+        return Err(error);
+    }
+
+    let wav_len = fs::metadata(&wav).map(|metadata| metadata.len()).unwrap_or(0);
+    if wav_len <= 44 {
+        cleanup();
+        return Err(format!("TTS WAV vuoto: {wav_len} byte."));
+    }
+
+    let reader = match WavReader::open(&wav) {
+        Ok(reader) => reader,
+        Err(error) if wav_len <= 128 => {
+            cleanup();
+            return Err(format!(
+                "TTS WAV vuoto o troppo piccolo ({wav_len} byte): {error}"
+            ));
+        }
+        Err(error) => {
+            cleanup();
+            return Err(format!("TTS WAV non leggibile: {error}"));
+        }
+    };
     let samples: Result<Vec<i16>, _> = reader.into_samples::<i16>().collect();
-    let samples = samples.map_err(|e| format!("Lettura TTS WAV fallita: {e}"))?;
-    let _ = fs::remove_file(mp3);
-    let _ = fs::remove_file(wav);
+    let samples = match samples {
+        Ok(samples) => samples,
+        Err(error) => {
+            cleanup();
+            return Err(format!("Lettura TTS WAV fallita: {error}"));
+        }
+    };
+    cleanup();
+
     if samples.is_empty() {
-        return Err("La voce ha prodotto audio vuoto.".to_string());
+        return Err("TTS WAV vuoto: nessun campione PCM.".to_string());
     }
     Ok(samples)
 }
@@ -1209,6 +1260,33 @@ struct TtsParameters<'a> {
     volume: i32,
 }
 
+fn audio_description_pcm_has_signal(samples: &[i16]) -> bool {
+    samples.iter().any(|sample| i32::from(*sample).abs() > 0)
+}
+
+fn audio_description_tts_error_is_empty_output(error: &str) -> bool {
+    let normalized = error.to_ascii_lowercase();
+    normalized.contains("tts audio vuoto")
+        || normalized.contains("tts wav vuoto")
+        || normalized.contains("audio vuoto")
+        || normalized.contains("nessun campione pcm")
+}
+
+fn wait_for_empty_tts_retry(cancel: &AtomicBool) -> Result<(), String> {
+    const POLL_DELAY_MS: u64 = 75;
+    let mut waited_ms = 0_u64;
+    while waited_ms < EMPTY_TTS_RETRY_DELAY_MS {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let remaining_ms = EMPTY_TTS_RETRY_DELAY_MS.saturating_sub(waited_ms);
+        let sleep_ms = remaining_ms.min(POLL_DELAY_MS);
+        thread::sleep(Duration::from_millis(sleep_ms));
+        waited_ms = waited_ms.saturating_add(sleep_ms);
+    }
+    Ok(())
+}
+
 fn synthesize_text_pcm(
     text: &str,
     tts: TtsParameters<'_>,
@@ -1229,29 +1307,181 @@ fn synthesize_text_pcm(
             spoken_text.chars().count()
         ));
     }
-    let mp3 = crate::synthesize_voice_chunk_blocking(
-        tts.engine,
-        &spoken_text,
-        tts.voice,
-        tts.rate,
-        tts.pitch,
-        tts.volume,
-        rt,
-    )?;
-    let mut pcm = convert_mp3_bytes_to_pcm(&mp3, dir, index, cancel)?;
-    if !crate::is_system_voice_engine(tts.engine) {
-        let removed = trim_edge_trailing_silence(&mut pcm);
-        if removed > 0 {
+
+    let mut empty_attempt = 0_u64;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+
+        let mp3 = match crate::synthesize_voice_chunk_blocking(
+            tts.engine,
+            &spoken_text,
+            tts.voice,
+            tts.rate,
+            tts.pitch,
+            tts.volume,
+            rt,
+        ) {
+            Ok(audio) => audio,
+            Err(error) => {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("cancelled".to_string());
+                }
+                if audio_description_tts_error_is_empty_output(&error) {
+                    empty_attempt = empty_attempt.saturating_add(1);
+                    append_podcast_log(&format!(
+                        "audio_description.tts_empty_retry cue={} attempt={} stage=renderer error={}",
+                        index, empty_attempt, error
+                    ));
+                    wait_for_empty_tts_retry(cancel.as_ref())?;
+                    continue;
+                }
+                return Err(error);
+            }
+        };
+
+        if mp3.is_empty() {
+            empty_attempt = empty_attempt.saturating_add(1);
             append_podcast_log(&format!(
-                "audio_description.edge_trim cue={} removed_samples={}",
-                index, removed
+                "audio_description.tts_empty_retry cue={} attempt={} stage=mp3_payload",
+                index, empty_attempt
             ));
+            wait_for_empty_tts_retry(cancel.as_ref())?;
+            continue;
+        }
+
+        let mut pcm = match convert_mp3_bytes_to_pcm(&mp3, dir, index, cancel) {
+            Ok(pcm) => pcm,
+            Err(error) if audio_description_tts_error_is_empty_output(&error) => {
+                empty_attempt = empty_attempt.saturating_add(1);
+                append_podcast_log(&format!(
+                    "audio_description.tts_empty_retry cue={} attempt={} stage=wav_decode error={}",
+                    index, empty_attempt, error
+                ));
+                wait_for_empty_tts_retry(cancel.as_ref())?;
+                continue;
+            }
+            Err(error) => return Err(error),
+        };
+
+        if !crate::is_system_voice_engine(tts.engine) {
+            let removed = trim_edge_trailing_silence(&mut pcm);
+            if removed > 0 {
+                append_podcast_log(&format!(
+                    "audio_description.edge_trim cue={} removed_samples={}",
+                    index, removed
+                ));
+            }
+        }
+
+        if pcm.is_empty() || !audio_description_pcm_has_signal(&pcm) {
+            empty_attempt = empty_attempt.saturating_add(1);
+            append_podcast_log(&format!(
+                "audio_description.tts_empty_retry cue={} attempt={} stage=pcm_signal",
+                index, empty_attempt
+            ));
+            wait_for_empty_tts_retry(cancel.as_ref())?;
+            continue;
+        }
+
+        return Ok(Arc::from(pcm));
+    }
+}
+
+fn audio_description_tts_parallelism(engine: &str, task_count: usize) -> usize {
+    let requested = if crate::is_system_voice_engine(engine) {
+        1
+    } else {
+        EDGE_AUDIO_DESCRIPTION_PARALLELISM
+    };
+    requested.min(task_count).max(1)
+}
+
+fn synthesize_description_tasks_parallel<F>(
+    tasks: &[AudioDescriptionSynthesisTask],
+    tts: TtsParameters<'_>,
+    rt: &Runtime,
+    dir: &Path,
+    cancel: Arc<AtomicBool>,
+    mut on_completed: F,
+) -> Result<Vec<SynthesizedDescription>, String>
+where
+    F: FnMut(usize, usize),
+{
+    if tasks.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let parallelism = audio_description_tts_parallelism(tts.engine, tasks.len());
+    append_podcast_log(&format!(
+        "audio_description.parallel_tts engine={} descriptions={} concurrency={}",
+        tts.engine,
+        tasks.len(),
+        parallelism
+    ));
+
+    let mut synthesized = Vec::with_capacity(tasks.len());
+    let mut completed = 0_usize;
+
+    for batch_start in (0..tasks.len()).step_by(parallelism) {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let batch_end = (batch_start + parallelism).min(tasks.len());
+        let batch = &tasks[batch_start..batch_end];
+
+        let batch_results = thread::scope(|scope| {
+            let mut handles = Vec::with_capacity(batch.len());
+            for task in batch {
+                let cancel = cancel.clone();
+                handles.push(scope.spawn(move || {
+                    let pcm = synthesize_text_pcm(
+                        &task.text,
+                        tts,
+                        rt,
+                        dir,
+                        task.synthesis_index,
+                        &cancel,
+                    )?;
+                    let duration_sec =
+                        pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
+                    Ok::<SynthesizedDescription, String>(SynthesizedDescription {
+                        original_index: task.original_index,
+                        text: task.text.clone(),
+                        desired_start_sec: task.desired_start_sec,
+                        mandatory: task.mandatory,
+                        slot_id: task.slot_id.clone(),
+                        slot_start_sec: task.slot_start_sec,
+                        slot_end_sec: task.slot_end_sec,
+                        pcm,
+                        duration_sec,
+                    })
+                }));
+            }
+
+            handles
+                .into_iter()
+                .map(|handle| {
+                    handle.join().unwrap_or_else(|_| {
+                        Err("Audio description: parallel TTS worker panicked".to_string())
+                    })
+                })
+                .collect::<Vec<_>>()
+        });
+
+        for result in batch_results {
+            if cancel.load(Ordering::Relaxed) {
+                return Err("cancelled".to_string());
+            }
+            synthesized.push(result?);
+            completed = completed.saturating_add(1);
+            on_completed(completed, tasks.len());
         }
     }
-    if pcm.is_empty() {
-        return Err("La voce ha prodotto audio vuoto.".to_string());
-    }
-    Ok(Arc::from(pcm))
+
+    synthesized.sort_by_key(|description| description.original_index);
+    Ok(synthesized)
 }
 
 fn normalize_intervals(intervals: &[BridgeInterval], duration: f64) -> Vec<(f64, f64)> {
@@ -2119,40 +2349,38 @@ fn create_audio_description(
             s.progress = 55;
             s.status = tr("audio_description.progress.tts");
         }
-        let mut synthesized = Vec::with_capacity(analysis.descriptions.len());
-        for (i, d) in analysis.descriptions.iter().enumerate() {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("cancelled".into());
-            }
-            let pcm = synthesize_text_pcm(
-                &d.text,
-                TtsParameters {
-                    engine: &job.tts_engine,
-                    voice: &job.tts_voice,
-                    rate: job.rate,
-                    pitch: job.pitch,
-                    volume: job.volume,
-                },
-                rt,
-                &work,
-                i,
-                &cancel,
-            )?;
-            let duration_sec = pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
-            synthesized.push(SynthesizedDescription {
-                original_index: i,
-                text: d.text.clone(),
-                desired_start_sec: d.start_sec,
-                mandatory: d.mandatory,
-                slot_id: d.slot_id.clone(),
-                slot_start_sec: d.slot_start_sec,
-                slot_end_sec: d.slot_end_sec,
-                pcm,
-                duration_sec,
-            });
-            let mut s = state.lock().unwrap();
-            s.progress = 55 + (((i + 1) as i32 * 25) / (analysis.descriptions.len().max(1) as i32));
-        }
+        let synthesis_tasks = analysis
+            .descriptions
+            .iter()
+            .enumerate()
+            .map(|(index, description)| AudioDescriptionSynthesisTask {
+                original_index: index,
+                synthesis_index: index,
+                text: description.text.clone(),
+                desired_start_sec: description.start_sec,
+                mandatory: description.mandatory,
+                slot_id: description.slot_id.clone(),
+                slot_start_sec: description.slot_start_sec,
+                slot_end_sec: description.slot_end_sec,
+            })
+            .collect::<Vec<_>>();
+        let synthesized = synthesize_description_tasks_parallel(
+            &synthesis_tasks,
+            TtsParameters {
+                engine: &job.tts_engine,
+                voice: &job.tts_voice,
+                rate: job.rate,
+                pitch: job.pitch,
+                volume: job.volume,
+            },
+            rt,
+            &work,
+            cancel.clone(),
+            |completed, total| {
+                let mut s = state.lock().unwrap();
+                s.progress = 55 + ((completed as i32 * 25) / total.max(1) as i32);
+            },
+        )?;
         {
             let mut s = state.lock().unwrap();
             s.status = tr("audio_description.progress.schedule");
@@ -4001,44 +4229,43 @@ fn change_project_voice(
     if project.descriptions.is_empty() {
         return Err(tr("audio_description.project.no_selection"));
     }
-    let total = project.descriptions.len().max(1);
     let work = cache_dir("project_voice_change")?;
     let temporary_mp3 = temporary_sibling_path(&project.output_mp3_path, "voice");
     let temporary_project = temporary_sibling_path(project_file, "voice");
     let cancel = Arc::new(AtomicBool::new(false));
     let result = (|| {
-        let mut synthesized = Vec::with_capacity(project.descriptions.len());
-        for (index, description) in project.descriptions.iter().enumerate() {
-            let pcm = synthesize_text_pcm(
-                &description.text,
-                TtsParameters {
-                    engine: tts_engine,
-                    voice: tts_voice,
-                    rate: project.tts_rate,
-                    pitch: project.tts_pitch,
-                    volume: project.tts_volume,
-                },
-                rt,
-                &work,
-                index,
-                &cancel,
-            )?;
-            let duration_sec =
-                pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
-            synthesized.push(SynthesizedDescription {
+        let synthesis_tasks = project
+            .descriptions
+            .iter()
+            .enumerate()
+            .map(|(index, description)| AudioDescriptionSynthesisTask {
                 original_index: index,
+                synthesis_index: index,
                 text: description.text.clone(),
                 desired_start_sec: description.gemini_start_sec,
                 mandatory: description.mandatory,
                 slot_id: description.slot_id.clone(),
                 slot_start_sec: description.slot_start_sec,
                 slot_end_sec: description.slot_end_sec,
-                pcm,
-                duration_sec,
-            });
-            state.lock().unwrap().progress =
-                ((index + 1) as i32 * 75 / total as i32).clamp(0, 75);
-        }
+            })
+            .collect::<Vec<_>>();
+        let synthesized = synthesize_description_tasks_parallel(
+            &synthesis_tasks,
+            TtsParameters {
+                engine: tts_engine,
+                voice: tts_voice,
+                rate: project.tts_rate,
+                pitch: project.tts_pitch,
+                volume: project.tts_volume,
+            },
+            rt,
+            &work,
+            cancel.clone(),
+            |completed, total| {
+                state.lock().unwrap().progress =
+                    ((completed as i32 * 75) / total.max(1) as i32).clamp(0, 75);
+            },
+        )?;
 
         let source = work.join("source.wav");
         let source_duration = decode_source_audio(&project.source_path, &source, &cancel)?.duration_sec;
@@ -4393,40 +4620,38 @@ fn rebuild_project(
     let result = (|| {
         let source = work.join("source.wav");
         let duration = decode_source_audio(&project.source_path, &source, &cancel)?.duration_sec;
-        let mut synthesized = Vec::new();
-        for (index, description) in project.descriptions.iter().enumerate() {
-            if cancel.load(Ordering::Relaxed) {
-                return Err("cancelled".to_string());
-            }
-            let pcm = synthesize_text_pcm(
-                &description.text,
-                TtsParameters {
-                    engine: &project.tts_engine,
-                    voice: &project.tts_voice,
-                    rate: project.tts_rate,
-                    pitch: project.tts_pitch,
-                    volume: project.tts_volume,
-                },
-                rt,
-                &work,
-                index,
-                &cancel,
-            )?;
-            let duration_sec = pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
-            synthesized.push(SynthesizedDescription {
+        let synthesis_tasks = project
+            .descriptions
+            .iter()
+            .enumerate()
+            .map(|(index, description)| AudioDescriptionSynthesisTask {
                 original_index: index,
+                synthesis_index: index,
                 text: description.text.clone(),
                 desired_start_sec: description.gemini_start_sec,
                 mandatory: description.mandatory,
                 slot_id: description.slot_id.clone(),
                 slot_start_sec: description.slot_start_sec,
                 slot_end_sec: description.slot_end_sec,
-                pcm,
-                duration_sec,
-            });
-            state.lock().unwrap().progress =
-                10 + ((index + 1) as i32 * 70 / project.descriptions.len().max(1) as i32);
-        }
+            })
+            .collect::<Vec<_>>();
+        let synthesized = synthesize_description_tasks_parallel(
+            &synthesis_tasks,
+            TtsParameters {
+                engine: &project.tts_engine,
+                voice: &project.tts_voice,
+                rate: project.tts_rate,
+                pitch: project.tts_pitch,
+                volume: project.tts_volume,
+            },
+            rt,
+            &work,
+            cancel.clone(),
+            |completed, total| {
+                state.lock().unwrap().progress =
+                    10 + ((completed as i32 * 70) / total.max(1) as i32);
+            },
+        )?;
         let protected = project
             .protected_intervals
             .iter()

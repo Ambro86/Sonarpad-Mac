@@ -258,12 +258,37 @@ jobs:
           fi
           rm -rf dist/ffmpeg-install dist/ffmpeg-build dist/lame-build dist/lame-install
           mkdir -p dist/ffmpeg-build dist/ffmpeg-install dist/lame-src dist/lame-build dist/lame-install
-          if [ ! -f "dist/lame-src/lame-3.100.tar.gz" ]; then
-            curl -L --fail \
-              "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz" \
-              -o "dist/lame-src/lame-3.100.tar.gz"
+          LAME_ARCHIVE="dist/lame-src/lame-3.100.tar.gz"
+          if [ -f "${LAME_ARCHIVE}" ] && ! tar -tzf "${LAME_ARCHIVE}" >/dev/null 2>&1; then
+            echo "Cached LAME archive is invalid; removing it."
+            rm -f "${LAME_ARCHIVE}"
           fi
-          tar -xzf "dist/lame-src/lame-3.100.tar.gz" -C dist/lame-build
+          if [ ! -f "${LAME_ARCHIVE}" ]; then
+            LAME_TMP="${LAME_ARCHIVE}.tmp"
+            rm -f "${LAME_TMP}"
+            downloaded=false
+            for url in \
+              "https://github.com/enzo1982/lame/archive/refs/tags/RELEASE__3_100.tar.gz" \
+              "https://sourceforge.net/projects/lame/files/lame/3.100/lame-3.100.tar.gz/download?use_mirror=gigenet" \
+              "https://downloads.sourceforge.net/project/lame/lame/3.100/lame-3.100.tar.gz"; do
+              echo "Downloading LAME 3.100 from ${url}"
+              if curl -L --fail --retry 4 --retry-all-errors --connect-timeout 20 \
+                "${url}" -o "${LAME_TMP}" \
+                && tar -tzf "${LAME_TMP}" >/dev/null 2>&1; then
+                mv "${LAME_TMP}" "${LAME_ARCHIVE}"
+                downloaded=true
+                break
+              fi
+              rm -f "${LAME_TMP}"
+            done
+            if [ "${downloaded}" != true ]; then
+              echo "Unable to download a valid LAME 3.100 source archive from any mirror." >&2
+              exit 1
+            fi
+          fi
+          rm -rf dist/lame-build/lame-3.100
+          mkdir -p dist/lame-build/lame-3.100
+          tar -xzf "${LAME_ARCHIVE}" --strip-components=1 -C dist/lame-build/lame-3.100
           pushd dist/lame-build/lame-3.100
           CFLAGS="-mmacosx-version-min=10.15" \
           CXXFLAGS="-mmacosx-version-min=10.15" \
