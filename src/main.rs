@@ -20967,39 +20967,6 @@ fn tv_program_label(program: &tv::TvProgram) -> String {
     }
 }
 
-fn refresh_tv_guide_programs(
-    program_choice: &Choice,
-    plot_button: &Button,
-    programs: &[tv::TvProgram],
-) {
-    program_choice.clear();
-    for program in programs {
-        program_choice.append(&tv_program_label(program));
-    }
-    let has_programs = !programs.is_empty();
-    program_choice.enable(has_programs);
-    plot_button.enable(has_programs);
-    if has_programs {
-        program_choice.set_selection(0);
-    }
-}
-
-fn tv_program_plot_button_label() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "Visualizza trama del programma selezionato"
-    } else {
-        "View selected program plot"
-    }
-}
-
-fn tv_program_plot_dialog_title(program: &tv::TvProgram) -> String {
-    if Settings::load().ui_language == "it" {
-        format!("Trama - {}", program.title)
-    } else {
-        format!("Plot - {}", program.title)
-    }
-}
-
 fn tv_program_plot_text(program: &tv::TvProgram) -> String {
     let description = program.description.trim();
     if !description.is_empty() {
@@ -21011,50 +20978,48 @@ fn tv_program_plot_text(program: &tv::TvProgram) -> String {
     }
 }
 
-fn tv_program_plot_back_label() -> &'static str {
+fn tv_program_plot_field_label() -> &'static str {
     if Settings::load().ui_language == "it" {
-        "Indietro"
+        "Trama"
     } else {
-        "Back"
+        "Plot"
     }
 }
 
-fn show_tv_program_plot_dialog(parent: &Dialog, program: &tv::TvProgram) {
-    let title = tv_program_plot_dialog_title(program);
-    let text_value = tv_program_plot_text(program);
-    let dialog = Dialog::builder(parent, &title)
-        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(760, 560)
-        .build();
-    let panel = Panel::builder(&dialog).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
+fn refresh_tv_program_plot(
+    program_choice: &Choice,
+    plot_text: &TextCtrl,
+    programs: &[tv::TvProgram],
+) {
+    let value = program_choice
+        .get_selection()
+        .and_then(|selection| programs.get(selection as usize))
+        .map(tv_program_plot_text)
+        .unwrap_or_else(|| {
+            if Settings::load().ui_language == "it" {
+                "Nessuna trama disponibile per questo programma.".to_string()
+            } else {
+                "No plot is available for this program.".to_string()
+            }
+        });
+    plot_text.set_value(&value);
+}
 
-    // Keep Back as the first focusable control, before the program title and plot.
-    let back_button = Button::builder(&panel)
-        .with_id(ID_CANCEL)
-        .with_label(tv_program_plot_back_label())
-        .build();
-    root.add(&back_button, 0, SizerFlag::All, 8);
-
-    let title_label = StaticText::builder(&panel)
-        .with_label(&program.title)
-        .build();
-    root.add(&title_label, 0, SizerFlag::Expand | SizerFlag::All, 8);
-
-    let text = TextCtrl::builder(&panel)
-        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
-        .build();
-    text.set_accessibility_label(&title);
-    text.set_value(&text_value);
-    root.add(&text, 1, SizerFlag::Expand | SizerFlag::All, 8);
-
-    panel.set_sizer(root, true);
-    dialog.set_escape_id(ID_CANCEL);
-    let dialog_back = dialog;
-    back_button.on_click(move |_| dialog_back.end_modal(ID_CANCEL));
-    back_button.set_focus();
-    dialog.show_modal();
-    dialog.destroy();
+fn refresh_tv_guide_programs(
+    program_choice: &Choice,
+    plot_text: &TextCtrl,
+    programs: &[tv::TvProgram],
+) {
+    program_choice.clear();
+    for program in programs {
+        program_choice.append(&tv_program_label(program));
+    }
+    let has_programs = !programs.is_empty();
+    program_choice.enable(has_programs);
+    if has_programs {
+        program_choice.set_selection(0);
+    }
+    refresh_tv_program_plot(program_choice, plot_text, programs);
 }
 
 fn tv_channel_categories(channels: &[tv::TvChannel]) -> Vec<String> {
@@ -21216,7 +21181,7 @@ fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
         tv::load_channel_guide(guide_channel, 0).unwrap_or_else(|_| channel.programs.clone());
     let dialog = Dialog::builder(parent, &title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(620, 310)
+        .with_size(700, 470)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -21240,6 +21205,7 @@ fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
     day_choice.set_selection(1);
     day_row.add(&day_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&day_row, 0, SizerFlag::Expand, 0);
+
     let program_row = BoxSizer::builder(Orientation::Horizontal).build();
     program_row.add(
         &StaticText::builder(&panel)
@@ -21255,12 +21221,19 @@ fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
     );
     let program_choice = Choice::builder(&panel).build();
     program_row.add(&program_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&program_row, 1, SizerFlag::Expand, 0);
-    let plot_button = Button::builder(&panel)
-        .with_label(tv_program_plot_button_label())
+    root.add_sizer(&program_row, 0, SizerFlag::Expand, 0);
+
+    let plot_label = tv_program_plot_field_label();
+    let plot_heading = StaticText::builder(&panel).with_label(plot_label).build();
+    root.add(&plot_heading, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let plot_text = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
-    refresh_tv_guide_programs(&program_choice, &plot_button, &initial_programs);
-    root.add(&plot_button, 0, SizerFlag::All, 5);
+    plot_text.set_accessibility_label(plot_label);
+    root.add(&plot_text, 1, SizerFlag::Expand | SizerFlag::All, 5);
+
+    refresh_tv_guide_programs(&program_choice, &plot_text, &initial_programs);
+
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&current_ui_strings().close)
@@ -21273,27 +21246,18 @@ fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
     dialog.set_escape_id(ID_CANCEL);
     let current_programs = Rc::new(RefCell::new(initial_programs));
 
-    let program_choice_plot = program_choice;
-    let current_programs_plot = Rc::clone(&current_programs);
-    let dialog_plot = dialog;
-    plot_button.on_click(move |_| {
-        let Some(selection) = program_choice_plot.get_selection() else {
-            return;
-        };
-        let program = current_programs_plot
-            .borrow()
-            .get(selection as usize)
-            .cloned();
-        let Some(program) = program else {
-            return;
-        };
-        show_tv_program_plot_dialog(&dialog_plot, &program);
-        program_choice_plot.set_selection(selection);
-        program_choice_plot.set_focus();
+    let plot_text_program = plot_text;
+    let current_programs_program = Rc::clone(&current_programs);
+    program_choice.on_selection_changed(move |_| {
+        refresh_tv_program_plot(
+            &program_choice,
+            &plot_text_program,
+            &current_programs_program.borrow(),
+        );
     });
 
     let program_choice_day = program_choice;
-    let plot_button_day = plot_button;
+    let plot_text_day = plot_text;
     let current_programs_day = Rc::clone(&current_programs);
     let guide_channel_day = guide_channel.to_string();
     day_choice.on_selection_changed(move |_| {
@@ -21302,14 +21266,18 @@ fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
         {
             match tv::load_channel_guide(&guide_channel_day, *offset) {
                 Ok(programs) => {
-                    refresh_tv_guide_programs(&program_choice_day, &plot_button_day, &programs);
+                    refresh_tv_guide_programs(&program_choice_day, &plot_text_day, &programs);
                     *current_programs_day.borrow_mut() = programs;
                 }
                 Err(_) => {
                     program_choice_day.clear();
                     program_choice_day.enable(false);
-                    plot_button_day.enable(false);
                     current_programs_day.borrow_mut().clear();
+                    plot_text_day.set_value(if Settings::load().ui_language == "it" {
+                        "Nessuna trama disponibile per questo programma."
+                    } else {
+                        "No plot is available for this program."
+                    });
                 }
             }
         }
