@@ -49,6 +49,7 @@ pub(crate) struct TvProgram {
     pub(crate) title: String,
     pub(crate) start_time: i64,
     pub(crate) end_time: i64,
+    pub(crate) description: String,
 }
 
 impl TvChannel {
@@ -118,6 +119,8 @@ struct OggiInTvProgram {
     start_time: i64,
     #[serde(rename = "endTime")]
     end_time: i64,
+    #[serde(default)]
+    description: String,
 }
 
 pub(crate) fn load_channels() -> Result<Vec<TvChannel>, String> {
@@ -464,6 +467,7 @@ fn fetch_tv_programs() -> Result<HashMap<String, Vec<TvProgram>>, String> {
                         title: title.to_string(),
                         start_time: program.start_time,
                         end_time: program.end_time,
+                        description: program.description.trim().to_string(),
                     });
             }
         }
@@ -506,6 +510,7 @@ pub(crate) fn load_channel_guide(channel: &str, day_offset: i64) -> Result<Vec<T
                     title: title.to_string(),
                     start_time: program.start_time,
                     end_time: program.end_time,
+                    description: program.description.trim().to_string(),
                 })
             }
         })
