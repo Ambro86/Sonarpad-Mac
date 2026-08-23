@@ -17154,8 +17154,8 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     );
     let language_choice = Choice::builder(&panel).build();
     language_choice.set_accessibility_label(&ui.wikipedia_language_label);
-    for (code, label) in languages.iter() {
-        language_choice.append(&format!("{label} ({code})"));
+    for (code, _) in languages.iter() {
+        language_choice.append(&format!("{} ({code})", get_language_name(code)));
     }
     let default_language = default_wikipedia_language();
     let default_language_index = languages
@@ -18510,6 +18510,9 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
 }
 
 const YOUTUBE_MPV_STREAM_FORMAT: &str = "18/best[height<=360][ext=mp4]/best[height<=480]/best";
+const YOUTUBE_SAVE_FORMATS: &[&str] = &[
+    "mp3", "mp4", "avi", "mov", "mkv", "wav", "aiff", "m4a", "m4b", "flac",
+];
 const YOUTUBE_PLAYER_EXTRACTOR_ARGS: &str = "youtube:player_client=android";
 const YOUTUBE_OPEN_CANCELLED: &str = "__SONARPAD_YOUTUBE_OPEN_CANCELLED__";
 const YTDLP_SOCKET_TIMEOUT_SECS: &str = "10";
@@ -18776,7 +18779,7 @@ fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<Path
             return Ok(path);
         }
     }
-    Err("yt-dlp non ha prodotto un file audio da convertire.".to_string())
+    Err("yt-dlp non ha prodotto il file temporaneo da convertire.".to_string())
 }
 
 fn prompt_youtube_save_path(
@@ -18785,7 +18788,11 @@ fn prompt_youtube_save_path(
     format: &str,
 ) -> Result<Option<PathBuf>, String> {
     let ui = current_ui_strings();
-    let extension = if format == "mp3" { "mp3" } else { "mp4" };
+    let extension = YOUTUBE_SAVE_FORMATS
+        .iter()
+        .copied()
+        .find(|candidate| *candidate == format)
+        .unwrap_or("mp4");
     let default_file = format!("{}.{}", sanitize_filename(title), extension);
     let wildcard = format!("File (*.{extension})|*.{extension}|Tutti|*.*");
     let dialog = FileDialog::builder(parent)
@@ -18932,6 +18939,205 @@ fn save_youtube_mp3_with_ffmpeg(
     }
 }
 
+fn save_youtube_converted_with_ffmpeg(
+    url: &str,
+    format: &str,
+    quality: &str,
+    downloads_dir: &Path,
+    output_path: &Path,
+    ytdlp: &Path,
+) -> Result<(), String> {
+    let ffmpeg = ffmpeg_executable_path().ok_or_else(|| {
+        format!(
+            "FFmpeg non trovato: impossibile convertire il contenuto YouTube in {}.",
+            format.to_ascii_uppercase()
+        )
+    })?;
+    let audio_only = matches!(format, "wav" | "aiff" | "m4a" | "m4b" | "flac");
+    let stamp = chrono::Local::now().timestamp_millis();
+    let prefix = format!("sonarpad_youtube_convert_{}_{}", std::process::id(), stamp);
+    let temp_template = downloads_dir.join(format!("{prefix}.%(ext)s"));
+    append_podcast_log(&format!(
+        "ytdlp.save_convert.download_begin url={} format={} quality={} output_template={} ffmpeg={}",
+        url,
+        format,
+        quality,
+        temp_template.display(),
+        ffmpeg.display()
+    ));
+
+    let mut command = ytdlp_command(ytdlp);
+    configure_ytdlp_for_current_macos(&mut command);
+    command
+        .arg("--extractor-args")
+        .arg(YOUTUBE_PLAYER_EXTRACTOR_ARGS)
+        .arg("--no-playlist")
+        .arg("--socket-timeout")
+        .arg(YTDLP_SOCKET_TIMEOUT_SECS)
+        .arg("--no-warnings")
+        .arg("--newline")
+        .arg("--progress-template")
+        .arg(ytdlp_download_progress_template())
+        .arg("-o")
+        .arg(temp_template.to_string_lossy().to_string());
+
+    if let Some(ffmpeg_path) = ffmpeg_executable_path() {
+        command
+            .arg("--ffmpeg-location")
+            .arg(ffmpeg_path.to_string_lossy().to_string());
+    }
+
+    if audio_only {
+        if is_youtube_url(url) {
+            command.args(["-f", "bestaudio[ext=m4a]/bestaudio/best"]);
+        } else {
+            command.args(["-f", "bestaudio[language=ita]/bestaudio/best"]);
+        }
+    } else {
+        command.arg("--merge-output-format").arg("mp4");
+        if is_youtube_url(url) && quality == "best" {
+            command.args([
+                "-f",
+                "bestvideo[ext=mp4][vcodec^=avc1]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1]/best[ext=mp4]",
+            ]);
+        } else if is_youtube_url(url) {
+            command.args([
+                "-f",
+                "bestvideo[ext=mp4][vcodec^=avc1][height<=720]+bestaudio[ext=m4a]/best[ext=mp4][vcodec^=avc1][height<=720]/best[ext=mp4][height<=720]/best",
+            ]);
+        } else if quality == "best" {
+            command.args([
+                "-f",
+                "bestvideo+bestaudio[language=ita]/bestvideo+bestaudio/best",
+            ]);
+        } else {
+            command.args([
+                "-f",
+                "bestvideo[height<=720]+bestaudio[language=ita]/bestvideo[height<=720]+bestaudio/best[height<=720]/best",
+            ]);
+        }
+    }
+    command.arg("--").arg(url);
+    ytdlp_log_command_state("save_convert_download", ytdlp, &command);
+    let output = command.output().map_err(|err| {
+        ytdlp_log_spawn_error("save_convert_download", &err);
+        format!("yt-dlp non avviato: {err}")
+    })?;
+    ytdlp_log_output(
+        "save_convert_download",
+        output.status,
+        &output.stdout,
+        &output.stderr,
+    );
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let details = format!("{stderr}\n{stdout}").trim().to_string();
+        if is_youtube_drm_error(&details) {
+            return Err(youtube_drm_message().to_string());
+        }
+        return Err(if is_youtube_bot_check_error(&details) {
+            youtube_bot_check_message().to_string()
+        } else if details.is_empty() {
+            "yt-dlp non ha completato il download da convertire.".to_string()
+        } else {
+            details
+        });
+    }
+
+    let downloaded_path = find_youtube_temp_download(downloads_dir, &prefix)?;
+    append_podcast_log(&format!(
+        "ytdlp.save_convert.ffmpeg_begin format={} input={} output={}",
+        format,
+        downloaded_path.display(),
+        output_path.display()
+    ));
+    let mut ffmpeg_command = Command::new(&ffmpeg);
+    ffmpeg_command
+        .arg("-y")
+        .arg("-i")
+        .arg(downloaded_path.to_string_lossy().to_string());
+    match format {
+        "wav" => {
+            ffmpeg_command.args(["-vn", "-c:a", "pcm_s16le", "-f", "wav"]);
+        }
+        "aiff" => {
+            ffmpeg_command.args(["-vn", "-c:a", "pcm_s16be", "-f", "aiff"]);
+        }
+        "m4a" | "m4b" => {
+            ffmpeg_command.args(["-vn", "-c:a", "aac", "-b:a", "192k", "-f", "ipod"]);
+        }
+        "flac" => {
+            ffmpeg_command.args(["-vn", "-c:a", "flac", "-f", "flac"]);
+        }
+        "avi" => {
+            ffmpeg_command.args([
+                "-c:v",
+                "mpeg4",
+                "-q:v",
+                "3",
+                "-c:a",
+                "libmp3lame",
+                "-b:a",
+                "192k",
+                "-f",
+                "avi",
+            ]);
+        }
+        "mov" => {
+            ffmpeg_command.args([
+                "-c:v", "mpeg4", "-q:v", "3", "-c:a", "aac", "-b:a", "192k", "-f",
+                "mov",
+            ]);
+        }
+        "mkv" => {
+            ffmpeg_command.args([
+                "-c:v", "mpeg4", "-q:v", "3", "-c:a", "aac", "-b:a", "192k", "-f",
+                "matroska",
+            ]);
+        }
+        _ => {
+            return Err(format!("Formato YouTube non supportato: {format}"));
+        }
+    }
+    let ffmpeg_output = ffmpeg_command
+        .arg(output_path.to_string_lossy().to_string())
+        .output()
+        .map_err(|err| format!("avvio FFmpeg fallito: {err}"))?;
+    ytdlp_log_output(
+        "save_convert_ffmpeg",
+        ffmpeg_output.status,
+        &ffmpeg_output.stdout,
+        &ffmpeg_output.stderr,
+    );
+    if ffmpeg_output.status.success() {
+        if let Err(err) = std::fs::remove_file(&downloaded_path) {
+            append_podcast_log(&format!(
+                "ytdlp.save_convert.cleanup_failed path={} err={}",
+                downloaded_path.display(),
+                err
+            ));
+        }
+        Ok(())
+    } else {
+        let details = format!(
+            "{}\n{}",
+            String::from_utf8_lossy(&ffmpeg_output.stderr),
+            String::from_utf8_lossy(&ffmpeg_output.stdout)
+        )
+        .trim()
+        .to_string();
+        Err(if details.is_empty() {
+            format!(
+                "FFmpeg non ha completato la conversione {}.",
+                format.to_ascii_uppercase()
+            )
+        } else {
+            details
+        })
+    }
+}
+
 fn save_youtube_to_path(
     url: &str,
     format: &str,
@@ -18950,6 +19156,9 @@ fn save_youtube_to_path(
         quality,
         output_path.display()
     ));
+    if !YOUTUBE_SAVE_FORMATS.contains(&format) {
+        return Err(format!("Formato YouTube non supportato: {format}"));
+    }
     std::fs::create_dir_all(&downloads_dir)
         .map_err(|err| format!("Impossibile creare la cartella download temporanea: {err}"))?;
     if let Some(parent_dir) = output_path.parent() {
@@ -18958,6 +19167,17 @@ fn save_youtube_to_path(
     }
     if format == "mp3" {
         save_youtube_mp3_with_ffmpeg(url, &downloads_dir, &output_path, &ytdlp)?;
+        return Ok(output_path);
+    }
+    if format != "mp4" {
+        save_youtube_converted_with_ffmpeg(
+            url,
+            format,
+            quality,
+            &downloads_dir,
+            &output_path,
+            &ytdlp,
+        )?;
         return Ok(output_path);
     }
 
@@ -19284,8 +19504,9 @@ fn open_youtube_results_dialog(
         5,
     );
     let format_choice = Choice::builder(&panel).build();
-    format_choice.append("mp3");
-    format_choice.append("mp4");
+    for format in YOUTUBE_SAVE_FORMATS {
+        format_choice.append(&format.to_ascii_uppercase());
+    }
     format_choice.set_selection(0);
     options.add(&format_choice, 0, SizerFlag::All, 5);
     options.add(
@@ -19642,11 +19863,11 @@ fn open_youtube_results_dialog(
             if youtube_busy_save.swap(true, Ordering::SeqCst) {
                 return;
             }
-            let format = if format_choice_save.get_selection().unwrap_or(0) == 0 {
-                "mp3"
-            } else {
-                "mp4"
-            };
+            let format_index = format_choice_save.get_selection().unwrap_or(0) as usize;
+            let format = YOUTUBE_SAVE_FORMATS
+                .get(format_index)
+                .copied()
+                .unwrap_or("mp3");
             let quality = if quality_choice_save.get_selection().unwrap_or(0) == 0 {
                 "best"
             } else {

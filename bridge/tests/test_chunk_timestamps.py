@@ -543,6 +543,9 @@ class ChunkTimestampTests(unittest.TestCase):
         self.assertIn("S0002=6.000-10.000", prompt)
         self.assertIn("NEVER REPEAT AN ACTION", system)
         self.assertIn("does not permit repeating or paraphrasing", prompt)
+        self.assertIn("slot boundaries are only the allowed container", prompt)
+        self.assertIn("Never delay an action to a later part of the same slot", prompt)
+        self.assertIn("returned start/end must coincide with the moment", system)
         self.assertIn("AVOID REPETITIVE SUBJECT LABELS", system)
         self.assertIn("Do not introduce a name", system)
 

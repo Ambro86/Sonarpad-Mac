@@ -268,20 +268,32 @@ def _align_descriptions_prioritizing_slots(
             ]
             desired_start = max(slot_start, float(item[0]))
             # A mandatory cue has already been grounded to this exact silence
-            # slot by the intensive-coverage pass.  The pre-TTS duration is
-            # only an estimate (2 words/sec), so it must never be allowed to
-            # delete the required cue before the exact synthesized duration is
-            # known in Rust.  Fit the provisional window inside the slot and
-            # allow movement anywhere within that same grounded slot.
-            max_available = max(
-                (end - start for start, end in slot_free), default=0.0
-            )
-            if max_available <= 0.0:
+            # slot by the intensive-coverage pass, but the exact timestamp still
+            # represents the visual moment Gemini chose.  Do not treat the whole
+            # slot as temporally interchangeable: keep the provisional placement
+            # within the normal shift limit.  Because the pre-TTS duration is only
+            # an estimate (2 words/sec), clamp the provisional reservation near
+            # that visual moment rather than moving the cue far across the slot.
+            grounded_max_available = 0.0
+            shift_limit = max(0.0, float(max_shift_sec))
+            for free_start, free_end in slot_free:
+                earliest_grounded_start = max(
+                    free_start, desired_start - shift_limit
+                )
+                latest_grounded_start = min(
+                    free_end, desired_start + shift_limit
+                )
+                if latest_grounded_start + 1e-6 < earliest_grounded_start:
+                    continue
+                grounded_max_available = max(
+                    grounded_max_available, free_end - earliest_grounded_start
+                )
+            if grounded_max_available <= 0.0:
                 continue
-            planning_duration = min(required, max_available)
+            planning_duration = min(required, grounded_max_available)
             chosen = _choose_slot(
                 slot_free, desired_start, planning_duration, earliest_start=0.0,
-                max_shift_sec=max(max_shift_sec, slot_end - slot_start),
+                max_shift_sec=shift_limit,
             )
             if chosen is None:
                 continue
