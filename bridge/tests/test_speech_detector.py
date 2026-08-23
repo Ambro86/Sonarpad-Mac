@@ -290,6 +290,20 @@ class SpeechDetectorIntervalTests(unittest.TestCase):
             [(item["start"], item["end"]) for item in anchors],
             [(0.0, 1.5), (3.0, 5.0)],
         )
+        self.assertEqual(
+            [(item["scene_start"], item["scene_end"]) for item in anchors],
+            [(1.5, 5.5), (5.0, 9.0)],
+        )
+        formatted = speech_detector.format_extended_anchors_for_prompt(anchors)
+        self.assertIn("E0001=PAUSE 0.000-1.500 -> IMMEDIATE_SCENE 1.500-5.500", formatted)
+        self.assertIn("E0002=PAUSE 3.000-5.000 -> IMMEDIATE_SCENE 5.000-9.000", formatted)
+
+    def test_extended_anchor_at_chunk_tail_is_not_offered_without_following_scene(self):
+        anchors = extended_description_anchors(
+            [(0.0, 8.0)], duration_sec=10.0,
+            normal_min_duration_sec=3.0, range_start=0.0, range_end=10.0,
+        )
+        self.assertEqual(anchors, [])
 
     def test_intensive_slots_are_clipped_to_chunk_and_have_word_budget(self):
         slots = intensive_description_slots(

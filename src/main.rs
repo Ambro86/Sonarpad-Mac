@@ -936,6 +936,8 @@ struct UiStrings {
     italian_directories_empty_query: String,
     wikipedia_title: String,
     wikipedia_search_label: String,
+    wikipedia_language_label: String,
+    wikipedia_results_label: String,
     wikipedia_open_preview: String,
     wikipedia_import_editor: String,
     youtube_title: String,
@@ -16616,6 +16618,7 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
 struct WikipediaSearchResult {
     pageid: i64,
     title: String,
+    language: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -16710,11 +16713,36 @@ fn youtube_filter_seen_results(
     (results, context)
 }
 
-fn wikipedia_api_language() -> &'static str {
-    if Settings::load().ui_language == "it" {
-        "it"
+fn wikipedia_languages() -> Vec<(&'static str, &'static str)> {
+    vec![
+        ("it", "Italiano"),
+        ("en", "English"),
+        ("es", "Español"),
+        ("pt", "Português"),
+        ("fr", "Français"),
+        ("de", "Deutsch"),
+        ("uk", "Українська"),
+        ("lt", "Lietuvių"),
+        ("sv", "Svenska"),
+        ("vi", "Tiếng Việt"),
+        ("cs", "Čeština"),
+        ("pl", "Polski"),
+        ("sr", "Srpski"),
+        ("ru", "Русский"),
+        ("zh", "简体中文"),
+        ("hi", "हिन्दी"),
+    ]
+}
+
+fn default_wikipedia_language() -> String {
+    let ui_language = normalize_ui_language(&Settings::load().ui_language);
+    if wikipedia_languages()
+        .iter()
+        .any(|(code, _)| *code == ui_language.as_str())
+    {
+        ui_language
     } else {
-        "en"
+        "it".to_string()
     }
 }
 
@@ -17004,12 +17032,13 @@ fn parse_wikipedia_article_html_to_text(html: &str) -> String {
     }
 }
 
-fn wikipedia_search(query: &str) -> Result<Vec<WikipediaSearchResult>, String> {
+fn wikipedia_search(lang: &str, query: &str) -> Result<Vec<WikipediaSearchResult>, String> {
     let trimmed = query.trim();
     if trimmed.is_empty() {
         return Ok(Vec::new());
     }
-    let url = wikipedia_search_url(wikipedia_api_language(), trimmed, 20)?;
+    wikipedia_validate_lang(lang)?;
+    let url = wikipedia_search_url(lang, trimmed, 20)?;
     let value: serde_json::Value = wikipedia_client()?
         .get(url)
         .send()
@@ -17030,12 +17059,14 @@ fn wikipedia_search(query: &str) -> Result<Vec<WikipediaSearchResult>, String> {
         .map(|hit| WikipediaSearchResult {
             pageid: hit.pageid,
             title: hit.title,
+            language: lang.to_string(),
         })
         .collect())
 }
 
-fn fetch_wikipedia_article_text(pageid: i64) -> Result<String, String> {
-    let url = wikipedia_parse_url(wikipedia_api_language(), pageid)?;
+fn fetch_wikipedia_article_text(lang: &str, pageid: i64) -> Result<String, String> {
+    wikipedia_validate_lang(lang)?;
+    let url = wikipedia_parse_url(lang, pageid)?;
     let value: serde_json::Value = wikipedia_client()?
         .get(url)
         .send()
@@ -17090,10 +17121,11 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, &ui.wikipedia_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(720, 240)
+        .with_size(720, 330)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
+
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
     search_row.add(
         &StaticText::builder(&panel)
@@ -17106,12 +17138,53 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     let query_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    query_ctrl.set_accessibility_label(&ui.wikipedia_search_label);
     search_row.add(&query_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    let search_button = Button::builder(&panel).with_label(&ui.search).build();
-    search_row.add(&search_button, 0, SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+
+    let languages = Rc::new(wikipedia_languages());
+    let language_row = BoxSizer::builder(Orientation::Horizontal).build();
+    language_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.wikipedia_language_label)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let language_choice = Choice::builder(&panel).build();
+    language_choice.set_accessibility_label(&ui.wikipedia_language_label);
+    for (code, label) in languages.iter() {
+        language_choice.append(&format!("{label} ({code})"));
+    }
+    let default_language = default_wikipedia_language();
+    let default_language_index = languages
+        .iter()
+        .position(|(code, _)| *code == default_language.as_str())
+        .unwrap_or(0);
+    language_choice.set_selection(default_language_index as u32);
+    language_row.add(&language_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&language_row, 0, SizerFlag::Expand, 0);
+
+    let search_button = Button::builder(&panel).with_label(&ui.search).build();
+    root.add(&search_button, 0, SizerFlag::All, 5);
+
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.wikipedia_results_label)
+            .build(),
+        0,
+        SizerFlag::All,
+        5,
+    );
     let result_choice = Choice::builder(&panel).build();
+    result_choice.set_accessibility_label(&ui.wikipedia_results_label);
+    // An empty wxChoice is exposed by VoiceOver as a pop-up button even though
+    // activating it cannot do anything. Keep it out of the active navigation
+    // path until a search has produced actual results.
+    result_choice.enable(false);
     root.add(&result_choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let preview_button = Button::builder(&panel)
         .with_label(&ui.wikipedia_open_preview)
@@ -17123,6 +17196,8 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
+    preview_button.enable(false);
+    import_button.enable(false);
     buttons.add_spacer(1);
     buttons.add(&preview_button, 0, SizerFlag::All, 10);
     buttons.add(&import_button, 0, SizerFlag::All, 10);
@@ -17130,6 +17205,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
+
     let results = Rc::new(RefCell::new(Vec::<WikipediaSearchResult>::new()));
     let wikipedia_pending_result = Arc::new(Mutex::new(
         None::<Result<Vec<WikipediaSearchResult>, String>>,
@@ -17143,6 +17219,8 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     let wikipedia_search_progress_timer = Rc::clone(&wikipedia_search_progress);
     let results_timer = Rc::clone(&results);
     let result_choice_timer = result_choice;
+    let preview_button_timer = preview_button;
+    let import_button_timer = import_button;
     let dialog_timer = dialog;
     wikipedia_result_timer_tick.on_tick(move |_| {
         let result = wikipedia_pending_result_timer.lock().unwrap().take();
@@ -17157,25 +17235,38 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
                     for item in &found {
                         result_choice_timer.append(&item.title);
                     }
-                    if !found.is_empty() {
+                    let has_results = !found.is_empty();
+                    if has_results {
                         result_choice_timer.set_selection(0);
                     }
+                    result_choice_timer.enable(has_results);
+                    preview_button_timer.enable(has_results);
+                    import_button_timer.enable(has_results);
                     *results_timer.borrow_mut() = found;
                 }
-                Err(err) => show_message_subdialog(
-                    &dialog_timer,
-                    &current_ui_strings().wikipedia_title,
-                    &err,
-                ),
+                Err(err) => {
+                    result_choice_timer.clear();
+                    result_choice_timer.enable(false);
+                    preview_button_timer.enable(false);
+                    import_button_timer.enable(false);
+                    results_timer.borrow_mut().clear();
+                    show_message_subdialog(
+                        &dialog_timer,
+                        &current_ui_strings().wikipedia_title,
+                        &err,
+                    );
+                }
             }
         }
     });
     wikipedia_result_timer.start(100, false);
+
     let perform_search = Rc::new({
         let wikipedia_pending_result = Arc::clone(&wikipedia_pending_result);
         let wikipedia_busy = Arc::clone(&wikipedia_busy);
         let wikipedia_search_progress = Rc::clone(&wikipedia_search_progress);
-
+        let languages = Rc::clone(&languages);
+        let language_choice = language_choice;
         let dialog_search_progress = dialog;
         move || {
             let query = query_ctrl.get_value().trim().to_string();
@@ -17185,13 +17276,18 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
             if wikipedia_busy.swap(true, Ordering::SeqCst) {
                 return;
             }
+            let language_index = language_choice.get_selection().unwrap_or(0) as usize;
+            let language = languages
+                .get(language_index)
+                .map(|(code, _)| (*code).to_string())
+                .unwrap_or_else(default_wikipedia_language);
             if wikipedia_search_progress.borrow().is_none() {
                 *wikipedia_search_progress.borrow_mut() =
                     Some(open_youtube_search_progress_dialog(&dialog_search_progress));
             }
             let pending = Arc::clone(&wikipedia_pending_result);
             std::thread::spawn(move || {
-                let result = wikipedia_search(&query);
+                let result = wikipedia_search(&language, &query);
                 *pending.lock().unwrap() = Some(result);
             });
         }
@@ -17200,6 +17296,19 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     search_button.on_click(move |_| perform_search_button());
     let perform_search_enter = Rc::clone(&perform_search);
     query_ctrl.on_text_enter(move |_| perform_search_enter());
+
+    let results_language_changed = Rc::clone(&results);
+    let result_choice_language_changed = result_choice;
+    let preview_button_language_changed = preview_button;
+    let import_button_language_changed = import_button;
+    language_choice.on_selection_changed(move |_| {
+        results_language_changed.borrow_mut().clear();
+        result_choice_language_changed.clear();
+        result_choice_language_changed.enable(false);
+        preview_button_language_changed.enable(false);
+        import_button_language_changed.enable(false);
+    });
+
     let results_preview = Rc::clone(&results);
     let result_choice_preview = result_choice;
     let dialog_preview = dialog;
@@ -17207,7 +17316,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
         if let Some(sel) = result_choice_preview.get_selection()
             && let Some(item) = results_preview.borrow().get(sel as usize).cloned()
         {
-            match fetch_wikipedia_article_text(item.pageid) {
+            match fetch_wikipedia_article_text(&item.language, item.pageid) {
                 Ok(text) => show_text_preview_dialog(&dialog_preview, &item.title, &text),
                 Err(err) => show_message_subdialog(
                     &dialog_preview,
@@ -17217,6 +17326,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
             }
         }
     });
+
     let results_import = Rc::clone(&results);
     let result_choice_import = result_choice;
     let editor_import = editor;
@@ -17226,7 +17336,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
         if let Some(sel) = result_choice_import.get_selection()
             && let Some(item) = results_import.borrow().get(sel as usize).cloned()
         {
-            match fetch_wikipedia_article_text(item.pageid) {
+            match fetch_wikipedia_article_text(&item.language, item.pageid) {
                 Ok(text) => {
                     let existing = editor_import.get_value();
                     let new_text = if existing.trim().is_empty() {
@@ -17248,6 +17358,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
             }
         }
     });
+
     let wikipedia_result_timer_destroy = Rc::clone(&wikipedia_result_timer);
     let wikipedia_search_progress_destroy = Rc::clone(&wikipedia_search_progress);
     dialog.on_destroy(move |event| {
@@ -17259,6 +17370,7 @@ fn open_wikipedia_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user:
     });
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    query_ctrl.set_focus();
     dialog.show_modal();
     dialog.destroy();
 }

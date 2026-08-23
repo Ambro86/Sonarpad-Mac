@@ -330,6 +330,7 @@
   "italian_directories_empty_query": "Inserisci una ricerca.",
   "wikipedia_title": "Wikipedia",
   "wikipedia_search_label": "Szukaj",
+  "wikipedia_language_label": "Język artykułów Wikipedii",
   "wikipedia_results_label": "Wyniki",
   "wikipedia_open_preview": "Otwórz podgląd",
   "wikipedia_import_editor": "Importuj do edytora",
