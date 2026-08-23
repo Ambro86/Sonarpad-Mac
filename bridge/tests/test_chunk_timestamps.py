@@ -10,6 +10,7 @@ from audio_describer.core.audio_describer import (
     _extract_upload_chunk,
     _find_large_chunk_gaps,
     _build_unified_prompts,
+    _normalize_blocked_minute_timestamps,
     _normalize_chunk_timestamps,
     _mmss_to_total_seconds,
     _post_process_mmss_timestamps,
@@ -85,6 +86,49 @@ class ChunkTimestampTests(unittest.TestCase):
         self.assertEqual([item["id"] for item in result], ["first", "second"])
         self.assertEqual((result[0]["start"], result[0]["end"]), (0.0, 2.0))
         self.assertEqual((result[1]["start"], result[1]["end"]), (15.0, 20.0))
+
+    def test_blocked_minute_accepts_parent_chunk_timestamps_without_double_offset(self):
+        result = _normalize_blocked_minute_timestamps(
+            [(180.0, 181.5, "Sam punta la pistola.")],
+            minute_start=540.189,
+            minute_end=541.857,
+            chunk_start=360.189,
+            chunk_number=3,
+            minute_number=4,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result[0][0], 540.189)
+        self.assertAlmostEqual(result[0][1], 541.689)
+        self.assertEqual(result[0][2], "Sam punta la pistola.")
+
+    def test_blocked_minute_still_accepts_requested_minute_local_timestamps(self):
+        result = _normalize_blocked_minute_timestamps(
+            [(5.0, 7.0, "Scena locale.")],
+            minute_start=420.189,
+            minute_end=480.189,
+            chunk_start=360.189,
+            chunk_number=3,
+            minute_number=2,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result[0][0], 425.189)
+        self.assertAlmostEqual(result[0][1], 427.189)
+
+    def test_blocked_minute_accepts_full_video_timestamps(self):
+        result = _normalize_blocked_minute_timestamps(
+            [(425.0, 427.0, "Scena assoluta.")],
+            minute_start=420.189,
+            minute_end=480.189,
+            chunk_start=360.189,
+            chunk_number=3,
+            minute_number=2,
+        )
+
+        self.assertEqual(len(result), 1)
+        self.assertAlmostEqual(result[0][0], 425.0)
+        self.assertAlmostEqual(result[0][1], 427.0)
 
     def test_blocked_chunk_keeps_successful_minutes_and_skips_blocked_one(self):
         responses = [object(), gemini_helpers.ContentBlockedError(
@@ -234,6 +278,17 @@ class ChunkTimestampTests(unittest.TestCase):
         ring = corrected[2]
         self.assertAlmostEqual(ring[0], 71.0)
         self.assertAlmostEqual(ring[1], 75.2)
+
+    def test_overlapping_gemini_entries_preserve_visual_start_times(self):
+        corrected = _post_process_mmss_timestamps([
+            ("00:10.000", "00:16.000", "Prima azione."),
+            ("00:12.000", "00:14.000", "Seconda azione."),
+        ])
+
+        self.assertEqual(len(corrected), 2)
+        self.assertAlmostEqual(corrected[0][0], 10.0)
+        self.assertAlmostEqual(corrected[1][0], 12.0)
+        self.assertAlmostEqual(corrected[1][1], 14.0)
 
     def test_code_13_file_processing_retries_until_upload_succeeds(self):
         client = object()

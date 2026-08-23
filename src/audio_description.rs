@@ -181,6 +181,7 @@ struct SynthesizedDescription {
     original_index: usize,
     text: String,
     desired_start_sec: f64,
+    visual_start_sec: f64,
     mandatory: bool,
     slot_id: String,
     slot_start_sec: Option<f64>,
@@ -195,6 +196,7 @@ struct AudioDescriptionSynthesisTask {
     synthesis_index: usize,
     text: String,
     desired_start_sec: f64,
+    visual_start_sec: f64,
     mandatory: bool,
     slot_id: String,
     slot_start_sec: Option<f64>,
@@ -1450,6 +1452,7 @@ where
                         original_index: task.original_index,
                         text: task.text.clone(),
                         desired_start_sec: task.desired_start_sec,
+                        visual_start_sec: task.visual_start_sec,
                         mandatory: task.mandatory,
                         slot_id: task.slot_id.clone(),
                         slot_start_sec: task.slot_start_sec,
@@ -1547,19 +1550,51 @@ fn subtract_reserved(free: &[(f64, f64)], reserved: &[(f64, f64)]) -> Vec<(f64, 
     out
 }
 
-fn choose_slot(free: &[(f64, f64)], desired: f64, required: f64) -> Option<f64> {
+fn choose_slot(
+    free: &[(f64, f64)],
+    desired_start: f64,
+    visual_start: f64,
+    required_duration: f64,
+) -> Option<f64> {
+    let visual_lower = (visual_start - MAX_SHIFT_SEC).max(0.0);
+    let visual_upper = visual_start + MAX_SHIFT_SEC;
     free.iter()
-        .filter_map(|&(s, e)| {
-            let upper = e - required;
-            if upper < s {
+        .filter_map(|&(gap_start, gap_end)| {
+            let lower = gap_start.max(visual_lower);
+            let upper = (gap_end - required_duration).min(visual_upper);
+            if upper < lower {
                 return None;
             }
-            let x = desired.clamp(s, upper);
-            let d = (x - desired).abs();
-            (d <= MAX_SHIFT_SEC).then_some((d, x))
+            let start = desired_start.clamp(lower, upper);
+            let distance_from_visual_origin = (start - visual_start).abs();
+            (distance_from_visual_origin <= MAX_SHIFT_SEC + f64::EPSILON)
+                .then_some(((start - desired_start).abs(), start))
         })
         .min_by(|a, b| a.0.total_cmp(&b.0))
-        .map(|x| x.1)
+        .map(|(_, start)| start)
+}
+
+fn choose_pause_anchor(
+    free: &[(f64, f64)],
+    desired_start: f64,
+    visual_start: f64,
+) -> Option<f64> {
+    let visual_lower = (visual_start - MAX_SHIFT_SEC).max(0.0);
+    let visual_upper = visual_start + MAX_SHIFT_SEC;
+    free.iter()
+        .filter_map(|&(gap_start, gap_end)| {
+            let lower = gap_start.max(visual_lower);
+            let upper = (gap_end - MIN_EXTENDED_ANCHOR_SEC).min(visual_upper);
+            if upper < lower {
+                return None;
+            }
+            let start = desired_start.clamp(lower, upper);
+            let distance_from_visual_origin = (start - visual_start).abs();
+            (distance_from_visual_origin <= MAX_SHIFT_SEC + f64::EPSILON)
+                .then_some(((start - desired_start).abs(), start))
+        })
+        .min_by(|a, b| a.0.total_cmp(&b.0))
+        .map(|(_, start)| start)
 }
 
 fn restrict_slot(free: &[(f64, f64)], d: &SynthesizedDescription) -> Vec<(f64, f64)> {
@@ -1597,14 +1632,17 @@ fn schedule_descriptions(
         } else {
             available
         };
-        if let Some(start) =
-            choose_slot(&candidates, d.desired_start_sec, d.duration_sec.max(0.001))
-        {
+        if let Some(start) = choose_slot(
+            &candidates,
+            d.desired_start_sec,
+            d.visual_start_sec,
+            d.duration_sec.max(0.001),
+        ) {
             reserved.push((start, start + d.duration_sec));
             scheduled.push(ScheduledDescription {
                 original_index: d.original_index,
                 text: d.text,
-                desired_start_sec: d.desired_start_sec,
+                desired_start_sec: d.visual_start_sec,
                 mandatory: d.mandatory,
                 slot_id: d.slot_id,
                 slot_start_sec: d.slot_start_sec,
@@ -1617,24 +1655,17 @@ fn schedule_descriptions(
             continue;
         }
         if allow_extended {
-            let anchor = candidates
-                .iter()
-                .filter_map(|&(s, e)| {
-                    if e - s < MIN_EXTENDED_ANCHOR_SEC {
-                        return None;
-                    }
-                    let x = d.desired_start_sec.clamp(s, e - MIN_EXTENDED_ANCHOR_SEC);
-                    let dist = (x - d.desired_start_sec).abs();
-                    (dist <= MAX_SHIFT_SEC).then_some((dist, x))
-                })
-                .min_by(|a, b| a.0.total_cmp(&b.0))
-                .map(|x| x.1);
+            let anchor = choose_pause_anchor(
+                &candidates,
+                d.desired_start_sec,
+                d.visual_start_sec,
+            );
             if let Some(start) = anchor {
                 reserved.push((start, start + MIN_EXTENDED_ANCHOR_SEC));
                 scheduled.push(ScheduledDescription {
                     original_index: d.original_index,
                     text: d.text,
-                    desired_start_sec: d.desired_start_sec,
+                    desired_start_sec: d.visual_start_sec,
                     mandatory: d.mandatory,
                     slot_id: d.slot_id,
                     slot_start_sec: d.slot_start_sec,
@@ -1650,7 +1681,7 @@ fn schedule_descriptions(
         dropped.push(DroppedDescription {
             original_index: d.original_index,
             text: d.text,
-            desired_start_sec: d.desired_start_sec,
+            desired_start_sec: d.visual_start_sec,
             mandatory: d.mandatory,
             slot_id: d.slot_id,
             duration_sec: d.duration_sec,
@@ -2358,6 +2389,9 @@ fn create_audio_description(
                 synthesis_index: index,
                 text: description.text.clone(),
                 desired_start_sec: description.start_sec,
+                visual_start_sec: description
+                    .visual_start_sec
+                    .unwrap_or(description.start_sec),
                 mandatory: description.mandatory,
                 slot_id: description.slot_id.clone(),
                 slot_start_sec: description.slot_start_sec,
@@ -4243,6 +4277,7 @@ fn change_project_voice(
                 synthesis_index: index,
                 text: description.text.clone(),
                 desired_start_sec: description.gemini_start_sec,
+                visual_start_sec: description.gemini_start_sec,
                 mandatory: description.mandatory,
                 slot_id: description.slot_id.clone(),
                 slot_start_sec: description.slot_start_sec,
@@ -4629,6 +4664,7 @@ fn rebuild_project(
                 synthesis_index: index,
                 text: description.text.clone(),
                 desired_start_sec: description.gemini_start_sec,
+                visual_start_sec: description.gemini_start_sec,
                 mandatory: description.mandatory,
                 slot_id: description.slot_id.clone(),
                 slot_start_sec: description.slot_start_sec,

@@ -917,12 +917,13 @@ def _generate_blocked_chunk_by_minutes(
             corrected = _post_process_mmss_timestamps(
                 raw_descriptions, status_update_callback
             )
-            normalized = _normalize_chunk_timestamps(
+            normalized = _normalize_blocked_minute_timestamps(
                 corrected,
-                minute_start,
-                minute_end,
-                chunk_number,
-                force_mode="relative",
+                minute_start=minute_start,
+                minute_end=minute_end,
+                chunk_start=chunk_start,
+                chunk_number=chunk_number,
+                minute_number=minute_label,
             )
             recovered_descriptions.extend(normalized)
             if enable_glossary:
@@ -1924,6 +1925,121 @@ def _effective_chunk_duration(configured_duration_sec):
     return min(duration, _MAX_CHUNK_DURATION_SEC)
 
 
+def _normalize_blocked_minute_timestamps(
+    descriptions, *, minute_start, minute_end, chunk_start, chunk_number,
+    minute_number, tolerance_sec=2.0,
+):
+    """Normalize Gemini timestamps returned by a PROHIBITED_CONTENT minute fallback.
+
+    Gemini may timestamp a videoMetadata sub-range in any of three coordinate
+    systems despite being asked for clip-local times: the one-minute clip
+    itself, the prepared parent chunk, or the full video. Resolve that origin
+    before converting to the full-video timeline, so an offset is never added
+    twice.
+    """
+    if not descriptions:
+        app_logger.info(
+            "Blocked chunk %d fallback minute %d timestamp audit: no descriptions.",
+            chunk_number, minute_number,
+        )
+        return []
+
+    minute_start = float(minute_start)
+    minute_end = float(minute_end)
+    chunk_start = float(chunk_start)
+    minute_duration = max(0.0, minute_end - minute_start)
+    chunk_local_start = minute_start - chunk_start
+    chunk_local_end = minute_end - chunk_start
+
+    def _fits_range(item, range_start, range_end):
+        start, end, _ = item
+        return (
+            start >= range_start - tolerance_sec
+            and end <= range_end + tolerance_sec
+        )
+
+    scores = {
+        "minute_local": sum(
+            1 for item in descriptions
+            if _fits_range(item, 0.0, minute_duration)
+        ),
+        "chunk_local": sum(
+            1 for item in descriptions
+            if _fits_range(item, chunk_local_start, chunk_local_end)
+        ),
+        "absolute": sum(
+            1 for item in descriptions
+            if _fits_range(item, minute_start, minute_end)
+        ),
+    }
+
+    # Prefer the most specific non-zero interpretation. Ties are harmless for
+    # the first fallback minute because minute-local and chunk-local have the
+    # same origin there. For later minutes, their numeric ranges are distinct.
+    best_score = max(scores.values())
+    if best_score <= 0:
+        mode = "minute_local"
+        app_logger.warning(
+            "Blocked chunk %d fallback minute %d timestamp origin is unclear "
+            "(minute_local=%d chunk_local=%d absolute=%d); trying minute-local "
+            "coordinates and retaining the normal range guard.",
+            chunk_number, minute_number, scores["minute_local"],
+            scores["chunk_local"], scores["absolute"],
+        )
+    else:
+        candidates = [name for name, score in scores.items() if score == best_score]
+        if "absolute" in candidates:
+            mode = "absolute"
+        elif "chunk_local" in candidates:
+            mode = "chunk_local"
+        else:
+            mode = "minute_local"
+
+    app_logger.info(
+        "Blocked chunk %d fallback minute %d timestamp origin: "
+        "minute_local=%d chunk_local=%d absolute=%d mode=%s.",
+        chunk_number, minute_number, scores["minute_local"],
+        scores["chunk_local"], scores["absolute"], mode,
+    )
+
+    normalized = []
+    rejected = 0
+    for start, end, text in descriptions:
+        if mode == "minute_local":
+            start += minute_start
+            end += minute_start
+        elif mode == "chunk_local":
+            start += chunk_start
+            end += chunk_start
+
+        if (
+            start < minute_start - tolerance_sec
+            or end > minute_end + tolerance_sec
+            or end <= start
+        ):
+            rejected += 1
+            app_logger.warning(
+                "Blocked chunk %d fallback minute %d rejected out-of-range "
+                "timestamp %.3f-%.3fs (expected %.3f-%.3fs, origin=%s, text=%r).",
+                chunk_number, minute_number, start, end, minute_start, minute_end,
+                mode, (text or "")[:100],
+            )
+            continue
+
+        start = max(minute_start, start)
+        end = min(minute_end, end)
+        if end > start:
+            normalized.append((start, end, text))
+
+    app_logger.info(
+        "Blocked chunk %d fallback minute %d timestamp audit result: "
+        "kept=%d rejected=%d.",
+        chunk_number, minute_number, len(normalized), rejected,
+    )
+    return normalized
+
+
+
 def _normalize_chunk_timestamps(descriptions, chunk_start, chunk_end, chunk_number,
                                 tolerance_sec=2.0, force_mode=None):
     """Resolve absolute-vs-relative Gemini timestamps using the whole chunk.
@@ -2370,20 +2486,24 @@ def _post_process_mmss_timestamps(descriptions_list_raw_times, status_update_cal
     if reordered_count:
         app_logger.warning(
             "Timestamp post-processing restored chronological order for "
-            "%d of %d descriptions before overlap correction.",
+            "%d of %d descriptions before overlap handling.",
             reordered_count, len(parsed_descriptions),
         )
 
     corrected_descriptions = []
     last_corrected_end_time_sec = 0.0
     num_adjustments_made = 0
+    preserved_overlaps = 0
     for current_start_sec, current_end_sec, _original_index, text in parsed_descriptions:
         made_adjustment_this_iteration = False
         adjusted_start_sec = current_start_sec
         adjusted_end_sec = current_end_sec
         if corrected_descriptions and adjusted_start_sec < last_corrected_end_time_sec:
-            adjusted_start_sec = last_corrected_end_time_sec + 0.001
-            made_adjustment_this_iteration = True
+            # Preserve Gemini's visual timestamp.  Overlap is a scheduling
+            # conflict, not evidence that the later visual event happened after
+            # the previous narration.  The silence schedulers resolve the
+            # collision later without rewriting the visual origin.
+            preserved_overlaps += 1
         if adjusted_end_sec <= adjusted_start_sec:
             original_duration_from_ai = current_end_sec - current_start_sec
             duration_to_add = max(0.1, original_duration_from_ai if original_duration_from_ai > 0 else 0.1)
@@ -2393,7 +2513,13 @@ def _post_process_mmss_timestamps(descriptions_list_raw_times, status_update_cal
         if made_adjustment_this_iteration:
             num_adjustments_made += 1
         corrected_descriptions.append((adjusted_start_sec, adjusted_end_sec, text))
-        last_corrected_end_time_sec = adjusted_end_sec
+        last_corrected_end_time_sec = max(last_corrected_end_time_sec, adjusted_end_sec)
+    if preserved_overlaps:
+        app_logger.warning(
+            "Timestamp post-processing preserved %d overlapping Gemini timestamp(s) "
+            "for downstream silence scheduling instead of shifting their visual timing.",
+            preserved_overlaps,
+        )
     if status_update_callback:
         _log_status_local(_("Timestamp correction complete. %(count)d descriptions processed, %(adjusted_count)d had timestamps adjusted.") % {'count': len(corrected_descriptions), 'adjusted_count': num_adjustments_made})
     return corrected_descriptions
