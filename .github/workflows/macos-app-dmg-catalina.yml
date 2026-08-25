@@ -88,7 +88,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v19-legacy-video-inputs
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v20-mpegps-input
 
       - name: Validate Sonarpad tokens
         shell: bash
@@ -372,7 +372,7 @@ jobs:
             --enable-demuxer=matroska \
             --enable-demuxer=mov \
             --enable-demuxer=avi \
-            --enable-demuxer=mpeg \
+            --enable-demuxer=mpegps \
             --enable-demuxer=flv \
             --enable-demuxer=asf \
             --enable-demuxer=mp3 \

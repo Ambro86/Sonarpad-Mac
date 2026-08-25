@@ -117,7 +117,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v17-legacy-video-inputs
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v18-mpegps-input
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -349,7 +349,7 @@ jobs:
             --enable-demuxer=matroska \
             --enable-demuxer=mov \
             --enable-demuxer=avi \
-            --enable-demuxer=mpeg \
+            --enable-demuxer=mpegps \
             --enable-demuxer=flv \
             --enable-demuxer=asf \
             --enable-demuxer=mp3 \

@@ -65,7 +65,7 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         for workflow in (WORKFLOW, CATALINA):
             for flag in (
                 "--enable-demuxer=avi",
-                "--enable-demuxer=mpeg",
+                "--enable-demuxer=mpegps",
                 "--enable-demuxer=flv",
                 "--enable-demuxer=asf",
                 "--enable-muxer=null",
@@ -77,6 +77,7 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
             ):
                 with self.subTest(workflow=workflow[:40], flag=flag):
                     self.assertIn(flag, workflow)
+            self.assertNotIn("--enable-demuxer=mpeg \\", workflow)
         self.assertIn("probe_media_duration_from_packets", AUDIO)
         self.assertIn("parse_ffmpeg_progress_duration", AUDIO)
         self.assertIn('duration_fallback=packet_timestamps', AUDIO)
@@ -94,6 +95,10 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
             ):
                 with self.subTest(workflow=workflow[:40], component=required_component):
                     self.assertIn(required_component, workflow)
+
+    def test_ffmpeg_cache_is_invalidated_for_mpegps_input_fix(self):
+        self.assertIn("ffmpeg-8.0.1-v18-mpegps-input", WORKFLOW)
+        self.assertIn("ffmpeg-${{ env.FFMPEG_VERSION }}-v20-mpegps-input", CATALINA)
 
     def test_avi_upload_uses_gemini_documented_mime_type(self):
         self.assertIn('".avi": "video/avi"', AUDIO_DESCRIBER)
