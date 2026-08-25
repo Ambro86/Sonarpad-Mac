@@ -443,6 +443,11 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("A static or mundane description that is correct", core)
         self.assertIn("including a logo or title card", core)
         self.assertIn("outside the slot", core)
+        self.assertIn("visual_evidence_time_seconds", core)
+        self.assertIn("LONG-SILENCE PARTITIONS", core)
+        self.assertIn("visual_evidence_time_sec", worker)
+        self.assertIn("visual_evidence_time_sec", BRIDGE)
+        self.assertIn("visual_evidence_time_sec", AUDIO)
 
     def test_interrupted_audio_description_checkpoint_and_resume_protocol(self):
         worker = (ROOT / "bridge" / "audio_description_bridge.py").read_text(encoding="utf-8")
