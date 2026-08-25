@@ -13,6 +13,9 @@ WORKFLOW = (ROOT / ".github" / "workflows" / "macos-app-dmg.yml").read_text(enco
 CATALINA = (ROOT / ".github" / "workflows" / "macos-app-dmg-catalina.yml").read_text(encoding="utf-8")
 RELEASE = (ROOT / ".github" / "workflows" / "crea-release-macos.yml").read_text(encoding="utf-8")
 MAC_SPEC = (ROOT / "bridge" / "audio_description_bridge_macos.spec").read_text(encoding="utf-8")
+AUDIO_DESCRIBER = (
+    ROOT / "bridge" / "audio_description_runtime" / "audio_describer" / "core" / "audio_describer.py"
+).read_text(encoding="utf-8")
 
 
 class MacAudioDescriptionHostTests(unittest.TestCase):
@@ -77,6 +80,24 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("probe_media_duration_from_packets", AUDIO)
         self.assertIn("parse_ffmpeg_progress_duration", AUDIO)
         self.assertIn('duration_fallback=packet_timestamps', AUDIO)
+
+    def test_cached_ffmpeg_is_rejected_when_legacy_input_support_is_missing(self):
+        for workflow in (WORKFLOW, CATALINA):
+            for required_component in (
+                "-demuxers | grep -E '[[:space:]]avi[[:space:]]'",
+                "-demuxers | grep -E '[[:space:]]mpeg[[:space:]]'",
+                "-demuxers | grep -E '[[:space:]]flv[[:space:]]'",
+                "-demuxers | grep -E '[[:space:]]asf[[:space:]]'",
+                "-decoders | grep -E '[[:space:]]mpeg4[[:space:]]'",
+                "-decoders | grep -E '[[:space:]]adpcm_ms[[:space:]]'",
+                "-muxers | grep -E '[[:space:]]null[[:space:]]'",
+            ):
+                with self.subTest(workflow=workflow[:40], component=required_component):
+                    self.assertIn(required_component, workflow)
+
+    def test_avi_upload_uses_gemini_documented_mime_type(self):
+        self.assertIn('".avi": "video/avi"', AUDIO_DESCRIBER)
+        self.assertNotIn('".avi": "video/x-msvideo"', AUDIO_DESCRIBER)
 
     def test_mandatory_descriptions_are_scheduled_before_optional_ones(self):
         self.assertIn("mandatory", AUDIO)

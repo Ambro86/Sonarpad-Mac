@@ -88,7 +88,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v18-youtube-formats
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v19-legacy-video-inputs
 
       - name: Validate Sonarpad tokens
         shell: bash
@@ -229,13 +229,24 @@ jobs:
           ffmpeg_has_system_tts_support() {
             local ffmpeg_bin="$1"
             "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]aiff[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]avi[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]mpeg[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]flv[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]asf[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]mpeg4[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]mp2[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]adpcm_ms[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]adpcm_ima_wav[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]wmav1[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]wmav2[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]asetrate[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]volume[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]scale[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]format[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]wav[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]segment[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]null[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]hls[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -protocols | grep -E '[[:space:]]crypto$' >/dev/null
             "${ffmpeg_bin}" -hide_banner -protocols | grep -E '[[:space:]]https$' >/dev/null

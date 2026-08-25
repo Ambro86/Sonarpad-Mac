@@ -282,7 +282,10 @@ _MIME_BY_EXT = {
     ".mp4": "video/mp4",
     ".webm": "video/webm",
     ".mov": "video/quicktime",
-    ".avi": "video/x-msvideo",
+    # Gemini documents AVI uploads with this exact MIME type.  The common
+    # desktop alias video/x-msvideo is not accepted consistently by every
+    # Gemini upload path/model.
+    ".avi": "video/avi",
     ".mkv": "video/x-matroska",
     ".mpeg": "video/mpeg",
     ".mpg": "video/mpeg",
