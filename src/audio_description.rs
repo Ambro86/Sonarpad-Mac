@@ -2207,7 +2207,9 @@ fn bridge_progress_status(stage: &str, message: &str) -> String {
         "gemini_processing" => tr("audio_description.progress.gemini_processing"),
         "gemini_response" => tr("audio_description.progress.gemini_response"),
         "gemini_repair" => tr("audio_description.progress.gemini_repair"),
-        "gemini_retry" => tr("audio_description.progress.gemini_retry"),
+        // Transient Gemini retries are self-healing and must not be presented as errors.
+        // Keep the technical retry details in log.txt while the UI remains on a neutral waiting state.
+        "gemini_retry" => tr("audio_description.progress.gemini_waiting"),
         "language_correction" => tr("audio_description.progress.language_correction"),
         "finalize" => tr("audio_description.progress.finalize"),
         "ready_for_tts" => tr("audio_description.progress.ready_for_tts"),

@@ -48,7 +48,7 @@
   "audio_description.progress.gemini_processing": "Gemini analysis in progress...",
   "audio_description.progress.gemini_repair": "Repairing the format of the Gemini response...",
   "audio_description.progress.gemini_response": "Gemini response received; processing it...",
-  "audio_description.progress.gemini_retry": "Temporary Gemini error; retrying...",
+  "audio_description.progress.gemini_retry": "Gemini is continuing the analysis automatically...",
   "audio_description.progress.gemini_start": "Starting intensive Gemini analysis in 180-second chunks...",
   "audio_description.progress.gemini_uploading": "Uploading the video segment to Gemini...",
   "audio_description.progress.gemini_waiting": "Waiting for Gemini to process the video...",

@@ -48,7 +48,7 @@
   "audio_description.progress.gemini_processing": "Probíhá analýza Gemini...",
   "audio_description.progress.gemini_repair": "Oprava formátu odpovědi Gemini...",
   "audio_description.progress.gemini_response": "Odpověď Gemini přijata; probíhá zpracování...",
-  "audio_description.progress.gemini_retry": "Dočasná chyba Gemini; opakuji pokus...",
+  "audio_description.progress.gemini_retry": "Gemini automaticky pokračuje v analýze...",
   "audio_description.progress.gemini_start": "Spouštění intenzivní analýzy Gemini v 180sekundových segmentech...",
   "audio_description.progress.gemini_uploading": "Nahrávání segmentu videa do Gemini...",
   "audio_description.progress.gemini_waiting": "Čekání, až Gemini zpracuje video...",
