@@ -56,6 +56,34 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('let extension = "mkv";', AUDIO)
         self.assertIn("GEMINI_MAX_CHUNK_BYTES", AUDIO)
 
+    def test_high_bitrate_movies_are_adaptively_split_for_inline_gemini_delivery(self):
+        self.assertIn("GEMINI_INLINE_TARGET_CHUNK_BYTES", AUDIO)
+        self.assertIn("GEMINI_SEGMENT_RETRY_LIMIT", AUDIO)
+        self.assertIn("segment_video_for_gemini", AUDIO)
+        self.assertIn("audio_description.chunk_adaptive_retry", AUDIO)
+        self.assertIn("audio_description.chunk_adaptive_ready", AUDIO)
+        self.assertIn("segment_seconds * ratio * 0.82", AUDIO)
+
+    def test_legacy_avi_timestamp_failures_recover_before_reaching_the_user(self):
+        self.assertIn('"+genpts+discardcorrupt".into()', AUDIO)
+        self.assertIn('"-avoid_negative_ts".into()', AUDIO)
+        self.assertIn('"make_zero".into()', AUDIO)
+        self.assertIn("timestamp_mux_error", AUDIO)
+        self.assertIn("segment_video_for_gemini_transcoded", AUDIO)
+        self.assertIn("audio_description.chunk_timestamp_recovery", AUDIO)
+        self.assertIn('"mpeg4".into()', AUDIO)
+        self.assertIn('"aac".into()', AUDIO)
+        self.assertIn("scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p", AUDIO)
+
+    def test_changed_resume_chunk_layout_restarts_cleanly_instead_of_failing(self):
+        self.assertIn("audio_description.resume_checkpoint_ignored", AUDIO)
+        self.assertNotIn(
+            "Il checkpoint interrotto non corrisponde più al video preparato.", AUDIO
+        )
+
+    def test_audio_description_job_failures_are_logged_before_the_ui_error(self):
+        self.assertIn("audio_description.create.failed error={error}", AUDIO)
+
     def test_audio_description_tts_applies_voice_dictionary_before_synthesis(self):
         self.assertIn("apply_voice_dictionary_to_text(text)", AUDIO)
         self.assertIn("&spoken_text", AUDIO)

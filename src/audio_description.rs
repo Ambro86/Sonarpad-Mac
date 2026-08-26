@@ -25,6 +25,12 @@ use wxdragon::prelude::*;
 
 const CHUNK_SECONDS: f64 = 180.0;
 const GEMINI_MAX_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
+// Keep prepared clips comfortably below the bridge's 48 MiB inline threshold.
+// High-bitrate films can otherwise force every clip through the Gemini Files API,
+// which is slower and materially less reliable than inline delivery.
+const GEMINI_INLINE_TARGET_CHUNK_BYTES: u64 = 40 * 1024 * 1024;
+const GEMINI_MIN_SEGMENT_SECONDS: f64 = 30.0;
+const GEMINI_SEGMENT_RETRY_LIMIT: usize = 5;
 const MAX_SHIFT_SEC: f64 = 5.0;
 const MIN_EXTENDED_ANCHOR_SEC: f64 = 1.0;
 const MIX_SAMPLE_RATE: u32 = 48_000;
@@ -961,22 +967,195 @@ fn create_pyannote_wav(
     run_ffmpeg(&args, cancel)
 }
 
+fn remove_prepared_chunk_files(dir: &Path, prefix: &str, suffix: &str) -> Result<(), String> {
+    let entries = fs::read_dir(dir).map_err(|e| format!("Lettura cartella chunk fallita: {e}"))?;
+    for entry in entries.filter_map(Result::ok) {
+        let path = entry.path();
+        let matches = path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.starts_with(prefix) && name.ends_with(suffix));
+        if matches {
+            fs::remove_file(&path).map_err(|e| {
+                format!("Pulizia vecchio chunk Gemini fallita ({}): {e}", path.display())
+            })?;
+        }
+    }
+    Ok(())
+}
+
+fn collect_prepared_chunk_files(
+    dir: &Path,
+    prefix: &str,
+    suffix: &str,
+) -> Result<Vec<PathBuf>, String> {
+    let mut paths = fs::read_dir(dir)
+        .map_err(|e| format!("Lettura cartella chunk fallita: {e}"))?
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| {
+            path.file_name()
+                .and_then(|name| name.to_str())
+                .is_some_and(|name| name.starts_with(prefix) && name.ends_with(suffix))
+        })
+        .collect::<Vec<_>>();
+    paths.sort();
+    if paths.is_empty() {
+        return Err("FFmpeg non ha creato segmenti Gemini.".to_string());
+    }
+    Ok(paths)
+}
+
+fn timestamp_mux_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    lower.contains("unknown timestamp")
+        || lower.contains("non monotonically increasing")
+        || lower.contains("non-monotonous dts")
+        || lower.contains("timestamps are unset")
+        || lower.contains("error muxing a packet")
+        || lower.contains("error submitting a packet to the muxer")
+}
+
+fn segment_video_for_gemini_transcoded(
+    input: &Path,
+    dir: &Path,
+    segment_seconds: f64,
+    cancel: &Arc<AtomicBool>,
+) -> Result<Vec<PathBuf>, String> {
+    let extension = "mkv";
+    let prefix = "gemini_chunk_";
+    let suffix = format!(".{extension}");
+    remove_prepared_chunk_files(dir, prefix, &suffix)?;
+
+    let output_pattern = dir.join(format!("{prefix}%04d.{extension}"));
+    let args = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+        "-fflags".into(),
+        "+genpts+discardcorrupt".into(),
+        "-i".into(),
+        input.to_string_lossy().to_string(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a?".into(),
+        "-sn".into(),
+        "-dn".into(),
+        "-c:v".into(),
+        "mpeg4".into(),
+        "-q:v".into(),
+        "5".into(),
+        "-vf".into(),
+        "scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p".into(),
+        "-c:a".into(),
+        "aac".into(),
+        "-b:a".into(),
+        "128k".into(),
+        "-avoid_negative_ts".into(),
+        "make_zero".into(),
+        "-f".into(),
+        "segment".into(),
+        "-segment_time".into(),
+        format!("{segment_seconds:.3}"),
+        "-segment_start_number".into(),
+        "1".into(),
+        "-reset_timestamps".into(),
+        "1".into(),
+        "-segment_format".into(),
+        "matroska".into(),
+        output_pattern.to_string_lossy().to_string(),
+    ];
+    run_ffmpeg(&args, cancel)?;
+    collect_prepared_chunk_files(dir, prefix, &suffix)
+}
+
+fn segment_video_for_gemini(
+    input: &Path,
+    dir: &Path,
+    segment_seconds: f64,
+    cancel: &Arc<AtomicBool>,
+) -> Result<Vec<PathBuf>, String> {
+    let extension = "mkv";
+    let prefix = "gemini_chunk_";
+    let suffix = format!(".{extension}");
+    remove_prepared_chunk_files(dir, prefix, &suffix)?;
+
+    let output_pattern = dir.join(format!("{prefix}%04d.{extension}"));
+    // +genpts fixes a large class of AVI/legacy-container files without re-encoding.
+    // Some damaged AVI files still expose packets with no usable timestamp at all;
+    // in that case stream-copy into Matroska is impossible and we transparently
+    // normalize the media below instead of surfacing an FFmpeg error to the user.
+    let args = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+        "-fflags".into(),
+        "+genpts+discardcorrupt".into(),
+        "-i".into(),
+        input.to_string_lossy().to_string(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "0:a?".into(),
+        "-sn".into(),
+        "-dn".into(),
+        "-c".into(),
+        "copy".into(),
+        "-avoid_negative_ts".into(),
+        "make_zero".into(),
+        "-f".into(),
+        "segment".into(),
+        "-segment_time".into(),
+        format!("{segment_seconds:.3}"),
+        "-segment_start_number".into(),
+        "1".into(),
+        "-reset_timestamps".into(),
+        "1".into(),
+        "-segment_format".into(),
+        "matroska".into(),
+        output_pattern.to_string_lossy().to_string(),
+    ];
+    match run_ffmpeg(&args, cancel) {
+        Ok(()) => collect_prepared_chunk_files(dir, prefix, &suffix),
+        Err(error) if error == "cancelled" => Err(error),
+        Err(error) if timestamp_mux_error(&error) => {
+            append_podcast_log(&format!(
+                "audio_description.chunk_timestamp_recovery mode=transcode input={} segment_sec={:.3} reason={}",
+                input.display(),
+                segment_seconds,
+                error.replace('\n', " ")
+            ));
+            segment_video_for_gemini_transcoded(input, dir, segment_seconds, cancel).map_err(
+                |fallback_error| {
+                    format!(
+                        "FFmpeg non è riuscito a normalizzare i timestamp del video. Primo tentativo: {error}\nFallback: {fallback_error}"
+                    )
+                },
+            )
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn prepare_chunks(
     input: &Path,
     duration: f64,
     dir: &Path,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<AudioDescriptionPreparedChunk>, String> {
-    if duration <= CHUNK_SECONDS {
-        let size = fs::metadata(input)
-            .map_err(|e| format!("Lettura dimensione file fallita: {e}"))?
-            .len();
-        if size == 0 || size >= GEMINI_MAX_CHUNK_BYTES {
-            return Err(format!(
-                "Il file Gemini ha una dimensione non supportata: {}",
-                input.display()
-            ));
-        }
+    let input_size = fs::metadata(input)
+        .map_err(|e| format!("Lettura dimensione file fallita: {e}"))?
+        .len();
+    if input_size == 0 || input_size >= GEMINI_MAX_CHUNK_BYTES {
+        return Err(format!(
+            "Il file Gemini ha una dimensione non supportata: {}",
+            input.display()
+        ));
+    }
+    if duration <= CHUNK_SECONDS && input_size <= GEMINI_INLINE_TARGET_CHUNK_BYTES {
         return Ok(vec![AudioDescriptionPreparedChunk {
             path: input.to_string_lossy().to_string(),
             start_sec: 0.0,
@@ -987,52 +1166,76 @@ fn prepare_chunks(
     if cancel.load(Ordering::Relaxed) {
         return Err("cancelled".to_string());
     }
-    let extension = "mkv";
-    let prefix = "gemini_chunk_";
-    let output_pattern = dir.join(format!("{prefix}%04d.{extension}"));
-    let segment_format = "matroska";
-    let args = vec![
-        "-hide_banner".into(),
-        "-loglevel".into(),
-        "error".into(),
-        "-y".into(),
-        "-i".into(),
-        input.to_string_lossy().to_string(),
-        "-map".into(),
-        "0:v:0".into(),
-        "-map".into(),
-        "0:a?".into(),
-        "-c".into(),
-        "copy".into(),
-        "-f".into(),
-        "segment".into(),
-        "-segment_time".into(),
-        format!("{CHUNK_SECONDS:.0}"),
-        "-segment_start_number".into(),
-        "1".into(),
-        "-reset_timestamps".into(),
-        "1".into(),
-        "-segment_format".into(),
-        segment_format.into(),
-        output_pattern.to_string_lossy().to_string(),
-    ];
-    run_ffmpeg(&args, cancel)?;
 
-    let suffix = format!(".{extension}");
-    let mut paths = fs::read_dir(dir)
-        .map_err(|e| format!("Lettura cartella chunk fallita: {e}"))?
-        .filter_map(Result::ok)
-        .map(|entry| entry.path())
-        .filter(|path| {
-            path.file_name()
-                .and_then(|name| name.to_str())
-                .is_some_and(|name| name.starts_with(prefix) && name.ends_with(suffix.as_str()))
-        })
-        .collect::<Vec<_>>();
-    paths.sort();
-    if paths.is_empty() {
-        return Err("FFmpeg non ha creato segmenti Gemini.".to_string());
+    // Start with three-minute stream-copy clips. If the source bitrate makes
+    // those clips too large for reliable inline Gemini delivery, automatically
+    // shorten the segment duration and redo the cheap stream-copy split. This
+    // preserves the source frames/audio while avoiding a fragile Files API path.
+    let mut segment_seconds = CHUNK_SECONDS.min(duration.max(GEMINI_MIN_SEGMENT_SECONDS));
+    if duration <= CHUNK_SECONDS && input_size > GEMINI_INLINE_TARGET_CHUNK_BYTES {
+        let ratio = GEMINI_INLINE_TARGET_CHUNK_BYTES as f64 / input_size as f64;
+        segment_seconds = (duration * ratio * 0.82)
+            .max(GEMINI_MIN_SEGMENT_SECONDS)
+            .min(duration.max(GEMINI_MIN_SEGMENT_SECONDS));
     }
+    let mut attempt = 0_usize;
+    let paths = loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        attempt += 1;
+        let paths = segment_video_for_gemini(input, dir, segment_seconds, cancel)?;
+        let max_size = paths
+            .iter()
+            .filter_map(|path| fs::metadata(path).ok().map(|metadata| metadata.len()))
+            .max()
+            .unwrap_or(0);
+        if max_size == 0 {
+            return Err("FFmpeg ha creato un chunk Gemini vuoto.".to_string());
+        }
+        if max_size <= GEMINI_INLINE_TARGET_CHUNK_BYTES {
+            if attempt > 1 {
+                append_podcast_log(&format!(
+                    "audio_description.chunk_adaptive_ready attempts={} segment_sec={:.3} max_size_mb={:.1}",
+                    attempt,
+                    segment_seconds,
+                    max_size as f64 / (1024.0 * 1024.0)
+                ));
+            }
+            break paths;
+        }
+
+        if attempt >= GEMINI_SEGMENT_RETRY_LIMIT {
+            append_podcast_log(&format!(
+                "audio_description.chunk_adaptive_fallback attempts={} segment_sec={:.3} max_size_mb={:.1}",
+                attempt,
+                segment_seconds,
+                max_size as f64 / (1024.0 * 1024.0)
+            ));
+            break paths;
+        }
+
+        let previous = segment_seconds;
+        let ratio = GEMINI_INLINE_TARGET_CHUNK_BYTES as f64 / max_size as f64;
+        let proposed = (segment_seconds * ratio * 0.82).max(GEMINI_MIN_SEGMENT_SECONDS);
+        if proposed >= previous - 0.5 {
+            append_podcast_log(&format!(
+                "audio_description.chunk_adaptive_fallback reason=min_segment segment_sec={:.3} max_size_mb={:.1}",
+                previous,
+                max_size as f64 / (1024.0 * 1024.0)
+            ));
+            break paths;
+        }
+        segment_seconds = proposed;
+        append_podcast_log(&format!(
+            "audio_description.chunk_adaptive_retry attempt={} old_segment_sec={:.3} new_segment_sec={:.3} max_size_mb={:.1} target_mb={:.1}",
+            attempt,
+            previous,
+            segment_seconds,
+            max_size as f64 / (1024.0 * 1024.0),
+            GEMINI_INLINE_TARGET_CHUNK_BYTES as f64 / (1024.0 * 1024.0)
+        ));
+    };
 
     let path_count = paths.len();
     let mut chunks = Vec::with_capacity(path_count);
@@ -1050,7 +1253,7 @@ fn prepare_chunks(
         }
         let measured = probe_media(&path)
             .map(|probe| probe.duration_sec)
-            .unwrap_or(CHUNK_SECONDS)
+            .unwrap_or(segment_seconds)
             .max(0.001);
         let start_sec = cursor;
         let end_sec = if index + 1 == path_count {
@@ -1062,13 +1265,13 @@ fn prepare_chunks(
             return Err("Timeline dei chunk Gemini non valida.".to_string());
         }
         append_podcast_log(&format!(
-            "audio_description.chunk index={} start={:.3} end={:.3} measured={:.3} size_mb={:.1} format={}",
+            "audio_description.chunk index={} start={:.3} end={:.3} measured={:.3} size_mb={:.1} format=mkv segment_target_sec={:.3}",
             index + 1,
             start_sec,
             end_sec,
             measured,
             size as f64 / (1024.0 * 1024.0),
-            extension
+            segment_seconds
         ));
         chunks.push(AudioDescriptionPreparedChunk {
             path: path.to_string_lossy().to_string(),
@@ -2292,19 +2495,37 @@ fn create_audio_description(
         }
         let chunks = prepare_chunks(&job.input_path, duration, &work, &cancel)?;
         let resume = if job.resume_checkpoint_path.is_some() {
-            let checkpoint = load_partial_checkpoint(&checkpoint_path)?;
-            if checkpoint.total_chunks != chunks.len()
-                || (checkpoint.source_duration_sec - duration).abs() > 0.5
-            {
-                return Err(
-                    "Il checkpoint interrotto non corrisponde più al video preparato.".to_string(),
-                );
+            match load_partial_checkpoint(&checkpoint_path) {
+                Ok(checkpoint)
+                    if checkpoint.total_chunks == chunks.len()
+                        && (checkpoint.source_duration_sec - duration).abs() <= 0.5 =>
+                {
+                    Some(AudioDescriptionBridgeResume {
+                        completed_chunks: checkpoint.completed_chunks,
+                        descriptions: checkpoint.descriptions,
+                        character_glossary: checkpoint.character_glossary,
+                    })
+                }
+                Ok(checkpoint) => {
+                    append_podcast_log(&format!(
+                        "audio_description.resume_checkpoint_ignored reason=chunk_layout_changed old_chunks={} new_chunks={} old_duration={:.3} new_duration={:.3} path={}",
+                        checkpoint.total_chunks,
+                        chunks.len(),
+                        checkpoint.source_duration_sec,
+                        duration,
+                        checkpoint_path.display()
+                    ));
+                    None
+                }
+                Err(error) => {
+                    append_podcast_log(&format!(
+                        "audio_description.resume_checkpoint_ignored reason=invalid error={} path={}",
+                        error,
+                        checkpoint_path.display()
+                    ));
+                    None
+                }
             }
-            Some(AudioDescriptionBridgeResume {
-                completed_chunks: checkpoint.completed_chunks,
-                descriptions: checkpoint.descriptions,
-                character_glossary: checkpoint.character_glossary,
-            })
         } else {
             None
         };
@@ -3440,6 +3661,7 @@ fn execute_audio_description_job(
                 append_podcast_log("audio_description.create.closed_after_cancel");
                 true
             } else {
+                append_podcast_log(&format!("audio_description.create.failed error={error}"));
                 show_error(dialog, &error);
                 false
             }
