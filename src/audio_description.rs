@@ -1149,10 +1149,18 @@ fn prepare_chunks(
     let input_size = fs::metadata(input)
         .map_err(|e| format!("Lettura dimensione file fallita: {e}"))?
         .len();
-    if input_size == 0 || input_size >= GEMINI_MAX_CHUNK_BYTES {
+    if input_size == 0 {
         return Err(format!(
-            "Il file Gemini ha una dimensione non supportata: {}",
+            "Il file Gemini è vuoto: {}",
             input.display()
+        ));
+    }
+    if input_size >= GEMINI_MAX_CHUNK_BYTES {
+        append_podcast_log(&format!(
+            "audio_description.large_source_chunking path={} size_mb={:.1} duration_sec={:.3}",
+            input.display(),
+            input_size as f64 / (1024.0 * 1024.0),
+            duration
         ));
     }
     if duration <= CHUNK_SECONDS && input_size <= GEMINI_INLINE_TARGET_CHUNK_BYTES {
@@ -1172,11 +1180,25 @@ fn prepare_chunks(
     // shorten the segment duration and redo the cheap stream-copy split. This
     // preserves the source frames/audio while avoiding a fragile Files API path.
     let mut segment_seconds = CHUNK_SECONDS.min(duration.max(GEMINI_MIN_SEGMENT_SECONDS));
-    if duration <= CHUNK_SECONDS && input_size > GEMINI_INLINE_TARGET_CHUNK_BYTES {
+    // Estimate a useful first segment duration from the full-file average bitrate.
+    // This matters especially for multi-gigabyte movies: they must be chunked, not
+    // rejected, and starting near the inline target avoids writing a complete set
+    // of oversized temporary clips only to delete and split them again.
+    if input_size > GEMINI_INLINE_TARGET_CHUNK_BYTES {
         let ratio = GEMINI_INLINE_TARGET_CHUNK_BYTES as f64 / input_size as f64;
-        segment_seconds = (duration * ratio * 0.82)
+        let estimated = (duration * ratio * 0.82)
             .max(GEMINI_MIN_SEGMENT_SECONDS)
-            .min(duration.max(GEMINI_MIN_SEGMENT_SECONDS));
+            .min(segment_seconds);
+        if estimated < segment_seconds - 0.5 {
+            append_podcast_log(&format!(
+                "audio_description.chunk_initial_estimate old_segment_sec={:.3} new_segment_sec={:.3} source_size_mb={:.1} target_mb={:.1}",
+                segment_seconds,
+                estimated,
+                input_size as f64 / (1024.0 * 1024.0),
+                GEMINI_INLINE_TARGET_CHUNK_BYTES as f64 / (1024.0 * 1024.0)
+            ));
+            segment_seconds = estimated;
+        }
     }
     let mut attempt = 0_usize;
     let paths = loop {

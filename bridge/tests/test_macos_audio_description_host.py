@@ -64,6 +64,16 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("audio_description.chunk_adaptive_ready", AUDIO)
         self.assertIn("segment_seconds * ratio * 0.82", AUDIO)
 
+    def test_multi_gigabyte_source_is_chunked_instead_of_rejected(self):
+        prepare_start = AUDIO.index("fn prepare_chunks(")
+        prepare_end = AUDIO.index("fn ", prepare_start + len("fn prepare_chunks("))
+        prepare = AUDIO[prepare_start:prepare_end]
+        self.assertIn("audio_description.large_source_chunking", prepare)
+        self.assertIn("audio_description.chunk_initial_estimate", prepare)
+        self.assertIn("input_size == 0", prepare)
+        self.assertNotIn("input_size == 0 || input_size >= GEMINI_MAX_CHUNK_BYTES", prepare)
+        self.assertIn("size >= GEMINI_MAX_CHUNK_BYTES", prepare)
+
     def test_legacy_avi_timestamp_failures_recover_before_reaching_the_user(self):
         self.assertIn('"+genpts+discardcorrupt".into()', AUDIO)
         self.assertIn('"-avoid_negative_ts".into()', AUDIO)
