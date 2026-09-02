@@ -1,6 +1,8 @@
 {
   "audio_description.browse": "Procházet...",
   "audio_description.cancel": "Zrušit",
+  "audio_description.audio_track.title": "Vybrat zvukovou stopu",
+  "audio_description.audio_track.label": "Zvuková stopa:",
   "audio_description.close": "Zavřít",
   "audio_description.engine": "Modul syntézy řeči:",
   "audio_description.error.api_key": "Zadejte klíč API Gemini.",

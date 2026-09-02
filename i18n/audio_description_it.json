@@ -1,6 +1,8 @@
 {
   "audio_description.browse": "Sfoglia...",
   "audio_description.cancel": "Annulla",
+  "audio_description.audio_track.title": "Scegli traccia audio",
+  "audio_description.audio_track.label": "Traccia audio:",
   "audio_description.close": "Chiudi",
   "audio_description.engine": "Motore di sintesi vocale:",
   "audio_description.error.api_key": "Inserisci una chiave API Gemini.",

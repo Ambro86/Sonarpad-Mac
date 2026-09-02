@@ -1,5 +1,46 @@
 Journal des nouveautés
 
+Version 0.4.0 - 2 septembre 2026
+
+Audiodescription avec IA — nouvelle fonction principale
+
+- Ajout de « Créer une audiodescription avec l’IA » directement dans le menu Outils. Sonarpad analyse l’audio pour trouver les espaces sans dialogue, génère les descriptions avec Gemini et utilise les moteurs vocaux déjà disponibles, sans parler par-dessus les dialogues.
+
+- Amélioration de la synchronisation entre ce qui se passe dans la vidéo et les descriptions, avec des contrôles automatiques des temps générés par Gemini.
+
+- « Activer les pauses étendues » est désactivé par défaut. Cette option peut être activée pour les contenus avec beaucoup de dialogues ou peu d’espace disponible afin de permettre l’insertion de descriptions plus longues.
+
+- Sonarpad peut essayer de reconnaître les personnages et d’utiliser leurs noms. Les catalogues de personnages peuvent être conservés entre les épisodes d’une série afin d’améliorer la continuité.
+
+- Les projets peuvent être enregistrés, les descriptions modifiées ultérieurement puis exportées à nouveau sans tout régénérer avec Gemini.
+
+- Si le processus est interrompu, Sonarpad conserve la progression et permet de reprendre l’audiodescription. Si le quota Gemini est épuisé, il est possible d’attendre, de changer de modèle ou d’arrêter sans perdre le travail déjà terminé.
+
+- La fenêtre permet de choisir la langue, le niveau de détail, le modèle Gemini, le moteur vocal et la voix, et mémorise les préférences utilisées. Le module est disponible dans les langues prises en charge par Sonarpad pour Mac.
+
+- Pendant la génération, l’interface affiche la progression, l’état actuel et Annuler ; une fois terminé, le MP3 peut être ouvert directement dans le lecteur interne.
+
+- Amélioration de la compatibilité avec les vidéos MKV : Sonarpad gère plus fiablement les horodatages irréguliers ou absents et, lorsque cela est possible, ignore les paquets corrompus sans interrompre l’audiodescription.
+
+- Correction d’un problème qui pouvait faire échouer l’exportation finale en MP3 avec les vidéos contenant un son multicanal, par exemple Dolby 5.1. Sonarpad convertit automatiquement le son multicanal en stéréo lorsque cela est nécessaire pour l’encodage MP3.
+
+- Lorsqu’une vidéo contient plusieurs pistes audio, Sonarpad demande quelle piste utiliser avant le traitement. La liste déroulante accessible se parcourt avec les flèches ; OK démarre l’audiodescription avec la piste choisie, tandis qu’Annuler ferme la fenêtre et rend le focus à l’éditeur Sonarpad.
+
+YouTube et streaming
+
+- L’expérience YouTube a été nettement améliorée : la recherche et la navigation sont plus rapides et le bon fonctionnement a été rétabli.
+
+- Les options de qualité vidéo sont désormais traduites : à la place de la valeur technique « best », Sonarpad affiche un libellé clair dans la langue de l’interface.
+
+- Sonarpad mémorise le dernier format choisi dans Enregistrer le média. Par exemple, si MP4 est sélectionné, MP4 reste présélectionné à la prochaine ouverture du dialogue.
+
+
+Remerciements
+
+- Un grand merci à Leonardo Graziano et Tiziano Ferraro, qui ont testé en profondeur la fonction d’Audiodescription avec IA ainsi que Sonarpad en général, contribuant de manière précieuse à son amélioration.
+
+- Un grand merci également au groupe Tecnologia Accessibile pour son soutien, ses tests et ses suggestions.
+
 Version 0.3.1 - 16 juillet 2026
 
 - Correction d’un problème qui empêchait Sonarpad de démarrer lorsque le menu Radio contenait des favoris, en raison d’identifiants de menu wxWidgets non valides.

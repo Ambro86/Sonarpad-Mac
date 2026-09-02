@@ -1,5 +1,53 @@
 Changelog
 
+Versione 0.4.0 - 2 settembre 2026
+
+Audiodescrizione con IA — nuova funzione principale
+
+- Aggiunto direttamente nel menu Strumenti il modulo “Crea audiodescrizione con IA”. Sonarpad analizza l’audio per individuare gli spazi liberi dai dialoghi, genera le descrizioni con Gemini e usa i motori vocali già presenti nel programma, evitando di parlare sopra le battute.
+
+- Migliorata la sincronizzazione tra ciò che accade nel video e le descrizioni, con controlli automatici sui tempi generati da Gemini.
+
+- “Attiva pause estese” è deselezionata per impostazione predefinita. Può essere attivata nei contenuti con molti dialoghi o poco spazio disponibile per permettere l’inserimento di descrizioni altrimenti troppo lunghe.
+
+- È possibile provare a riconoscere i personaggi e usare i loro nomi. I cataloghi dei personaggi possono essere mantenuti tra gli episodi di una serie per migliorare la continuità.
+
+- È possibile salvare il progetto, modificare in seguito le descrizioni e riesportare senza dover rigenerare tutto con Gemini.
+
+- Se il lavoro viene interrotto, Sonarpad conserva i progressi e permette di continuare l’audiodescrizione. In caso di quota Gemini esaurita è possibile attendere, cambiare modello oppure interrompere senza perdere il lavoro già completato.
+
+- La finestra permette di scegliere lingua, livello di dettaglio, modello Gemini, motore e voce e ricorda le preferenze utilizzate. Il modulo è disponibile nelle lingue supportate da Sonarpad per Mac.
+
+- Durante la generazione l’interfaccia mostra avanzamento, stato corrente e pulsante Annulla; al termine l’MP3 può essere aperto direttamente nel player interno.
+
+- Migliorata la compatibilità con i video MKV: Sonarpad gestisce in modo più affidabile timestamp irregolari o mancanti e, quando possibile, ignora i pacchetti corrotti senza interrompere l’audiodescrizione.
+
+- Corretto un problema che poteva far fallire l’esportazione finale in MP3 con video contenenti audio multicanale, ad esempio Dolby 5.1. Sonarpad converte automaticamente l’audio multicanale in stereo quando necessario per la codifica MP3.
+
+- Quando il video contiene più tracce audio, prima di iniziare Sonarpad chiede quale traccia utilizzare. La casella combinata accessibile si può cambiare con le frecce; OK avvia l’audiodescrizione con la traccia scelta, mentre Annulla chiude la finestra e riporta il focus all’editor di Sonarpad.
+
+Audiodescrizioni e contenuti online
+
+- “Crea audiodescrizione con IA” è disponibile anche per i video aperti tramite streaming e per i contenuti on demand compatibili di RaiPlay, Rai Audiodescrizioni e La7 Play.
+
+YouTube e streaming
+
+- Migliorata sensibilmente l’esperienza di YouTube, velocizzando la ricerca e la navigazione e ripristinandone il corretto funzionamento.
+
+- Le opzioni di qualità video sono ora localizzate: al posto del valore tecnico “best” viene mostrata una voce comprensibile nella lingua dell’interfaccia, ad esempio “Migliore” in italiano.
+
+- Sonarpad ricorda l’ultimo formato scelto in Salva media. Se, ad esempio, si sceglie MP4, alla successiva apertura MP4 rimane preselezionato.
+
+La7 Play
+
+- Aggiunto il modulo La7 Play, che permette di cercare e riascoltare i programmi già andati in onda.
+
+Ringraziamenti
+
+- Un grande ringraziamento a Leonardo Graziano e Tiziano Ferraro, che hanno testato a fondo la funzione Audiodescrizione con IA e Sonarpad in generale, contribuendo in modo prezioso al suo miglioramento.
+
+- Un grande ringraziamento anche al gruppo Tecnologia Accessibile per il supporto, i test e i suggerimenti.
+
 Versione 0.3.1 - 16 luglio 2026
 
 - Corretto un problema che impediva l’avvio di Sonarpad quando il menu Radio conteneva preferiti, a causa di identificatori di menu non validi in wxWidgets.

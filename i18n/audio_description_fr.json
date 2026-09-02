@@ -1,6 +1,8 @@
 {
   "audio_description.browse": "Parcourir...",
   "audio_description.cancel": "Annuler",
+  "audio_description.audio_track.title": "Choisir la piste audio",
+  "audio_description.audio_track.label": "Piste audio :",
   "audio_description.close": "Fermer",
   "audio_description.engine": "Moteur de synthèse vocale :",
   "audio_description.error.api_key": "Saisissez une clé API Gemini.",

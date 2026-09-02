@@ -100,6 +100,7 @@ struct CreateJob {
     rate: i32,
     pitch: i32,
     volume: i32,
+    audio_stream_index: Option<i32>,
     gemini_api_key: String,
     gemini_model: String,
     resume_checkpoint_path: Option<PathBuf>,
@@ -152,6 +153,8 @@ struct AudioDescriptionPartialCheckpoint {
     rate: i32,
     pitch: i32,
     volume: i32,
+    #[serde(default)]
+    audio_stream_index: Option<i32>,
     gemini_model: String,
     character_catalog: Option<AudioDescriptionPartialCatalog>,
     completed_chunks: usize,
@@ -294,6 +297,8 @@ pub struct AudioDescriptionProject {
     pub updated_at_utc: String,
     pub source_path: PathBuf,
     pub output_mp3_path: PathBuf,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub audio_stream_index: Option<i32>,
     pub source_duration_sec: f64,
     pub output_duration_sec: f64,
     pub language: String,
@@ -776,6 +781,334 @@ fn run_ffmpeg(args: &[String], cancel: &Arc<AtomicBool>) -> Result<(), String> {
     }
 }
 
+#[derive(Clone, Debug)]
+struct AudioTrackInfo {
+    stream_index: i32,
+    language: Option<String>,
+    title: Option<String>,
+    codec: String,
+    channels: u32,
+    is_default: bool,
+}
+
+fn ffprobe_path() -> PathBuf {
+    let ffmpeg = ffmpeg_path();
+    if let Some(parent) = ffmpeg.parent() {
+        let candidate = parent.join(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" });
+        if candidate.is_file() {
+            return candidate;
+        }
+    }
+    PathBuf::from(if cfg!(windows) { "ffprobe.exe" } else { "ffprobe" })
+}
+
+fn parse_audio_channel_layout(layout: &str) -> u32 {
+    let lower = layout.trim().to_ascii_lowercase();
+    if lower.contains("mono") {
+        return 1;
+    }
+    if lower.contains("stereo") {
+        return 2;
+    }
+    for channels in [16_u32, 12, 10, 8, 7, 6, 5, 4, 3, 2, 1] {
+        if lower.contains(&format!("{channels} channels"))
+            || lower.contains(&format!("{channels} channel"))
+        {
+            return channels;
+        }
+    }
+    for (needle, channels) in [
+        ("7.1", 8_u32),
+        ("6.1", 7),
+        ("5.1", 6),
+        ("5.0", 5),
+        ("4.1", 5),
+        ("4.0", 4),
+        ("3.1", 4),
+        ("3.0", 3),
+        ("2.1", 3),
+        ("2.0", 2),
+        ("1.0", 1),
+    ] {
+        if lower.contains(needle) {
+            return channels;
+        }
+    }
+    0
+}
+
+fn list_audio_tracks_from_ffmpeg(input: &Path) -> Result<Vec<AudioTrackInfo>, String> {
+    let output = std::process::Command::new(ffmpeg_path())
+        .arg("-hide_banner")
+        .arg("-i")
+        .arg(input)
+        .output()
+        .map_err(|e| format!("Analisi delle tracce audio fallita: {e}"))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let mut tracks = Vec::new();
+    let mut current_audio_track: Option<usize> = None;
+    for raw_line in stderr.lines() {
+        let line = raw_line.trim();
+        if let Some(audio_pos) = line.find(": Audio:") {
+            let stream_prefix = &line[..audio_pos];
+            let Some(hash_pos) = stream_prefix.find('#') else {
+                current_audio_track = None;
+                continue;
+            };
+            let stream_spec = &stream_prefix[hash_pos + 1..];
+            let Some(colon_pos) = stream_spec.find(':') else {
+                current_audio_track = None;
+                continue;
+            };
+            let stream_tail = &stream_spec[colon_pos + 1..];
+            let index_digits = stream_tail
+                .chars()
+                .take_while(|ch| ch.is_ascii_digit())
+                .collect::<String>();
+            let Ok(stream_index) = index_digits.parse::<i32>() else {
+                current_audio_track = None;
+                continue;
+            };
+            let stream_metadata = &stream_tail[index_digits.len()..];
+            let language = stream_metadata
+                .find('(')
+                .and_then(|open| {
+                    stream_metadata[open + 1..]
+                        .find(')')
+                        .map(|close| &stream_metadata[open + 1..open + 1 + close])
+                })
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            let audio_detail = line[audio_pos + ": Audio:".len()..].trim();
+            let codec = audio_detail
+                .split(',')
+                .next()
+                .unwrap_or("audio")
+                .trim()
+                .to_string();
+            tracks.push(AudioTrackInfo {
+                stream_index,
+                language,
+                title: None,
+                codec,
+                channels: parse_audio_channel_layout(audio_detail),
+                is_default: line.contains("(default)"),
+            });
+            current_audio_track = Some(tracks.len() - 1);
+            continue;
+        }
+        if line.starts_with("Stream #") {
+            current_audio_track = None;
+            continue;
+        }
+        if let Some(track_index) = current_audio_track
+            && let Some((key, value)) = line.split_once(':')
+            && key.trim().eq_ignore_ascii_case("title")
+        {
+            let value = value.trim();
+            if !value.is_empty() {
+                tracks[track_index].title = Some(value.to_string());
+            }
+        }
+    }
+    Ok(tracks)
+}
+
+fn list_audio_tracks(input: &Path) -> Result<Vec<AudioTrackInfo>, String> {
+    let output = std::process::Command::new(ffprobe_path())
+        .arg("-v")
+        .arg("error")
+        .arg("-select_streams")
+        .arg("a")
+        .arg("-show_entries")
+        .arg("stream=index,codec_name,channels:stream_tags=language,title:stream_disposition=default")
+        .arg("-of")
+        .arg("json")
+        .arg(input)
+        .output();
+    let Ok(output) = output else {
+        return list_audio_tracks_from_ffmpeg(input);
+    };
+    if !output.status.success() {
+        return list_audio_tracks_from_ffmpeg(input);
+    }
+    let value: Value = match serde_json::from_slice(&output.stdout) {
+        Ok(value) => value,
+        Err(_) => return list_audio_tracks_from_ffmpeg(input),
+    };
+    let Some(streams) = value.get("streams").and_then(Value::as_array) else {
+        return list_audio_tracks_from_ffmpeg(input);
+    };
+    let tracks = streams
+        .iter()
+        .filter_map(|stream| {
+            let stream_index = stream.get("index")?.as_i64()? as i32;
+            let tags = stream.get("tags");
+            let language = tags
+                .and_then(|tags| tags.get("language"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            let title = tags
+                .and_then(|tags| tags.get("title"))
+                .and_then(Value::as_str)
+                .map(str::trim)
+                .filter(|value| !value.is_empty())
+                .map(str::to_string);
+            let codec = stream
+                .get("codec_name")
+                .and_then(Value::as_str)
+                .unwrap_or("audio")
+                .to_string();
+            let channels = stream
+                .get("channels")
+                .and_then(Value::as_u64)
+                .unwrap_or(0) as u32;
+            let is_default = stream
+                .get("disposition")
+                .and_then(|value| value.get("default"))
+                .and_then(Value::as_i64)
+                .is_some_and(|value| value != 0);
+            Some(AudioTrackInfo {
+                stream_index,
+                language,
+                title,
+                codec,
+                channels,
+                is_default,
+            })
+        })
+        .collect::<Vec<_>>();
+    Ok(tracks)
+}
+
+fn audio_track_label(ordinal: usize, track: &AudioTrackInfo) -> String {
+    let mut names = Vec::new();
+    if let Some(title) = track.title.as_deref().map(str::trim).filter(|value| !value.is_empty()) {
+        names.push(title.to_string());
+    }
+    if let Some(language) = track
+        .language
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        && !names.iter().any(|value| value.eq_ignore_ascii_case(language))
+    {
+        names.push(language.to_string());
+    }
+    if names.is_empty() {
+        names.push(track.codec.clone());
+    }
+    let channel_text = if track.channels > 0 {
+        format!("; {} ch", track.channels)
+    } else {
+        String::new()
+    };
+    format!(
+        "{}. {} ({}{})",
+        ordinal + 1,
+        names.join(" - "),
+        track.codec,
+        channel_text
+    )
+}
+
+fn choose_audio_description_track(
+    parent: &Dialog,
+    input: &Path,
+) -> Result<Option<Option<i32>>, String> {
+    let tracks = list_audio_tracks(input)?;
+    if tracks.len() <= 1 {
+        if let Some(track) = tracks.first()
+            && track.channels > 2
+        {
+            append_podcast_log(&format!(
+                "audio_description.multichannel_detected stream_index={} codec={} channels={} downmix_to_stereo=true",
+                track.stream_index, track.codec, track.channels
+            ));
+        }
+        return Ok(Some(None));
+    }
+
+    let default_selection = tracks.iter().position(|track| track.is_default).unwrap_or(0);
+    append_podcast_log(&format!(
+        "audio_description.multitrack_detected count={} default_selection={}",
+        tracks.len(), default_selection
+    ));
+
+    let selector = Dialog::builder(parent, &tr("audio_description.audio_track.title"))
+        .with_style(DialogStyle::DefaultDialogStyle)
+        .with_size(560, 190)
+        .build();
+    let panel = Panel::builder(&selector).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&tr("audio_description.audio_track.label"))
+            .build(),
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        8,
+    );
+    let choice = Choice::builder(&panel).build();
+    choice.set_accessibility_label(&tr("audio_description.audio_track.label"));
+    for (index, track) in tracks.iter().enumerate() {
+        choice.append(&audio_track_label(index, track));
+    }
+    choice.set_selection(default_selection as u32);
+    root.add(&choice, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok = Button::builder(&panel).with_id(ID_OK).with_label("OK").build();
+    let cancel = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&tr("audio_description.cancel"))
+        .build();
+    buttons.add(&ok, 0, SizerFlag::All, 8);
+    buttons.add(&cancel, 0, SizerFlag::All, 8);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    selector.set_affirmative_id(ID_OK);
+    selector.set_escape_id(ID_CANCEL);
+
+    let selected_stream = Rc::new(Cell::new(None::<i32>));
+    let selected_ok = Rc::clone(&selected_stream);
+    let tracks_ok = tracks.clone();
+    let selector_ok = selector;
+    ok.on_click(move |_| {
+        let selected_index = choice.get_selection().unwrap_or(default_selection as u32) as usize;
+        let Some(track) = tracks_ok.get(selected_index) else {
+            return;
+        };
+        append_podcast_log(&format!(
+            "audio_description.multitrack_selected stream_index={} title={:?} language={:?} codec={} channels={} default={}",
+            track.stream_index, track.title, track.language, track.codec, track.channels, track.is_default
+        ));
+        if track.channels > 2 {
+            append_podcast_log(&format!(
+                "audio_description.multichannel_detected stream_index={} codec={} channels={} downmix_to_stereo=true",
+                track.stream_index, track.codec, track.channels
+            ));
+        }
+        selected_ok.set(Some(track.stream_index));
+        selector_ok.end_modal(ID_OK);
+    });
+    let selector_cancel = selector;
+    cancel.on_click(move |_| selector_cancel.end_modal(ID_CANCEL));
+    let selector_close = selector;
+    selector.on_close(move |event| {
+        selector_close.end_modal(ID_CANCEL);
+        event.skip(false);
+    });
+    choice.set_focus();
+    selector.show_modal();
+    selector.destroy();
+
+    Ok(selected_stream.get().map(Some))
+}
+
 #[derive(Clone, Copy, Debug)]
 struct MediaProbe {
     duration_sec: f64,
@@ -906,6 +1239,7 @@ fn write_silent_source_wav(path: &Path, duration_sec: f64) -> Result<(), String>
 fn decode_source_audio(
     input: &Path,
     wav: &Path,
+    preferred_audio_stream_index: Option<i32>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<MediaProbe, String> {
     let probe = probe_media(input)?;
@@ -914,13 +1248,23 @@ fn decode_source_audio(
         write_silent_source_wav(wav, probe.duration_sec)?;
         return Ok(probe);
     }
-    let args = vec![
+    let mut args = vec![
         "-hide_banner".into(),
         "-loglevel".into(),
         "error".into(),
         "-y".into(),
+        "-fflags".into(),
+        "+discardcorrupt".into(),
+        "-err_detect".into(),
+        "ignore_err".into(),
         "-i".into(),
         input.to_string_lossy().to_string(),
+    ];
+    if let Some(stream_index) = preferred_audio_stream_index {
+        args.push("-map".into());
+        args.push(format!("0:{stream_index}"));
+    }
+    args.extend([
         "-vn".into(),
         "-ac".into(),
         MIX_CHANNELS.to_string(),
@@ -929,7 +1273,7 @@ fn decode_source_audio(
         "-c:a".into(),
         "pcm_s16le".into(),
         wav.to_string_lossy().to_string(),
-    ];
+    ]);
     run_ffmpeg(&args, cancel)?;
     let reader =
         WavReader::open(wav).map_err(|e| format!("Audio sorgente WAV non leggibile: {e}"))?;
@@ -1014,12 +1358,17 @@ fn timestamp_mux_error(error: &str) -> bool {
         || lower.contains("timestamps are unset")
         || lower.contains("error muxing a packet")
         || lower.contains("error submitting a packet to the muxer")
+        || lower.contains("invalid argument")
+        || lower.contains("invalid data found")
+        || lower.contains("corrupt")
+        || lower.contains("invalid packet")
 }
 
 fn segment_video_for_gemini_transcoded(
     input: &Path,
     dir: &Path,
     segment_seconds: f64,
+    preferred_audio_stream_index: Option<i32>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<PathBuf>, String> {
     let extension = "mkv";
@@ -1035,12 +1384,16 @@ fn segment_video_for_gemini_transcoded(
         "-y".into(),
         "-fflags".into(),
         "+genpts+discardcorrupt".into(),
+        "-err_detect".into(),
+        "ignore_err".into(),
         "-i".into(),
         input.to_string_lossy().to_string(),
         "-map".into(),
         "0:v:0".into(),
         "-map".into(),
-        "0:a?".into(),
+        preferred_audio_stream_index
+            .map(|stream_index| format!("0:{stream_index}?"))
+            .unwrap_or_else(|| "0:a?".to_string()),
         "-sn".into(),
         "-dn".into(),
         "-c:v".into(),
@@ -1075,6 +1428,7 @@ fn segment_video_for_gemini(
     input: &Path,
     dir: &Path,
     segment_seconds: f64,
+    preferred_audio_stream_index: Option<i32>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<PathBuf>, String> {
     let extension = "mkv";
@@ -1094,12 +1448,16 @@ fn segment_video_for_gemini(
         "-y".into(),
         "-fflags".into(),
         "+genpts+discardcorrupt".into(),
+        "-err_detect".into(),
+        "ignore_err".into(),
         "-i".into(),
         input.to_string_lossy().to_string(),
         "-map".into(),
         "0:v:0".into(),
         "-map".into(),
-        "0:a?".into(),
+        preferred_audio_stream_index
+            .map(|stream_index| format!("0:{stream_index}?"))
+            .unwrap_or_else(|| "0:a?".to_string()),
         "-sn".into(),
         "-dn".into(),
         "-c".into(),
@@ -1128,7 +1486,14 @@ fn segment_video_for_gemini(
                 segment_seconds,
                 error.replace('\n', " ")
             ));
-            segment_video_for_gemini_transcoded(input, dir, segment_seconds, cancel).map_err(
+            segment_video_for_gemini_transcoded(
+                input,
+                dir,
+                segment_seconds,
+                preferred_audio_stream_index,
+                cancel,
+            )
+            .map_err(
                 |fallback_error| {
                     format!(
                         "FFmpeg non è riuscito a normalizzare i timestamp del video. Primo tentativo: {error}\nFallback: {fallback_error}"
@@ -1144,6 +1509,7 @@ fn prepare_chunks(
     input: &Path,
     duration: f64,
     dir: &Path,
+    preferred_audio_stream_index: Option<i32>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Vec<AudioDescriptionPreparedChunk>, String> {
     let input_size = fs::metadata(input)
@@ -1163,7 +1529,10 @@ fn prepare_chunks(
             duration
         ));
     }
-    if duration <= CHUNK_SECONDS && input_size <= GEMINI_INLINE_TARGET_CHUNK_BYTES {
+    if preferred_audio_stream_index.is_none()
+        && duration <= CHUNK_SECONDS
+        && input_size <= GEMINI_INLINE_TARGET_CHUNK_BYTES
+    {
         return Ok(vec![AudioDescriptionPreparedChunk {
             path: input.to_string_lossy().to_string(),
             start_sec: 0.0,
@@ -1206,7 +1575,13 @@ fn prepare_chunks(
             return Err("cancelled".to_string());
         }
         attempt += 1;
-        let paths = segment_video_for_gemini(input, dir, segment_seconds, cancel)?;
+        let paths = segment_video_for_gemini(
+            input,
+            dir,
+            segment_seconds,
+            preferred_audio_stream_index,
+            cancel,
+        )?;
         let max_size = paths
             .iter()
             .filter_map(|path| fs::metadata(path).ok().map(|metadata| metadata.len()))
@@ -2130,6 +2505,7 @@ fn save_partial_checkpoint(
         rate: job.rate,
         pitch: job.pitch,
         volume: job.volume,
+        audio_stream_index: job.audio_stream_index,
         gemini_model: if checkpoint.gemini_model.trim().is_empty() {
             job.gemini_model.clone()
         } else {
@@ -2190,6 +2566,7 @@ fn job_from_checkpoint(
         rate: checkpoint.rate,
         pitch: checkpoint.pitch,
         volume: checkpoint.volume,
+        audio_stream_index: checkpoint.audio_stream_index,
         gemini_api_key,
         gemini_model,
         resume_checkpoint_path: Some(path.to_path_buf()),
@@ -2256,6 +2633,7 @@ fn build_project(
         updated_at_utc: now_utc(),
         source_path: job.input_path.clone(),
         output_mp3_path: job.output_path.clone(),
+        audio_stream_index: job.audio_stream_index,
         source_duration_sec: analysis.duration_sec,
         output_duration_sec: output_duration,
         language: job.language_code.clone(),
@@ -2501,7 +2879,12 @@ fn create_audio_description(
             s.status = tr("audio_description.progress.analysis_prepare");
         }
         let source_wav = work.join("source.wav");
-        let probe = decode_source_audio(&job.input_path, &source_wav, &cancel)?;
+        let probe = decode_source_audio(
+            &job.input_path,
+            &source_wav,
+            job.audio_stream_index,
+            &cancel,
+        )?;
         let duration = probe.duration_sec;
         let pyannote = work.join("pyannote.wav");
         let audio_wav_path = if probe.has_audio {
@@ -2515,7 +2898,13 @@ fn create_audio_description(
             s.progress = 7;
             s.status = tr("audio_description.progress.chunk_prepare");
         }
-        let chunks = prepare_chunks(&job.input_path, duration, &work, &cancel)?;
+        let chunks = prepare_chunks(
+            &job.input_path,
+            duration,
+            &work,
+            job.audio_stream_index,
+            &cancel,
+        )?;
         let resume = if job.resume_checkpoint_path.is_some() {
             match load_partial_checkpoint(&checkpoint_path) {
                 Ok(checkpoint)
@@ -4304,6 +4693,21 @@ fn open_create_dialog_impl(
         }
         let input_path = PathBuf::from(input.get_value());
         let output_path = PathBuf::from(output.get_value());
+        let audio_stream_index = match choose_audio_description_track(&d, &input_path) {
+            Ok(Some(stream_index)) => stream_index,
+            Ok(None) => {
+                append_podcast_log(
+                    "audio_description.multitrack_selection_cancelled closing_creation_window",
+                );
+                d.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
+                return;
+            }
+            Err(error) => {
+                show_error(&d, &error);
+                input.set_focus();
+                return;
+            }
+        };
         let lang_idx = language.get_selection().unwrap_or(0) as usize;
         let language_code = langs.get(lang_idx).map(|x| x.1).unwrap_or("it").to_string();
         let verbosity_value = match verbosity.get_selection().unwrap_or(2) {
@@ -4358,6 +4762,7 @@ fn open_create_dialog_impl(
             rate: saved_start.rate,
             pitch: saved_start.pitch,
             volume: saved_start.volume,
+            audio_stream_index,
             gemini_api_key: api.get_value(),
             gemini_model: model_value.clone(),
             resume_checkpoint_path: None,
@@ -4560,7 +4965,12 @@ fn change_project_voice(
         )?;
 
         let source = work.join("source.wav");
-        let source_duration = decode_source_audio(&project.source_path, &source, &cancel)?.duration_sec;
+        let source_duration = decode_source_audio(
+            &project.source_path,
+            &source,
+            project.audio_stream_index,
+            &cancel,
+        )?.duration_sec;
         state.lock().unwrap().progress = 80;
 
         let protected = project
@@ -4912,7 +5322,12 @@ fn rebuild_project(
     let work = cache_dir("project")?;
     let result = (|| {
         let source = work.join("source.wav");
-        let duration = decode_source_audio(&project.source_path, &source, &cancel)?.duration_sec;
+        let duration = decode_source_audio(
+            &project.source_path,
+            &source,
+            project.audio_stream_index,
+            &cancel,
+        )?.duration_sec;
         let synthesis_tasks = project
             .descriptions
             .iter()

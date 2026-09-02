@@ -338,6 +338,8 @@
   "youtube_favorites_label": "Favorites",
   "youtube_format_label": "Format",
   "youtube_quality_label": "Quality",
+  "youtube_quality_best": "Best",
+  "youtube_quality_standard": "Standard",
   "youtube_open_channel": "Open channel",
   "youtube_open_video": "Open video",
   "youtube_save": "Save",

@@ -1,5 +1,46 @@
 Seznam změn
 
+Verze 0.4.0 - 2. září 2026
+
+Audiopopis s AI — nová hlavní funkce
+
+- Do nabídky Nástroje byla přímo přidána funkce „Vytvořit audiopopis s AI“. Sonarpad analyzuje zvuk, vyhledá místa bez dialogů, vytvoří popisy pomocí Gemini a použije již dostupné hlasové moduly, aniž by mluvil přes dialogy.
+
+- Byla zlepšena synchronizace mezi děním ve videu a popisy a časy vytvořené Gemini jsou automaticky kontrolovány.
+
+- „Povolit rozšířené pauzy“ je ve výchozím nastavení vypnuto. Lze je zapnout u obsahu s mnoha dialogy nebo malým volným prostorem, aby bylo možné vložit delší popisy.
+
+- Sonarpad se může pokusit rozpoznat postavy a používat jejich jména. Katalogy postav lze zachovat mezi epizodami seriálu pro lepší kontinuitu.
+
+- Projekt lze uložit, později upravit popisy a znovu exportovat bez nutnosti vše znovu generovat pomocí Gemini.
+
+- Pokud je proces přerušen, Sonarpad zachová průběh a umožní v audiopopisu pokračovat. Při vyčerpání kvóty Gemini lze čekat, změnit model nebo práci ukončit bez ztráty již dokončené části.
+
+- V okně lze zvolit jazyk, úroveň podrobnosti, model Gemini, hlasový modul a hlas a použité nastavení se pamatuje. Modul je dostupný v jazycích podporovaných Sonarpadem pro Mac.
+
+- Během generování rozhraní zobrazuje průběh, aktuální stav a Zrušit; po dokončení lze MP3 otevřít přímo v interním přehrávači.
+
+- Zlepšena kompatibilita s videi MKV: Sonarpad spolehlivěji zpracovává nepravidelné nebo chybějící časové značky a, pokud je to možné, přeskočí poškozené pakety bez přerušení audiopopisu.
+
+- Opraven problém, který mohl způsobit selhání závěrečného exportu do MP3 u videí s vícekanálovým zvukem, například Dolby 5.1. Sonarpad nyní automaticky převádí vícekanálový zvuk na stereo, pokud je to nutné pro kódování MP3.
+
+- Pokud video obsahuje více zvukových stop, Sonarpad se před zpracováním zeptá, kterou stopu použít. Přístupný rozbalovací seznam lze měnit šipkami; OK spustí audiopopis s vybranou stopou, zatímco Zrušit zavře okno a vrátí fokus do editoru Sonarpadu.
+
+YouTube a streamování
+
+- Výrazně vylepšeno používání YouTube: vyhledávání a navigace jsou rychlejší a bylo obnoveno správné fungování.
+
+- Volby kvality videa jsou nyní přeložené: místo technické hodnoty „best“ Sonarpad zobrazuje srozumitelný popisek v jazyce rozhraní.
+
+- Sonarpad si pamatuje poslední formát zvolený v Uložit médium. Pokud je například zvoleno MP4, při příštím otevření dialogu zůstane MP4 předvybráno.
+
+
+Poděkování
+
+- Velké poděkování patří Leonardu Grazianovi a Tizianu Ferrarovi, kteří důkladně testovali funkci Audiopopisu s AI i Sonarpad obecně a významně přispěli k jeho zlepšování.
+
+- Velké poděkování také skupině Tecnologia Accessibile za podporu, testování a podněty.
+
 Verze 0.3.1 - 16. července 2026
 
 - Byl opraven problém, který bránil spuštění Sonarpadu, pokud nabídka Rádio obsahovala oblíbené stanice, kvůli neplatným identifikátorům nabídek wxWidgets.

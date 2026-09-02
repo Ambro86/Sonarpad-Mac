@@ -398,6 +398,8 @@ struct Settings {
     last_audiobook_save_dir: String,
     #[serde(default = "default_text_save_format")]
     last_text_save_format: String,
+    #[serde(default = "default_youtube_save_format")]
+    last_youtube_save_format: String,
     #[serde(default)]
     last_text_save_dir: String,
     #[serde(default)]
@@ -495,6 +497,7 @@ impl Settings {
             last_audiobook_format: default_audiobook_format(),
             last_audiobook_save_dir: String::new(),
             last_text_save_format: default_text_save_format(),
+            last_youtube_save_format: default_youtube_save_format(),
             last_text_save_dir: String::new(),
             recent_text_files: Vec::new(),
             bdciechi_username: String::new(),
@@ -668,6 +671,10 @@ fn default_audiobook_format() -> String {
 
 fn default_text_save_format() -> String {
     "txt".to_string()
+}
+
+fn default_youtube_save_format() -> String {
+    "mp3".to_string()
 }
 
 fn default_auto_check_updates() -> bool {
@@ -945,6 +952,8 @@ struct UiStrings {
     youtube_favorites_label: String,
     youtube_format_label: String,
     youtube_quality_label: String,
+    youtube_quality_best: String,
+    youtube_quality_standard: String,
     youtube_open_channel: String,
     youtube_open_video: String,
     youtube_save: String,
@@ -9009,6 +9018,13 @@ fn synthesize_voice_chunk_blocking(
 }
 
 fn normalize_settings_data(settings: &mut Settings) {
+    settings.last_youtube_save_format = settings
+        .last_youtube_save_format
+        .trim()
+        .to_ascii_lowercase();
+    if !YOUTUBE_SAVE_FORMATS.contains(&settings.last_youtube_save_format.as_str()) {
+        settings.last_youtube_save_format = default_youtube_save_format();
+    }
     settings.voice_engine = normalized_voice_engine(&settings.voice_engine);
     settings.transcription_audio_language = settings
         .transcription_audio_language
@@ -19507,7 +19523,12 @@ fn open_youtube_results_dialog(
     for format in YOUTUBE_SAVE_FORMATS {
         format_choice.append(&format.to_ascii_uppercase());
     }
-    format_choice.set_selection(0);
+    let saved_format = settings.lock().unwrap().last_youtube_save_format.clone();
+    let saved_format_index = YOUTUBE_SAVE_FORMATS
+        .iter()
+        .position(|format| format.eq_ignore_ascii_case(saved_format.trim()))
+        .unwrap_or(0);
+    format_choice.set_selection(saved_format_index as u32);
     options.add(&format_choice, 0, SizerFlag::All, 5);
     options.add(
         &StaticText::builder(&panel)
@@ -19518,8 +19539,8 @@ fn open_youtube_results_dialog(
         5,
     );
     let quality_choice = Choice::builder(&panel).build();
-    quality_choice.append("best");
-    quality_choice.append("standard");
+    quality_choice.append(&ui.youtube_quality_best);
+    quality_choice.append(&ui.youtube_quality_standard);
     quality_choice.set_selection(0);
     options.add(&quality_choice, 0, SizerFlag::All, 5);
     root.add_sizer(&options, 0, SizerFlag::Expand, 0);
@@ -19854,6 +19875,7 @@ fn open_youtube_results_dialog(
     let quality_choice_save = quality_choice;
     let dialog_save = dialog;
     let youtube_pending_save_click = Arc::clone(&youtube_pending_save);
+    let settings_save = Arc::clone(settings);
     let youtube_busy_save = Arc::clone(&youtube_busy);
     let youtube_save_progress_click = Rc::clone(&youtube_save_progress);
     save_button.on_click(move |_| {
@@ -19886,6 +19908,13 @@ fn open_youtube_results_dialog(
                     return;
                 }
             };
+            {
+                let mut locked = settings_save.lock().unwrap();
+                if locked.last_youtube_save_format != format {
+                    locked.last_youtube_save_format = format.to_string();
+                    locked.save();
+                }
+            }
             let url = result.url.clone();
             let format = format.to_string();
             let quality = quality.to_string();

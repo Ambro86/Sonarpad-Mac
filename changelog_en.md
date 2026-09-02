@@ -1,5 +1,46 @@
 Changelog
 
+Version 0.4.0 - September 2, 2026
+
+AI Audio Description — major new feature
+
+- Added “Create AI Audio Description” directly to the Tools menu. Sonarpad analyzes the audio to find spaces without dialogue, generates descriptions with Gemini, and uses the speech engines already available in Sonarpad while avoiding spoken dialogue.
+
+- Improved synchronization between what happens in the video and the generated descriptions, with automatic checks on Gemini timestamps.
+
+- “Enable extended pauses” is disabled by default. It can be enabled for content with heavy dialogue or little available space so longer descriptions can still be inserted.
+
+- Sonarpad can try to recognize characters and use their names. Character catalogs can be kept across episodes of a series to improve continuity.
+
+- Projects can be saved, edited later, and exported again without generating everything again with Gemini.
+
+- If the process is interrupted, Sonarpad keeps its progress and can continue the audio description. If the Gemini quota is exhausted, you can wait, switch model, or stop without losing completed work.
+
+- The window lets you choose language, detail level, Gemini model, speech engine, and voice, and remembers the selected preferences. The module is available in the languages supported by Sonarpad for Mac.
+
+- During generation the interface shows progress, current status, and Cancel; when finished, the MP3 can be opened directly in the internal player.
+
+- Improved compatibility with MKV videos: Sonarpad handles irregular or missing timestamps more reliably and, when possible, skips corrupted packets without stopping the audio-description process.
+
+- Fixed an issue that could cause final MP3 export to fail with videos containing multichannel audio such as Dolby 5.1. Sonarpad now automatically downmixes multichannel audio to stereo when required for MP3 encoding.
+
+- When a video contains multiple audio tracks, Sonarpad asks which track to use before processing. The accessible combo box can be changed with the arrow keys; OK starts the audio description with the selected track, while Cancel closes the window and returns focus to the Sonarpad editor.
+
+YouTube and streaming
+
+- Significantly improved the YouTube experience by speeding up search and navigation and restoring proper operation.
+
+- Video quality options are now localized: instead of the technical value “best”, Sonarpad shows a clear label in the interface language.
+
+- Sonarpad remembers the last format selected in Save media. For example, if MP4 is selected, MP4 remains preselected the next time the dialog is opened.
+
+
+Acknowledgements
+
+- Special thanks to Leonardo Graziano and Tiziano Ferraro, who thoroughly tested AI Audio Description and Sonarpad in general, making a valuable contribution to its improvement.
+
+- Special thanks also to the Tecnologia Accessibile group for its support, testing, and suggestions.
+
 Version 0.3.1 - July 16, 2026
 
 - Fixed an issue that prevented Sonarpad from starting when the Radio menu contained favorites, due to invalid wxWidgets menu identifiers.

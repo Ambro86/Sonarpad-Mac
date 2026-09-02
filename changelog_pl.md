@@ -1,5 +1,46 @@
 Lista zmian
 
+Wersja 0.4.0 - 2 września 2026
+
+Audiodeskrypcja z AI — nowa główna funkcja
+
+- Bezpośrednio do menu Narzędzia dodano „Utwórz audiodeskrypcję z AI”. Sonarpad analizuje dźwięk, wyszukuje miejsca bez dialogów, generuje opisy za pomocą Gemini i używa dostępnych już silników mowy, nie mówiąc ponad dialogami.
+
+- Ulepszono synchronizację między tym, co dzieje się w filmie, a opisami oraz dodano automatyczne sprawdzanie czasów generowanych przez Gemini.
+
+- „Włącz rozszerzone pauzy” jest domyślnie wyłączone. Opcję można włączyć w materiałach z dużą liczbą dialogów lub niewielką ilością wolnego miejsca, aby umożliwić wstawianie dłuższych opisów.
+
+- Sonarpad może próbować rozpoznawać postacie i używać ich imion. Katalogi postaci można zachowywać między odcinkami serialu, aby poprawić ciągłość.
+
+- Projekt można zapisać, później poprawić opisy i ponownie wyeksportować bez ponownego generowania wszystkiego przez Gemini.
+
+- Jeśli proces zostanie przerwany, Sonarpad zachowuje postęp i pozwala kontynuować audiodeskrypcję. Po wyczerpaniu limitu Gemini można poczekać, zmienić model lub przerwać bez utraty ukończonej pracy.
+
+- Okno pozwala wybrać język, poziom szczegółowości, model Gemini, silnik mowy i głos oraz zapamiętuje używane ustawienia. Moduł jest dostępny w językach obsługiwanych przez Sonarpad dla Mac.
+
+- Podczas generowania interfejs pokazuje postęp, bieżący stan i Anuluj; po zakończeniu MP3 można otworzyć bezpośrednio w wewnętrznym odtwarzaczu.
+
+- Ulepszono zgodność z filmami MKV: Sonarpad lepiej obsługuje nieregularne lub brakujące znaczniki czasu i, gdy to możliwe, pomija uszkodzone pakiety bez przerywania audiodeskrypcji.
+
+- Naprawiono problem, który mógł powodować błąd końcowego eksportu do MP3 w filmach z dźwiękiem wielokanałowym, na przykład Dolby 5.1. Sonarpad automatycznie miksuje teraz dźwięk wielokanałowy do stereo, gdy jest to potrzebne do kodowania MP3.
+
+- Gdy film zawiera wiele ścieżek audio, Sonarpad przed rozpoczęciem pyta, której ścieżki użyć. Dostępne pole kombi można zmieniać strzałkami; OK uruchamia audiodeskrypcję z wybraną ścieżką, a Anuluj zamyka okno i przywraca fokus do edytora Sonarpad.
+
+YouTube i strumieniowanie
+
+- Znacznie poprawiono korzystanie z YouTube: przyspieszono wyszukiwanie i nawigację oraz przywrócono prawidłowe działanie.
+
+- Opcje jakości wideo są teraz przetłumaczone: zamiast technicznej wartości „best” Sonarpad pokazuje czytelną etykietę w języku interfejsu.
+
+- Sonarpad zapamiętuje ostatni format wybrany w Zapisz multimedia. Na przykład po wybraniu MP4, MP4 pozostaje wstępnie wybrane przy kolejnym otwarciu okna.
+
+
+Podziękowania
+
+- Wielkie podziękowania dla Leonardo Graziano i Tiziano Ferraro, którzy dokładnie przetestowali funkcję Audiodeskrypcji z AI oraz Sonarpad jako całość, wnosząc cenny wkład w jego ulepszanie.
+
+- Wielkie podziękowania również dla grupy Tecnologia Accessibile za wsparcie, testy i sugestie.
+
 Wersja 0.3.1 - 16 lipca 2026
 
 - Naprawiono problem uniemożliwiający uruchomienie Sonarpada, gdy menu Radio zawierało ulubione stacje, spowodowany nieprawidłowymi identyfikatorami menu wxWidgets.

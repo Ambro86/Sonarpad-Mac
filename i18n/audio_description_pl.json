@@ -1,6 +1,8 @@
 {
   "audio_description.browse": "Przeglądaj...",
   "audio_description.cancel": "Anuluj",
+  "audio_description.audio_track.title": "Wybierz ścieżkę audio",
+  "audio_description.audio_track.label": "Ścieżka audio:",
   "audio_description.close": "Zamknij",
   "audio_description.engine": "Silnik syntezy mowy:",
   "audio_description.error.api_key": "Wprowadź klucz API Gemini.",

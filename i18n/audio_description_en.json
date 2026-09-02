@@ -1,6 +1,8 @@
 {
   "audio_description.browse": "Browse...",
   "audio_description.cancel": "Cancel",
+  "audio_description.audio_track.title": "Choose audio track",
+  "audio_description.audio_track.label": "Audio track:",
   "audio_description.close": "Close",
   "audio_description.engine": "Speech synthesis engine:",
   "audio_description.error.api_key": "Enter a Gemini API key.",

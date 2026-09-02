@@ -56,6 +56,35 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('let extension = "mkv";', AUDIO)
         self.assertIn("GEMINI_MAX_CHUNK_BYTES", AUDIO)
 
+    def test_multitrack_audio_is_selected_and_persisted_across_resume_and_project_export(self):
+        self.assertIn("fn list_audio_tracks", AUDIO)
+        self.assertIn("fn choose_audio_description_track", AUDIO)
+        self.assertIn("audio_description.multitrack_detected", AUDIO)
+        self.assertIn("audio_description.multitrack_selected", AUDIO)
+        self.assertIn("audio_stream_index: Option<i32>", AUDIO)
+        self.assertIn("project.audio_stream_index", AUDIO)
+        self.assertIn("checkpoint.audio_stream_index", AUDIO)
+        self.assertIn('format!("0:{stream_index}")', AUDIO)
+        self.assertIn('format!("0:{stream_index}?")', AUDIO)
+        self.assertIn("preferred_audio_stream_index.is_none()", AUDIO)
+
+    def test_multichannel_audio_is_downmixed_to_stereo_before_mp3_export(self):
+        decode_start = AUDIO.index("fn decode_source_audio(")
+        decode_end = AUDIO.index("fn create_pyannote_wav", decode_start)
+        decode = AUDIO[decode_start:decode_end]
+        self.assertIn('"-ac".into()', decode)
+        self.assertIn("MIX_CHANNELS.to_string()", decode)
+        self.assertIn("audio_description.multichannel_detected", AUDIO)
+        self.assertIn("downmix_to_stereo=true", AUDIO)
+
+    def test_mkv_analysis_tolerates_corrupt_packets_and_recovers_bad_mux_timestamps(self):
+        self.assertGreaterEqual(AUDIO.count('"+genpts+discardcorrupt".into()'), 2)
+        self.assertGreaterEqual(AUDIO.count('"ignore_err".into()'), 3)
+        self.assertIn('lower.contains("invalid argument")', AUDIO)
+        self.assertIn('lower.contains("invalid data found")', AUDIO)
+        self.assertIn('lower.contains("corrupt")', AUDIO)
+        self.assertIn("segment_video_for_gemini_transcoded", AUDIO)
+
     def test_high_bitrate_movies_are_adaptively_split_for_inline_gemini_delivery(self):
         self.assertIn("GEMINI_INLINE_TARGET_CHUNK_BYTES", AUDIO)
         self.assertIn("GEMINI_SEGMENT_RETRY_LIMIT", AUDIO)

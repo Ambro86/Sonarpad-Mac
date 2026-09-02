@@ -81,6 +81,38 @@ class MacYoutubeSaveFormatsTests(unittest.TestCase):
             ):
                 self.assertIn(runtime_check, workflow)
 
+    def test_quality_labels_are_localized_in_all_supported_ui_languages(self):
+        import json
+
+        expected = {
+            "it": ("Migliore", "Standard"),
+            "en": ("Best", "Standard"),
+            "fr": ("Meilleure", "Standard"),
+            "es": ("Mejor", "Estándar"),
+            "pt": ("Melhor", "Padrão"),
+            "cs": ("Nejlepší", "Standardní"),
+            "pl": ("Najlepsza", "Standardowa"),
+        }
+        for language, labels in expected.items():
+            data = json.loads((ROOT / "i18n" / f"ui_{language}.json").read_text(encoding="utf-8"))
+            self.assertEqual(data["youtube_quality_best"], labels[0])
+            self.assertEqual(data["youtube_quality_standard"], labels[1])
+        dialog = block("fn open_youtube_results_dialog", "struct NewCalendarReminder")
+        self.assertIn("quality_choice.append(&ui.youtube_quality_best)", dialog)
+        self.assertIn("quality_choice.append(&ui.youtube_quality_standard)", dialog)
+
+    def test_last_youtube_save_format_is_persistent_and_preselected(self):
+        self.assertIn('''#[serde(default = "default_youtube_save_format")]
+    last_youtube_save_format: String,''', MAIN)
+        self.assertIn('''fn default_youtube_save_format() -> String {
+    "mp3".to_string()
+}''', MAIN)
+        dialog = block("fn open_youtube_results_dialog", "struct NewCalendarReminder")
+        self.assertIn("last_youtube_save_format.clone()", dialog)
+        self.assertIn("format_choice.set_selection(saved_format_index as u32)", dialog)
+        self.assertIn("locked.last_youtube_save_format = format.to_string()", dialog)
+        self.assertIn("locked.save()", dialog)
+
 
 if __name__ == "__main__":
     unittest.main()
