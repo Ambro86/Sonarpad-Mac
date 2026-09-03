@@ -1162,14 +1162,168 @@ jobs:
             hdiutil detach "${MOUNT_DIR}" -force -quiet
           fi
 
-      - name: Upload DMG artifact
+      - name: Upload DMG artifact (attempt 1/6)
+        id: upload_dmg_artifact_attempt_1
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: sonarpad-macos-dmg-intel-catalina
           path: dist/Sonarpad-macOS-Intel-Catalina.dmg
+          overwrite: true
 
-      - name: Upload ZIP artifact
+      - name: Wait before DMG upload retry 2
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure'
+        shell: bash
+        run: sleep 10
+
+      - name: Upload DMG artifact (attempt 2/6)
+        id: upload_dmg_artifact_attempt_2
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-dmg-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.dmg
+          overwrite: true
+
+      - name: Wait before DMG upload retry 3
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure'
+        shell: bash
+        run: sleep 20
+
+      - name: Upload DMG artifact (attempt 3/6)
+        id: upload_dmg_artifact_attempt_3
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-dmg-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.dmg
+          overwrite: true
+
+      - name: Wait before DMG upload retry 4
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure' && steps.upload_dmg_artifact_attempt_3.outcome == 'failure'
+        shell: bash
+        run: sleep 30
+
+      - name: Upload DMG artifact (attempt 4/6)
+        id: upload_dmg_artifact_attempt_4
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure' && steps.upload_dmg_artifact_attempt_3.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-dmg-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.dmg
+          overwrite: true
+
+      - name: Wait before DMG upload retry 5
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure' && steps.upload_dmg_artifact_attempt_3.outcome == 'failure' && steps.upload_dmg_artifact_attempt_4.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+
+      - name: Upload DMG artifact (attempt 5/6)
+        id: upload_dmg_artifact_attempt_5
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure' && steps.upload_dmg_artifact_attempt_3.outcome == 'failure' && steps.upload_dmg_artifact_attempt_4.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-dmg-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.dmg
+          overwrite: true
+
+      - name: Wait before DMG upload retry 6
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure' && steps.upload_dmg_artifact_attempt_3.outcome == 'failure' && steps.upload_dmg_artifact_attempt_4.outcome == 'failure' && steps.upload_dmg_artifact_attempt_5.outcome == 'failure'
+        shell: bash
+        run: sleep 60
+
+      - name: Upload DMG artifact (attempt 6/6)
+        id: upload_dmg_artifact_attempt_6
+        if: steps.upload_dmg_artifact_attempt_1.outcome == 'failure' && steps.upload_dmg_artifact_attempt_2.outcome == 'failure' && steps.upload_dmg_artifact_attempt_3.outcome == 'failure' && steps.upload_dmg_artifact_attempt_4.outcome == 'failure' && steps.upload_dmg_artifact_attempt_5.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-dmg-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.dmg
+          overwrite: true
+
+      - name: Upload ZIP artifact (attempt 1/6)
+        id: upload_zip_artifact_attempt_1
+        continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: sonarpad-macos-zip-intel-catalina
           path: dist/Sonarpad-macOS-Intel-Catalina.zip
+          overwrite: true
+
+      - name: Wait before ZIP upload retry 2
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure'
+        shell: bash
+        run: sleep 10
+
+      - name: Upload ZIP artifact (attempt 2/6)
+        id: upload_zip_artifact_attempt_2
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-zip-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.zip
+          overwrite: true
+
+      - name: Wait before ZIP upload retry 3
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure'
+        shell: bash
+        run: sleep 20
+
+      - name: Upload ZIP artifact (attempt 3/6)
+        id: upload_zip_artifact_attempt_3
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-zip-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.zip
+          overwrite: true
+
+      - name: Wait before ZIP upload retry 4
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure' && steps.upload_zip_artifact_attempt_3.outcome == 'failure'
+        shell: bash
+        run: sleep 30
+
+      - name: Upload ZIP artifact (attempt 4/6)
+        id: upload_zip_artifact_attempt_4
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure' && steps.upload_zip_artifact_attempt_3.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-zip-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.zip
+          overwrite: true
+
+      - name: Wait before ZIP upload retry 5
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure' && steps.upload_zip_artifact_attempt_3.outcome == 'failure' && steps.upload_zip_artifact_attempt_4.outcome == 'failure'
+        shell: bash
+        run: sleep 45
+
+      - name: Upload ZIP artifact (attempt 5/6)
+        id: upload_zip_artifact_attempt_5
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure' && steps.upload_zip_artifact_attempt_3.outcome == 'failure' && steps.upload_zip_artifact_attempt_4.outcome == 'failure'
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-zip-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.zip
+          overwrite: true
+
+      - name: Wait before ZIP upload retry 6
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure' && steps.upload_zip_artifact_attempt_3.outcome == 'failure' && steps.upload_zip_artifact_attempt_4.outcome == 'failure' && steps.upload_zip_artifact_attempt_5.outcome == 'failure'
+        shell: bash
+        run: sleep 60
+
+      - name: Upload ZIP artifact (attempt 6/6)
+        id: upload_zip_artifact_attempt_6
+        if: steps.upload_zip_artifact_attempt_1.outcome == 'failure' && steps.upload_zip_artifact_attempt_2.outcome == 'failure' && steps.upload_zip_artifact_attempt_3.outcome == 'failure' && steps.upload_zip_artifact_attempt_4.outcome == 'failure' && steps.upload_zip_artifact_attempt_5.outcome == 'failure'
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarpad-macos-zip-intel-catalina
+          path: dist/Sonarpad-macOS-Intel-Catalina.zip
+          overwrite: true
