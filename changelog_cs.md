@@ -1,6 +1,6 @@
 Seznam změn
 
-Verze 0.4.0 - 2. září 2026
+Verze 0.4.0 - 3. září 2026
 
 Audiopopis s AI — nová hlavní funkce
 
@@ -25,6 +25,8 @@ Audiopopis s AI — nová hlavní funkce
 - Opraven problém, který mohl způsobit selhání závěrečného exportu do MP3 u videí s vícekanálovým zvukem, například Dolby 5.1. Sonarpad nyní automaticky převádí vícekanálový zvuk na stereo, pokud je to nutné pro kódování MP3.
 
 - Pokud video obsahuje více zvukových stop, Sonarpad se před zpracováním zeptá, kterou stopu použít. Přístupný rozbalovací seznam lze měnit šipkami; OK spustí audiopopis s vybranou stopou, zatímco Zrušit zavře okno a vrátí fokus do editoru Sonarpadu.
+
+- Vedle klíče Gemini bylo přidáno zaškrtávací políčko „Zobrazit klíč API“. Klíč je ve výchozím nastavení skrytý a zobrazí se pouze dočasně po zapnutí této volby; po opětovném otevření okna je znovu skrytý.
 
 YouTube a streamování
 

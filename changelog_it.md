@@ -1,6 +1,6 @@
 Changelog
 
-Versione 0.4.0 - 2 settembre 2026
+Versione 0.4.0 - 3 settembre 2026
 
 Audiodescrizione con IA — nuova funzione principale
 
@@ -25,6 +25,8 @@ Audiodescrizione con IA — nuova funzione principale
 - Corretto un problema che poteva far fallire l’esportazione finale in MP3 con video contenenti audio multicanale, ad esempio Dolby 5.1. Sonarpad converte automaticamente l’audio multicanale in stereo quando necessario per la codifica MP3.
 
 - Quando il video contiene più tracce audio, prima di iniziare Sonarpad chiede quale traccia utilizzare. La casella combinata accessibile si può cambiare con le frecce; OK avvia l’audiodescrizione con la traccia scelta, mentre Annulla chiude la finestra e riporta il focus all’editor di Sonarpad.
+
+- Aggiunta la casella “Mostra chiave API” accanto alla chiave Gemini. La chiave resta nascosta per impostazione predefinita e viene mostrata solo temporaneamente quando la casella è attiva; riaprendo la finestra torna sempre nascosta.
 
 Audiodescrizioni e contenuti online
 

@@ -4279,8 +4279,17 @@ fn open_create_dialog_impl(
     let api_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.gemini_api_key"))
         .build();
-    let api = TextCtrl::builder(&p).build();
+    let api = TextCtrl::builder(&p)
+        .with_style(TextCtrlStyle::Password)
+        .build();
     api.set_value(&saved.audio_description_gemini_api_key);
+    let api_visible = TextCtrl::builder(&p).build();
+    api_visible.set_value(&saved.audio_description_gemini_api_key);
+    api_visible.show(false);
+    let show_api_key = CheckBox::builder(&p)
+        .with_label(&tr("audio_description.gemini_show_api_key"))
+        .build();
+    show_api_key.set_value(false);
     let api_get = Button::builder(&p)
         .with_label(&tr("audio_description.gemini_get_key"))
         .build();
@@ -4292,8 +4301,23 @@ fn open_create_dialog_impl(
         5,
     );
     api_row.add(&api, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    api_row.add(&api_visible, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    api_row.add(
+        &show_api_key,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
     api_row.add(&api_get, 0, SizerFlag::All, 5);
     root.add_sizer(&api_row, 0, SizerFlag::Expand, 0);
+
+    let api_value: Rc<dyn Fn() -> String> = Rc::new(move || {
+        if show_api_key.get_value() {
+            api_visible.get_value()
+        } else {
+            api.get_value()
+        }
+    });
     let model_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.gemini_model"))
         .build();
@@ -4544,6 +4568,23 @@ fn open_create_dialog_impl(
         panel_recognize.layout();
         dialog_recognize.layout();
     });
+    let api_password_toggle = api;
+    let api_visible_toggle = api_visible;
+    let api_panel_toggle = p;
+    let api_dialog_toggle = d;
+    show_api_key.on_toggled(move |_| {
+        if show_api_key.get_value() {
+            api_visible_toggle.set_value(&api_password_toggle.get_value());
+            api_password_toggle.show(false);
+            api_visible_toggle.show(true);
+        } else {
+            api_password_toggle.set_value(&api_visible_toggle.get_value());
+            api_visible_toggle.show(false);
+            api_password_toggle.show(true);
+        }
+        api_panel_toggle.layout();
+        api_dialog_toggle.layout();
+    });
     let d_api = d;
     api_get.on_click(move |_| {
         if let Err(e) = crate::open_url_in_browser("https://aistudio.google.com/app/apikey") {
@@ -4551,7 +4592,8 @@ fn open_create_dialog_impl(
         }
     });
     let d_refresh = d;
-    refresh.on_click(move |_| match fetch_gemini_models(&api.get_value()) {
+    let api_value_refresh = Rc::clone(&api_value);
+    refresh.on_click(move |_| match fetch_gemini_models(&api_value_refresh()) {
         Ok(models) => {
             let selected = model.get_string_selection().unwrap_or_default();
             model.clear();
@@ -4595,10 +4637,11 @@ fn open_create_dialog_impl(
     let parent_resume = *main_parent;
     let fallback_resume_model = saved.audio_description_gemini_model.clone();
     let d_resume = d;
+    let api_value_resume = Rc::clone(&api_value);
     continue_interrupted.on_click(move |_| {
         let Some(selection) = choose_resume_checkpoint(
             &d_resume,
-            &api.get_value(),
+            &api_value_resume(),
             &fallback_resume_model,
         ) else {
             append_podcast_log(
@@ -4624,7 +4667,7 @@ fn open_create_dialog_impl(
         };
         let job = match job_from_checkpoint(
             &selection.checkpoint_path,
-            api.get_value(),
+            api_value_resume(),
             selection.gemini_model.clone(),
         ) {
             Ok(job) => job,
@@ -4682,6 +4725,7 @@ fn open_create_dialog_impl(
     let settings_run = settings.clone();
     let rt_run = rt.clone();
     let saved_start = saved.clone();
+    let api_value_start = Rc::clone(&api_value);
     start.on_click(move |_| {
         let model_value = model
             .get_string_selection()
@@ -4763,7 +4807,7 @@ fn open_create_dialog_impl(
             pitch: saved_start.pitch,
             volume: saved_start.volume,
             audio_stream_index,
-            gemini_api_key: api.get_value(),
+            gemini_api_key: api_value_start(),
             gemini_model: model_value.clone(),
             resume_checkpoint_path: None,
         };

@@ -1,6 +1,6 @@
 Lista zmian
 
-Wersja 0.4.0 - 2 września 2026
+Wersja 0.4.0 - 3 września 2026
 
 Audiodeskrypcja z AI — nowa główna funkcja
 
@@ -25,6 +25,8 @@ Audiodeskrypcja z AI — nowa główna funkcja
 - Naprawiono problem, który mógł powodować błąd końcowego eksportu do MP3 w filmach z dźwiękiem wielokanałowym, na przykład Dolby 5.1. Sonarpad automatycznie miksuje teraz dźwięk wielokanałowy do stereo, gdy jest to potrzebne do kodowania MP3.
 
 - Gdy film zawiera wiele ścieżek audio, Sonarpad przed rozpoczęciem pyta, której ścieżki użyć. Dostępne pole kombi można zmieniać strzałkami; OK uruchamia audiodeskrypcję z wybraną ścieżką, a Anuluj zamyka okno i przywraca fokus do edytora Sonarpad.
+
+- Dodano pole wyboru „Pokaż klucz API” obok klucza Gemini. Klucz jest domyślnie ukryty i jest wyświetlany tylko tymczasowo po włączeniu tej opcji; po ponownym otwarciu okna znów pozostaje ukryty.
 
 YouTube i strumieniowanie
 

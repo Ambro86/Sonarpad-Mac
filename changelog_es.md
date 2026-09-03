@@ -1,6 +1,6 @@
 Registro de cambios
 
-Versión 0.4.0 - 2 de septiembre de 2026
+Versión 0.4.0 - 3 de septiembre de 2026
 
 Audiodescripción con IA — nueva función principal
 
@@ -25,6 +25,8 @@ Audiodescripción con IA — nueva función principal
 - Corregido un problema que podía hacer fallar la exportación final a MP3 con vídeos que contienen audio multicanal, como Dolby 5.1. Sonarpad convierte automáticamente el audio multicanal a estéreo cuando es necesario para codificar MP3.
 
 - Cuando un vídeo contiene varias pistas de audio, Sonarpad pregunta qué pista se debe utilizar antes de empezar. El cuadro combinado accesible se puede cambiar con las flechas; Aceptar inicia la audiodescripción con la pista seleccionada y Cancelar cierra la ventana y devuelve el foco al editor de Sonarpad.
+
+- Se añadió la casilla “Mostrar clave API” junto a la clave de Gemini. La clave permanece oculta de forma predeterminada y solo se muestra temporalmente mientras la casilla está activada; al volver a abrir la ventana queda oculta de nuevo.
 
 YouTube y streaming
 

@@ -1,6 +1,6 @@
 Changelog
 
-Version 0.4.0 - September 2, 2026
+Version 0.4.0 - September 3, 2026
 
 AI Audio Description — major new feature
 
@@ -25,6 +25,8 @@ AI Audio Description — major new feature
 - Fixed an issue that could cause final MP3 export to fail with videos containing multichannel audio such as Dolby 5.1. Sonarpad now automatically downmixes multichannel audio to stereo when required for MP3 encoding.
 
 - When a video contains multiple audio tracks, Sonarpad asks which track to use before processing. The accessible combo box can be changed with the arrow keys; OK starts the audio description with the selected track, while Cancel closes the window and returns focus to the Sonarpad editor.
+
+- Added a “Show API key” checkbox next to the Gemini key. The key remains hidden by default and is shown only temporarily while the checkbox is enabled; reopening the window always hides it again.
 
 YouTube and streaming
 

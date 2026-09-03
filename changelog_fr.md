@@ -1,6 +1,6 @@
 Journal des nouveautés
 
-Version 0.4.0 - 2 septembre 2026
+Version 0.4.0 - 3 septembre 2026
 
 Audiodescription avec IA — nouvelle fonction principale
 
@@ -25,6 +25,8 @@ Audiodescription avec IA — nouvelle fonction principale
 - Correction d’un problème qui pouvait faire échouer l’exportation finale en MP3 avec les vidéos contenant un son multicanal, par exemple Dolby 5.1. Sonarpad convertit automatiquement le son multicanal en stéréo lorsque cela est nécessaire pour l’encodage MP3.
 
 - Lorsqu’une vidéo contient plusieurs pistes audio, Sonarpad demande quelle piste utiliser avant le traitement. La liste déroulante accessible se parcourt avec les flèches ; OK démarre l’audiodescription avec la piste choisie, tandis qu’Annuler ferme la fenêtre et rend le focus à l’éditeur Sonarpad.
+
+- Ajout de la case « Afficher la clé API » à côté de la clé Gemini. La clé reste masquée par défaut et n’est affichée que temporairement lorsque la case est activée ; à la réouverture de la fenêtre, elle est de nouveau masquée.
 
 YouTube et streaming
 
