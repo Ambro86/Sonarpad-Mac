@@ -2711,7 +2711,7 @@ fn merge_duck_intervals(mut intervals: Vec<(u64, u64)>, join_gap: u64) -> Vec<(u
         return intervals;
     }
     intervals.sort_by_key(|interval| interval.0);
-    let mut merged = Vec::with_capacity(intervals.len());
+    let mut merged: Vec<(u64, u64)> = Vec::with_capacity(intervals.len());
     for (start, end) in intervals {
         if let Some(last) = merged.last_mut()
             && start <= last.1.saturating_add(join_gap)
@@ -4701,6 +4701,8 @@ fn execute_audio_description_job(
         st.audio_description_language = job.language_code.clone();
         st.audio_description_tts_engine = job.tts_engine.clone();
         st.audio_description_tts_voice = job.tts_voice.clone();
+        st.audio_description_tts_rate = Some(job.rate);
+        st.audio_description_tts_volume = Some(job.volume);
         st.audio_description_verbosity = job.verbosity.as_bridge().to_string();
         st.audio_description_extended_pauses = job.allow_extended_pauses;
         st.audio_description_recognize_characters = job.recognize_characters;
@@ -4826,6 +4828,330 @@ fn execute_audio_description_job(
             }
         }
     }
+}
+
+
+#[derive(Clone, Debug)]
+struct AudioDescriptionVoiceSettings {
+    engine: String,
+    voice: String,
+    rate: i32,
+    volume: i32,
+}
+
+fn audio_description_voice_rate_items() -> Vec<(String, i32)> {
+    vec![
+        (tr("audio_description.voice_settings.speed.extremely_slow"), -100),
+        (tr("audio_description.voice_settings.speed.very_slow"), -60),
+        (tr("audio_description.voice_settings.speed.slow"), -35),
+        (tr("audio_description.voice_settings.speed.a_bit_slow"), -20),
+        (tr("audio_description.voice_settings.speed.slightly_slow"), -10),
+        (tr("audio_description.voice_settings.speed.normal"), 0),
+        (tr("audio_description.voice_settings.speed.slightly_fast"), 10),
+        (tr("audio_description.voice_settings.speed.a_bit_fast"), 20),
+        (tr("audio_description.voice_settings.speed.fast"), 35),
+        (tr("audio_description.voice_settings.speed.very_fast"), 50),
+        (tr("audio_description.voice_settings.speed.super_fast"), 100),
+    ]
+}
+
+fn audio_description_voice_volume_items() -> Vec<(String, i32)> {
+    vec![
+        (tr("audio_description.voice_settings.volume.very_low"), 25),
+        (tr("audio_description.voice_settings.volume.low"), 40),
+        (tr("audio_description.voice_settings.volume.a_bit_low"), 55),
+        (tr("audio_description.voice_settings.volume.medium_low"), 70),
+        (tr("audio_description.voice_settings.volume.slightly_low"), 85),
+        (tr("audio_description.voice_settings.volume.normal"), 100),
+        (tr("audio_description.voice_settings.volume.slightly_high"), 115),
+        (tr("audio_description.voice_settings.volume.medium_high"), 130),
+        (tr("audio_description.voice_settings.volume.a_bit_high"), 145),
+        (tr("audio_description.voice_settings.volume.high"), 160),
+        (tr("audio_description.voice_settings.volume.very_high"), 180),
+        (tr("audio_description.voice_settings.volume.maximum"), 200),
+    ]
+}
+
+fn nearest_audio_description_voice_value(values: &[(String, i32)], selected: i32) -> usize {
+    values
+        .iter()
+        .enumerate()
+        .min_by_key(|(_, (_, value))| (*value - selected).abs())
+        .map(|(index, _)| index)
+        .unwrap_or(0)
+}
+
+fn open_audio_description_voice_settings(
+    parent: &Dialog,
+    current: AudioDescriptionVoiceSettings,
+    description_language: &str,
+    voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
+    preview_pitch: i32,
+) -> Option<AudioDescriptionVoiceSettings> {
+    let d = Dialog::builder(parent, &tr("audio_description.voice_settings.title"))
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(620, 470)
+        .build();
+    let p = Panel::builder(&d).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let engine_row = BoxSizer::builder(Orientation::Horizontal).build();
+    engine_row.add(
+        &StaticText::builder(&p)
+            .with_label(&tr("audio_description.voice_settings.engine"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let engine = Choice::builder(&p).build();
+    engine.append(&tr("audio_description.engine.edge"));
+    engine.append(&tr("audio_description.engine.system"));
+    let initial_engine = if crate::is_system_voice_engine(&current.engine) { 1 } else { 0 };
+    engine.set_selection(initial_engine);
+    engine_row.add(&engine, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&engine_row, 0, SizerFlag::Expand, 0);
+
+    let langs = language_choices();
+    let language_row = BoxSizer::builder(Orientation::Horizontal).build();
+    language_row.add(
+        &StaticText::builder(&p)
+            .with_label(&tr("audio_description.voice_settings.language"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let language = Choice::builder(&p).build();
+    for (name, _) in &langs {
+        language.append(name);
+    }
+    language_row.add(&language, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&language_row, 0, SizerFlag::Expand, 0);
+
+    let voice_row = BoxSizer::builder(Orientation::Horizontal).build();
+    voice_row.add(
+        &StaticText::builder(&p)
+            .with_label(&tr("audio_description.voice_settings.voice"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let voice = Choice::builder(&p).build();
+    voice_row.add(&voice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&voice_row, 0, SizerFlag::Expand, 0);
+
+    let rate_items = Rc::new(audio_description_voice_rate_items());
+    let rate_row = BoxSizer::builder(Orientation::Horizontal).build();
+    rate_row.add(
+        &StaticText::builder(&p)
+            .with_label(&tr("audio_description.voice_settings.rate"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let rate = Choice::builder(&p).build();
+    for (label, _) in rate_items.iter() {
+        rate.append(label);
+    }
+    rate.set_selection(nearest_audio_description_voice_value(&rate_items, current.rate) as u32);
+    rate_row.add(&rate, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&rate_row, 0, SizerFlag::Expand, 0);
+
+    let volume_items = Rc::new(audio_description_voice_volume_items());
+    let volume_row = BoxSizer::builder(Orientation::Horizontal).build();
+    volume_row.add(
+        &StaticText::builder(&p)
+            .with_label(&tr("audio_description.voice_settings.volume"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let volume = Choice::builder(&p).build();
+    for (label, _) in volume_items.iter() {
+        volume.append(label);
+    }
+    volume.set_selection(nearest_audio_description_voice_value(&volume_items, current.volume) as u32);
+    volume_row.add(&volume, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&volume_row, 0, SizerFlag::Expand, 0);
+
+    let voices_edge = voices_data.lock().unwrap().clone();
+    let voices_system = crate::load_system_voices();
+    let active_voices = Rc::new(RefCell::new(Vec::<VoiceInfo>::new()));
+    let preferred_voice = current.voice.clone();
+
+    let preferred_language = voices_edge
+        .iter()
+        .chain(voices_system.iter())
+        .find(|item| item.short_name == preferred_voice)
+        .map(|item| {
+            item.locale
+                .split(['-', '_'])
+                .next()
+                .unwrap_or(description_language)
+                .to_ascii_lowercase()
+        })
+        .unwrap_or_else(|| description_language.to_ascii_lowercase());
+    let initial_language = langs
+        .iter()
+        .position(|(_, code)| code.eq_ignore_ascii_case(&preferred_language))
+        .or_else(|| {
+            langs.iter()
+                .position(|(_, code)| code.eq_ignore_ascii_case(description_language))
+        })
+        .unwrap_or(0);
+    language.set_selection(initial_language as u32);
+
+    let fill_voice: Rc<dyn Fn(u32, u32, &str)> = {
+        let active = active_voices.clone();
+        let voice_c = voice;
+        let voices_edge = voices_edge.clone();
+        let voices_system = voices_system.clone();
+        let langs = langs.clone();
+        Rc::new(move |engine_idx, lang_idx, preferred| {
+            voice_c.clear();
+            let code = langs.get(lang_idx as usize).map(|item| item.1).unwrap_or("it");
+            let source = if engine_idx == 1 { &voices_system } else { &voices_edge };
+            let list = source
+                .iter()
+                .filter(|item| voice_matches_language(item, code))
+                .cloned()
+                .collect::<Vec<_>>();
+            let selected = list
+                .iter()
+                .position(|item| item.short_name == preferred)
+                .unwrap_or(0);
+            for item in &list {
+                voice_c.append(&item.friendly_name);
+            }
+            if !list.is_empty() {
+                voice_c.set_selection(selected as u32);
+            }
+            *active.borrow_mut() = list;
+        })
+    };
+    fill_voice(initial_engine, initial_language as u32, &preferred_voice);
+
+    let button_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let test = Button::builder(&p)
+        .with_label(&tr("audio_description.voice_settings.test"))
+        .build();
+    let ok = Button::builder(&p)
+        .with_id(ID_OK)
+        .with_label(&tr("audio_description.voice_settings.ok"))
+        .build();
+    let cancel = Button::builder(&p)
+        .with_id(ID_CANCEL)
+        .with_label(&tr("audio_description.voice_settings.cancel"))
+        .build();
+    button_row.add(&test, 0, SizerFlag::All, 8);
+    button_row.add_spacer(1);
+    button_row.add(&ok, 0, SizerFlag::All, 8);
+    button_row.add(&cancel, 0, SizerFlag::All, 8);
+    root.add_sizer(&button_row, 0, SizerFlag::Expand, 0);
+    p.set_sizer(root, true);
+    d.set_affirmative_id(ID_OK);
+    d.set_escape_id(ID_CANCEL);
+
+    let fill_engine = fill_voice.clone();
+    let preferred_engine = preferred_voice.clone();
+    engine.on_selection_changed(move |_| {
+        fill_engine(
+            engine.get_selection().unwrap_or(0),
+            language.get_selection().unwrap_or(0),
+            &preferred_engine,
+        );
+    });
+    let fill_language = fill_voice.clone();
+    let preferred_language_voice = preferred_voice.clone();
+    language.on_selection_changed(move |_| {
+        fill_language(
+            engine.get_selection().unwrap_or(0),
+            language.get_selection().unwrap_or(0),
+            &preferred_language_voice,
+        );
+    });
+
+    let active_test = active_voices.clone();
+    let rates_test = rate_items.clone();
+    let volumes_test = volume_items.clone();
+    test.on_click(move |_| {
+        let voice_index = voice.get_selection().unwrap_or(0) as usize;
+        let Some(selected_voice) = active_test.borrow().get(voice_index).cloned() else {
+            return;
+        };
+        let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
+            "system".to_string()
+        } else {
+            "microsoft".to_string()
+        };
+        let rate_value = rates_test
+            .get(rate.get_selection().unwrap_or(0) as usize)
+            .map(|item| item.1)
+            .unwrap_or(0);
+        let volume_value = volumes_test
+            .get(volume.get_selection().unwrap_or(0) as usize)
+            .map(|item| item.1)
+            .unwrap_or(100);
+        crate::play_voice_preview(
+            tr("audio_description.voice_settings.test_text"),
+            engine_value,
+            selected_voice.short_name,
+            rate_value,
+            preview_pitch,
+            volume_value,
+        );
+    });
+
+    let result = Rc::new(RefCell::new(None::<AudioDescriptionVoiceSettings>));
+    let result_ok = result.clone();
+    let active_ok = active_voices.clone();
+    let rates_ok = rate_items.clone();
+    let volumes_ok = volume_items.clone();
+    let d_ok = d;
+    ok.on_click(move |_| {
+        let voice_index = voice.get_selection().unwrap_or(0) as usize;
+        let Some(selected_voice) = active_ok.borrow().get(voice_index).cloned() else {
+            show_error(&d_ok, &tr("audio_description.error.voice"));
+            voice.set_focus();
+            return;
+        };
+        let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
+            "system".to_string()
+        } else {
+            "microsoft".to_string()
+        };
+        let rate_value = rates_ok
+            .get(rate.get_selection().unwrap_or(0) as usize)
+            .map(|item| item.1)
+            .unwrap_or(current.rate);
+        let volume_value = volumes_ok
+            .get(volume.get_selection().unwrap_or(0) as usize)
+            .map(|item| item.1)
+            .unwrap_or(current.volume);
+        *result_ok.borrow_mut() = Some(AudioDescriptionVoiceSettings {
+            engine: engine_value,
+            voice: selected_voice.short_name,
+            rate: rate_value,
+            volume: volume_value,
+        });
+        d_ok.end_modal(ID_OK);
+    });
+    let d_cancel = d;
+    cancel.on_click(move |_| d_cancel.end_modal(ID_CANCEL));
+
+    engine.set_focus();
+    let modal_result = d.show_modal();
+    let selected = if modal_result == ID_OK {
+        result.borrow().clone()
+    } else {
+        None
+    };
+    d.destroy();
+    selected
 }
 
 pub fn open_create_dialog(
@@ -5351,62 +5677,23 @@ fn open_create_dialog_impl(
         ai_dialog_toggle.layout();
     });
 
-    let engine = Choice::builder(&p).build();
-    engine.append(&tr("audio_description.engine.edge"));
-    engine.append(&tr("audio_description.engine.system"));
-    let initial_engine = if crate::is_system_voice_engine(&saved.audio_description_tts_engine) {
-        1
+    // Keep the voice controls out of the main creation window, as on Windows.
+    // Until the user opens "Regola voce", rate and volume deliberately inherit
+    // the global speech settings so existing installations behave exactly as before.
+    let initial_voice_engine = if crate::is_system_voice_engine(&saved.audio_description_tts_engine) {
+        "system".to_string()
     } else {
-        0
+        "microsoft".to_string()
     };
-    engine.set_selection(initial_engine);
-    let engine_label = StaticText::builder(&p)
-        .with_label(&tr("audio_description.engine"))
-        .build();
-    let engine_row = BoxSizer::builder(Orientation::Horizontal).build();
-    engine_row.add(
-        &engine_label,
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
-    engine_row.add(&engine, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&engine_row, 0, SizerFlag::Expand, 0);
-    let voice = Choice::builder(&p).build();
     let voices_edge = voices_data.lock().unwrap().clone();
     let voices_system = crate::load_system_voices();
-    let active_voices = Rc::new(RefCell::new(Vec::<VoiceInfo>::new()));
-    let fill_voice: Rc<dyn Fn(u32, u32)> = {
-        let active = active_voices.clone();
-        let voice_c = voice;
-        let voices_edge = voices_edge.clone();
-        let voices_system = voices_system.clone();
-        let langs = langs.clone();
-        Rc::new(move |engine_idx, lang_idx| {
-            voice_c.clear();
-            let code = langs.get(lang_idx as usize).map(|x| x.1).unwrap_or("it");
-            let src = if engine_idx == 1 {
-                &voices_system
-            } else {
-                &voices_edge
-            };
-            let list = src
-                .iter()
-                .filter(|v| voice_matches_language(v, code))
-                .cloned()
-                .collect::<Vec<_>>();
-            for v in &list {
-                voice_c.append(&v.friendly_name);
-            }
-            if !list.is_empty() {
-                voice_c.set_selection(0);
-            }
-            *active.borrow_mut() = list;
-        })
+    let initial_voice_source = if crate::is_system_voice_engine(&initial_voice_engine) {
+        &voices_system
+    } else {
+        &voices_edge
     };
-    fill_voice(initial_engine, lang_index as u32);
-    let preferred_voice = if saved.audio_description_tts_voice.trim().is_empty() {
-        if initial_engine == 1 {
+    let mut initial_voice = if saved.audio_description_tts_voice.trim().is_empty() {
+        if crate::is_system_voice_engine(&initial_voice_engine) {
             saved.system_voice.clone()
         } else {
             saved.voice.clone()
@@ -5414,31 +5701,31 @@ fn open_create_dialog_impl(
     } else {
         saved.audio_description_tts_voice.clone()
     };
-    if let Some(index) = active_voices
-        .borrow()
-        .iter()
-        .position(|item| item.short_name == preferred_voice)
+    if initial_voice.trim().is_empty()
+        || !initial_voice_source.iter().any(|item| item.short_name == initial_voice)
     {
-        voice.set_selection(index as u32);
+        initial_voice = initial_voice_source
+            .iter()
+            .find(|item| voice_matches_language(item, &saved.audio_description_language))
+            .or_else(|| initial_voice_source.first())
+            .map(|item| item.short_name.clone())
+            .unwrap_or_default();
     }
-    let voice_label = StaticText::builder(&p)
-        .with_label(&tr("audio_description.voice"))
-        .build();
-    let voice_row = BoxSizer::builder(Orientation::Horizontal).build();
-    voice_row.add(
-        &voice_label,
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
-    voice_row.add(&voice, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    root.add_sizer(&voice_row, 0, SizerFlag::Expand, 0);
+    let voice_settings = Rc::new(RefCell::new(AudioDescriptionVoiceSettings {
+        engine: initial_voice_engine,
+        voice: initial_voice,
+        rate: saved.audio_description_tts_rate.unwrap_or(saved.rate),
+        volume: saved.audio_description_tts_volume.unwrap_or(saved.volume),
+    }));
     let actions = BoxSizer::builder(Orientation::Horizontal).build();
     let modify = Button::builder(&p)
         .with_label(&tr("audio_description.modify_project"))
         .build();
     let continue_interrupted = Button::builder(&p)
         .with_label(&tr("audio_description.resume.title"))
+        .build();
+    let voice_settings_button = Button::builder(&p)
+        .with_label(&tr("audio_description.voice_settings"))
         .build();
     let start = Button::builder(&p)
         .with_id(ID_AUDIO_DESCRIPTION_START)
@@ -5451,6 +5738,7 @@ fn open_create_dialog_impl(
     actions.add(&modify, 0, SizerFlag::All, 8);
     actions.add(&continue_interrupted, 0, SizerFlag::All, 8);
     actions.add_spacer(1);
+    actions.add(&voice_settings_button, 0, SizerFlag::All, 8);
     actions.add(&start, 0, SizerFlag::All, 8);
     actions.add(&close, 0, SizerFlag::All, 8);
     root.add_sizer(&actions, 0, SizerFlag::Expand, 0);
@@ -5669,19 +5957,55 @@ fn open_create_dialog_impl(
             &trf("audio_description.gemini_error_models", &[("error", e)]),
         ),
     });
-    let fill_e = fill_voice.clone();
-    engine.on_selection_changed(move |_| {
-        fill_e(
-            engine.get_selection().unwrap_or(0),
-            language.get_selection().unwrap_or(0),
-        )
-    });
-    let fill_l = fill_voice.clone();
+    let voice_settings_language = voice_settings.clone();
+    let voices_edge_language = voices_edge.clone();
+    let voices_system_language = voices_system.clone();
+    let langs_voice_language = langs.clone();
     language.on_selection_changed(move |_| {
-        fill_l(
-            engine.get_selection().unwrap_or(0),
-            language.get_selection().unwrap_or(0),
-        )
+        let language_code = langs_voice_language
+            .get(language.get_selection().unwrap_or(0) as usize)
+            .map(|item| item.1)
+            .unwrap_or("it");
+        let mut selected = voice_settings_language.borrow_mut();
+        let source = if crate::is_system_voice_engine(&selected.engine) {
+            &voices_system_language
+        } else {
+            &voices_edge_language
+        };
+        selected.voice = source
+            .iter()
+            .find(|item| voice_matches_language(item, language_code))
+            .or_else(|| source.first())
+            .map(|item| item.short_name.clone())
+            .unwrap_or_default();
+    });
+    let voice_settings_dialog = voice_settings.clone();
+    let settings_voice = settings.clone();
+    let voices_voice = voices_data.clone();
+    let langs_voice = langs.clone();
+    let d_voice = d;
+    voice_settings_button.on_click(move |_| {
+        let description_language = langs_voice
+            .get(language.get_selection().unwrap_or(0) as usize)
+            .map(|item| item.1)
+            .unwrap_or("it");
+        let current = voice_settings_dialog.borrow().clone();
+        if let Some(selected) = open_audio_description_voice_settings(
+            &d_voice,
+            current,
+            description_language,
+            &voices_voice,
+            saved.pitch,
+        ) {
+            *voice_settings_dialog.borrow_mut() = selected.clone();
+            let mut st = settings_voice.lock().unwrap();
+            st.audio_description_tts_engine = selected.engine;
+            st.audio_description_tts_voice = selected.voice;
+            st.audio_description_tts_rate = Some(selected.rate);
+            st.audio_description_tts_volume = Some(selected.volume);
+            st.save();
+        }
+        voice_settings_button.set_focus();
     });
     let open_project_requested = Rc::new(Cell::new(false));
     let open_project_requested_button = Rc::clone(&open_project_requested);
@@ -5845,17 +6169,14 @@ fn open_create_dialog_impl(
             1 => Verbosity::Standard,
             _ => Verbosity::Detailed,
         };
-        let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
-            "system".to_string()
-        } else {
-            "microsoft".to_string()
-        };
-        let voice_idx = voice.get_selection().unwrap_or(0) as usize;
-        let voice_value = active_voices
-            .borrow()
-            .get(voice_idx)
-            .map(|v| v.short_name.clone())
-            .unwrap_or_default();
+        let selected_voice_settings = voice_settings.borrow().clone();
+        let engine_value = selected_voice_settings.engine.clone();
+        let voice_value = selected_voice_settings.voice.clone();
+        if voice_value.trim().is_empty() {
+            show_error(&d, &tr("audio_description.error.voice"));
+            voice_settings_button.set_focus();
+            return;
+        }
         let catalog = if keep_catalog.get_value() {
             let sel = catalog_choice.get_selection().unwrap_or(0) as usize;
             if sel == 0 {
@@ -5908,9 +6229,9 @@ fn open_create_dialog_impl(
             catalog,
             tts_engine: engine_value,
             tts_voice: voice_value,
-            rate: saved_start.rate,
+            rate: selected_voice_settings.rate,
             pitch: saved_start.pitch,
-            volume: saved_start.volume,
+            volume: selected_voice_settings.volume,
             audio_stream_index,
             gemini_api_key: if use_sonarpad_ai { String::new() } else { personal_api_key_value },
             sonarpad_ai_service_url: if use_sonarpad_ai {

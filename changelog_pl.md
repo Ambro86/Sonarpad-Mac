@@ -36,6 +36,8 @@ Audiodeskrypcja, Narzędzia i konwersja wsadowa
 
 16. Podczas odtwarzania skrót Option+I w każdej chwili ogłasza wyłącznie całkowity czas trwania multimediów w naturalnej formie. Skrót działa niezależnie od ustawienia dodającego całkowity czas do komunikatów podczas przewijania; w przypadku transmisji na żywo Sonarpad informuje, że jest to transmisja na żywo.
 
+17. W funkcji Utwórz audiodeskrypcję z AI silnik i głos nie zajmują już miejsca w głównym oknie. Nowy przycisk „Dostosuj głos” otwiera osobne okno z silnikiem, głosem, szybkością i głośnością oraz testem głosu; wybory są zapisywane dla audiodeskrypcji. Jeśli okno nigdy nie zostanie użyte, szybkość i głośność nadal dziedziczą ustawienia ogólne tak jak wcześniej.
+
 Wersja 0.4.0 - 3 września 2026
 
 Audiodeskrypcja z AI — nowa główna funkcja

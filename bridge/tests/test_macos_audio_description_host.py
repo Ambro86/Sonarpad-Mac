@@ -40,10 +40,36 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
             "audio_description_character_catalog",
             "audio_description_tts_engine",
             "audio_description_tts_voice",
+            "audio_description_tts_rate",
+            "audio_description_tts_volume",
         )
         for field in required:
             with self.subTest(field=field):
                 self.assertIn(field, MAIN)
+
+    def test_create_dialog_uses_windows_style_voice_settings_panel(self):
+        create_start = AUDIO.index("fn open_create_dialog_impl(")
+        create_end = AUDIO.index("fn format_mmss", create_start)
+        create = AUDIO[create_start:create_end]
+        self.assertIn('audio_description.voice_settings', create)
+        self.assertIn('open_audio_description_voice_settings', create)
+        self.assertIn('audio_description_tts_rate.unwrap_or(saved.rate)', create)
+        self.assertIn('audio_description_tts_volume.unwrap_or(saved.volume)', create)
+        self.assertIn('rate: selected_voice_settings.rate', create)
+        self.assertIn('volume: selected_voice_settings.volume', create)
+        self.assertNotIn('with_label(&tr("audio_description.engine"))', create)
+        self.assertNotIn('with_label(&tr("audio_description.voice"))', create)
+        panel_start = AUDIO.index("fn open_audio_description_voice_settings(")
+        panel_end = AUDIO.index("pub fn open_create_dialog(", panel_start)
+        panel = AUDIO[panel_start:panel_end]
+        for key in (
+            'audio_description.voice_settings.engine',
+            'audio_description.voice_settings.voice',
+            'audio_description.voice_settings.rate',
+            'audio_description.voice_settings.volume',
+            'audio_description.voice_settings.test',
+        ):
+            self.assertIn(key, panel)
 
     def test_mac_pipeline_uses_bundled_ffmpeg_and_measures_segment_durations(self):
         self.assertIn("ffmpeg_executable_path", AUDIO)

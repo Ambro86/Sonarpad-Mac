@@ -36,6 +36,8 @@ Audio Description, Tools and batch conversion
 
 16. During playback, Option+I now announces only the total duration of the current media in a natural format. The shortcut works independently of the setting that adds total duration to seek announcements; live streams are announced as live.
 
+17. In Create audio description with AI, engine and voice no longer occupy the main window. The new “Adjust voice” button opens a dedicated window with engine, voice, speed and volume, plus voice testing; the choices are saved for audio descriptions. If the window is never used, speed and volume continue to inherit the general settings as before.
+
 Version 0.4.0 - September 3, 2026
 
 AI Audio Description — major new feature

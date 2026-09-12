@@ -36,6 +36,8 @@ Audiodescription, Outils et conversion par lots
 
 16. Pendant la lecture, Option+I annonce uniquement la durée totale du contenu dans un format naturel. Le raccourci fonctionne indépendamment du réglage qui ajoute la durée totale aux annonces lors des déplacements ; pour les flux en direct, Sonarpad annonce qu’il s’agit d’un direct.
 
+17. Dans Créer une audiodescription avec l’IA, le moteur et la voix n’occupent plus la fenêtre principale. Le nouveau bouton « Régler la voix » ouvre une fenêtre dédiée avec moteur, voix, vitesse et volume, ainsi qu’un test de la voix ; les choix sont enregistrés pour les audiodescriptions. Si cette fenêtre n’est jamais utilisée, la vitesse et le volume continuent d’hériter des réglages généraux comme auparavant.
+
 Version 0.4.0 - 3 septembre 2026
 
 Audiodescription avec IA — nouvelle fonction principale

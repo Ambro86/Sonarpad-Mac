@@ -36,6 +36,8 @@ Audiodescrizioni, Strumenti e conversione batch
 
 16. Durante la riproduzione, Option+I annuncia in qualsiasi momento soltanto la durata totale del contenuto in forma naturale. Il comando funziona indipendentemente dall’impostazione che aggiunge la durata agli annunci di avanzamento e riavvolgimento; per le dirette viene annunciato che il contenuto è in diretta.
 
+17. In Crea audiodescrizione con IA, motore e voce non occupano più la finestra principale. Il nuovo pulsante “Regola voce” apre una finestra dedicata con motore, voce, velocità e volume, oltre al test della voce; le scelte vengono salvate per le audiodescrizioni. Se la finestra non viene mai usata, velocità e volume continuano a ereditare le impostazioni generali come prima.
+
 Versione 0.4.0 - 3 settembre 2026
 
 Audiodescrizione con IA — nuova funzione principale

@@ -423,6 +423,10 @@ struct Settings {
     audio_description_tts_engine: String,
     #[serde(default)]
     audio_description_tts_voice: String,
+    #[serde(default)]
+    audio_description_tts_rate: Option<i32>,
+    #[serde(default)]
+    audio_description_tts_volume: Option<i32>,
     #[serde(default = "default_audio_description_verbosity")]
     audio_description_verbosity: String,
     #[serde(default = "default_true")]
@@ -524,6 +528,8 @@ impl Settings {
             audio_description_language: default_audio_description_language(),
             audio_description_tts_engine: default_audio_description_tts_engine(),
             audio_description_tts_voice: String::new(),
+            audio_description_tts_rate: None,
+            audio_description_tts_volume: None,
             audio_description_verbosity: default_audio_description_verbosity(),
             audio_description_extended_pauses: false,
             audio_description_recognize_characters: true,
@@ -9097,6 +9103,12 @@ fn normalize_settings_data(settings: &mut Settings) {
         } else {
             "microsoft".to_string()
         };
+    settings.audio_description_tts_rate = settings
+        .audio_description_tts_rate
+        .map(|value| value.clamp(-100, 100));
+    settings.audio_description_tts_volume = settings
+        .audio_description_tts_volume
+        .map(|value| value.clamp(25, 200));
     settings.audio_description_verbosity = match settings.audio_description_verbosity.as_str() {
         "short" | "standard" | "detailed" => settings.audio_description_verbosity.clone(),
         _ => default_audio_description_verbosity(),

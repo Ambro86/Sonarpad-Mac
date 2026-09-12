@@ -33,11 +33,22 @@ class MacOsLa7PlayTests(unittest.TestCase):
         source = text(MAIN)
         self.assertIn('mod la7_play;', source)
         self.assertIn('const ID_LA7_PLAY: i32 = 2378;', source)
-        italian_start = source.index('if Settings::load().ui_language == "it" {', source.index('let tools_menu'))
-        menubar = source.index('let menubar', italian_start)
-        italian_tools = source[italian_start:menubar]
-        self.assertIn('ID_LA7_PLAY', italian_tools)
-        self.assertIn('la7_play::menu_label()', italian_tools)
+
+        grouped_start = source.index('fn append_tools_multimedia')
+        grouped_end = source.index('fn append_tools_utilities', grouped_start)
+        grouped_tools = source[grouped_start:grouped_end]
+        grouped_italian_start = grouped_tools.index('if settings.ui_language == "it" {')
+        grouped_italian_tools = grouped_tools[grouped_italian_start:]
+        self.assertIn('ID_LA7_PLAY', grouped_italian_tools)
+        self.assertIn('la7_play::menu_label()', grouped_italian_tools)
+
+        flat_start = source.index('fn rebuild_tools_menu')
+        flat_end = source.index('fn main()', flat_start)
+        flat_tools = source[flat_start:flat_end]
+        flat_italian_start = flat_tools.index('if settings.ui_language == "it" {')
+        flat_italian_tools = flat_tools[flat_italian_start:]
+        self.assertIn('ID_LA7_PLAY', flat_italian_tools)
+        self.assertIn('la7_play::menu_label()', flat_italian_tools)
 
     def test_la7_uses_same_rai_luce_code_gate(self):
         source = text(MAIN)

@@ -36,6 +36,8 @@ Audiopopis, Nástroje a dávkový převod
 
 16. Během přehrávání klávesová zkratka Option+I kdykoli oznámí pouze celkovou délku média v přirozeném formátu. Zkratka funguje nezávisle na nastavení, které přidává celkovou délku k oznámení při posunu; u živého vysílání Sonarpad oznámí, že jde o živý přenos.
 
+17. Ve funkci Vytvořit audiopopis s AI již motor a hlas nezabírají hlavní okno. Nové tlačítko „Upravit hlas“ otevře samostatné okno s motorem, hlasem, rychlostí a hlasitostí a také s testem hlasu; volby se ukládají pro audiopopis. Pokud toto okno nikdy nepoužijete, rychlost a hlasitost se stejně jako dříve převezmou z obecných nastavení.
+
 Verze 0.4.0 - 3. září 2026
 
 Audiopopis s AI — nová hlavní funkce

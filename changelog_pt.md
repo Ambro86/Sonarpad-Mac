@@ -36,6 +36,8 @@ Audiodescrição, Ferramentas e conversão em lote
 
 16. Durante a reprodução, Option+I anuncia apenas a duração total do conteúdo em formato natural. O atalho funciona independentemente da definição que acrescenta a duração total aos anúncios de avanço e retrocesso; nas transmissões em direto é anunciado que o conteúdo está em direto.
 
+17. Em Criar audiodescrição com IA, o motor e a voz deixam de ocupar a janela principal. O novo botão “Ajustar voz” abre uma janela dedicada com motor, voz, velocidade e volume, além do teste da voz; as escolhas são guardadas para as audiodescrições. Se a janela nunca for usada, a velocidade e o volume continuam a herdar as definições gerais como antes.
+
 Versão 0.4.0 - 3 de setembro de 2026
 
 Audiodescrição com IA — nova função principal
