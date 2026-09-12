@@ -132,6 +132,7 @@ const ID_TOOLS_TRECCANI: i32 = 2375;
 const ID_TOOLS_AUDIO_DESCRIPTION: i32 = 2376;
 const ID_TOOLS_MEDIA_TRANSCRIPTION: i32 = 2377;
 const ID_LA7_PLAY: i32 = 2378;
+const ID_TOOLS_CONVERT_FOLDER: i32 = 2379;
 // wxWidgets only accepts custom menu IDs below 32767. Keep the three
 // favorite-action ranges contiguous and below the podcast ranges at 27000.
 const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 24000;
@@ -361,6 +362,8 @@ struct Settings {
     system_voice: String,
     #[serde(default = "default_media_seek_seconds")]
     media_seek_seconds: u32,
+    #[serde(default = "default_true")]
+    announce_media_duration_on_seek: bool,
     #[serde(default)]
     transcription_audio_language: String,
     rate: i32,
@@ -388,6 +391,8 @@ struct Settings {
     disable_blank_line_pauses: bool,
     #[serde(default)]
     read_only_mode: bool,
+    #[serde(default = "default_true")]
+    group_tools_menu_by_category: bool,
     #[serde(default = "default_auto_check_updates")]
     auto_check_updates: bool,
     #[serde(default)]
@@ -424,8 +429,18 @@ struct Settings {
     audio_description_extended_pauses: bool,
     #[serde(default = "default_true")]
     audio_description_recognize_characters: bool,
+    #[serde(default = "default_true")]
+    audio_description_recognize_screen_text: bool,
     #[serde(default)]
     audio_description_save_project: bool,
+    #[serde(default)]
+    audio_description_create_video_output: bool,
+    #[serde(default)]
+    audio_description_use_sonarpad_ai: bool,
+    #[serde(default)]
+    sonarpad_ai_access_code: String,
+    #[serde(default)]
+    sonarpad_ai_device_id: String,
     #[serde(default)]
     audio_description_delete_video_after: bool,
     #[serde(default)]
@@ -477,6 +492,7 @@ impl Settings {
             voice_engine: default_voice_engine(),
             system_voice: String::new(),
             media_seek_seconds: default_media_seek_seconds(),
+            announce_media_duration_on_seek: true,
             transcription_audio_language: String::new(),
             rate: 0,
             pitch: 0,
@@ -492,6 +508,7 @@ impl Settings {
             auto_audio_describe_tv_recordings: false,
             disable_blank_line_pauses: false,
             read_only_mode: false,
+            group_tools_menu_by_category: true,
             auto_check_updates: default_auto_check_updates(),
             last_changelog_version: Some(env!("CARGO_PKG_VERSION").to_string()),
             last_audiobook_format: default_audiobook_format(),
@@ -510,7 +527,12 @@ impl Settings {
             audio_description_verbosity: default_audio_description_verbosity(),
             audio_description_extended_pauses: false,
             audio_description_recognize_characters: true,
+            audio_description_recognize_screen_text: true,
             audio_description_save_project: false,
+            audio_description_create_video_output: false,
+            audio_description_use_sonarpad_ai: false,
+            sonarpad_ai_access_code: String::new(),
+            sonarpad_ai_device_id: String::new(),
             audio_description_delete_video_after: false,
             audio_description_keep_character_catalog: false,
             audio_description_character_catalog: String::new(),
@@ -813,6 +835,7 @@ struct UiStrings {
     voice_engine_microsoft: String,
     voice_engine_system: String,
     media_seek_step_label: String,
+    announce_media_duration_on_seek_label: String,
     voice_language_label: String,
     voice_label: String,
     rate_label: String,
@@ -859,6 +882,10 @@ struct UiStrings {
     menu_podcasts: String,
     menu_radio: String,
     menu_tools: String,
+    tools_category_reading_content: String,
+    tools_category_multimedia: String,
+    tools_category_utilities: String,
+    group_tools_menu_by_category_label: String,
     #[cfg(target_os = "macos")]
     menu_window: String,
     tools_wikipedia_label: String,
@@ -912,6 +939,22 @@ struct UiStrings {
     convert_media_same_path: String,
     convert_media_invalid_bitrate: String,
     convert_media_failed: String,
+    convert_folder_title: String,
+    convert_folder_input: String,
+    convert_folder_output: String,
+    convert_folder_browse_input: String,
+    convert_folder_browse_output: String,
+    convert_folder_default_subfolder: String,
+    convert_folder_ready: String,
+    convert_folder_found: String,
+    convert_folder_running: String,
+    convert_folder_done: String,
+    convert_folder_done_with_errors: String,
+    convert_folder_button: String,
+    convert_folder_no_input: String,
+    convert_folder_no_output: String,
+    convert_folder_no_files: String,
+    convert_folder_output_create_failed: String,
     bdciechi_title: String,
     bdciechi_username_label: String,
     bdciechi_password_label: String,
@@ -9034,6 +9077,11 @@ fn normalize_settings_data(settings: &mut Settings) {
         settings.transcription_audio_language =
             default_transcription_language_for_ui(&settings.ui_language);
     }
+    settings.sonarpad_ai_access_code = settings.sonarpad_ai_access_code.trim().to_string();
+    settings.sonarpad_ai_device_id = settings.sonarpad_ai_device_id.trim().to_string();
+    if settings.sonarpad_ai_device_id.is_empty() {
+        settings.sonarpad_ai_device_id = format!("spdev_{}", uuid::Uuid::new_v4().simple());
+    }
     settings.audio_description_gemini_model =
         settings.audio_description_gemini_model.trim().to_string();
     if settings.audio_description_gemini_model.is_empty() {
@@ -13212,7 +13260,7 @@ fn open_settings_dialog(
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, if cfg!(target_os = "macos") { 625 } else { 555 })
+        .with_size(560, if cfg!(target_os = "macos") { 685 } else { 585 })
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -13242,6 +13290,18 @@ fn open_settings_dialog(
     let choice_news_lang = Choice::builder(&panel).build();
     news_lang_row.add(&choice_news_lang, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&news_lang_row, 0, SizerFlag::Expand, 0);
+
+    let group_tools_menu_by_category_checkbox = CheckBox::builder(&panel)
+        .with_label(&ui.group_tools_menu_by_category_label)
+        .build();
+    group_tools_menu_by_category_checkbox
+        .set_value(settings_before.group_tools_menu_by_category);
+    root.add(
+        &group_tools_menu_by_category_checkbox,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        5,
+    );
 
     let engine_row = BoxSizer::builder(Orientation::Horizontal).build();
     engine_row.add(
@@ -13381,6 +13441,18 @@ fn open_settings_dialog(
     choice_media_seek.set_selection(media_seek_index as u32);
     media_seek_row.add(&choice_media_seek, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&media_seek_row, 0, SizerFlag::Expand, 0);
+
+    let announce_media_duration_on_seek_checkbox = CheckBox::builder(&panel)
+        .with_label(&ui.announce_media_duration_on_seek_label)
+        .build();
+    announce_media_duration_on_seek_checkbox
+        .set_value(settings_before.announce_media_duration_on_seek);
+    root.add(
+        &announce_media_duration_on_seek_checkbox,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right,
+        5,
+    );
 
     let auto_media_bookmark_checkbox = CheckBox::builder(&panel)
         .with_label(&ui.auto_media_bookmark_label)
@@ -13844,10 +13916,13 @@ fn open_settings_dialog(
         {
             updated.media_seek_seconds = *seconds;
         }
+        updated.announce_media_duration_on_seek =
+            announce_media_duration_on_seek_checkbox.get_value();
         if settings_before.ui_language == "it" {
             updated.rai_luce_code = rai_code_ctrl.get_value().trim().to_string();
         }
         updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
+        updated.group_tools_menu_by_category = group_tools_menu_by_category_checkbox.get_value();
         if settings_before.ui_language == "it" {
             updated.auto_audio_describe_tv_recordings =
                 auto_audio_describe_tv_recordings_checkbox.get_value();
@@ -13871,7 +13946,11 @@ fn open_settings_dialog(
             || settings_before.language != updated.language
             || settings_before.rai_luce_code != updated.rai_luce_code
             || settings_before.media_seek_seconds != updated.media_seek_seconds
+            || settings_before.announce_media_duration_on_seek
+                != updated.announce_media_duration_on_seek
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
+            || settings_before.group_tools_menu_by_category
+                != updated.group_tools_menu_by_category
             || settings_before.auto_audio_describe_tv_recordings
                 != updated.auto_audio_describe_tv_recordings
             || settings_before.disable_blank_line_pauses != updated.disable_blank_line_pauses
@@ -16054,6 +16133,644 @@ fn open_convert_media_dialog(parent: &Frame) {
     dialog.destroy();
 }
 
+fn convert_media_supported_input(path: &Path) -> bool {
+    path.is_file()
+        && path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(|ext| {
+                matches!(
+                    ext.to_ascii_lowercase().as_str(),
+                    "mp3"
+                        | "m4a"
+                        | "mp4"
+                        | "aac"
+                        | "mkv"
+                        | "avi"
+                        | "mov"
+                        | "m4v"
+                        | "webm"
+                        | "mpg"
+                        | "mpeg"
+                        | "ts"
+                        | "m2ts"
+                        | "mts"
+                        | "wmv"
+                        | "asf"
+                        | "flv"
+                        | "vob"
+                        | "3gp"
+                        | "flac"
+                        | "ogg"
+                        | "opus"
+                        | "wma"
+                        | "aif"
+                        | "aiff"
+                        | "m4b"
+                        | "wav"
+                )
+            })
+            .unwrap_or(false)
+}
+
+fn convert_media_folder_files(input_dir: &Path) -> Vec<PathBuf> {
+    let Ok(entries) = std::fs::read_dir(input_dir) else {
+        return Vec::new();
+    };
+    let mut files = entries
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| convert_media_supported_input(path))
+        .collect::<Vec<_>>();
+    files.sort_by(|left, right| {
+        left.file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or_default()
+            .to_lowercase()
+            .cmp(
+                &right
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or_default()
+                    .to_lowercase(),
+            )
+    });
+    files
+}
+
+fn convert_media_batch_output(
+    input: &Path,
+    output_dir: &Path,
+    format: ConvertMediaFormat,
+) -> PathBuf {
+    let extension = convert_media_format_extension(format);
+    let mut output = input
+        .file_name()
+        .map(|name| output_dir.join(name))
+        .unwrap_or_else(|| output_dir.join("media"));
+    output.set_extension(extension);
+    if output == input {
+        let stem = input
+            .file_stem()
+            .and_then(|value| value.to_str())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("media");
+        output_dir.join(format!("{}_converted.{}", stem, extension))
+    } else {
+        output
+    }
+}
+
+fn convert_media_unique_batch_output(
+    input: &Path,
+    output_dir: &Path,
+    format: ConvertMediaFormat,
+    source_paths: &HashSet<PathBuf>,
+    used_outputs: &HashSet<PathBuf>,
+) -> PathBuf {
+    let preferred = convert_media_batch_output(input, output_dir, format);
+    if !source_paths.contains(&preferred) && !used_outputs.contains(&preferred) {
+        return preferred;
+    }
+
+    let stem = input
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("media");
+    let extension = convert_media_format_extension(format);
+    let mut candidate = output_dir.join(format!("{}_converted.{}", stem, extension));
+    let mut suffix = 2usize;
+    while source_paths.contains(&candidate) || used_outputs.contains(&candidate) {
+        candidate = output_dir.join(format!("{}_converted_{}.{}", stem, suffix, extension));
+        suffix += 1;
+    }
+    candidate
+}
+
+struct BatchConvertProgress {
+    current: usize,
+    total: usize,
+    current_name: String,
+    finished: bool,
+    succeeded: usize,
+    failures: Vec<String>,
+}
+
+struct BatchConvertOptions {
+    files: Vec<PathBuf>,
+    output_dir: PathBuf,
+    image: Option<PathBuf>,
+    format: ConvertMediaFormat,
+    bitrate: i32,
+    ogg_quality: i32,
+    flac_compression: i32,
+    wav_depth: ConvertWavBitDepth,
+}
+
+fn run_convert_media_batch(
+    options: BatchConvertOptions,
+    state: Arc<Mutex<BatchConvertProgress>>,
+) {
+    if let Err(err) = std::fs::create_dir_all(&options.output_dir) {
+        let mut batch = state.lock().unwrap();
+        batch.finished = true;
+        batch.failures.push(format!("{}: {}", options.output_dir.display(), err));
+        return;
+    }
+
+    let source_paths = options.files.iter().cloned().collect::<HashSet<_>>();
+    let mut used_outputs = HashSet::new();
+
+    for (index, input) in options.files.iter().enumerate() {
+        let file_name = input
+            .file_name()
+            .and_then(|value| value.to_str())
+            .unwrap_or("media")
+            .to_string();
+        {
+            let mut batch = state.lock().unwrap();
+            batch.current = index + 1;
+            batch.current_name = file_name.clone();
+        }
+
+        if convert_media_requires_image(options.format, input) && options.image.is_none() {
+            state.lock().unwrap().failures.push(file_name);
+            continue;
+        }
+
+        let output = convert_media_unique_batch_output(
+            input,
+            &options.output_dir,
+            options.format,
+            &source_paths,
+            &used_outputs,
+        );
+        used_outputs.insert(output.clone());
+        let args = convert_media_build_args(ConvertMediaBuildArgs {
+            input,
+            output: &output,
+            image: options.image.as_deref(),
+            format: options.format,
+            bitrate: options.bitrate,
+            ogg_quality: options.ogg_quality,
+            flac_compression: options.flac_compression,
+            wav_depth: options.wav_depth,
+        });
+        let single = Arc::new(Mutex::new(ConvertProgress {
+            percent: 0,
+            finished: false,
+            result: None,
+        }));
+        run_convert_media_ffmpeg(&args, Arc::clone(&single));
+        let result = single
+            .lock()
+            .unwrap()
+            .result
+            .clone()
+            .unwrap_or_else(|| Err("Errore sconosciuto".to_string()));
+        let mut batch = state.lock().unwrap();
+        match result {
+            Ok(()) => batch.succeeded += 1,
+            Err(err) => batch.failures.push(format!("{file_name}: {err}")),
+        }
+    }
+
+    state.lock().unwrap().finished = true;
+}
+
+fn open_convert_media_folder_dialog(parent: &Frame) {
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &ui.convert_folder_title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(760, 420)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let input_dir = Rc::new(RefCell::new(None::<PathBuf>));
+    let output_dir = Rc::new(RefCell::new(None::<PathBuf>));
+    let image_path = Rc::new(RefCell::new(None::<PathBuf>));
+
+    let input_row = BoxSizer::builder(Orientation::Horizontal).build();
+    input_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_folder_input)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let input_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ReadOnly)
+        .build();
+    input_row.add(&input_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let input_button = Button::builder(&panel)
+        .with_label(&ui.convert_folder_browse_input)
+        .build();
+    input_row.add(&input_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
+
+    let output_row = BoxSizer::builder(Orientation::Horizontal).build();
+    output_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_folder_output)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let output_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ReadOnly)
+        .build();
+    output_row.add(&output_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let output_button = Button::builder(&panel)
+        .with_label(&ui.convert_folder_browse_output)
+        .build();
+    output_row.add(&output_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&output_row, 0, SizerFlag::Expand, 0);
+
+    let image_row = BoxSizer::builder(Orientation::Horizontal).build();
+    image_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_media_image)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let image_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ReadOnly)
+        .build();
+    image_row.add(&image_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let image_button = Button::builder(&panel)
+        .with_label(&ui.convert_media_browse_image)
+        .build();
+    image_row.add(&image_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&image_row, 0, SizerFlag::Expand, 0);
+
+    let format_row = BoxSizer::builder(Orientation::Horizontal).build();
+    format_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_media_format)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let format_choice = Choice::builder(&panel).build();
+    for format in CONVERT_MEDIA_FORMATS {
+        format_choice.append(convert_media_format_label(format));
+    }
+    format_choice.set_selection(0);
+    format_row.add(&format_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&format_row, 0, SizerFlag::Expand, 0);
+
+    let options_row = BoxSizer::builder(Orientation::Horizontal).build();
+    options_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_media_bitrate)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let bitrate_ctrl = TextCtrl::builder(&panel).build();
+    bitrate_ctrl.set_value("192");
+    options_row.add(&bitrate_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    options_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_media_ogg_quality)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let ogg_choice = Choice::builder(&panel).build();
+    for quality in 0..=10 {
+        ogg_choice.append(&format!("q{quality}"));
+    }
+    ogg_choice.set_selection(5);
+    options_row.add(&ogg_choice, 0, SizerFlag::All, 5);
+    root.add_sizer(&options_row, 0, SizerFlag::Expand, 0);
+
+    let more_options_row = BoxSizer::builder(Orientation::Horizontal).build();
+    more_options_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_media_flac_compression)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let flac_choice = Choice::builder(&panel).build();
+    for compression in 0..=12 {
+        flac_choice.append(&compression.to_string());
+    }
+    flac_choice.set_selection(5);
+    more_options_row.add(&flac_choice, 0, SizerFlag::All, 5);
+    more_options_row.add(
+        &StaticText::builder(&panel)
+            .with_label(&ui.convert_media_wav_bit_depth)
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let wav_choice = Choice::builder(&panel).build();
+    for depth in CONVERT_WAV_BIT_DEPTHS {
+        wav_choice.append(convert_wav_bit_depth_label(depth));
+    }
+    wav_choice.set_selection(0);
+    more_options_row.add(&wav_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&more_options_row, 0, SizerFlag::Expand, 0);
+
+    let status_text = StaticText::builder(&panel)
+        .with_label(&ui.convert_folder_ready)
+        .build();
+    root.add(&status_text, 0, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    buttons.add_spacer(1);
+    let convert_button = Button::builder(&panel)
+        .with_label(&ui.convert_folder_button)
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add(&convert_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let dialog_input = dialog;
+    let input_dir_input = Rc::clone(&input_dir);
+    let output_dir_input = Rc::clone(&output_dir);
+    let input_ctrl_input = input_ctrl;
+    let output_ctrl_input = output_ctrl;
+    let status_text_input = status_text;
+    input_button.on_click(move |_| {
+        let ui = current_ui_strings();
+        let default_path = input_dir_input
+            .borrow()
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        if let Some(path) =
+            choose_convert_media_folder(&dialog_input, &ui.convert_folder_input, &default_path)
+        {
+            input_ctrl_input.set_value(&path.to_string_lossy());
+            *input_dir_input.borrow_mut() = Some(path.clone());
+            let default_output = path.join(&ui.convert_folder_default_subfolder);
+            output_ctrl_input.set_value(&default_output.to_string_lossy());
+            *output_dir_input.borrow_mut() = Some(default_output);
+            let count = convert_media_folder_files(&path).len();
+            status_text_input.set_label(
+                &ui.convert_folder_found.replace("{count}", &count.to_string()),
+            );
+        }
+    });
+
+    let dialog_output = dialog;
+    let output_dir_output = Rc::clone(&output_dir);
+    let output_ctrl_output = output_ctrl;
+    output_button.on_click(move |_| {
+        let ui = current_ui_strings();
+        let default_path = output_dir_output
+            .borrow()
+            .clone()
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        if let Some(path) =
+            choose_convert_media_folder(&dialog_output, &ui.convert_folder_output, &default_path)
+        {
+            output_ctrl_output.set_value(&path.to_string_lossy());
+            *output_dir_output.borrow_mut() = Some(path);
+        }
+    });
+
+    let dialog_image = dialog;
+    let image_path_image = Rc::clone(&image_path);
+    let image_ctrl_image = image_ctrl;
+    image_button.on_click(move |_| {
+        let ui = current_ui_strings();
+        let wildcard = "Immagini|*.jpg;*.jpeg;*.png;*.webp;*.bmp|Tutti|*.*";
+        if let Some(path) =
+            choose_convert_media_file(&dialog_image, &ui.convert_media_image, wildcard)
+        {
+            image_ctrl_image.set_value(&path.to_string_lossy());
+            *image_path_image.borrow_mut() = Some(path);
+        }
+    });
+
+    let conversion_job = Rc::new(RefCell::new(None::<Arc<Mutex<BatchConvertProgress>>>));
+    let conversion_busy = Arc::new(AtomicBool::new(false));
+    let conversion_timer = Rc::new(Timer::new(&dialog));
+
+    let conversion_timer_tick = Rc::clone(&conversion_timer);
+    let conversion_job_tick = Rc::clone(&conversion_job);
+    let conversion_busy_tick = Arc::clone(&conversion_busy);
+    let dialog_timer = dialog;
+    let status_text_timer = status_text;
+    let input_button_timer = input_button;
+    let output_button_timer = output_button;
+    let image_button_timer = image_button;
+    let format_choice_timer = format_choice;
+    let bitrate_ctrl_timer = bitrate_ctrl;
+    let ogg_choice_timer = ogg_choice;
+    let flac_choice_timer = flac_choice;
+    let wav_choice_timer = wav_choice;
+    let convert_button_timer = convert_button;
+    let close_button_timer = close_button;
+    conversion_timer_tick.on_tick(move |_| {
+        let state = conversion_job_tick.borrow().as_ref().cloned();
+        let Some(state) = state else {
+            return;
+        };
+        let snapshot = {
+            let batch = state.lock().unwrap();
+            (
+                batch.current,
+                batch.total,
+                batch.current_name.clone(),
+                batch.finished,
+                batch.succeeded,
+                batch.failures.clone(),
+            )
+        };
+        let ui = current_ui_strings();
+        if !snapshot.3 {
+            let status = ui
+                .convert_folder_running
+                .replace("{current}", &snapshot.0.to_string())
+                .replace("{total}", &snapshot.1.to_string())
+                .replace("{file}", &snapshot.2);
+            status_text_timer.set_label(&status);
+            return;
+        }
+
+        *conversion_job_tick.borrow_mut() = None;
+        conversion_busy_tick.store(false, Ordering::SeqCst);
+        input_button_timer.enable(true);
+        output_button_timer.enable(true);
+        image_button_timer.enable(true);
+        format_choice_timer.enable(true);
+        bitrate_ctrl_timer.enable(true);
+        ogg_choice_timer.enable(true);
+        flac_choice_timer.enable(true);
+        wav_choice_timer.enable(true);
+        convert_button_timer.enable(true);
+        close_button_timer.enable(true);
+
+        if snapshot.5.is_empty() {
+            let message = ui
+                .convert_folder_done
+                .replace("{success}", &snapshot.4.to_string());
+            status_text_timer.set_label(&message);
+            show_message_subdialog(&dialog_timer, &ui.convert_folder_title, &message);
+        } else {
+            let errors = snapshot.5.join("\n");
+            let message = ui
+                .convert_folder_done_with_errors
+                .replace("{success}", &snapshot.4.to_string())
+                .replace("{failed}", &snapshot.5.len().to_string())
+                .replace("{errors}", &errors);
+            status_text_timer.set_label(&message);
+            show_message_subdialog(&dialog_timer, &ui.convert_folder_title, &message);
+        }
+    });
+    conversion_timer.start(150, false);
+
+    let dialog_convert = dialog;
+    let input_dir_convert = Rc::clone(&input_dir);
+    let output_dir_convert = Rc::clone(&output_dir);
+    let image_path_convert = Rc::clone(&image_path);
+    let conversion_job_convert = Rc::clone(&conversion_job);
+    let conversion_busy_convert = Arc::clone(&conversion_busy);
+    let status_text_convert = status_text;
+    convert_button.on_click(move |_| {
+        if conversion_busy_convert.load(Ordering::SeqCst) {
+            return;
+        }
+        let ui = current_ui_strings();
+        let Some(input_dir) = input_dir_convert.borrow().clone() else {
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_folder_title,
+                &ui.convert_folder_no_input,
+            );
+            return;
+        };
+        let Some(output_dir) = output_dir_convert.borrow().clone() else {
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_folder_title,
+                &ui.convert_folder_no_output,
+            );
+            return;
+        };
+        let files = convert_media_folder_files(&input_dir);
+        if files.is_empty() {
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_folder_title,
+                &ui.convert_folder_no_files,
+            );
+            return;
+        }
+        let format = convert_media_format_from_choice(&format_choice);
+        let image = image_path_convert.borrow().clone();
+        if convert_media_is_video_format(format)
+            && files
+                .iter()
+                .any(|input| convert_media_requires_image(format, input))
+            && image.is_none()
+        {
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_folder_title,
+                &ui.convert_media_no_image,
+            );
+            return;
+        }
+        let bitrate = bitrate_ctrl.get_value().trim().parse::<i32>().unwrap_or(0);
+        if convert_media_uses_bitrate(format) && !(64..=320).contains(&bitrate) {
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_folder_title,
+                &ui.convert_media_invalid_bitrate,
+            );
+            return;
+        }
+        if let Err(err) = std::fs::create_dir_all(&output_dir) {
+            show_message_subdialog(
+                &dialog_convert,
+                &ui.convert_folder_title,
+                &ui.convert_folder_output_create_failed
+                    .replace("{error}", &err.to_string()),
+            );
+            return;
+        }
+
+        let total = files.len();
+        let state = Arc::new(Mutex::new(BatchConvertProgress {
+            current: 0,
+            total,
+            current_name: String::new(),
+            finished: false,
+            succeeded: 0,
+            failures: Vec::new(),
+        }));
+        *conversion_job_convert.borrow_mut() = Some(Arc::clone(&state));
+        conversion_busy_convert.store(true, Ordering::SeqCst);
+        input_button.enable(false);
+        output_button.enable(false);
+        image_button.enable(false);
+        format_choice.enable(false);
+        bitrate_ctrl.enable(false);
+        ogg_choice.enable(false);
+        flac_choice.enable(false);
+        wav_choice.enable(false);
+        convert_button.enable(false);
+        close_button.enable(false);
+        status_text_convert.set_label(
+            &ui.convert_folder_running
+                .replace("{current}", "0")
+                .replace("{total}", &total.to_string())
+                .replace("{file}", ""),
+        );
+
+        let options = BatchConvertOptions {
+            files,
+            output_dir,
+            image,
+            format,
+            bitrate: bitrate.max(64),
+            ogg_quality: ogg_choice.get_selection().unwrap_or(5) as i32,
+            flac_compression: flac_choice.get_selection().unwrap_or(5) as i32,
+            wav_depth: convert_wav_bit_depth_from_choice(&wav_choice),
+        };
+        std::thread::spawn(move || run_convert_media_batch(options, state));
+    });
+
+    let conversion_busy_close = Arc::clone(&conversion_busy);
+    dialog.on_close(move |event| {
+        if conversion_busy_close.load(Ordering::SeqCst) {
+            event.skip(false);
+        } else {
+            event.skip(true);
+        }
+    });
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.show_modal();
+    conversion_timer.stop();
+    dialog.destroy();
+}
+
 fn italian_directories_code_available(parent: &Frame) -> bool {
     if load_saved_rai_luce_code().is_some() {
         return true;
@@ -16396,13 +17113,19 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
     let results_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let results_label = StaticText::builder(&panel).with_label("Risultati:").build();
     results_row.add(
-        &StaticText::builder(&panel).with_label("Risultati:").build(),
+        &results_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
     let result_choice = Choice::builder(&panel).build();
+    // An empty wxChoice is exposed by VoiceOver as an unlabeled pop-up button.
+    // Keep the results controls out of the accessibility tree until a search
+    // actually produced selectable Treccani entries.
+    results_label.show(false);
+    result_choice.show(false);
     results_row.add(&result_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&results_row, 0, SizerFlag::Expand, 0);
 
@@ -16455,7 +17178,9 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
     let results_timer = Rc::clone(&results);
     let current_extract_timer = Rc::clone(&current_extract);
     let result_choice_timer = result_choice;
+    let results_label_timer = results_label;
     let section_choice_timer = section_choice;
+    let panel_timer = panel;
     let dialog_timer = dialog;
     result_timer_tick.on_tick(move |_| {
         let result = pending_result_timer.lock().unwrap().take();
@@ -16465,6 +17190,8 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
             }
             busy_timer.store(false, Ordering::SeqCst);
             result_choice_timer.clear();
+            results_label_timer.show(false);
+            result_choice_timer.show(false);
             section_choice_timer.clear();
             section_choice_timer.append("Intera voce");
             section_choice_timer.set_selection(0);
@@ -16481,6 +17208,10 @@ fn open_treccani_dialog(parent: &Frame, editor: TextCtrl, cursor_moved_by_user: 
                             "Nessuna voce Treccani trovata.",
                         );
                     } else {
+                        results_label_timer.show(true);
+                        result_choice_timer.show(true);
+                        panel_timer.layout();
+                        dialog_timer.layout();
                         result_choice_timer.set_selection(0);
                         result_choice_timer.set_focus();
                     }
@@ -24216,9 +24947,13 @@ struct MpvVoiceMessages {
     percent: &'static str,
     muted: &'static str,
     unmuted: &'static str,
+    hour: &'static str,
     hours: &'static str,
+    minute: &'static str,
     minutes: &'static str,
+    second: &'static str,
     seconds: &'static str,
+    of: &'static str,
 }
 
 fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
@@ -24239,9 +24974,13 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             percent: "per cento",
             muted: "Audio disattivato",
             unmuted: "Audio attivato",
+            hour: "ora",
             hours: "ore",
+            minute: "minuto",
             minutes: "minuti",
+            second: "secondo",
             seconds: "secondi",
+            of: "di",
         },
         "fr" => MpvVoiceMessages {
             recording_started: "Enregistrement démarré",
@@ -24259,9 +24998,13 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             percent: "pour cent",
             muted: "Son désactivé",
             unmuted: "Son activé",
+            hour: "heure",
             hours: "heures",
+            minute: "minute",
             minutes: "minutes",
+            second: "seconde",
             seconds: "secondes",
+            of: "sur",
         },
         "es" => MpvVoiceMessages {
             recording_started: "Grabación iniciada",
@@ -24279,9 +25022,13 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             percent: "por ciento",
             muted: "Audio desactivado",
             unmuted: "Audio activado",
+            hour: "hora",
             hours: "horas",
+            minute: "minuto",
             minutes: "minutos",
+            second: "segundo",
             seconds: "segundos",
+            of: "de",
         },
         "pt" => MpvVoiceMessages {
             recording_started: "Gravação iniciada",
@@ -24299,9 +25046,13 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             percent: "por cento",
             muted: "Áudio desativado",
             unmuted: "Áudio ativado",
+            hour: "hora",
             hours: "horas",
+            minute: "minuto",
             minutes: "minutos",
+            second: "segundo",
             seconds: "segundos",
+            of: "de",
         },
         "cs" => MpvVoiceMessages {
             recording_started: "Nahrávání spuštěno",
@@ -24319,9 +25070,13 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             percent: "procent",
             muted: "Ztlumeno",
             unmuted: "Zvuk zapnut",
+            hour: "hodina",
             hours: "hodin",
+            minute: "minuta",
             minutes: "minut",
+            second: "sekunda",
             seconds: "sekund",
+            of: "z",
         },
         "pl" => MpvVoiceMessages {
             recording_started: "Nagrywanie rozpoczęte",
@@ -24339,9 +25094,13 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             percent: "procent",
             muted: "Wyciszono",
             unmuted: "Dźwięk włączony",
+            hour: "godzina",
             hours: "godzin",
+            minute: "minuta",
             minutes: "minut",
+            second: "sekunda",
             seconds: "sekund",
+            of: "z",
         },
         _ => MpvVoiceMessages {
             recording_started: "Recording started",
@@ -24359,9 +25118,13 @@ fn mpv_voice_messages(language: &str) -> MpvVoiceMessages {
             percent: "percent",
             muted: "Muted",
             unmuted: "Unmuted",
+            hour: "hour",
             hours: "hours",
+            minute: "minute",
             minutes: "minutes",
+            second: "second",
             seconds: "seconds",
+            of: "of",
         },
     }
 }
@@ -25100,6 +25863,7 @@ fn write_mpv_accessibility_script(
     let language = Settings::load().ui_language;
     let messages = mpv_voice_messages(&language);
     let seek_step_seconds = current_media_seek_seconds();
+    let announce_media_duration_on_seek = Settings::load().announce_media_duration_on_seek;
     let ffmpeg_path = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
     let recordings_dir = default_recordings_dir();
     std::fs::create_dir_all(&recordings_dir).map_err(|err| {
@@ -25149,6 +25913,10 @@ fn write_mpv_accessibility_script(
     script.push_str(&format!(
         "local seek_step_seconds = {}\n",
         seek_step_seconds
+    ));
+    script.push_str(&format!(
+        "local announce_media_duration_on_seek = {}\n",
+        if announce_media_duration_on_seek { "true" } else { "false" }
     ));
     script.push_str(&format!(
         "local ffmpeg_path = {}\n",
@@ -25265,16 +26033,32 @@ fn write_mpv_accessibility_script(
         lua_string_literal(messages.unmuted)
     ));
     script.push_str(&format!(
+        "local msg_hour = {}\n",
+        lua_string_literal(messages.hour)
+    ));
+    script.push_str(&format!(
         "local msg_hours = {}\n",
         lua_string_literal(messages.hours)
+    ));
+    script.push_str(&format!(
+        "local msg_minute = {}\n",
+        lua_string_literal(messages.minute)
     ));
     script.push_str(&format!(
         "local msg_minutes = {}\n",
         lua_string_literal(messages.minutes)
     ));
     script.push_str(&format!(
+        "local msg_second = {}\n",
+        lua_string_literal(messages.second)
+    ));
+    script.push_str(&format!(
         "local msg_seconds = {}\n",
         lua_string_literal(messages.seconds)
+    ));
+    script.push_str(&format!(
+        "local msg_of = {}\n",
+        lua_string_literal(messages.of)
     ));
     script.push_str("local ffmpeg_args = {\n");
     if let Some(config) = recording {
@@ -25992,12 +26776,50 @@ mp.register_event("file-loaded", function()
     end
 end)
 
+local function human_duration(total)
+    total = math.max(0, math.floor((total or 0) + 0.5))
+    local hours = math.floor(total / 3600)
+    local minutes = math.floor((total % 3600) / 60)
+    local seconds = total % 60
+    local parts = {}
+    if hours > 0 then
+        table.insert(parts, tostring(hours))
+        table.insert(parts, hours == 1 and msg_hour or msg_hours)
+    end
+    if minutes > 0 then
+        table.insert(parts, tostring(minutes))
+        table.insert(parts, minutes == 1 and msg_minute or msg_minutes)
+    end
+    if seconds > 0 or #parts == 0 then
+        table.insert(parts, tostring(seconds))
+        table.insert(parts, seconds == 1 and msg_second or msg_seconds)
+    end
+    return table.concat(parts, " ")
+end
+
+local function speak_total_duration()
+    local duration = mp.get_property_number("duration")
+    if duration ~= nil and duration > 0 then
+        speak(human_duration(duration))
+    else
+        speak(msg_live_stream)
+    end
+end
+
 local function readable_position()
     local seekable = mp.get_property_bool("seekable", false)
     local pos = mp.get_property_number("time-pos")
     if not seekable or pos == nil or pos < 0 then
         return msg_live_stream
     end
+
+    if announce_media_duration_on_seek then
+        local duration = mp.get_property_number("duration")
+        if duration ~= nil and duration > 0 then
+            return msg_position .. " " .. human_duration(pos) .. " " .. msg_of .. " " .. human_duration(duration)
+        end
+    end
+
     local total = math.floor(pos + 0.5)
     local hours = math.floor(total / 3600)
     local minutes = math.floor((total % 3600) / 60)
@@ -26080,6 +26902,8 @@ end
 mp.add_forced_key_binding("SPACE", "sonarpad-pause-speech", toggle_pause_with_speech)
 mp.add_forced_key_binding("RIGHT", "sonarpad-seek-forward-speech", function() seek_with_speech(seek_step_seconds) end, {repeatable = true})
 mp.add_forced_key_binding("LEFT", "sonarpad-seek-backward-speech", function() seek_with_speech(-seek_step_seconds) end, {repeatable = true})
+mp.add_forced_key_binding("Alt+i", "sonarpad-announce-duration", speak_total_duration)
+mp.add_forced_key_binding("Alt+I", "sonarpad-announce-duration-uppercase", speak_total_duration)
 mp.add_forced_key_binding("UP", "sonarpad-volume-up-speech", function() volume_with_speech(5) end, {repeatable = true})
 mp.add_forced_key_binding("DOWN", "sonarpad-volume-down-speech", function() volume_with_speech(-5) end, {repeatable = true})
 mp.add_forced_key_binding("+", "sonarpad-speed-up-speech", function() speed_with_speech(0.1) end, {repeatable = true})
@@ -26102,7 +26926,7 @@ mp.add_forced_key_binding("Meta+D", "sonarpad-video-diagnostics-command-uppercas
     diagnostic_screenshot("manual")
     speak("Diagnostica video salvata")
 end)
-log_line("bindings_registered recording_key=Meta+r video_diagnostic_key=Meta+d speech=voiceover_or_system_fallback")
+log_line("bindings_registered duration_key=Alt+i recording_key=Meta+r video_diagnostic_key=Meta+d speech=voiceover_or_system_fallback")
 
 mp.register_event("shutdown", function()
     stop_recording(false)
@@ -26691,6 +27515,289 @@ fn run_ffmpeg_save_blocking(args: &[String], output_path: &Path) -> Result<(), S
     }
 }
 
+
+fn clear_menu(menu: &Menu) {
+    for item in menu.get_menu_items().into_iter().rev() {
+        let _ = menu.delete_item(&item);
+    }
+}
+
+fn append_tools_reading_content(menu: &Menu, settings: &Settings, ui: &UiStrings) {
+    let _ = menu.append(
+        ID_TOOLS_WIKIPEDIA,
+        &ui.tools_wikipedia_label,
+        &ui.tools_wikipedia_label,
+        ItemKind::Normal,
+    );
+    let _ = menu.append(
+        ID_TOOLS_VOICE_DICTIONARY,
+        voice_dictionary_title(),
+        voice_dictionary_title(),
+        ItemKind::Normal,
+    );
+    if settings.ui_language == "it" {
+        let _ = menu.append(
+            ID_TOOLS_TRECCANI,
+            "Cerca e importa da Treccani",
+            "Cerca e importa voci dall’Enciclopedia Treccani",
+            ItemKind::Normal,
+        );
+        let _ = menu.append(
+            ID_TOOLS_BDCIECHI,
+            &ui.bdciechi_title,
+            &ui.bdciechi_title,
+            ItemKind::Normal,
+        );
+    }
+}
+
+fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
+    let audio_description_label = audio_description::menu_label();
+    let _ = menu.append(
+        ID_TOOLS_AUDIO_DESCRIPTION,
+        &audio_description_label,
+        &audio_description_label,
+        ItemKind::Normal,
+    );
+    let media_transcription_label = media_transcription::menu_label();
+    let _ = menu.append(
+        ID_TOOLS_MEDIA_TRANSCRIPTION,
+        &media_transcription_label,
+        &media_transcription_label,
+        ItemKind::Normal,
+    );
+    if youtube_tools_available() {
+        let _ = menu.append(
+            ID_TOOLS_YOUTUBE,
+            &ui.tools_youtube_label,
+            &ui.tools_youtube_label,
+            ItemKind::Normal,
+        );
+    }
+    let _ = menu.append(
+        ID_TOOLS_CINEMA,
+        &ui.cinema_title,
+        &ui.cinema_title,
+        ItemKind::Normal,
+    );
+    let _ = menu.append(
+        ID_TOOLS_CONVERT_MEDIA,
+        &ui.convert_media_title,
+        &ui.convert_media_title,
+        ItemKind::Normal,
+    );
+    let _ = menu.append(
+        ID_TOOLS_CONVERT_FOLDER,
+        &ui.convert_folder_title,
+        &ui.convert_folder_title,
+        ItemKind::Normal,
+    );
+    if settings.ui_language == "it" {
+        let _ = menu.append(
+            ID_RAI_AUDIO_DESCRIPTIONS,
+            &ui.rai_audio_descriptions_label,
+            &ui.rai_audio_descriptions_label,
+            ItemKind::Normal,
+        );
+        let _ = menu.append(
+            ID_RAIPLAY_BROWSE,
+            &ui.raiplay_label,
+            &ui.raiplay_label,
+            ItemKind::Normal,
+        );
+        let _ = menu.append(
+            ID_LA7_PLAY,
+            la7_play::menu_label(),
+            la7_play::menu_label(),
+            ItemKind::Normal,
+        );
+        let _ = menu.append(
+            ID_RAIPLAY_SOUND,
+            &ui.raiplaysound_label,
+            &ui.raiplaysound_label,
+            ItemKind::Normal,
+        );
+        let _ = menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
+    }
+}
+
+fn append_tools_utilities(menu: &Menu, settings: &Settings, ui: &UiStrings) {
+    let calendar_labels = calendar::labels(&settings.ui_language);
+    let _ = menu.append(
+        ID_TOOLS_CALENDAR,
+        calendar_labels.menu,
+        calendar_labels.menu,
+        ItemKind::Normal,
+    );
+    let _ = menu.append(
+        ID_TOOLS_WEATHER,
+        &ui.meteo_title,
+        &ui.meteo_title,
+        ItemKind::Normal,
+    );
+    let _ = menu.append(
+        ID_TOOLS_ROUTES,
+        &ui.routes_title,
+        &ui.routes_title,
+        ItemKind::Normal,
+    );
+    if settings.ui_language == "it" {
+        let _ = menu.append(
+            ID_TOOLS_ITALIAN_DIRECTORIES,
+            &ui.tools_italian_directories_label,
+            &ui.tools_italian_directories_label,
+            ItemKind::Normal,
+        );
+    }
+}
+
+fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
+    clear_menu(tools_menu);
+    if settings.group_tools_menu_by_category {
+        let reading_content_menu = Menu::builder().build();
+        append_tools_reading_content(&reading_content_menu, settings, ui);
+        let _ = tools_menu.append_submenu(
+            reading_content_menu,
+            &ui.tools_category_reading_content,
+            &ui.tools_category_reading_content,
+        );
+
+        let multimedia_menu = Menu::builder().build();
+        append_tools_multimedia(&multimedia_menu, settings, ui);
+        let _ = tools_menu.append_submenu(
+            multimedia_menu,
+            &ui.tools_category_multimedia,
+            &ui.tools_category_multimedia,
+        );
+
+        let utilities_menu = Menu::builder().build();
+        append_tools_utilities(&utilities_menu, settings, ui);
+        let _ = tools_menu.append_submenu(
+            utilities_menu,
+            &ui.tools_category_utilities,
+            &ui.tools_category_utilities,
+        );
+    } else {
+        let _ = tools_menu.append(
+            ID_TOOLS_WIKIPEDIA,
+            &ui.tools_wikipedia_label,
+            &ui.tools_wikipedia_label,
+            ItemKind::Normal,
+        );
+        let audio_description_label = audio_description::menu_label();
+        let _ = tools_menu.append(
+            ID_TOOLS_AUDIO_DESCRIPTION,
+            &audio_description_label,
+            &audio_description_label,
+            ItemKind::Normal,
+        );
+        let media_transcription_label = media_transcription::menu_label();
+        let _ = tools_menu.append(
+            ID_TOOLS_MEDIA_TRANSCRIPTION,
+            &media_transcription_label,
+            &media_transcription_label,
+            ItemKind::Normal,
+        );
+        if youtube_tools_available() {
+            let _ = tools_menu.append(
+                ID_TOOLS_YOUTUBE,
+                &ui.tools_youtube_label,
+                &ui.tools_youtube_label,
+                ItemKind::Normal,
+            );
+        }
+        let _ = tools_menu.append(
+            ID_TOOLS_WEATHER,
+            &ui.meteo_title,
+            &ui.meteo_title,
+            ItemKind::Normal,
+        );
+        let _ = tools_menu.append(
+            ID_TOOLS_CINEMA,
+            &ui.cinema_title,
+            &ui.cinema_title,
+            ItemKind::Normal,
+        );
+        let calendar_labels = calendar::labels(&settings.ui_language);
+        let _ = tools_menu.append(
+            ID_TOOLS_CALENDAR,
+            calendar_labels.menu,
+            calendar_labels.menu,
+            ItemKind::Normal,
+        );
+        let _ = tools_menu.append(
+            ID_TOOLS_CONVERT_MEDIA,
+            &ui.convert_media_title,
+            &ui.convert_media_title,
+            ItemKind::Normal,
+        );
+        let _ = tools_menu.append(
+            ID_TOOLS_CONVERT_FOLDER,
+            &ui.convert_folder_title,
+            &ui.convert_folder_title,
+            ItemKind::Normal,
+        );
+        let _ = tools_menu.append(
+            ID_TOOLS_ROUTES,
+            &ui.routes_title,
+            &ui.routes_title,
+            ItemKind::Normal,
+        );
+        let _ = tools_menu.append(
+            ID_TOOLS_VOICE_DICTIONARY,
+            voice_dictionary_title(),
+            voice_dictionary_title(),
+            ItemKind::Normal,
+        );
+        if settings.ui_language == "it" {
+            let _ = tools_menu.append_separator();
+            let _ = tools_menu.append(
+                ID_TOOLS_TRECCANI,
+                "Cerca e importa da Treccani",
+                "Cerca e importa voci dall’Enciclopedia Treccani",
+                ItemKind::Normal,
+            );
+            let _ = tools_menu.append(
+                ID_TOOLS_BDCIECHI,
+                &ui.bdciechi_title,
+                &ui.bdciechi_title,
+                ItemKind::Normal,
+            );
+            let _ = tools_menu.append(
+                ID_RAI_AUDIO_DESCRIPTIONS,
+                &ui.rai_audio_descriptions_label,
+                &ui.rai_audio_descriptions_label,
+                ItemKind::Normal,
+            );
+            let _ = tools_menu.append(
+                ID_RAIPLAY_BROWSE,
+                &ui.raiplay_label,
+                &ui.raiplay_label,
+                ItemKind::Normal,
+            );
+            let _ = tools_menu.append(
+                ID_LA7_PLAY,
+                la7_play::menu_label(),
+                la7_play::menu_label(),
+                ItemKind::Normal,
+            );
+            let _ = tools_menu.append(
+                ID_RAIPLAY_SOUND,
+                &ui.raiplaysound_label,
+                &ui.raiplaysound_label,
+                ItemKind::Normal,
+            );
+            let _ = tools_menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
+            let _ = tools_menu.append(
+                ID_TOOLS_ITALIAN_DIRECTORIES,
+                &ui.tools_italian_directories_label,
+                &ui.tools_italian_directories_label,
+                ItemKind::Normal,
+            );
+        }
+    }
+}
+
 fn main() {
     if scheduled_radio::handle_command_line() || scheduled_tv::handle_command_line() {
         return;
@@ -26961,117 +28068,9 @@ fn main() {
         );
 
         let tools_menu = Menu::builder().build();
-        tools_menu.append(
-            ID_TOOLS_WIKIPEDIA,
-            &ui.tools_wikipedia_label,
-            &ui.tools_wikipedia_label,
-            ItemKind::Normal,
-        );
-        let audio_description_label = audio_description::menu_label();
-        tools_menu.append(
-            ID_TOOLS_AUDIO_DESCRIPTION,
-            &audio_description_label,
-            &audio_description_label,
-            ItemKind::Normal,
-        );
-        let media_transcription_label = media_transcription::menu_label();
-        tools_menu.append(
-            ID_TOOLS_MEDIA_TRANSCRIPTION,
-            &media_transcription_label,
-            &media_transcription_label,
-            ItemKind::Normal,
-        );
-        if youtube_tools_available() {
-            tools_menu.append(
-                ID_TOOLS_YOUTUBE,
-                &ui.tools_youtube_label,
-                &ui.tools_youtube_label,
-                ItemKind::Normal,
-            );
-        }
-        tools_menu.append(
-            ID_TOOLS_WEATHER,
-            &ui.meteo_title,
-            &ui.meteo_title,
-            ItemKind::Normal,
-        );
-        tools_menu.append(
-            ID_TOOLS_CINEMA,
-            &ui.cinema_title,
-            &ui.cinema_title,
-            ItemKind::Normal,
-        );
-        let calendar_labels = calendar::labels(&Settings::load().ui_language);
-        tools_menu.append(
-            ID_TOOLS_CALENDAR,
-            calendar_labels.menu,
-            calendar_labels.menu,
-            ItemKind::Normal,
-        );
-        tools_menu.append(
-            ID_TOOLS_CONVERT_MEDIA,
-            &ui.convert_media_title,
-            &ui.convert_media_title,
-            ItemKind::Normal,
-        );
-        tools_menu.append(
-            ID_TOOLS_ROUTES,
-            &ui.routes_title,
-            &ui.routes_title,
-            ItemKind::Normal,
-        );
-        tools_menu.append(
-            ID_TOOLS_VOICE_DICTIONARY,
-            voice_dictionary_title(),
-            voice_dictionary_title(),
-            ItemKind::Normal,
-        );
-        if Settings::load().ui_language == "it" {
-            tools_menu.append_separator();
-            tools_menu.append(
-                ID_TOOLS_TRECCANI,
-                "Cerca e importa da Treccani",
-                "Cerca e importa voci dall’Enciclopedia Treccani",
-                ItemKind::Normal,
-            );
-            tools_menu.append(
-                ID_TOOLS_BDCIECHI,
-                &ui.bdciechi_title,
-                &ui.bdciechi_title,
-                ItemKind::Normal,
-            );
-            tools_menu.append(
-                ID_RAI_AUDIO_DESCRIPTIONS,
-                &ui.rai_audio_descriptions_label,
-                &ui.rai_audio_descriptions_label,
-                ItemKind::Normal,
-            );
-            tools_menu.append(
-                ID_RAIPLAY_BROWSE,
-                &ui.raiplay_label,
-                &ui.raiplay_label,
-                ItemKind::Normal,
-            );
-            tools_menu.append(
-                ID_LA7_PLAY,
-                la7_play::menu_label(),
-                la7_play::menu_label(),
-                ItemKind::Normal,
-            );
-            tools_menu.append(
-                ID_RAIPLAY_SOUND,
-                &ui.raiplaysound_label,
-                &ui.raiplaysound_label,
-                ItemKind::Normal,
-            );
-            tools_menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
-            tools_menu.append(
-                ID_TOOLS_ITALIAN_DIRECTORIES,
-                &ui.tools_italian_directories_label,
-                &ui.tools_italian_directories_label,
-                ItemKind::Normal,
-            );
-        }
+        let tools_settings_snapshot = settings.lock().unwrap().clone();
+        rebuild_tools_menu(&tools_menu, &tools_settings_snapshot, ui);
+        let tools_menu_settings = Menu::from(tools_menu.as_const_ptr());
 
         let menubar_builder = MenuBar::builder()
             .append(file_menu, &ui.menu_file)
@@ -27824,6 +28823,8 @@ fn main() {
                 open_calendar_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CONVERT_MEDIA {
                 open_convert_media_dialog(&f_menu);
+            } else if event.get_id() == ID_TOOLS_CONVERT_FOLDER {
+                open_convert_media_folder_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_ROUTES {
                 routes::open_routes_dialog(&f_menu, tc_menu);
             } else if event.get_id() == ID_TOOLS_VOICE_DICTIONARY {
@@ -29731,6 +30732,12 @@ Non posso scaricare la pagina web al posto dell'audio.",
             let snapshot_after = settings_state.lock().unwrap().clone();
             let updated_ui_language = snapshot_after.ui_language.clone();
             let updated_news_language = snapshot_after.news_language.clone();
+            if snapshot_before.group_tools_menu_by_category
+                != snapshot_after.group_tools_menu_by_category
+            {
+                let tools_ui = ui_strings(&snapshot_after.ui_language);
+                rebuild_tools_menu(&tools_menu_settings, &snapshot_after, tools_ui);
+            }
             if previous_news_language != updated_news_language {
                 append_podcast_log(&format!(
                     "settings.news_language.changed from={} to={}",

@@ -31,12 +31,17 @@ const GEMINI_MAX_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const GEMINI_INLINE_TARGET_CHUNK_BYTES: u64 = 40 * 1024 * 1024;
 const GEMINI_MIN_SEGMENT_SECONDS: f64 = 30.0;
 const GEMINI_SEGMENT_RETRY_LIMIT: usize = 5;
+const GEMINI_COMPAT_TARGET_CHUNK_BYTES: u64 = 15 * 1024 * 1024;
+const GEMINI_COMPAT_MIN_SEGMENT_SECONDS: f64 = 10.0;
+const GEMINI_COMPAT_SEGMENT_RETRY_LIMIT: usize = 6;
 const MAX_SHIFT_SEC: f64 = 5.0;
 const MIN_EXTENDED_ANCHOR_SEC: f64 = 1.0;
 const MIX_SAMPLE_RATE: u32 = 48_000;
 const MIX_CHANNELS: u16 = 2;
-const DUCKING_DB: f32 = -15.0;
-const FADE_MS: u32 = 150;
+const DUCKING_DB: f32 = -12.0;
+const FADE_MS: u32 = 280;
+const PRE_DUCK_MS: u32 = 180;
+const RELEASE_MS: u32 = 600;
 const BITRATE_KBPS: u32 = 192;
 const PROJECT_FORMAT: &str = "sonarpad-audio-description-project";
 const CATALOG_FORMAT: &str = "sonarpad-character-catalog";
@@ -57,6 +62,7 @@ const ID_AUDIO_DESCRIPTION_PROJECT_CLOSE: i32 = 7103;
 const ID_AUDIO_DESCRIPTION_RESUME_BROWSE: i32 = 7104;
 const CHECKPOINT_SUFFIX: &str = ".sonarpad-ad.partial.json";
 const MAX_RECENT_PROJECT_FOLDERS: usize = 8;
+const SONARPAD_AI_SERVICE_URL: &str = "https://sonarpad.com/sonarpad-ai";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Verbosity {
@@ -91,7 +97,9 @@ struct CreateJob {
     verbosity: Verbosity,
     allow_extended_pauses: bool,
     recognize_characters: bool,
+    recognize_screen_text: bool,
     save_project: bool,
+    create_video_output: bool,
     delete_input_after_success: bool,
     keep_character_catalog: bool,
     catalog: Option<CharacterCatalog>,
@@ -102,6 +110,9 @@ struct CreateJob {
     volume: i32,
     audio_stream_index: Option<i32>,
     gemini_api_key: String,
+    sonarpad_ai_service_url: String,
+    sonarpad_ai_access_code: String,
+    sonarpad_ai_device_id: String,
     gemini_model: String,
     resume_checkpoint_path: Option<PathBuf>,
 }
@@ -144,7 +155,11 @@ struct AudioDescriptionPartialCheckpoint {
     verbosity: String,
     allow_extended_pauses: bool,
     recognize_characters: bool,
+    #[serde(default = "default_true")]
+    recognize_screen_text: bool,
     save_project: bool,
+    #[serde(default)]
+    create_video_output: bool,
     #[serde(default)]
     delete_input_after_success: bool,
     keep_character_catalog: bool,
@@ -297,6 +312,8 @@ pub struct AudioDescriptionProject {
     pub updated_at_utc: String,
     pub source_path: PathBuf,
     pub output_mp3_path: PathBuf,
+    #[serde(default)]
+    pub output_is_video: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub audio_stream_index: Option<i32>,
     pub source_duration_sec: f64,
@@ -307,6 +324,8 @@ pub struct AudioDescriptionProject {
     pub allow_extended_pauses: bool,
     #[serde(default = "default_true")]
     pub recognize_characters: bool,
+    #[serde(default = "default_true")]
+    pub recognize_screen_text: bool,
     pub gemini_model: String,
     pub tts_engine: String,
     pub tts_voice: String,
@@ -394,6 +413,70 @@ fn trf(key: &str, values: &[(&str, String)]) -> String {
         text = text.replace(&format!("{{{name}}}"), value);
     }
     text
+}
+
+fn format_sonarpad_balance(balance: f64) -> String {
+    let value = format!("{balance:.2}");
+    let localized = if Settings::load().ui_language == "en" {
+        value
+    } else {
+        value.replace('.', ",")
+    };
+    format!("{localized} €")
+}
+
+fn fetch_sonarpad_balance(access_code: &str, device_id: &str) -> Result<f64, String> {
+    let access_code = access_code.trim();
+    let device_id = device_id.trim();
+    if !access_code.starts_with("sp_") {
+        return Err("invalid Sonarpad AI access code".to_string());
+    }
+    if device_id.is_empty() {
+        return Err("missing Sonarpad AI device identifier".to_string());
+    }
+
+    let client = reqwest::blocking::Client::builder()
+        .timeout(Duration::from_secs(30))
+        .build()
+        .map_err(|error| error.to_string())?;
+    let activate_url = format!("{SONARPAD_AI_SERVICE_URL}/v1/activate");
+    let activate = client
+        .post(&activate_url)
+        .json(&serde_json::json!({
+            "code": access_code,
+            "device_id": device_id,
+            "device_name": "Sonarpad Mac",
+        }))
+        .send()
+        .map_err(|error| error.to_string())?;
+    if !activate.status().is_success() {
+        return Err(format!("HTTP {}", activate.status().as_u16()));
+    }
+    let activate_json: serde_json::Value = activate.json().map_err(|error| error.to_string())?;
+    let session_token = activate_json
+        .get("session_token")
+        .and_then(serde_json::Value::as_str)
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if !session_token.starts_with("sst_") {
+        return Err("invalid session response".to_string());
+    }
+
+    let account_url = format!("{SONARPAD_AI_SERVICE_URL}/v1/account");
+    let account = client
+        .get(&account_url)
+        .bearer_auth(session_token)
+        .send()
+        .map_err(|error| error.to_string())?;
+    if !account.status().is_success() {
+        return Err(format!("HTTP {}", account.status().as_u16()));
+    }
+    let account_json: serde_json::Value = account.json().map_err(|error| error.to_string())?;
+    account_json
+        .get("balance_eur")
+        .and_then(serde_json::Value::as_f64)
+        .ok_or_else(|| "missing balance".to_string())
 }
 
 pub fn menu_label() -> String {
@@ -1112,6 +1195,7 @@ fn choose_audio_description_track(
 #[derive(Clone, Copy, Debug)]
 struct MediaProbe {
     duration_sec: f64,
+    format_start_sec: f64,
     has_audio: bool,
 }
 
@@ -1181,7 +1265,8 @@ fn probe_media(input: &Path) -> Result<MediaProbe, String> {
         .output()
         .map_err(|e| format!("Analisi del file multimediale fallita: {e}"))?;
     let stderr = String::from_utf8_lossy(&output.stderr);
-    let metadata_duration = stderr.lines().find_map(|line| {
+    let duration_line = stderr.lines().find(|line| line.contains("Duration:"));
+    let metadata_duration = duration_line.and_then(|line| {
         let marker = "Duration:";
         let pos = line.find(marker)?;
         let tail = line[pos + marker.len()..].trim_start();
@@ -1192,6 +1277,12 @@ fn probe_media(input: &Path) -> Result<MediaProbe, String> {
             parse_ffmpeg_duration(value)
         }
     });
+    let format_start_sec = duration_line
+        .and_then(|line| line.split("start:").nth(1))
+        .and_then(|tail| tail.split(',').next())
+        .and_then(|value| value.trim().parse::<f64>().ok())
+        .filter(|value| value.is_finite())
+        .unwrap_or(0.0);
     let duration_sec = if let Some(duration) = metadata_duration {
         duration
     } else if let Some(duration) = probe_media_duration_from_packets(input) {
@@ -1215,6 +1306,7 @@ fn probe_media(input: &Path) -> Result<MediaProbe, String> {
     let has_audio = stderr.lines().any(|line| line.contains(" Audio:"));
     Ok(MediaProbe {
         duration_sec,
+        format_start_sec,
         has_audio,
     })
 }
@@ -1242,7 +1334,22 @@ fn decode_source_audio(
     preferred_audio_stream_index: Option<i32>,
     cancel: &Arc<AtomicBool>,
 ) -> Result<MediaProbe, String> {
-    let probe = probe_media(input)?;
+    let mut probe = probe_media(input)?;
+    let normalized_duration = normalize_audio_description_source_duration(
+        input,
+        probe.duration_sec,
+        probe.format_start_sec,
+    );
+    if (normalized_duration - probe.duration_sec).abs() > 0.001 {
+        append_podcast_log(&format!(
+            "audio_description.source_duration_normalized raw={:.3} start_time={:.3} local={:.3} path={}",
+            probe.duration_sec,
+            probe.format_start_sec,
+            normalized_duration,
+            input.display()
+        ));
+        probe.duration_sec = normalized_duration;
+    }
     if !probe.has_audio {
         append_podcast_log("audio_description.source has_audio=false; using silent source track");
         write_silent_source_wav(wav, probe.duration_sec)?;
@@ -1505,6 +1612,289 @@ fn segment_video_for_gemini(
     }
 }
 
+fn normalize_audio_description_source_duration(
+    path: &Path,
+    measured_duration_sec: f64,
+    format_start_sec: f64,
+) -> f64 {
+    if !measured_duration_sec.is_finite() || measured_duration_sec <= 0.0 {
+        return measured_duration_sec;
+    }
+    let is_matroska = path
+        .extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| {
+            extension.eq_ignore_ascii_case("mkv") || extension.eq_ignore_ascii_case("webm")
+        });
+    if !is_matroska
+        || !format_start_sec.is_finite()
+        || format_start_sec <= CHUNK_SECONDS
+        || measured_duration_sec <= format_start_sec
+    {
+        return measured_duration_sec;
+    }
+    let local_span = measured_duration_sec - format_start_sec;
+    if local_span > 0.001 {
+        local_span
+    } else {
+        measured_duration_sec
+    }
+}
+
+fn normalize_prepared_chunk_duration(
+    measured_duration_sec: f64,
+    format_start_sec: f64,
+    segment_seconds: f64,
+) -> f64 {
+    let expected = segment_seconds.max(1.0);
+    if !measured_duration_sec.is_finite() || measured_duration_sec <= 0.0 {
+        return expected;
+    }
+    if format_start_sec.is_finite()
+        && format_start_sec > expected * 4.0
+        && measured_duration_sec > format_start_sec
+    {
+        let local_span = measured_duration_sec - format_start_sec;
+        if local_span > 0.001 && local_span <= expected * 4.0 {
+            return local_span;
+        }
+    }
+    measured_duration_sec
+}
+
+fn build_prepared_chunk_timeline(
+    measured_chunks: &[(PathBuf, f64)],
+    duration_sec: f64,
+    reconcile_small_drift: bool,
+) -> Option<Vec<AudioDescriptionPreparedChunk>> {
+    if measured_chunks.is_empty() || !duration_sec.is_finite() || duration_sec <= 0.0 {
+        return None;
+    }
+    let scale = if reconcile_small_drift {
+        let measured_total = measured_chunks.iter().map(|(_, value)| *value).sum::<f64>();
+        if !measured_total.is_finite() || measured_total <= duration_sec {
+            return None;
+        }
+        let excess_ratio = (measured_total - duration_sec) / duration_sec;
+        if !excess_ratio.is_finite() || excess_ratio <= 0.0 || excess_ratio > 0.02 {
+            return None;
+        }
+        duration_sec / measured_total
+    } else {
+        1.0
+    };
+
+    let mut result = Vec::with_capacity(measured_chunks.len());
+    let mut cursor = 0.0_f64;
+    for (index, (path, measured)) in measured_chunks.iter().enumerate() {
+        if !measured.is_finite() || *measured <= 0.0 {
+            return None;
+        }
+        let start_sec = cursor;
+        let end_sec = if index + 1 == measured_chunks.len() {
+            duration_sec
+        } else {
+            (start_sec + measured * scale).min(duration_sec)
+        };
+        if !end_sec.is_finite() || end_sec <= start_sec {
+            return None;
+        }
+        result.push(AudioDescriptionPreparedChunk {
+            path: path.to_string_lossy().to_string(),
+            start_sec,
+            end_sec,
+        });
+        if index + 1 < measured_chunks.len() {
+            cursor = end_sec;
+        }
+    }
+    Some(result)
+}
+
+fn gemini_media_invalid_argument(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    let invalid = lower.contains("invalid_argument")
+        || lower.contains("invalid argument")
+        || lower.contains("invalid value");
+    let http_400 = lower.contains("400")
+        || lower.contains("code': 400")
+        || lower.contains("\"code\":400");
+    let credentials = lower.contains("api key")
+        || lower.contains("api_key")
+        || lower.contains("permission denied")
+        || lower.contains("unauthenticated");
+    http_400 && invalid && !credentials
+}
+
+fn gemini_media_processing_failed(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    let media_failure = (lower.contains("video processing failed on gemini's servers")
+        && lower.contains("final state: failed"))
+        || lower.contains("file_verification_failed");
+    let credentials = lower.contains("api key")
+        || lower.contains("api_key")
+        || lower.contains("permission denied")
+        || lower.contains("unauthenticated")
+        || lower.contains("invalid_session");
+    media_failure && !credentials
+}
+
+fn segment_video_for_gemini_compatibility(
+    input: &Path,
+    dir: &Path,
+    segment_seconds: f64,
+    preferred_audio_stream_index: Option<i32>,
+    extension: &str,
+    video_only_on_any_mux_error: bool,
+    cancel: &Arc<AtomicBool>,
+) -> Result<Vec<PathBuf>, String> {
+    let extension = extension.trim_start_matches('.').to_ascii_lowercase();
+    if extension != "mkv" && extension != "mp4" {
+        return Err(format!("Contenitore di compatibilità Gemini non supportato: {extension}"));
+    }
+    fs::create_dir_all(dir).map_err(|e| format!("Creazione cache Gemini fallita: {e}"))?;
+    let prefix = "gemini_compat_";
+    let suffix = format!(".{extension}");
+    remove_prepared_chunk_files(dir, prefix, &suffix)?;
+    let output_pattern = dir.join(format!("{prefix}%04d.{extension}"));
+
+    let make_args = |video_only: bool, transcode: bool| {
+        let mut args = vec![
+            "-hide_banner".into(), "-loglevel".into(), "error".into(), "-y".into(),
+            "-fflags".into(), "+genpts+discardcorrupt".into(), "-err_detect".into(),
+            "ignore_err".into(), "-i".into(), input.to_string_lossy().to_string(),
+            "-map".into(), "0:v:0".into(),
+        ];
+        if video_only {
+            args.push("-an".into());
+        } else {
+            args.push("-map".into());
+            args.push(preferred_audio_stream_index
+                .map(|stream_index| format!("0:{stream_index}?"))
+                .unwrap_or_else(|| "0:a?".to_string()));
+        }
+        args.extend(["-sn".into(), "-dn".into()]);
+        if transcode {
+            args.extend([
+                "-c:v".into(), "libx264".into(), "-preset".into(), "veryfast".into(),
+                "-crf".into(), "23".into(), "-pix_fmt".into(), "yuv420p".into(),
+            ]);
+            if !video_only {
+                args.extend(["-c:a".into(), "aac".into(), "-b:a".into(), "128k".into()]);
+            }
+        } else {
+            args.extend(["-c".into(), "copy".into()]);
+        }
+        args.extend([
+            "-avoid_negative_ts".into(), "make_zero".into(), "-f".into(), "segment".into(),
+            "-segment_time".into(), format!("{segment_seconds:.3}"),
+            "-segment_start_number".into(), "1".into(), "-reset_timestamps".into(), "1".into(),
+            "-segment_format".into(), if extension == "mkv" { "matroska".into() } else { "mp4".into() },
+            output_pattern.to_string_lossy().to_string(),
+        ]);
+        args
+    };
+
+    match run_ffmpeg(&make_args(false, false), cancel) {
+        Ok(()) => collect_prepared_chunk_files(dir, prefix, &suffix),
+        Err(error) if error == "cancelled" => Err(error),
+        Err(primary_error) => {
+            let may_drop_audio = video_only_on_any_mux_error || timestamp_mux_error(&primary_error);
+            if may_drop_audio {
+                remove_prepared_chunk_files(dir, prefix, &suffix)?;
+                match run_ffmpeg(&make_args(true, false), cancel) {
+                    Ok(()) => return collect_prepared_chunk_files(dir, prefix, &suffix),
+                    Err(error) if error == "cancelled" => return Err(error),
+                    Err(_) => {}
+                }
+            }
+            remove_prepared_chunk_files(dir, prefix, &suffix)?;
+            run_ffmpeg(&make_args(false, true), cancel).map_err(|fallback_error| {
+                format!(
+                    "Preparazione compatibilità Gemini fallita: {primary_error}; fallback transcodifica: {fallback_error}"
+                )
+            })?;
+            collect_prepared_chunk_files(dir, prefix, &suffix)
+        }
+    }
+}
+
+fn prepare_gemini_compatibility_chunks(
+    input: &Path,
+    duration_sec: f64,
+    dir: &Path,
+    preferred_audio_stream_index: Option<i32>,
+    cancel: &Arc<AtomicBool>,
+    extension: &str,
+    video_only_on_any_mux_error: bool,
+) -> Result<Vec<AudioDescriptionPreparedChunk>, String> {
+    if dir.exists() {
+        fs::remove_dir_all(dir).map_err(|e| format!("Pulizia cache compatibilità Gemini fallita: {e}"))?;
+    }
+    fs::create_dir_all(dir).map_err(|e| format!("Creazione cache compatibilità Gemini fallita: {e}"))?;
+    let mut segment_seconds = duration_sec
+        .ceil()
+        .max(1.0)
+        .min(CHUNK_SECONDS);
+    let mut attempt = 1usize;
+
+    let paths = loop {
+        let paths = segment_video_for_gemini_compatibility(
+            input,
+            dir,
+            segment_seconds,
+            preferred_audio_stream_index,
+            extension,
+            video_only_on_any_mux_error,
+            cancel,
+        )?;
+        let max_chunk_bytes = paths
+            .iter()
+            .filter_map(|path| fs::metadata(path).ok().map(|metadata| metadata.len()))
+            .max()
+            .unwrap_or(0);
+        if max_chunk_bytes == 0 {
+            return Err("FFmpeg ha creato un segmento di compatibilità Gemini vuoto.".to_string());
+        }
+        if max_chunk_bytes <= GEMINI_COMPAT_TARGET_CHUNK_BYTES {
+            break paths;
+        }
+        if attempt >= GEMINI_COMPAT_SEGMENT_RETRY_LIMIT
+            || segment_seconds <= GEMINI_COMPAT_MIN_SEGMENT_SECONDS
+        {
+            return Err(format!(
+                "I segmenti di compatibilità Gemini restano troppo grandi: {:.1} MB",
+                max_chunk_bytes as f64 / (1024.0 * 1024.0)
+            ));
+        }
+        let ratio = GEMINI_COMPAT_TARGET_CHUNK_BYTES as f64 / max_chunk_bytes as f64;
+        let proposed = (segment_seconds * ratio * 0.80).floor();
+        segment_seconds = proposed
+            .max(GEMINI_COMPAT_MIN_SEGMENT_SECONDS)
+            .min((segment_seconds - 1.0).max(GEMINI_COMPAT_MIN_SEGMENT_SECONDS));
+        attempt += 1;
+    };
+
+    let mut measured_chunks = Vec::with_capacity(paths.len());
+    for path in paths {
+        let probe = probe_media(&path)?;
+        let measured = normalize_prepared_chunk_duration(
+            probe.duration_sec,
+            probe.format_start_sec,
+            segment_seconds,
+        )
+        .max(0.001);
+        measured_chunks.push((path, measured));
+    }
+    if let Some(chunks) = build_prepared_chunk_timeline(&measured_chunks, duration_sec, false) {
+        return Ok(chunks);
+    }
+    if let Some(chunks) = build_prepared_chunk_timeline(&measured_chunks, duration_sec, true) {
+        return Ok(chunks);
+    }
+    Err("Timeline dei segmenti di compatibilità Gemini non valida.".to_string())
+}
+
 fn prepare_chunks(
     input: &Path,
     duration: f64,
@@ -1635,9 +2025,8 @@ fn prepare_chunks(
     };
 
     let path_count = paths.len();
-    let mut chunks = Vec::with_capacity(path_count);
-    let mut cursor = 0.0_f64;
-    for (index, path) in paths.into_iter().enumerate() {
+    let mut measured_chunks = Vec::with_capacity(path_count);
+    for path in paths {
         if cancel.load(Ordering::Relaxed) {
             return Err("cancelled".to_string());
         }
@@ -1648,38 +2037,45 @@ fn prepare_chunks(
                 path.display()
             ));
         }
-        let measured = probe_media(&path)
-            .map(|probe| probe.duration_sec)
-            .unwrap_or(segment_seconds)
-            .max(0.001);
-        let start_sec = cursor;
-        let end_sec = if index + 1 == path_count {
-            duration
-        } else {
-            (start_sec + measured).min(duration)
-        };
-        if end_sec <= start_sec {
-            return Err("Timeline dei chunk Gemini non valida.".to_string());
-        }
-        append_podcast_log(&format!(
-            "audio_description.chunk index={} start={:.3} end={:.3} measured={:.3} size_mb={:.1} format=mkv segment_target_sec={:.3}",
-            index + 1,
-            start_sec,
-            end_sec,
-            measured,
-            size as f64 / (1024.0 * 1024.0),
-            segment_seconds
-        ));
-        chunks.push(AudioDescriptionPreparedChunk {
-            path: path.to_string_lossy().to_string(),
-            start_sec,
-            end_sec,
+        let probe = probe_media(&path).unwrap_or(MediaProbe {
+            duration_sec: segment_seconds,
+            format_start_sec: 0.0,
+            has_audio: false,
         });
-        if index + 1 < path_count {
-            cursor = end_sec;
+        let measured = normalize_prepared_chunk_duration(
+            probe.duration_sec,
+            probe.format_start_sec,
+            segment_seconds,
+        )
+        .max(0.001);
+        measured_chunks.push((path, measured));
+    }
+    if let Some(chunks) = build_prepared_chunk_timeline(&measured_chunks, duration, false) {
+        return Ok(chunks);
+    }
+    let measured_total = measured_chunks.iter().map(|(_, value)| *value).sum::<f64>();
+    let excess_ratio = if duration > 0.0 {
+        (measured_total - duration) / duration
+    } else {
+        f64::INFINITY
+    };
+    if measured_total.is_finite()
+        && measured_total > duration
+        && excess_ratio.is_finite()
+        && excess_ratio > 0.0
+        && excess_ratio <= 0.02
+    {
+        append_podcast_log(&format!(
+            "audio_description.chunk_timeline_reconcile measured_total={:.3} source_duration={:.3} excess_pct={:.3}",
+            measured_total,
+            duration,
+            excess_ratio * 100.0
+        ));
+        if let Some(chunks) = build_prepared_chunk_timeline(&measured_chunks, duration, true) {
+            return Ok(chunks);
         }
     }
-    Ok(chunks)
+    Err("Timeline dei chunk Gemini non valida.".to_string())
 }
 
 fn convert_mp3_bytes_to_pcm(
@@ -2305,25 +2701,64 @@ fn mix_sample(source: i16, narration: i16, duck_gain: f32) -> i16 {
     value.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16
 }
 
-fn duck_gain_for(frame: u64, start: u64, end: u64, fade_frames: u64) -> f32 {
+fn smooth_duck_fade(position: f32) -> f32 {
+    let position = position.clamp(0.0, 1.0);
+    0.5 - 0.5 * (std::f32::consts::PI * position).cos()
+}
+
+fn merge_duck_intervals(mut intervals: Vec<(u64, u64)>, join_gap: u64) -> Vec<(u64, u64)> {
+    if intervals.is_empty() {
+        return intervals;
+    }
+    intervals.sort_by_key(|interval| interval.0);
+    let mut merged = Vec::with_capacity(intervals.len());
+    for (start, end) in intervals {
+        if let Some(last) = merged.last_mut()
+            && start <= last.1.saturating_add(join_gap)
+        {
+            last.1 = last.1.max(end);
+            continue;
+        }
+        merged.push((start, end));
+    }
+    merged
+}
+
+fn duck_gain_for(
+    frame: u64,
+    intervals: &[(u64, u64)],
+    cursor: &mut usize,
+    attack_frames: u64,
+    preduck_frames: u64,
+    release_frames: u64,
+) -> f32 {
     let duck = 10f32.powf(DUCKING_DB / 20.0);
-    if fade_frames == 0 {
-        return if frame >= start && frame < end {
-            duck
+    while let Some((_, end)) = intervals.get(*cursor) {
+        if frame > end.saturating_add(release_frames) {
+            *cursor = cursor.saturating_add(1);
         } else {
-            1.0
-        };
+            break;
+        }
     }
-    if frame + fade_frames >= start && frame < start {
-        let x = (frame + fade_frames - start) as f32 / fade_frames as f32;
-        return 1.0 - (1.0 - duck) * x.clamp(0.0, 1.0);
+    let Some((start, end)) = intervals.get(*cursor).copied() else {
+        return 1.0;
+    };
+    let full_duck_start = start.saturating_sub(preduck_frames);
+    if attack_frames > 0 && frame < full_duck_start {
+        let attack_start = full_duck_start.saturating_sub(attack_frames);
+        if frame >= attack_start {
+            let position = (frame - attack_start) as f32 / attack_frames as f32;
+            let eased = smooth_duck_fade(position);
+            return 1.0 + (duck - 1.0) * eased;
+        }
     }
-    if frame >= start && frame < end {
+    if frame >= full_duck_start && frame <= end {
         return duck;
     }
-    if frame >= end && frame < end + fade_frames {
-        let x = (frame - end) as f32 / fade_frames as f32;
-        return duck + (1.0 - duck) * x.clamp(0.0, 1.0);
+    if release_frames > 0 && frame > end && frame <= end.saturating_add(release_frames) {
+        let position = (frame - end) as f32 / release_frames as f32;
+        let eased = smooth_duck_fade(position);
+        return duck + (1.0 - duck) * eased;
     }
     1.0
 }
@@ -2352,7 +2787,22 @@ fn render_mix(
     let mut writer = WavWriter::create(output_wav, out_spec).map_err(|e| e.to_string())?;
     let total_source_frames = source.duration() as u64;
     let mut samples = source.samples::<i16>();
-    let fade_frames = (MIX_SAMPLE_RATE as u64 * FADE_MS as u64) / 1000;
+    let attack_frames = (MIX_SAMPLE_RATE as u64 * FADE_MS as u64) / 1000;
+    let preduck_frames = (MIX_SAMPLE_RATE as u64 * PRE_DUCK_MS as u64) / 1000;
+    let release_frames = (MIX_SAMPLE_RATE as u64 * RELEASE_MS as u64) / 1000;
+    let duck_intervals = merge_duck_intervals(
+        scheduled
+            .iter()
+            .filter(|cue| !cue.extended_pause)
+            .map(|cue| {
+                let start = (cue.start_sec * MIX_SAMPLE_RATE as f64).round() as u64;
+                let cue_frames = cue.pcm.len() as u64 / MIX_CHANNELS as u64;
+                (start, start.saturating_add(cue_frames))
+            })
+            .collect(),
+        attack_frames.saturating_add(preduck_frames),
+    );
+    let mut duck_cursor = 0usize;
     let mut source_frame = 0u64;
     let mut cue_index = 0usize;
     let mut output_frames = 0u64;
@@ -2383,12 +2833,18 @@ fn render_mix(
             .map_err(|e| e.to_string())?
             .unwrap_or(0);
         let mut narration = [0i16; 2];
-        let mut gain = 1.0f32;
+        let gain = duck_gain_for(
+            source_frame,
+            &duck_intervals,
+            &mut duck_cursor,
+            attack_frames,
+            preduck_frames,
+            release_frames,
+        );
         if let Some(cue) = scheduled.get(cue_index).filter(|c| !c.extended_pause) {
             let start = (cue.start_sec * MIX_SAMPLE_RATE as f64).round() as u64;
             let cue_frames = cue.pcm.len() as u64 / MIX_CHANNELS as u64;
             let end = start + cue_frames;
-            gain = duck_gain_for(source_frame, start, end, fade_frames);
             if source_frame >= start && source_frame < end {
                 let off = ((source_frame - start) * MIX_CHANNELS as u64) as usize;
                 narration[0] = *cue.pcm.get(off).unwrap_or(&0);
@@ -2436,6 +2892,123 @@ fn encode_mp3(wav: &Path, output: &Path, cancel: &Arc<AtomicBool>) -> Result<(),
         output.to_string_lossy().to_string(),
     ];
     run_ffmpeg(&args, cancel)
+}
+
+fn audio_description_mkv_fallback_path(path: &Path) -> PathBuf {
+    let mut fallback = path.to_path_buf();
+    fallback.set_extension("mkv");
+    if !fallback.exists() {
+        return fallback;
+    }
+    let parent = path.parent().unwrap_or_else(|| Path::new("."));
+    let stem = path
+        .file_stem()
+        .and_then(|value| value.to_str())
+        .unwrap_or("audio_description");
+    for index in 1..=9_999 {
+        let candidate = parent.join(format!("{stem}_fallback_{index}.mkv"));
+        if !candidate.exists() {
+            return candidate;
+        }
+    }
+    parent.join(format!("{stem}_fallback_{}.mkv", std::process::id()))
+}
+
+fn audio_description_mp4_mux_error_allows_mkv_fallback(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    if lower.contains("saving canceled")
+        || lower.contains("cancelled")
+        || lower.contains("canceled")
+        || lower.contains("no space left")
+        || lower.contains("permission denied")
+        || lower.contains("operation not permitted")
+    {
+        return false;
+    }
+    lower.contains("failed to write header")
+        || lower.contains("av_interleaved_write_frame")
+        || lower.contains("could not write header")
+        || lower.contains("not currently supported in container")
+        || lower.contains("codec not currently supported")
+}
+
+fn mux_audio_description_video(
+    input_video: &Path,
+    mixed_audio: &Path,
+    output: &Path,
+    cancel: &Arc<AtomicBool>,
+) -> Result<(), String> {
+    let args = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+        "-i".into(),
+        input_video.to_string_lossy().to_string(),
+        "-i".into(),
+        mixed_audio.to_string_lossy().to_string(),
+        "-map".into(),
+        "0:v:0".into(),
+        "-map".into(),
+        "1:a:0".into(),
+        "-c:v".into(),
+        "copy".into(),
+        "-c:a".into(),
+        "copy".into(),
+        "-map_metadata".into(),
+        "0".into(),
+        "-shortest".into(),
+        output.to_string_lossy().to_string(),
+    ];
+    run_ffmpeg(&args, cancel)
+}
+
+fn export_audio_description_media(
+    input_video: &Path,
+    mixed_mp3: &Path,
+    requested_output: &Path,
+    create_video_output: bool,
+    cancel: &Arc<AtomicBool>,
+) -> Result<PathBuf, String> {
+    if !create_video_output {
+        fs::copy(mixed_mp3, requested_output)
+            .map_err(|error| format!("Salvataggio MP3 fallito: {error}"))?;
+        return Ok(requested_output.to_path_buf());
+    }
+
+    match mux_audio_description_video(input_video, mixed_mp3, requested_output, cancel) {
+        Ok(()) => Ok(requested_output.to_path_buf()),
+        Err(primary_error) => {
+            let wants_mp4 = requested_output
+                .extension()
+                .and_then(|value| value.to_str())
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"));
+            if !wants_mp4
+                || !audio_description_mp4_mux_error_allows_mkv_fallback(&primary_error)
+                || cancel.load(Ordering::Relaxed)
+            {
+                return Err(primary_error);
+            }
+            if requested_output.exists() {
+                let _ = fs::remove_file(requested_output);
+            }
+            let fallback = audio_description_mkv_fallback_path(requested_output);
+            append_podcast_log(&format!(
+                "audio_description.video_mp4_fallback primary_error={} fallback={}",
+                primary_error,
+                fallback.display()
+            ));
+            mux_audio_description_video(input_video, mixed_mp3, &fallback, cancel).map_err(
+                |fallback_error| {
+                    let _ = fs::remove_file(&fallback);
+                    format!(
+                        "{primary_error}; anche il fallback MKV è fallito: {fallback_error}"
+                    )
+                },
+            )?;
+            Ok(fallback)
+        }
+    }
 }
 
 fn project_path(output: &Path) -> PathBuf {
@@ -2497,7 +3070,9 @@ fn save_partial_checkpoint(
         verbosity: job.verbosity.as_bridge().to_string(),
         allow_extended_pauses: job.allow_extended_pauses,
         recognize_characters: job.recognize_characters,
+        recognize_screen_text: job.recognize_screen_text,
         save_project: job.save_project,
+        create_video_output: job.create_video_output,
         delete_input_after_success: job.delete_input_after_success,
         keep_character_catalog: job.keep_character_catalog,
         tts_engine: job.tts_engine.clone(),
@@ -2542,6 +3117,9 @@ fn load_resume_settings(path: &Path) -> Result<AudioDescriptionResumeSettings, S
 fn job_from_checkpoint(
     path: &Path,
     gemini_api_key: String,
+    sonarpad_ai_service_url: String,
+    sonarpad_ai_access_code: String,
+    sonarpad_ai_device_id: String,
     gemini_model: String,
 ) -> Result<CreateJob, String> {
     let checkpoint = load_partial_checkpoint(path)?;
@@ -2557,7 +3135,9 @@ fn job_from_checkpoint(
         verbosity: Verbosity::from_settings(&checkpoint.verbosity),
         allow_extended_pauses: checkpoint.allow_extended_pauses,
         recognize_characters: checkpoint.recognize_characters,
+        recognize_screen_text: checkpoint.recognize_screen_text,
         save_project: checkpoint.save_project,
+        create_video_output: checkpoint.create_video_output,
         delete_input_after_success: checkpoint.delete_input_after_success,
         keep_character_catalog: checkpoint.keep_character_catalog,
         catalog,
@@ -2568,9 +3148,29 @@ fn job_from_checkpoint(
         volume: checkpoint.volume,
         audio_stream_index: checkpoint.audio_stream_index,
         gemini_api_key,
+        sonarpad_ai_service_url,
+        sonarpad_ai_access_code,
+        sonarpad_ai_device_id,
         gemini_model,
         resume_checkpoint_path: Some(path.to_path_buf()),
     })
+}
+
+fn project_duck_bounds(
+    output_start_sec: f64,
+    output_end_sec: f64,
+    extended_pause: bool,
+) -> (Option<f64>, Option<f64>) {
+    if extended_pause {
+        (None, None)
+    } else {
+        (
+            Some(
+                (output_start_sec - (FADE_MS + PRE_DUCK_MS) as f64 / 1000.0).max(0.0),
+            ),
+            Some(output_end_sec + RELEASE_MS as f64 / 1000.0),
+        )
+    }
 }
 
 fn build_project(
@@ -2590,6 +3190,8 @@ fn build_project(
             0.0
         };
         let output_end = output_start + d.duration_sec;
+        let (duck_start_sec, duck_end_sec) =
+            project_duck_bounds(output_start, output_end, d.extended_pause);
         descriptions.push(ProjectDescription {
             id,
             text: d.text.clone(),
@@ -2608,8 +3210,8 @@ fn build_project(
             tts_duration_sec: d.duration_sec,
             extended_pause: d.extended_pause,
             extended_pause_duration_sec: ext,
-            duck_start_sec: (!d.extended_pause).then_some(output_start),
-            duck_end_sec: (!d.extended_pause).then_some(output_end),
+            duck_start_sec,
+            duck_end_sec,
         });
         extra_offset += ext;
     }
@@ -2633,6 +3235,7 @@ fn build_project(
         updated_at_utc: now_utc(),
         source_path: job.input_path.clone(),
         output_mp3_path: job.output_path.clone(),
+        output_is_video: job.create_video_output,
         audio_stream_index: job.audio_stream_index,
         source_duration_sec: analysis.duration_sec,
         output_duration_sec: output_duration,
@@ -2641,6 +3244,7 @@ fn build_project(
         verbosity: job.verbosity.as_bridge().into(),
         allow_extended_pauses: job.allow_extended_pauses,
         recognize_characters: job.recognize_characters,
+        recognize_screen_text: job.recognize_screen_text,
         gemini_model: analysis.gemini_model.clone(),
         tts_engine: job.tts_engine.clone(),
         tts_voice: job.tts_voice.clone(),
@@ -2858,8 +3462,13 @@ fn create_audio_description(
     if input_cmp == output_cmp {
         return Err(tr("audio_description.error.same_path"));
     }
-    if job.gemini_api_key.trim().is_empty() {
+    if job.gemini_api_key.trim().is_empty() && job.sonarpad_ai_service_url.trim().is_empty() {
         return Err(tr("audio_description.error.api_key"));
+    }
+    if !job.sonarpad_ai_service_url.trim().is_empty()
+        && job.sonarpad_ai_access_code.trim().is_empty()
+    {
+        return Err(tr("audio_description.error.sonarpad_code"));
     }
     if job.tts_voice.trim().is_empty() {
         return Err(tr("audio_description.error.voice"));
@@ -2949,72 +3558,176 @@ fn create_audio_description(
             verbosity: job.verbosity.as_bridge().into(),
             allow_extended_pauses: job.allow_extended_pauses,
             recognize_characters: job.recognize_characters,
+            recognize_screen_text: job.recognize_screen_text,
             initial_character_glossary: job
                 .catalog
                 .as_ref()
                 .map(|c| c.characters.clone())
                 .unwrap_or_default(),
+            ai_access_mode: if job.sonarpad_ai_service_url.trim().is_empty() {
+                "personal".to_string()
+            } else {
+                "sonarpad".to_string()
+            },
             gemini_api_key: job.gemini_api_key.clone(),
+            sonarpad_ai_service_url: job.sonarpad_ai_service_url.clone(),
+            sonarpad_ai_access_code: job.sonarpad_ai_access_code.clone(),
+            sonarpad_ai_device_id: job.sonarpad_ai_device_id.clone(),
             gemini_model: job.gemini_model.clone(),
             resume,
         };
-        let status_state = state.clone();
-        let progress_state = state.clone();
-        let quota_state = state.clone();
-        let overload_state = state.clone();
-        let checkpoint_job = job.clone();
-        let checkpoint_target = checkpoint_path.clone();
-        let analysis = run_audio_description_bridge(
-            &request,
-            cancel.clone(),
-            AudioDescriptionBridgeCallbacks {
-                download: None,
-                progress: Some(Box::new(move |pct| {
-                    let mut s = progress_state.lock().unwrap();
-                    s.progress = 10 + (pct.clamp(0, 100) * 45 / 100);
-                })),
-                status: Some(Box::new(move |stage, message| {
-                    status_state.lock().unwrap().status = bridge_progress_status(stage, message);
-                })),
-                quota: Some(Box::new(move |model, error| {
-                    let (tx, rx) = mpsc::sync_channel(1);
-                    quota_state.lock().unwrap().quota = Some(QuotaUiRequest {
-                        model: model.to_string(),
-                        error: error.to_string(),
-                        sender: tx,
-                    });
-                    rx.recv().unwrap_or(AudioDescriptionQuotaDecision::Stop)
-                })),
-                overload: Some(Box::new(move |model, error| {
-                    let (tx, rx) = mpsc::sync_channel(1);
-                    overload_state.lock().unwrap().overload = Some(OverloadUiRequest {
-                        model: model.to_string(),
-                        error: error.to_string(),
-                        sender: tx,
-                    });
-                    rx.recv().unwrap_or(AudioDescriptionOverloadDecision::Stop)
-                })),
-                checkpoint: Some(Box::new(move |checkpoint| {
-                    if let Err(error) = save_partial_checkpoint(
-                        &checkpoint_target,
-                        &checkpoint_job,
-                        duration,
-                        checkpoint,
-                    ) {
+        let run_bridge_once = |bridge_request: &AudioDescriptionBridgeRequest| {
+            let status_state = state.clone();
+            let progress_state = state.clone();
+            let quota_state = state.clone();
+            let overload_state = state.clone();
+            let checkpoint_job = job.clone();
+            let checkpoint_target = checkpoint_path.clone();
+            run_audio_description_bridge(
+                bridge_request,
+                cancel.clone(),
+                AudioDescriptionBridgeCallbacks {
+                    download: None,
+                    progress: Some(Box::new(move |pct| {
+                        let mut s = progress_state.lock().unwrap();
+                        s.progress = 10 + (pct.clamp(0, 100) * 45 / 100);
+                    })),
+                    status: Some(Box::new(move |stage, message| {
+                        status_state.lock().unwrap().status = bridge_progress_status(stage, message);
+                    })),
+                    quota: Some(Box::new(move |model, error| {
+                        let (tx, rx) = mpsc::sync_channel(1);
+                        quota_state.lock().unwrap().quota = Some(QuotaUiRequest {
+                            model: model.to_string(),
+                            error: error.to_string(),
+                            sender: tx,
+                        });
+                        rx.recv().unwrap_or(AudioDescriptionQuotaDecision::Stop)
+                    })),
+                    overload: Some(Box::new(move |model, error| {
+                        let (tx, rx) = mpsc::sync_channel(1);
+                        overload_state.lock().unwrap().overload = Some(OverloadUiRequest {
+                            model: model.to_string(),
+                            error: error.to_string(),
+                            sender: tx,
+                        });
+                        rx.recv().unwrap_or(AudioDescriptionOverloadDecision::Stop)
+                    })),
+                    checkpoint: Some(Box::new(move |checkpoint| {
+                        if let Err(error) = save_partial_checkpoint(
+                            &checkpoint_target,
+                            &checkpoint_job,
+                            duration,
+                            checkpoint,
+                        ) {
+                            append_podcast_log(&format!(
+                                "audio_description.checkpoint_save_failed error={error}"
+                            ));
+                        } else {
+                            append_podcast_log(&format!(
+                                "audio_description.checkpoint_saved chunk={}/{} path={}",
+                                checkpoint.completed_chunks,
+                                checkpoint.total_chunks,
+                                checkpoint_target.display()
+                            ));
+                        }
+                    })),
+                },
+            )
+        };
+
+        // Preserve the normal path for files that already work. Compatibility
+        // segmentation is activated only after Gemini rejects or fails to process
+        // the original prepared media, matching the current Windows bridge policy.
+        let mut analysis_result = run_bridge_once(&request);
+        let mut try_mp4_fallback = false;
+
+        if let Err(primary_error) = &analysis_result
+            && gemini_media_processing_failed(primary_error)
+            && !cancel.load(Ordering::Relaxed)
+        {
+            append_podcast_log(&format!(
+                "audio_description.gemini_media_processing_failed fallback=mp4 error={primary_error}"
+            ));
+            state.lock().unwrap().status = tr("audio_description.progress.gemini_mp4_fallback");
+            try_mp4_fallback = true;
+        }
+
+        if let Err(primary_error) = &analysis_result
+            && gemini_media_invalid_argument(primary_error)
+            && !cancel.load(Ordering::Relaxed)
+        {
+            append_podcast_log(&format!(
+                "audio_description.gemini_invalid_argument fallback=small_mkv error={primary_error}"
+            ));
+            state.lock().unwrap().status = tr("audio_description.progress.gemini_small_fallback");
+            let fallback_dir = work.join("gemini_fallback_small_mkv");
+            match prepare_gemini_compatibility_chunks(
+                &job.input_path,
+                duration,
+                &fallback_dir,
+                job.audio_stream_index,
+                &cancel,
+                "mkv",
+                false,
+            ) {
+                Ok(fallback_chunks) => {
+                    let mut fallback_request = request.clone();
+                    fallback_request.chunks = fallback_chunks;
+                    fallback_request.resume = None;
+                    analysis_result = run_bridge_once(&fallback_request);
+                    if let Err(fallback_error) = &analysis_result
+                        && (gemini_media_invalid_argument(fallback_error)
+                            || gemini_media_processing_failed(fallback_error))
+                        && !cancel.load(Ordering::Relaxed)
+                    {
                         append_podcast_log(&format!(
-                            "audio_description.checkpoint_save_failed error={error}"
+                            "audio_description.gemini_small_mkv_failed fallback=mp4 error={fallback_error}"
                         ));
-                    } else {
-                        append_podcast_log(&format!(
-                            "audio_description.checkpoint_saved chunk={}/{} path={}",
-                            checkpoint.completed_chunks,
-                            checkpoint.total_chunks,
-                            checkpoint_target.display()
-                        ));
+                        try_mp4_fallback = true;
                     }
-                })),
-            },
-        )?;
+                }
+                Err(error) => {
+                    append_podcast_log(&format!(
+                        "audio_description.gemini_small_mkv_prepare_failed fallback=mp4 error={error}"
+                    ));
+                    try_mp4_fallback = true;
+                }
+            }
+        }
+
+        if try_mp4_fallback && !cancel.load(Ordering::Relaxed) {
+            state.lock().unwrap().status = tr("audio_description.progress.gemini_mp4_fallback");
+            let fallback_dir = work.join("gemini_fallback_mp4");
+            match prepare_gemini_compatibility_chunks(
+                &job.input_path,
+                duration,
+                &fallback_dir,
+                job.audio_stream_index,
+                &cancel,
+                "mp4",
+                true,
+            ) {
+                Ok(fallback_chunks) => {
+                    let mut fallback_request = request.clone();
+                    fallback_request.chunks = fallback_chunks;
+                    fallback_request.resume = None;
+                    analysis_result = run_bridge_once(&fallback_request);
+                }
+                Err(mp4_error) => {
+                    let combined_error = match &analysis_result {
+                        Err(previous_error) => Some(format!(
+                            "{previous_error}\nGemini MP4 compatibility fallback could not be prepared: {mp4_error}"
+                        )),
+                        Ok(_) => None,
+                    };
+                    if let Some(combined_error) = combined_error {
+                        analysis_result = Err(combined_error);
+                    }
+                }
+            }
+        }
+        let analysis = analysis_result?;
         if analysis.descriptions.is_empty() {
             return Err("Gemini non ha restituito descrizioni.".to_string());
         }
@@ -3068,7 +3781,7 @@ fn create_audio_description(
             &synthesized,
             &analysis.protected_intervals,
             analysis.duration_sec,
-            job.allow_extended_pauses,
+            job.allow_extended_pauses && !job.create_video_output,
         );
         if scheduled.is_empty() {
             return Err("Nessuna descrizione può essere inserita in sicurezza.".into());
@@ -3082,11 +3795,24 @@ fn create_audio_description(
         }
         let temp_output = work.join("final.mp3");
         encode_mp3(&mix_wav, &temp_output, &cancel)?;
-        fs::copy(&temp_output, &job.output_path)
-            .map_err(|e| format!("Salvataggio MP3 fallito: {e}"))?;
+        let actual_output = export_audio_description_media(
+            &job.input_path,
+            &temp_output,
+            &job.output_path,
+            job.create_video_output,
+            &cancel,
+        )?;
         let project_file = if job.save_project {
-            let p = project_path(&job.output_path);
-            let project = build_project(job, &analysis, &scheduled, &dropped, output_duration);
+            let p = project_path(&actual_output);
+            let mut project_job = job.clone();
+            project_job.output_path = actual_output.clone();
+            let project = build_project(
+                &project_job,
+                &analysis,
+                &scheduled,
+                &dropped,
+                output_duration,
+            );
             save_project(&p, &project)?;
             Some(p)
         } else {
@@ -3104,7 +3830,7 @@ fn create_audio_description(
         let extended = scheduled.iter().filter(|x| x.extended_pause).count();
         let dropped_mandatory = dropped.iter().filter(|x| x.mandatory).count();
         Ok(JobOutcome {
-            output_path: job.output_path.clone(),
+            output_path: actual_output,
             project_path: project_file,
             catalog_path,
             generated: analysis.descriptions.len(),
@@ -3139,17 +3865,6 @@ fn show_project_error(parent: &Dialog, message: &str) {
         &tr("audio_description.project.title"),
     )
     .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-    .build();
-    d.show_modal();
-}
-
-fn show_project_edit_success(parent: &Dialog) {
-    let d = MessageDialog::builder(
-        parent,
-        &tr("audio_description.project.edit_saved"),
-        &tr("audio_description.project.edit_success_title"),
-    )
-    .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
     .build();
     d.show_modal();
 }
@@ -3597,15 +4312,36 @@ fn choose_resume_checkpoint(
     }
 }
 
-fn choose_output(parent: &Dialog, input: &Path) -> Option<PathBuf> {
+fn suggested_audio_description_output(input: &Path, create_video_output: bool) -> PathBuf {
     let stem = input
         .file_stem()
         .and_then(|s| s.to_str())
         .unwrap_or("video");
+    let extension = if create_video_output { "mp4" } else { "mp3" };
+    default_output_dir().join(format!(
+        "{}_audiodescritto.{extension}",
+        sanitize_filename(stem)
+    ))
+}
+
+fn choose_output(parent: &Dialog, input: &Path, create_video_output: bool) -> Option<PathBuf> {
+    let stem = input
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or("video");
+    let extension = if create_video_output { "mp4" } else { "mp3" };
+    let wildcard = if create_video_output {
+        "Video MP4|*.mp4|Video Matroska|*.mkv"
+    } else {
+        "MP3|*.mp3"
+    };
     let d = FileDialog::builder(parent)
         .with_message(&tr("audio_description.save_title"))
-        .with_default_file(&format!("{}_audiodescritto.mp3", sanitize_filename(stem)))
-        .with_wildcard("MP3|*.mp3")
+        .with_default_file(&format!(
+            "{}_audiodescritto.{extension}",
+            sanitize_filename(stem)
+        ))
+        .with_wildcard(wildcard)
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
         .build();
     if d.show_modal() == ID_OK {
@@ -3950,7 +4686,17 @@ fn execute_audio_description_job(
     .then(|| job.input_path.clone());
     {
         let mut st = settings.lock().unwrap();
-        st.audio_description_gemini_api_key = job.gemini_api_key.clone();
+        let use_sonarpad_ai = !job.sonarpad_ai_service_url.trim().is_empty();
+        st.audio_description_use_sonarpad_ai = use_sonarpad_ai;
+        if use_sonarpad_ai {
+            st.sonarpad_ai_access_code = job.sonarpad_ai_access_code.clone();
+            if !job.sonarpad_ai_device_id.trim().is_empty() {
+                st.sonarpad_ai_device_id = job.sonarpad_ai_device_id.clone();
+            }
+        } else {
+            // Keep the personal Gemini key independent from the Sonarpad AI credentials.
+            st.audio_description_gemini_api_key = job.gemini_api_key.clone();
+        }
         st.audio_description_gemini_model = selected_model;
         st.audio_description_language = job.language_code.clone();
         st.audio_description_tts_engine = job.tts_engine.clone();
@@ -3958,7 +4704,9 @@ fn execute_audio_description_job(
         st.audio_description_verbosity = job.verbosity.as_bridge().to_string();
         st.audio_description_extended_pauses = job.allow_extended_pauses;
         st.audio_description_recognize_characters = job.recognize_characters;
+        st.audio_description_recognize_screen_text = job.recognize_screen_text;
         st.audio_description_save_project = job.save_project;
+        st.audio_description_create_video_output = job.create_video_output;
         st.audio_description_delete_video_after = job.delete_input_after_success;
         st.audio_description_keep_character_catalog = job.keep_character_catalog;
         st.audio_description_character_catalog = job
@@ -4145,6 +4893,8 @@ fn open_create_dialog_impl(
     let output_btn = Button::builder(&p)
         .with_label(&tr("audio_description.browse_output"))
         .build();
+    // Audio-only creation keeps the historical *_audiodescritto.mp3 default;
+    // video-output mode switches the suggested destination to MP4.
     let output = TextCtrl::builder(&p).build();
     let output_row = BoxSizer::builder(Orientation::Horizontal).build();
     output_row.add(
@@ -4211,6 +4961,27 @@ fn open_create_dialog_impl(
         .build();
     recognize.set_value(saved.audio_description_recognize_characters);
     root.add(&recognize, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let recognize_screen_text = CheckBox::builder(&p)
+        .with_label(&tr("audio_description.recognize_screen_text"))
+        .build();
+    recognize_screen_text.set_value(saved.audio_description_recognize_screen_text);
+    root.add(
+        &recognize_screen_text,
+        0,
+        SizerFlag::Expand | SizerFlag::All,
+        5,
+    );
+    let create_video_output = CheckBox::builder(&p)
+        .with_label(&tr("audio_description.create_video"))
+        .build();
+    create_video_output.set_value(saved.audio_description_create_video_output);
+    root.add(
+        &create_video_output,
+        0,
+        SizerFlag::Expand | SizerFlag::All,
+        5,
+    );
+    extended.enable(!saved.audio_description_create_video_output);
     let save_project_box = CheckBox::builder(&p)
         .with_label(&tr("audio_description.save_project"))
         .build();
@@ -4276,6 +5047,23 @@ fn open_create_dialog_impl(
     catalog_name_label.show(show_new_catalog_name);
     catalog_name.show(show_new_catalog_name);
     root.add_sizer(&catalog_name_row, 0, SizerFlag::Expand, 0);
+    let ai_access_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.ai_access"))
+        .build();
+    let ai_access = Choice::builder(&p).build();
+    ai_access.append(&tr("audio_description.ai_access.personal"));
+    ai_access.append(&tr("audio_description.ai_access.sonarpad"));
+    ai_access.set_selection(if saved.audio_description_use_sonarpad_ai { 1 } else { 0 });
+    let ai_access_row = BoxSizer::builder(Orientation::Horizontal).build();
+    ai_access_row.add(
+        &ai_access_label,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    ai_access_row.add(&ai_access, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&ai_access_row, 0, SizerFlag::Expand, 0);
+
     let api_label = StaticText::builder(&p)
         .with_label(&tr("audio_description.gemini_api_key"))
         .build();
@@ -4311,11 +5099,89 @@ fn open_create_dialog_impl(
     api_row.add(&api_get, 0, SizerFlag::All, 5);
     root.add_sizer(&api_row, 0, SizerFlag::Expand, 0);
 
+    let sonarpad_code_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.sonarpad_code"))
+        .build();
+    let sonarpad_code = TextCtrl::builder(&p)
+        .with_style(TextCtrlStyle::Password)
+        .build();
+    sonarpad_code.set_value(&saved.sonarpad_ai_access_code);
+    let sonarpad_code_visible = TextCtrl::builder(&p).build();
+    sonarpad_code_visible.set_value(&saved.sonarpad_ai_access_code);
+    sonarpad_code_visible.show(false);
+    let show_sonarpad_code = CheckBox::builder(&p)
+        .with_label(&tr("audio_description.sonarpad_show_code"))
+        .build();
+    show_sonarpad_code.set_value(false);
+    let sonarpad_code_row = BoxSizer::builder(Orientation::Horizontal).build();
+    sonarpad_code_row.add(
+        &sonarpad_code_label,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    sonarpad_code_row.add(&sonarpad_code, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    sonarpad_code_row.add(
+        &sonarpad_code_visible,
+        1,
+        SizerFlag::Expand | SizerFlag::All,
+        5,
+    );
+    sonarpad_code_row.add(
+        &show_sonarpad_code,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    root.add_sizer(&sonarpad_code_row, 0, SizerFlag::Expand, 0);
+
+    let sonarpad_balance_label = StaticText::builder(&p)
+        .with_label(&tr("audio_description.sonarpad_balance"))
+        .build();
+    let sonarpad_balance = TextCtrl::builder(&p)
+        .with_style(TextCtrlStyle::ReadOnly)
+        .build();
+    sonarpad_balance.set_value(&tr("audio_description.sonarpad_balance_unavailable"));
+    let sonarpad_request_code = Button::builder(&p)
+        .with_label(&tr("audio_description.sonarpad_request_code"))
+        .build();
+    let sonarpad_balance_row = BoxSizer::builder(Orientation::Horizontal).build();
+    sonarpad_balance_row.add(
+        &sonarpad_balance_label,
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    sonarpad_balance_row.add(&sonarpad_balance, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    sonarpad_balance_row.add(&sonarpad_request_code, 0, SizerFlag::All, 5);
+    root.add_sizer(&sonarpad_balance_row, 0, SizerFlag::Expand, 0);
+
+    let initial_sonarpad_ai = saved.audio_description_use_sonarpad_ai;
+    sonarpad_code_label.show(initial_sonarpad_ai);
+    sonarpad_code.show(initial_sonarpad_ai);
+    sonarpad_code_visible.show(false);
+    show_sonarpad_code.show(initial_sonarpad_ai);
+    sonarpad_balance_label.show(initial_sonarpad_ai);
+    sonarpad_balance.show(initial_sonarpad_ai);
+    sonarpad_request_code.show(initial_sonarpad_ai);
+    api_label.show(!initial_sonarpad_ai);
+    api.show(!initial_sonarpad_ai);
+    api_visible.show(false);
+    show_api_key.show(!initial_sonarpad_ai);
+    api_get.show(!initial_sonarpad_ai);
+
     let api_value: Rc<dyn Fn() -> String> = Rc::new(move || {
         if show_api_key.get_value() {
             api_visible.get_value()
         } else {
             api.get_value()
+        }
+    });
+    let sonarpad_code_value: Rc<dyn Fn() -> String> = Rc::new(move || {
+        if show_sonarpad_code.get_value() {
+            sonarpad_code_visible.get_value()
+        } else {
+            sonarpad_code.get_value()
         }
     });
     let model_label = StaticText::builder(&p)
@@ -4337,6 +5203,154 @@ fn open_create_dialog_impl(
     model_row.add(&model, 1, SizerFlag::Expand | SizerFlag::All, 5);
     model_row.add(&refresh, 0, SizerFlag::All, 5);
     root.add_sizer(&model_row, 0, SizerFlag::Expand, 0);
+    model.enable(!initial_sonarpad_ai);
+    refresh.enable(!initial_sonarpad_ai);
+
+    let balance_result = Arc::new(Mutex::new(None::<(String, Result<f64, String>)>));
+    let last_balance_code = Rc::new(RefCell::new(String::new()));
+    let settings_balance = settings.clone();
+    let sonarpad_code_value_balance = Rc::clone(&sonarpad_code_value);
+    let balance_result_request = Arc::clone(&balance_result);
+    let last_balance_code_request = Rc::clone(&last_balance_code);
+    let request_sonarpad_balance: Rc<dyn Fn()> = Rc::new(move || {
+        if ai_access.get_selection().unwrap_or(0) != 1 {
+            return;
+        }
+        let access_code = sonarpad_code_value_balance().trim().to_string();
+        *last_balance_code_request.borrow_mut() = access_code.clone();
+        if !access_code.starts_with("sp_") {
+            sonarpad_balance.set_value(&tr("audio_description.sonarpad_balance_unavailable"));
+            return;
+        }
+        let device_id = {
+            let mut st = settings_balance.lock().unwrap();
+            st.sonarpad_ai_access_code = access_code.clone();
+            let device_id = st.sonarpad_ai_device_id.trim().to_string();
+            st.save();
+            device_id
+        };
+        if device_id.is_empty() {
+            sonarpad_balance.set_value(&tr("audio_description.sonarpad_balance_unavailable"));
+            return;
+        }
+        sonarpad_balance.set_value("…");
+        let result_state = Arc::clone(&balance_result_request);
+        thread::spawn(move || {
+            let result = fetch_sonarpad_balance(&access_code, &device_id);
+            *result_state.lock().unwrap() = Some((access_code, result));
+        });
+    });
+
+    let balance_timer = Rc::new(Timer::new(&d));
+    let balance_timer_tick = Rc::clone(&balance_timer);
+    let balance_result_tick = Arc::clone(&balance_result);
+    let last_seen_balance_code = Rc::new(RefCell::new(sonarpad_code_value().trim().to_string()));
+    let last_seen_balance_code_tick = Rc::clone(&last_seen_balance_code);
+    let stable_balance_ticks = Rc::new(Cell::new(0_u32));
+    let stable_balance_ticks_tick = Rc::clone(&stable_balance_ticks);
+    let last_balance_code_tick = Rc::clone(&last_balance_code);
+    let sonarpad_code_value_tick = Rc::clone(&sonarpad_code_value);
+    let request_sonarpad_balance_tick = Rc::clone(&request_sonarpad_balance);
+    balance_timer_tick.on_tick(move |_| {
+        if let Some((access_code, result)) = balance_result_tick.lock().unwrap().take() {
+            let current_code = sonarpad_code_value_tick().trim().to_string();
+            if ai_access.get_selection().unwrap_or(0) == 1 && current_code == access_code {
+                match result {
+                    Ok(balance) => sonarpad_balance.set_value(&format_sonarpad_balance(balance)),
+                    Err(error) => {
+                        append_podcast_log(&format!(
+                            "audio_description.sonarpad_balance_unavailable error={error}"
+                        ));
+                        sonarpad_balance
+                            .set_value(&tr("audio_description.sonarpad_balance_unavailable"));
+                    }
+                }
+            }
+        }
+
+        if ai_access.get_selection().unwrap_or(0) != 1 {
+            stable_balance_ticks_tick.set(0);
+            return;
+        }
+        let current_code = sonarpad_code_value_tick().trim().to_string();
+        if current_code != *last_seen_balance_code_tick.borrow() {
+            *last_seen_balance_code_tick.borrow_mut() = current_code.clone();
+            stable_balance_ticks_tick.set(0);
+            if !current_code.starts_with("sp_") {
+                sonarpad_balance.set_value(&tr("audio_description.sonarpad_balance_unavailable"));
+            }
+            return;
+        }
+        if current_code != *last_balance_code_tick.borrow() {
+            let ticks = stable_balance_ticks_tick.get().saturating_add(1);
+            stable_balance_ticks_tick.set(ticks);
+            if ticks >= 4 {
+                stable_balance_ticks_tick.set(0);
+                request_sonarpad_balance_tick();
+            }
+        }
+    });
+
+    let ai_panel_toggle = p;
+    let ai_dialog_toggle = d;
+    let settings_ai_access = settings.clone();
+    let api_value_ai_access = Rc::clone(&api_value);
+    let sonarpad_code_value_ai_access = Rc::clone(&sonarpad_code_value);
+    let request_sonarpad_balance_ai_access = Rc::clone(&request_sonarpad_balance);
+    ai_access.on_selection_changed(move |_| {
+        let service = ai_access.get_selection().unwrap_or(0) == 1;
+
+        // Persist both credential sets before changing the visible controls.  The
+        // inactive credential must never be cleared merely because the user
+        // switches between the personal Gemini key and Sonarpad AI.
+        {
+            let mut st = settings_ai_access.lock().unwrap();
+            st.audio_description_use_sonarpad_ai = service;
+            st.audio_description_gemini_api_key = api_value_ai_access().trim().to_string();
+            st.sonarpad_ai_access_code = sonarpad_code_value_ai_access().trim().to_string();
+            if let Some(selected_model) = model.get_string_selection() {
+                let selected_model = selected_model.trim();
+                if !selected_model.is_empty() {
+                    st.audio_description_gemini_model = selected_model.to_string();
+                }
+            }
+            st.save();
+        }
+
+        api_label.show(!service);
+        if service {
+            api.show(false);
+            api_visible.show(false);
+        } else if show_api_key.get_value() {
+            api.show(false);
+            api_visible.show(true);
+        } else {
+            api_visible.show(false);
+            api.show(true);
+        }
+        show_api_key.show(!service);
+        api_get.show(!service);
+        sonarpad_code_label.show(service);
+        if service && show_sonarpad_code.get_value() {
+            sonarpad_code.show(false);
+            sonarpad_code_visible.show(true);
+        } else {
+            sonarpad_code_visible.show(false);
+            sonarpad_code.show(service);
+        }
+        show_sonarpad_code.show(service);
+        sonarpad_balance_label.show(service);
+        sonarpad_balance.show(service);
+        sonarpad_request_code.show(service);
+        model.enable(!service);
+        refresh.enable(!service);
+        if service {
+            request_sonarpad_balance_ai_access();
+        }
+        ai_panel_toggle.layout();
+        ai_dialog_toggle.layout();
+    });
+
     let engine = Choice::builder(&p).build();
     engine.append(&tr("audio_description.engine.edge"));
     engine.append(&tr("audio_description.engine.system"));
@@ -4452,12 +5466,10 @@ fn open_create_dialog_impl(
                 catalog_name.set_value(&suggested);
             }
         }
-        let stem = path
-            .file_stem()
-            .and_then(|value| value.to_str())
-            .unwrap_or("video");
-        let destination = default_output_dir()
-            .join(format!("{}_audiodescritto.mp3", sanitize_filename(stem)));
+        let destination = suggested_audio_description_output(
+            path,
+            saved.audio_description_create_video_output,
+        );
         output.set_value(&destination.to_string_lossy());
         append_podcast_log(&format!(
             "audio_description.create.prefilled_input source={} output={}",
@@ -4478,24 +5490,48 @@ fn open_create_dialog_impl(
                     catalog_name.set_value(&suggested);
                 }
             }
-            if output.get_value().trim().is_empty() {
-                let mut dest = default_output_dir()
-                    .join(path.file_stem().and_then(|s| s.to_str()).unwrap_or("video"));
-                dest.set_extension("mp3");
-                let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("video");
-                dest = default_output_dir()
-                    .join(format!("{}_audiodescritto.mp3", sanitize_filename(stem)));
-                output.set_value(&dest.to_string_lossy());
-            }
+            // A newly selected source is a new audio-description job. Never carry
+            // the destination of the previous completed job into it: regenerate the
+            // suggested output from the new source even when the creation dialog stays open.
+            let dest = suggested_audio_description_output(
+                &path,
+                create_video_output.get_value(),
+            );
+            output.set_value(&dest.to_string_lossy());
         }
     });
     let d_output = d;
     output_btn.on_click(move |_| {
         let ip = PathBuf::from(input.get_value());
-        if let Some(path) = choose_output(&d_output, &ip) {
+        if let Some(path) = choose_output(&d_output, &ip, create_video_output.get_value()) {
             output.set_value(&path.to_string_lossy());
         }
     });
+    let extended_video_toggle = extended;
+    let output_video_toggle = output;
+    let input_video_toggle = input;
+    create_video_output.on_toggled(move |_| {
+        let enabled = create_video_output.get_value();
+        extended_video_toggle.enable(!enabled);
+        let input_path = PathBuf::from(input_video_toggle.get_value());
+        if !input_path.as_os_str().is_empty() {
+            let current = PathBuf::from(output_video_toggle.get_value());
+            let should_refresh = current.as_os_str().is_empty()
+                || current
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|extension| {
+                        extension.eq_ignore_ascii_case("mp3")
+                            || extension.eq_ignore_ascii_case("mp4")
+                            || extension.eq_ignore_ascii_case("mkv")
+                    });
+            if should_refresh {
+                let destination = suggested_audio_description_output(&input_path, enabled);
+                output_video_toggle.set_value(&destination.to_string_lossy());
+            }
+        }
+    });
+
     let delete_input_toggle = delete_input_box;
     let panel_save_project = p;
     let dialog_save_project = d;
@@ -4585,6 +5621,29 @@ fn open_create_dialog_impl(
         api_panel_toggle.layout();
         api_dialog_toggle.layout();
     });
+    let sonarpad_password_toggle = sonarpad_code;
+    let sonarpad_visible_toggle = sonarpad_code_visible;
+    let sonarpad_panel_toggle = p;
+    let sonarpad_dialog_toggle = d;
+    show_sonarpad_code.on_toggled(move |_| {
+        if show_sonarpad_code.get_value() {
+            sonarpad_visible_toggle.set_value(&sonarpad_password_toggle.get_value());
+            sonarpad_password_toggle.show(false);
+            sonarpad_visible_toggle.show(true);
+        } else {
+            sonarpad_password_toggle.set_value(&sonarpad_visible_toggle.get_value());
+            sonarpad_visible_toggle.show(false);
+            sonarpad_password_toggle.show(true);
+        }
+        sonarpad_panel_toggle.layout();
+        sonarpad_dialog_toggle.layout();
+    });
+    let d_sonarpad_request = d;
+    sonarpad_request_code.on_click(move |_| {
+        if let Err(error) = crate::open_url_in_browser("https://sonarpad.com/contact.php") {
+            show_error(&d_sonarpad_request, &error);
+        }
+    });
     let d_api = d;
     api_get.on_click(move |_| {
         if let Err(e) = crate::open_url_in_browser("https://aistudio.google.com/app/apikey") {
@@ -4638,6 +5697,7 @@ fn open_create_dialog_impl(
     let fallback_resume_model = saved.audio_description_gemini_model.clone();
     let d_resume = d;
     let api_value_resume = Rc::clone(&api_value);
+    let sonarpad_code_value_resume = Rc::clone(&sonarpad_code_value);
     continue_interrupted.on_click(move |_| {
         let Some(selection) = choose_resume_checkpoint(
             &d_resume,
@@ -4665,9 +5725,34 @@ fn open_create_dialog_impl(
                 return;
             }
         };
+        let use_sonarpad_ai = ai_access.get_selection().unwrap_or(0) == 1;
+        let personal_api_key_value = api_value_resume().trim().to_string();
+        let sonarpad_code_value = sonarpad_code_value_resume().trim().to_string();
+        if use_sonarpad_ai && sonarpad_code_value.is_empty() {
+            show_error(&d_resume, &tr("audio_description.error.sonarpad_code"));
+            if show_sonarpad_code.get_value() {
+                sonarpad_code_visible.set_focus();
+            } else {
+                sonarpad_code.set_focus();
+            }
+            return;
+        }
+        if !use_sonarpad_ai && personal_api_key_value.is_empty() {
+            show_error(&d_resume, &tr("audio_description.error.api_key"));
+            api.set_focus();
+            return;
+        }
+        let resume_device_id = settings_resume
+            .lock()
+            .unwrap()
+            .sonarpad_ai_device_id
+            .clone();
         let job = match job_from_checkpoint(
             &selection.checkpoint_path,
-            api_value_resume(),
+            if use_sonarpad_ai { String::new() } else { personal_api_key_value },
+            if use_sonarpad_ai { SONARPAD_AI_SERVICE_URL.to_string() } else { String::new() },
+            if use_sonarpad_ai { sonarpad_code_value } else { String::new() },
+            if use_sonarpad_ai { resume_device_id } else { String::new() },
             selection.gemini_model.clone(),
         ) {
             Ok(job) => job,
@@ -4726,6 +5811,7 @@ fn open_create_dialog_impl(
     let rt_run = rt.clone();
     let saved_start = saved.clone();
     let api_value_start = Rc::clone(&api_value);
+    let sonarpad_code_value_start = Rc::clone(&sonarpad_code_value);
     start.on_click(move |_| {
         let model_value = model
             .get_string_selection()
@@ -4790,14 +5876,33 @@ fn open_create_dialog_impl(
         } else {
             None
         };
+        let use_sonarpad_ai = ai_access.get_selection().unwrap_or(0) == 1;
+        let personal_api_key_value = api_value_start().trim().to_string();
+        let sonarpad_code_value = sonarpad_code_value_start().trim().to_string();
+        if use_sonarpad_ai && sonarpad_code_value.is_empty() {
+            show_error(&d, &tr("audio_description.error.sonarpad_code"));
+            if show_sonarpad_code.get_value() {
+                sonarpad_code_visible.set_focus();
+            } else {
+                sonarpad_code.set_focus();
+            }
+            return;
+        }
+        if !use_sonarpad_ai && personal_api_key_value.is_empty() {
+            show_error(&d, &tr("audio_description.error.api_key"));
+            api.set_focus();
+            return;
+        }
         let job = CreateJob {
             input_path,
             output_path,
             language_code,
             verbosity: verbosity_value,
-            allow_extended_pauses: extended.get_value(),
+            allow_extended_pauses: extended.get_value() && !create_video_output.get_value(),
             recognize_characters: recognize.get_value(),
+            recognize_screen_text: recognize_screen_text.get_value(),
             save_project: save_project_box.get_value(),
+            create_video_output: create_video_output.get_value(),
             delete_input_after_success: delete_input_box.get_value(),
             keep_character_catalog: keep_catalog.get_value(),
             catalog,
@@ -4807,7 +5912,22 @@ fn open_create_dialog_impl(
             pitch: saved_start.pitch,
             volume: saved_start.volume,
             audio_stream_index,
-            gemini_api_key: api_value_start(),
+            gemini_api_key: if use_sonarpad_ai { String::new() } else { personal_api_key_value },
+            sonarpad_ai_service_url: if use_sonarpad_ai {
+                SONARPAD_AI_SERVICE_URL.to_string()
+            } else {
+                String::new()
+            },
+            sonarpad_ai_access_code: if use_sonarpad_ai {
+                sonarpad_code_value
+            } else {
+                String::new()
+            },
+            sonarpad_ai_device_id: if use_sonarpad_ai {
+                saved_start.sonarpad_ai_device_id.clone()
+            } else {
+                String::new()
+            },
             gemini_model: model_value.clone(),
             resume_checkpoint_path: None,
         };
@@ -4822,14 +5942,19 @@ fn open_create_dialog_impl(
             d.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
         }
     });
+    balance_timer.start(250, false);
+    if initial_sonarpad_ai {
+        request_sonarpad_balance();
+    }
     d.show_modal();
+    balance_timer.stop();
     d.destroy();
     if quit_requested.get() {
         append_podcast_log("audio_description.create.quit_forwarded_to_main");
         main_parent.close(false);
     } else if open_project_requested.get() {
         append_podcast_log("audio_description.create.open_project_after_close");
-        open_project_editor(main_parent, rt, voices_data);
+        open_project_editor(main_parent, settings, rt, voices_data);
     }
 }
 
@@ -4969,7 +6094,8 @@ fn change_project_voice(
         return Err(tr("audio_description.project.no_selection"));
     }
     let work = cache_dir("project_voice_change")?;
-    let temporary_mp3 = temporary_sibling_path(&project.output_mp3_path, "voice");
+    let temporary_media = temporary_sibling_path(&project.output_mp3_path, "voice");
+    let temporary_mp3 = work.join("voice-change.mp3");
     let temporary_project = temporary_sibling_path(project_file, "voice");
     let cancel = Arc::new(AtomicBool::new(false));
     let result = (|| {
@@ -5029,7 +6155,7 @@ fn change_project_voice(
             &synthesized,
             &protected,
             source_duration,
-            project.allow_extended_pauses,
+            project.allow_extended_pauses && !project.output_is_video,
         );
         if let Some(first) = dropped.first() {
             let source_start_sec = project
@@ -5056,10 +6182,21 @@ fn change_project_voice(
             fs::create_dir_all(parent).map_err(|e| format!("Salvataggio MP3 fallito: {e}"))?;
         }
         encode_mp3(&mix, &temporary_mp3, &cancel)?;
-        let metadata = fs::metadata(&temporary_mp3)
-            .map_err(|e| format!("Verifica del nuovo MP3 fallita: {e}"))?;
+        if project.output_is_video {
+            mux_audio_description_video(
+                &project.source_path,
+                &temporary_mp3,
+                &temporary_media,
+                &cancel,
+            )?;
+        } else {
+            fs::copy(&temporary_mp3, &temporary_media)
+                .map_err(|error| format!("Salvataggio MP3 fallito: {error}"))?;
+        }
+        let metadata = fs::metadata(&temporary_media)
+            .map_err(|e| format!("Verifica del nuovo output audiodescritto fallita: {e}"))?;
         if metadata.len() == 0 {
-            return Err("Il nuovo MP3 audiodescritto è vuoto.".to_string());
+            return Err("Il nuovo output audiodescritto è vuoto.".to_string());
         }
         state.lock().unwrap().progress = 96;
 
@@ -5078,6 +6215,11 @@ fn change_project_voice(
                 0.0
             };
             let output_end = output_start + scheduled_description.duration_sec;
+            let (duck_start_sec, duck_end_sec) = project_duck_bounds(
+                output_start,
+                output_end,
+                scheduled_description.extended_pause,
+            );
             descriptions.push(ProjectDescription {
                 id: new_id,
                 text: old.text.clone(),
@@ -5096,8 +6238,8 @@ fn change_project_voice(
                 tts_duration_sec: scheduled_description.duration_sec,
                 extended_pause: scheduled_description.extended_pause,
                 extended_pause_duration_sec,
-                duck_start_sec: (!scheduled_description.extended_pause).then_some(output_start),
-                duck_end_sec: (!scheduled_description.extended_pause).then_some(output_end),
+                duck_start_sec,
+                duck_end_sec,
             });
             extra_offset += extended_pause_duration_sec;
         }
@@ -5112,7 +6254,7 @@ fn change_project_voice(
 
         save_project(&temporary_project, &updated)?;
         commit_project_pair(
-            &temporary_mp3,
+            &temporary_media,
             &project.output_mp3_path,
             &temporary_project,
             project_file,
@@ -5122,7 +6264,7 @@ fn change_project_voice(
     })();
 
     if result.is_err() {
-        let _ = fs::remove_file(&temporary_mp3);
+        let _ = fs::remove_file(&temporary_media);
         let _ = fs::remove_file(&temporary_project);
     }
     let _ = fs::remove_dir_all(&work);
@@ -5356,14 +6498,542 @@ fn load_project(path: &Path) -> Result<AudioDescriptionProject, String> {
     Ok(p)
 }
 
+
+#[derive(Clone, Debug)]
+struct ProjectSegmentReanalysis {
+    focus_index: usize,
+    project: AudioDescriptionProject,
+    segment_description_ids: Vec<usize>,
+}
+
+fn audio_description_job_from_project(
+    project: &AudioDescriptionProject,
+    input_path: PathBuf,
+    output_path: PathBuf,
+    settings: &Settings,
+) -> CreateJob {
+    let use_sonarpad_ai = settings.audio_description_use_sonarpad_ai;
+    CreateJob {
+        input_path,
+        output_path,
+        language_code: project.language_code.clone(),
+        verbosity: Verbosity::from_settings(&project.verbosity),
+        allow_extended_pauses: project.allow_extended_pauses,
+        recognize_characters: project.recognize_characters,
+        recognize_screen_text: project.recognize_screen_text,
+        save_project: true,
+        create_video_output: false,
+        delete_input_after_success: false,
+        keep_character_catalog: false,
+        catalog: None,
+        tts_engine: project.tts_engine.clone(),
+        tts_voice: project.tts_voice.clone(),
+        rate: project.tts_rate,
+        pitch: project.tts_pitch,
+        volume: project.tts_volume,
+        audio_stream_index: None,
+        gemini_api_key: if use_sonarpad_ai {
+            String::new()
+        } else {
+            settings.audio_description_gemini_api_key.clone()
+        },
+        sonarpad_ai_service_url: if use_sonarpad_ai {
+            SONARPAD_AI_SERVICE_URL.to_string()
+        } else {
+            String::new()
+        },
+        sonarpad_ai_access_code: if use_sonarpad_ai {
+            settings.sonarpad_ai_access_code.clone()
+        } else {
+            String::new()
+        },
+        sonarpad_ai_device_id: if use_sonarpad_ai {
+            settings.sonarpad_ai_device_id.clone()
+        } else {
+            String::new()
+        },
+        gemini_model: if settings.audio_description_gemini_model.trim().is_empty() {
+            project.gemini_model.clone()
+        } else {
+            settings.audio_description_gemini_model.clone()
+        },
+        resume_checkpoint_path: None,
+    }
+}
+
+fn reanalyze_project_segment(
+    project: &AudioDescriptionProject,
+    index: usize,
+    settings: &Settings,
+    rt: &Runtime,
+    cancel: Arc<AtomicBool>,
+    state: Arc<Mutex<ProgressState>>,
+) -> Result<ProjectSegmentReanalysis, String> {
+    let selected = project
+        .descriptions
+        .get(index)
+        .ok_or_else(|| tr("audio_description.project.no_selection"))?;
+    if !project.source_path.is_file() {
+        return Err(format!(
+            "File sorgente del progetto non disponibile: {}",
+            project.source_path.display()
+        ));
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("cancelled".to_string());
+    }
+    if settings.audio_description_use_sonarpad_ai {
+        if settings.sonarpad_ai_access_code.trim().is_empty() {
+            return Err(tr("audio_description.error.sonarpad_code"));
+        }
+        if settings.sonarpad_ai_device_id.trim().is_empty() {
+            return Err("Identificatore dispositivo Sonarpad AI non disponibile.".to_string());
+        }
+    } else if settings.audio_description_gemini_api_key.trim().is_empty() {
+        return Err(tr("audio_description.error.api_key"));
+    }
+
+    let cache = cache_dir("reanalyze_segment")?;
+    let result = (|| {
+        {
+            let mut progress = state.lock().unwrap();
+            progress.progress = 1;
+            progress.status = tr("audio_description.project.status.reanalyzing");
+        }
+        let source_duration = if project.source_duration_sec.is_finite()
+            && project.source_duration_sec > 0.0
+        {
+            project.source_duration_sec
+        } else {
+            let probe_wav = cache.join("source-probe.wav");
+            decode_source_audio(
+                &project.source_path,
+                &probe_wav,
+                project.audio_stream_index,
+                &cancel,
+            )?
+            .duration_sec
+        };
+        let chunk_dir = cache.join("mini-film-source");
+        fs::create_dir_all(&chunk_dir).map_err(|error| error.to_string())?;
+        let chunks = prepare_chunks(
+            &project.source_path,
+            source_duration,
+            &chunk_dir,
+            project.audio_stream_index,
+            &cancel,
+        )?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let target_sec = if selected.gemini_start_sec.is_finite() {
+            selected.gemini_start_sec.max(0.0)
+        } else {
+            selected.source_start_sec.max(0.0)
+        };
+        let chosen = chunks
+            .iter()
+            .find(|chunk| target_sec >= chunk.start_sec && target_sec < chunk.end_sec)
+            .or_else(|| {
+                chunks.iter().min_by(|left, right| {
+                    let left_distance = if target_sec < left.start_sec {
+                        left.start_sec - target_sec
+                    } else if target_sec > left.end_sec {
+                        target_sec - left.end_sec
+                    } else {
+                        0.0
+                    };
+                    let right_distance = if target_sec < right.start_sec {
+                        right.start_sec - target_sec
+                    } else if target_sec > right.end_sec {
+                        target_sec - right.end_sec
+                    } else {
+                        0.0
+                    };
+                    left_distance.total_cmp(&right_distance)
+                })
+            })
+            .cloned()
+            .ok_or_else(|| "Nessun segmento di analisi disponibile.".to_string())?;
+        let segment_start_sec = chosen.start_sec;
+        let segment_end_sec = chosen.end_sec;
+        let mini_film_path = PathBuf::from(&chosen.path);
+        if !mini_film_path.is_file() {
+            return Err("Creazione del mini-film per la rianalisi fallita.".to_string());
+        }
+        // The reanalysis mini-film must preserve the same soundtrack semantics as
+        // normal creation. Never analyse a video-only fallback when the source has
+        // audio, otherwise the mini-film and speech/silence timeline can drift.
+        let source_has_audio = probe_media(&project.source_path)?.has_audio;
+        let mini_has_audio = probe_media(&mini_film_path)?.has_audio;
+        if source_has_audio && !mini_has_audio {
+            return Err(
+                "Sonarpad non ha potuto creare un segmento di rianalisi autonomo con la sua traccia audio; il segmento non è stato modificato."
+                    .to_string(),
+            );
+        }
+
+        let mini_output = cache.join("reanalyzed-mini-film-audiodescritto.mp3");
+        let mini_job = audio_description_job_from_project(
+            project,
+            mini_film_path,
+            mini_output,
+            settings,
+        );
+        let mini_outcome = create_audio_description(
+            &mini_job,
+            rt,
+            cancel.clone(),
+            Arc::clone(&state),
+        )?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let mini_project_path = mini_outcome
+            .project_path
+            .ok_or_else(|| "La rianalisi non ha prodotto un progetto temporaneo.".to_string())?;
+        let mini_project = load_project(&mini_project_path)?;
+        if mini_project.descriptions.is_empty() {
+            return Err("La rianalisi non ha prodotto descrizioni utilizzabili.".to_string());
+        }
+
+        let segment_span_sec = (segment_end_sec - segment_start_sec).max(0.0);
+        let mini_duration_sec = mini_project.source_duration_sec;
+        if !segment_span_sec.is_finite()
+            || segment_span_sec <= 0.0
+            || !mini_duration_sec.is_finite()
+            || mini_duration_sec <= 0.0
+        {
+            return Err("Cronologia del mini-film non valida; segmento non modificato.".to_string());
+        }
+        let mini_to_source_scale = segment_span_sec / mini_duration_sec;
+        if !mini_to_source_scale.is_finite() || !(0.98..=1.02).contains(&mini_to_source_scale) {
+            return Err(format!(
+                "Deriva temporale del mini-film troppo grande ({mini_to_source_scale:.6}); segmento non modificato."
+            ));
+        }
+        let map_mini_time = |time_sec: f64| {
+            let local = time_sec.max(0.0).min(mini_duration_sec);
+            (segment_start_sec + local * mini_to_source_scale).min(segment_end_sec)
+        };
+
+        let mut segment_indices = project
+            .descriptions
+            .iter()
+            .enumerate()
+            .filter(|(_, description)| {
+                let time = description.source_start_sec.max(0.0);
+                time + 0.001 >= segment_start_sec && time < segment_end_sec + 0.001
+            })
+            .map(|(project_index, _)| project_index)
+            .collect::<Vec<_>>();
+        segment_indices.sort_by(|left, right| {
+            project.descriptions[*left]
+                .source_start_sec
+                .total_cmp(&project.descriptions[*right].source_start_sec)
+        });
+        if segment_indices.is_empty() {
+            return Err("Il segmento selezionato non contiene descrizioni salvate.".to_string());
+        }
+        let mut mini_indices = (0..mini_project.descriptions.len()).collect::<Vec<_>>();
+        mini_indices.sort_by(|left, right| {
+            mini_project.descriptions[*left]
+                .source_start_sec
+                .total_cmp(&mini_project.descriptions[*right].source_start_sec)
+        });
+
+        let old_count = segment_indices.len();
+        let new_count = mini_indices.len();
+        let skip_penalty = 4.0_f64;
+        let mut cost = vec![vec![f64::INFINITY; new_count + 1]; old_count + 1];
+        let mut step = vec![vec![0_u8; new_count + 1]; old_count + 1];
+        cost[0][0] = 0.0;
+        for old_pos in 0..=old_count {
+            for new_pos in 0..=new_count {
+                let current_cost = cost[old_pos][new_pos];
+                if !current_cost.is_finite() {
+                    continue;
+                }
+                if old_pos < old_count {
+                    let candidate = current_cost + skip_penalty;
+                    if candidate < cost[old_pos + 1][new_pos] {
+                        cost[old_pos + 1][new_pos] = candidate;
+                        step[old_pos + 1][new_pos] = 1;
+                    }
+                }
+                if new_pos < new_count {
+                    let candidate = current_cost + skip_penalty;
+                    if candidate < cost[old_pos][new_pos + 1] {
+                        cost[old_pos][new_pos + 1] = candidate;
+                        step[old_pos][new_pos + 1] = 2;
+                    }
+                }
+                if old_pos < old_count && new_pos < new_count {
+                    let old_time = project.descriptions[segment_indices[old_pos]].source_start_sec;
+                    let new_time = map_mini_time(
+                        mini_project.descriptions[mini_indices[new_pos]].source_start_sec,
+                    );
+                    let distance = (old_time - new_time).abs();
+                    if distance <= 12.0 {
+                        let candidate = current_cost + distance;
+                        if candidate < cost[old_pos + 1][new_pos + 1] {
+                            cost[old_pos + 1][new_pos + 1] = candidate;
+                            step[old_pos + 1][new_pos + 1] = 3;
+                        }
+                    }
+                }
+            }
+        }
+        let mut associations = Vec::new();
+        let (mut old_pos, mut new_pos) = (old_count, new_count);
+        while old_pos > 0 || new_pos > 0 {
+            match step[old_pos][new_pos] {
+                3 => {
+                    associations.push((old_pos - 1, new_pos - 1));
+                    old_pos -= 1;
+                    new_pos -= 1;
+                }
+                1 => old_pos -= 1,
+                2 => new_pos -= 1,
+                _ if old_pos > 0 => old_pos -= 1,
+                _ if new_pos > 0 => new_pos -= 1,
+                _ => break,
+            }
+        }
+        associations.reverse();
+
+        let mut candidate = project.clone();
+        let mut accepted = 0_usize;
+        for (saved_pos, fresh_pos) in associations {
+            let project_index = segment_indices[saved_pos];
+            let fresh = &mini_project.descriptions[mini_indices[fresh_pos]];
+            let fresh_text = fresh.text.trim();
+            if fresh_text.is_empty() {
+                continue;
+            }
+            let available = project_edit_available_duration(project, project_index)?;
+            if let Some(available_sec) = available
+                && fresh.tts_duration_sec > available_sec + 0.010
+            {
+                append_podcast_log(&format!(
+                    "audio_description.project.reanalyze_keep_old id={} reason=fresh_too_long fresh={:.3} available={:.3}",
+                    project.descriptions[project_index].id,
+                    fresh.tts_duration_sec,
+                    available_sec
+                ));
+                continue;
+            }
+            let saved = &mut candidate.descriptions[project_index];
+            saved.text = fresh_text.to_string();
+            saved.rendered_text = if fresh.rendered_text.trim().is_empty() {
+                fresh_text.to_string()
+            } else {
+                fresh.rendered_text.clone()
+            };
+            saved.tts_duration_sec = fresh.tts_duration_sec;
+            saved.modified = saved.text != saved.original_text;
+            accepted += 1;
+        }
+        if accepted == 0 {
+            return Err("Nessuna nuova descrizione può essere associata in sicurezza agli slot salvati; segmento non modificato.".to_string());
+        }
+
+        let mut output_offset_sec = 0.0_f64;
+        for description in &mut candidate.descriptions {
+            let duration = description.tts_duration_sec.max(0.0);
+            description.output_start_sec = description.source_start_sec + output_offset_sec;
+            description.output_end_sec = description.output_start_sec + duration;
+            if description.extended_pause {
+                description.extended_pause_duration_sec = duration;
+                description.duck_start_sec = None;
+                description.duck_end_sec = None;
+                output_offset_sec += duration;
+            } else {
+                description.extended_pause_duration_sec = 0.0;
+                let (duck_start_sec, duck_end_sec) = project_duck_bounds(
+                    description.output_start_sec,
+                    description.output_end_sec,
+                    false,
+                );
+                description.duck_start_sec = duck_start_sec;
+                description.duck_end_sec = duck_end_sec;
+            }
+        }
+        candidate.output_duration_sec = candidate.source_duration_sec + output_offset_sec;
+        candidate.gemini_model = mini_project.gemini_model.clone();
+        candidate.updated_at_utc = now_utc();
+        let segment_description_ids = segment_indices
+            .iter()
+            .map(|project_index| project.descriptions[*project_index].id)
+            .collect::<Vec<_>>();
+        let selected_id = selected.id;
+        let focus_index = candidate
+            .descriptions
+            .iter()
+            .position(|description| description.id == selected_id)
+            .unwrap_or_else(|| index.min(candidate.descriptions.len().saturating_sub(1)));
+        {
+            let mut progress = state.lock().unwrap();
+            progress.progress = 100;
+            progress.status = tr("audio_description.project.status.reanalyzed_ready");
+        }
+        Ok(ProjectSegmentReanalysis {
+            focus_index,
+            project: candidate,
+            segment_description_ids,
+        })
+    })();
+    let _ = fs::remove_dir_all(&cache);
+    result
+}
+
+fn run_project_reanalysis_with_progress(
+    parent: &Dialog,
+    project: AudioDescriptionProject,
+    index: usize,
+    settings: Settings,
+    runtime: Arc<Runtime>,
+) -> Result<ProjectSegmentReanalysis, String> {
+    let progress_dialog = Dialog::builder(
+        parent,
+        &tr("audio_description.project.reanalyze_button"),
+    )
+    .with_style(
+        DialogStyle::Caption
+            | DialogStyle::SystemMenu
+            | DialogStyle::CloseBox
+            | DialogStyle::StayOnTop,
+    )
+    .with_size(560, 180)
+    .build();
+    let panel = Panel::builder(&progress_dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let label = StaticText::builder(&panel)
+        .with_label(&tr("audio_description.project.status.reanalyzing"))
+        .build();
+    root.add(&label, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    let gauge = Gauge::builder(&panel).with_range(100).build();
+    root.add(&gauge, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    let cancel_button = Button::builder(&panel)
+        .with_label(&tr("audio_description.cancel"))
+        .build();
+    root.add(&cancel_button, 0, SizerFlag::All, 10);
+    panel.set_sizer(root, true);
+
+    let state = Arc::new(Mutex::new(ProgressState {
+        progress: 0,
+        status: tr("audio_description.project.status.reanalyzing"),
+        done: None,
+        quota: None,
+        overload: None,
+    }));
+    let cancel = Arc::new(AtomicBool::new(false));
+    let result = Arc::new(Mutex::new(None::<Result<ProjectSegmentReanalysis, String>>));
+    let quota_api_key = settings.audio_description_gemini_api_key.clone();
+    let thread_settings = settings.clone();
+    let thread_state = Arc::clone(&state);
+    let thread_cancel = Arc::clone(&cancel);
+    let thread_result = Arc::clone(&result);
+    thread::spawn(move || {
+        let outcome = reanalyze_project_segment(
+            &project,
+            index,
+            &thread_settings,
+            &runtime,
+            thread_cancel,
+            thread_state,
+        );
+        *thread_result.lock().unwrap() = Some(outcome);
+    });
+
+    let cancelling = Rc::new(Cell::new(false));
+    let cancel_click = Arc::clone(&cancel);
+    let cancelling_click = Rc::clone(&cancelling);
+    cancel_button.on_click(move |_| {
+        if !cancelling_click.replace(true) {
+            cancel_click.store(true, Ordering::SeqCst);
+            cancel_button.enable(false);
+            label.set_label(&tr("audio_description.status.canceling"));
+        }
+    });
+    let cancel_close = Arc::clone(&cancel);
+    let cancelling_close = Rc::clone(&cancelling);
+    progress_dialog.on_close(move |event| {
+        if !cancelling_close.replace(true) {
+            cancel_close.store(true, Ordering::SeqCst);
+            cancel_button.enable(false);
+            label.set_label(&tr("audio_description.status.canceling"));
+        }
+        event.skip(false);
+    });
+
+    let ui_result = Rc::new(RefCell::new(None::<Result<ProjectSegmentReanalysis, String>>));
+    let timer = Rc::new(Timer::new(&progress_dialog));
+    let timer_tick = Rc::clone(&timer);
+    let timer_handle = Rc::clone(&timer);
+    let state_tick = Arc::clone(&state);
+    let result_tick = Arc::clone(&result);
+    let ui_result_tick = Rc::clone(&ui_result);
+    let dialog_tick = progress_dialog;
+    timer_tick.on_tick(move |_| {
+        let overload = { state_tick.lock().unwrap().overload.take() };
+        if let Some(request) = overload {
+            let decision = overload_dialog(&dialog_tick, &request.model, &request.error);
+            let _ = request.sender.send(decision);
+        }
+        let quota = { state_tick.lock().unwrap().quota.take() };
+        if let Some(request) = quota {
+            let decision = quota_dialog(
+                &dialog_tick,
+                &request.model,
+                &request.error,
+                &quota_api_key,
+            );
+            let _ = request.sender.send(decision);
+        }
+        let snapshot = state_tick.lock().unwrap().clone();
+        if !cancelling.get() {
+            label.set_label(&snapshot.status);
+        }
+        gauge.set_value(snapshot.progress.clamp(0, 99));
+        if let Some(done) = result_tick.lock().unwrap().take() {
+            timer_handle.stop();
+            gauge.set_value(100);
+            *ui_result_tick.borrow_mut() = Some(done);
+            dialog_tick.end_modal(ID_OK);
+        }
+    });
+    timer.start(100, false);
+    progress_dialog.show_modal();
+    timer.stop();
+    progress_dialog.destroy();
+    ui_result
+        .borrow_mut()
+        .take()
+        .unwrap_or_else(|| Err("cancelled".to_string()))
+}
+
 fn rebuild_project(
     project: &mut AudioDescriptionProject,
     project_file: &Path,
     rt: &Runtime,
     cancel: Arc<AtomicBool>,
     state: Arc<Mutex<ProgressState>>,
+    fixed_timeline: bool,
 ) -> Result<JobOutcome, String> {
-    let work = cache_dir("project")?;
+    let work = cache_dir(if fixed_timeline {
+        "project_reanalyzed_fixed"
+    } else {
+        "project"
+    })?;
+    let temporary_media = temporary_sibling_path(
+        &project.output_mp3_path,
+        if fixed_timeline { "reanalyzed_fixed" } else { "rebuilt" },
+    );
+    let temporary_project = temporary_sibling_path(
+        project_file,
+        if fixed_timeline { "reanalyzed_fixed" } else { "rebuilt" },
+    );
     let result = (|| {
         let source = work.join("source.wav");
         let duration = decode_source_audio(
@@ -5371,7 +7041,8 @@ fn rebuild_project(
             &source,
             project.audio_stream_index,
             &cancel,
-        )?.duration_sec;
+        )?
+        .duration_sec;
         let synthesis_tasks = project
             .descriptions
             .iter()
@@ -5380,7 +7051,11 @@ fn rebuild_project(
                 original_index: index,
                 synthesis_index: index,
                 text: description.text.clone(),
-                desired_start_sec: description.gemini_start_sec,
+                desired_start_sec: if fixed_timeline {
+                    description.source_start_sec
+                } else {
+                    description.gemini_start_sec
+                },
                 visual_start_sec: description.gemini_start_sec,
                 visual_evidence_time_sec: description.visual_evidence_time_sec,
                 mandatory: description.mandatory,
@@ -5414,39 +7089,115 @@ fn rebuild_project(
                 end_sec: x.end_sec,
             })
             .collect::<Vec<_>>();
-        let (scheduled, dropped) = schedule_descriptions(
-            &synthesized,
-            &protected,
-            duration,
-            project.allow_extended_pauses,
-        );
+
+        let (scheduled, dropped) = if fixed_timeline {
+            if project.output_is_video
+                && project.descriptions.iter().any(|description| description.extended_pause)
+            {
+                return Err(
+                    "Un progetto video non può contenere pause estese perché desincronizzerebbero il video."
+                        .to_string(),
+                );
+            }
+            let mut fixed = Vec::with_capacity(project.descriptions.len());
+            for (index, description) in project.descriptions.iter().enumerate() {
+                if cancel.load(Ordering::Relaxed) {
+                    return Err("cancelled".to_string());
+                }
+                let rendered = synthesized
+                    .iter()
+                    .find(|candidate| candidate.original_index == index)
+                    .ok_or_else(|| {
+                        "Manca l'audio sintetizzato per una descrizione rianalizzata.".to_string()
+                    })?;
+                if let Some(available_sec) = project_edit_available_duration(project, index)?
+                    && rendered.duration_sec > available_sec + 0.010
+                {
+                    return Err(trf(
+                        "audio_description.project.error_too_long",
+                        &[
+                            ("actual", format!("{:.3}", rendered.duration_sec)),
+                            ("available", format!("{available_sec:.3}")),
+                        ],
+                    ));
+                }
+                fixed.push(ScheduledDescription {
+                    original_index: index,
+                    text: description.text.clone(),
+                    desired_start_sec: description.gemini_start_sec,
+                    visual_evidence_time_sec: description.visual_evidence_time_sec,
+                    mandatory: description.mandatory,
+                    slot_id: description.slot_id.clone(),
+                    slot_start_sec: description.slot_start_sec,
+                    slot_end_sec: description.slot_end_sec,
+                    start_sec: description.source_start_sec,
+                    pcm: Arc::clone(&rendered.pcm),
+                    duration_sec: rendered.duration_sec,
+                    extended_pause: description.extended_pause,
+                });
+            }
+            (fixed, Vec::<DroppedDescription>::new())
+        } else {
+            schedule_descriptions(
+                &synthesized,
+                &protected,
+                duration,
+                project.allow_extended_pauses && !project.output_is_video,
+            )
+        };
         if scheduled.is_empty() {
             return Err("Nessuna descrizione può essere inserita in sicurezza.".to_string());
         }
+        state.lock().unwrap().progress = 85;
         let mix = work.join("mix.wav");
         let output_duration = render_mix(&source, &mix, &scheduled, &cancel)?;
-        let temporary_mp3 = work.join("project-rebuilt.mp3");
-        encode_mp3(&mix, &temporary_mp3, &cancel)?;
-        fs::copy(&temporary_mp3, &project.output_mp3_path)
-            .map_err(|e| format!("Salvataggio MP3 fallito: {e}"))?;
+        state.lock().unwrap().progress = 92;
+        let temporary_audio = work.join("project-rebuilt.mp3");
+        encode_mp3(&mix, &temporary_audio, &cancel)?;
+        if project.output_is_video {
+            mux_audio_description_video(
+                &project.source_path,
+                &temporary_audio,
+                &temporary_media,
+                &cancel,
+            )?;
+        } else {
+            fs::copy(&temporary_audio, &temporary_media)
+                .map_err(|error| format!("Salvataggio MP3 fallito: {error}"))?;
+        }
+        let metadata = fs::metadata(&temporary_media)
+            .map_err(|error| format!("Verifica output audiodescritto fallita: {error}"))?;
+        if metadata.len() == 0 {
+            return Err("L'output audiodescritto ricostruito è vuoto.".to_string());
+        }
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
 
         let previous = project.clone();
         let mut extra_offset = 0.0;
-        let mut descriptions = Vec::new();
+        let mut descriptions = Vec::with_capacity(scheduled.len());
         for (new_id, scheduled_description) in scheduled.iter().enumerate() {
             let old = previous
                 .descriptions
                 .get(scheduled_description.original_index)
                 .ok_or_else(|| "Indice descrizione progetto non valido.".to_string())?;
-            let output_start = scheduled_description.start_sec + extra_offset;
+            let source_start = if fixed_timeline {
+                old.source_start_sec
+            } else {
+                scheduled_description.start_sec
+            };
+            let output_start = source_start + extra_offset;
             let extended_pause_duration_sec = if scheduled_description.extended_pause {
                 scheduled_description.duration_sec
             } else {
                 0.0
             };
             let output_end = output_start + scheduled_description.duration_sec;
+            let (duck_start_sec, duck_end_sec) =
+                project_duck_bounds(output_start, output_end, old.extended_pause);
             descriptions.push(ProjectDescription {
-                id: new_id,
+                id: if fixed_timeline { old.id } else { new_id },
                 text: old.text.clone(),
                 original_text: old.original_text.clone(),
                 rendered_text: old.text.clone(),
@@ -5457,37 +7208,51 @@ fn rebuild_project(
                 slot_id: old.slot_id.clone(),
                 slot_start_sec: old.slot_start_sec,
                 slot_end_sec: old.slot_end_sec,
-                source_start_sec: scheduled_description.start_sec,
+                source_start_sec: source_start,
                 output_start_sec: output_start,
                 output_end_sec: output_end,
                 tts_duration_sec: scheduled_description.duration_sec,
-                extended_pause: scheduled_description.extended_pause,
+                extended_pause: old.extended_pause,
                 extended_pause_duration_sec,
-                duck_start_sec: (!scheduled_description.extended_pause).then_some(output_start),
-                duck_end_sec: (!scheduled_description.extended_pause).then_some(output_end),
+                duck_start_sec,
+                duck_end_sec,
             });
             extra_offset += extended_pause_duration_sec;
         }
-        let excluded_descriptions = dropped
-            .iter()
-            .enumerate()
-            .map(|(id, dropped_description)| ProjectExcluded {
-                id,
-                text: dropped_description.text.clone(),
-                gemini_start_sec: dropped_description.desired_start_sec,
-                mandatory: dropped_description.mandatory,
-                slot_id: dropped_description.slot_id.clone(),
-                tts_duration_sec: dropped_description.duration_sec,
-                reason: dropped_description.reason.clone(),
-            })
-            .collect::<Vec<_>>();
+        let excluded_descriptions = if fixed_timeline {
+            previous.excluded_descriptions.clone()
+        } else {
+            dropped
+                .iter()
+                .enumerate()
+                .map(|(id, dropped_description)| ProjectExcluded {
+                    id,
+                    text: dropped_description.text.clone(),
+                    gemini_start_sec: dropped_description.desired_start_sec,
+                    mandatory: dropped_description.mandatory,
+                    slot_id: dropped_description.slot_id.clone(),
+                    tts_duration_sec: dropped_description.duration_sec,
+                    reason: dropped_description.reason.clone(),
+                })
+                .collect::<Vec<_>>()
+        };
 
         project.source_duration_sec = duration;
         project.output_duration_sec = output_duration;
         project.updated_at_utc = now_utc();
         project.descriptions = descriptions;
         project.excluded_descriptions = excluded_descriptions;
-        save_project(project_file, project)?;
+        save_project(&temporary_project, project)?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        commit_project_pair(
+            &temporary_media,
+            &project.output_mp3_path,
+            &temporary_project,
+            project_file,
+        )?;
+        state.lock().unwrap().progress = 100;
 
         Ok(JobOutcome {
             output_path: project.output_mp3_path.clone(),
@@ -5508,7 +7273,11 @@ fn rebuild_project(
                 .count(),
         })
     })();
-    let _ = fs::remove_dir_all(work);
+    if result.is_err() {
+        let _ = fs::remove_file(&temporary_media);
+        let _ = fs::remove_file(&temporary_project);
+    }
+    let _ = fs::remove_dir_all(&work);
     result
 }
 
@@ -5517,6 +7286,7 @@ fn run_project_export_with_progress(
     mut project: AudioDescriptionProject,
     project_file: PathBuf,
     runtime: Arc<Runtime>,
+    fixed_timeline: bool,
 ) -> Result<JobOutcome, String> {
     append_podcast_log("audio_description.project.export_started");
     let progress_dialog = Dialog::builder(parent, &tr("audio_description.project.title"))
@@ -5567,6 +7337,7 @@ fn run_project_export_with_progress(
             &runtime,
             thread_cancel,
             Arc::clone(&thread_state),
+            fixed_timeline,
         );
         thread_state.lock().unwrap().done = Some(result);
     });
@@ -5698,6 +7469,7 @@ fn refresh_project_description_choice(
 
 pub fn open_project_editor(
     parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
     rt: &Arc<Runtime>,
     voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
 ) {
@@ -5716,6 +7488,13 @@ pub fn open_project_editor(
         }
     };
     let project = Rc::new(RefCell::new(project_value));
+    let pending_reanalysis = Rc::new(Cell::new(false));
+    // Text edits can be staged across several descriptions before they are
+    // validated and committed together, matching the Windows saved-project editor.
+    let pending_text_edits = Rc::new(RefCell::new(HashMap::<usize, String>::new()));
+    let last_selected_description = Rc::new(Cell::new(
+        (!project.borrow().descriptions.is_empty()).then_some(0usize),
+    ));
     let dialog = Dialog::builder(parent, &tr("audio_description.project.title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 520)
@@ -5761,8 +7540,17 @@ pub fn open_project_editor(
     let apply = Button::builder(&panel)
         .with_label(&tr("audio_description.project.apply"))
         .build();
+    let reanalyze = Button::builder(&panel)
+        .with_label(&tr("audio_description.project.reanalyze_button"))
+        .build();
+    let apply_reanalyzed = Button::builder(&panel)
+        .with_label(&tr("audio_description.project.apply_reanalyzed"))
+        .build();
+    apply_reanalyzed.enable(false);
     let apply_row = BoxSizer::builder(Orientation::Horizontal).build();
     apply_row.add(&apply, 0, SizerFlag::All, 4);
+    apply_row.add(&reanalyze, 0, SizerFlag::All, 4);
+    apply_row.add(&apply_reanalyzed, 0, SizerFlag::All, 4);
     root.add_sizer(&apply_row, 0, SizerFlag::Expand, 0);
 
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -5903,12 +7691,32 @@ pub fn open_project_editor(
 
     let project_selection = Rc::clone(&project);
     let display_order_selection = Rc::clone(&description_display_order);
+    let pending_text_selection = Rc::clone(&pending_text_edits);
+    let last_selected_selection = Rc::clone(&last_selected_description);
     choice.on_selection_changed(move |_| {
+        if let Some(previous_index) = last_selected_selection.get()
+            && let Some(previous) = project_selection.borrow().descriptions.get(previous_index)
+        {
+            let draft = text.get_value().trim().to_string();
+            if draft != previous.text {
+                pending_text_selection
+                    .borrow_mut()
+                    .insert(previous_index, draft);
+            } else {
+                pending_text_selection.borrow_mut().remove(&previous_index);
+            }
+        }
         if let Some(index) =
             selected_project_description_index(&choice, &display_order_selection)
             && let Some(description) = project_selection.borrow().descriptions.get(index)
         {
-            text.set_value(&description.text);
+            let value = pending_text_selection
+                .borrow()
+                .get(&index)
+                .cloned()
+                .unwrap_or_else(|| description.text.clone());
+            text.set_value(&value);
+            last_selected_selection.set(Some(index));
             status.set_label(&project_description_details(
                 &project_selection.borrow(),
                 index,
@@ -5918,7 +7726,19 @@ pub fn open_project_editor(
 
     let project_search = Rc::clone(&project);
     let display_order_search = Rc::clone(&description_display_order);
+    let pending_text_search = Rc::clone(&pending_text_edits);
+    let last_selected_search = Rc::clone(&last_selected_description);
     let run_description_search = Rc::new(move || {
+        if let Some(previous_index) = last_selected_search.get()
+            && let Some(previous) = project_search.borrow().descriptions.get(previous_index)
+        {
+            let draft = text.get_value().trim().to_string();
+            if draft != previous.text {
+                pending_text_search.borrow_mut().insert(previous_index, draft);
+            } else {
+                pending_text_search.borrow_mut().remove(&previous_index);
+            }
+        }
         let query = search.get_value();
         let preferred = if query.trim().is_empty() {
             selected_project_description_index(&choice, &display_order_search)
@@ -5935,7 +7755,13 @@ pub fn open_project_editor(
         if let Some(index) = selected
             && let Some(description) = project_search.borrow().descriptions.get(index)
         {
-            text.set_value(&description.text);
+            let value = pending_text_search
+                .borrow()
+                .get(&index)
+                .cloned()
+                .unwrap_or_else(|| description.text.clone());
+            text.set_value(&value);
+            last_selected_search.set(Some(index));
             status.set_label(&project_description_details(&project_search.borrow(), index));
         }
         choice.set_focus();
@@ -5947,11 +7773,25 @@ pub fn open_project_editor(
 
     let project_search_clear = Rc::clone(&project);
     let display_order_search_clear = Rc::clone(&description_display_order);
+    let pending_text_search_clear = Rc::clone(&pending_text_edits);
+    let last_selected_search_clear = Rc::clone(&last_selected_description);
     search.on_text_changed(move |_| {
         if !search.get_value().trim().is_empty() {
             return;
         }
-        let preferred = selected_project_description_index(&choice, &display_order_search_clear);
+        if let Some(previous_index) = last_selected_search_clear.get()
+            && let Some(previous) = project_search_clear.borrow().descriptions.get(previous_index)
+        {
+            let draft = text.get_value().trim().to_string();
+            if draft != previous.text {
+                pending_text_search_clear
+                    .borrow_mut()
+                    .insert(previous_index, draft);
+            } else {
+                pending_text_search_clear.borrow_mut().remove(&previous_index);
+            }
+        }
+        let preferred = last_selected_search_clear.get();
         let selected = refresh_project_description_choice(
             &choice,
             &project_search_clear.borrow().descriptions,
@@ -5962,7 +7802,13 @@ pub fn open_project_editor(
         if let Some(index) = selected
             && let Some(description) = project_search_clear.borrow().descriptions.get(index)
         {
-            text.set_value(&description.text);
+            let value = pending_text_search_clear
+                .borrow()
+                .get(&index)
+                .cloned()
+                .unwrap_or_else(|| description.text.clone());
+            text.set_value(&value);
+            last_selected_search_clear.set(Some(index));
             status.set_label(&project_description_details(
                 &project_search_clear.borrow(),
                 index,
@@ -5990,9 +7836,35 @@ pub fn open_project_editor(
     let rt_voice = Arc::clone(rt);
     let dialog_voice = dialog;
     let display_order_voice = Rc::clone(&description_display_order);
+    let pending_text_voice = Rc::clone(&pending_text_edits);
+    let last_selected_voice = Rc::clone(&last_selected_description);
     change_voice.on_click(move |_| {
         let selected_description_index =
             selected_project_description_index(&choice, &display_order_voice).unwrap_or(0);
+        if let Some(description) = project_voice
+            .borrow()
+            .descriptions
+            .get(selected_description_index)
+        {
+            let draft = text.get_value().trim().to_string();
+            if draft != description.text {
+                pending_text_voice
+                    .borrow_mut()
+                    .insert(selected_description_index, draft);
+            } else {
+                pending_text_voice
+                    .borrow_mut()
+                    .remove(&selected_description_index);
+            }
+            last_selected_voice.set(Some(selected_description_index));
+        }
+        if !pending_text_voice.borrow().is_empty() {
+            show_project_error(
+                &dialog_voice,
+                &tr("audio_description.project.apply_before_export"),
+            );
+            return;
+        }
         let selected_voice_index = voice.get_selection().unwrap_or(0) as usize;
         let candidate = project_voices_change
             .borrow()
@@ -6102,11 +7974,158 @@ pub fn open_project_editor(
         }
     });
 
+    let project_reanalyze = Rc::clone(&project);
+    let pending_reanalysis_run = Rc::clone(&pending_reanalysis);
+    let settings_reanalyze = Arc::clone(settings);
+    let rt_reanalyze = Arc::clone(rt);
+    let dialog_reanalyze = dialog;
+    let display_order_reanalyze = Rc::clone(&description_display_order);
+    let pending_text_reanalyze = Rc::clone(&pending_text_edits);
+    let last_selected_reanalyze = Rc::clone(&last_selected_description);
+    reanalyze.on_click(move |_| {
+        if pending_reanalysis_run.get() {
+            return;
+        }
+        let Some(index) = selected_project_description_index(&choice, &display_order_reanalyze)
+        else {
+            show_project_error(
+                &dialog_reanalyze,
+                &tr("audio_description.project.no_selection"),
+            );
+            return;
+        };
+        if let Some(description) = project_reanalyze.borrow().descriptions.get(index) {
+            let draft = text.get_value().trim().to_string();
+            if draft != description.text {
+                pending_text_reanalyze.borrow_mut().insert(index, draft);
+            } else {
+                pending_text_reanalyze.borrow_mut().remove(&index);
+            }
+            last_selected_reanalyze.set(Some(index));
+        }
+        if !pending_text_reanalyze.borrow().is_empty() {
+            show_project_error(
+                &dialog_reanalyze,
+                &tr("audio_description.project.apply_before_export"),
+            );
+            return;
+        }
+        let settings_snapshot = settings_reanalyze.lock().unwrap().clone();
+        match run_project_reanalysis_with_progress(
+            &dialog_reanalyze,
+            project_reanalyze.borrow().clone(),
+            index,
+            settings_snapshot,
+            Arc::clone(&rt_reanalyze),
+        ) {
+            Ok(reanalysis) => {
+                let affected_count = reanalysis.segment_description_ids.len();
+                let focus_index = reanalysis.focus_index;
+                *project_reanalyze.borrow_mut() = reanalysis.project;
+                pending_reanalysis_run.set(true);
+                apply_reanalyzed.enable(true);
+                reanalyze.enable(false);
+                delete.enable(false);
+                export.enable(false);
+                change_voice.enable(false);
+                let query = search.get_value();
+                let selected = refresh_project_description_choice(
+                    &choice,
+                    &project_reanalyze.borrow().descriptions,
+                    &display_order_reanalyze,
+                    &query,
+                    Some(focus_index),
+                );
+                if let Some(selected_index) = selected
+                    && let Some(description) =
+                        project_reanalyze.borrow().descriptions.get(selected_index)
+                {
+                    text.set_value(&description.text);
+                    status.set_label(&trf(
+                        "audio_description.project.status.reanalyzed_ready_count",
+                        &[("count", affected_count.to_string())],
+                    ));
+                }
+                append_podcast_log(&format!(
+                    "audio_description.project.reanalyze_ready affected={} focus={}",
+                    affected_count, focus_index
+                ));
+            }
+            Err(error) if error == "cancelled" => {
+                status.set_label(&tr("audio_description.project.status.ready"));
+            }
+            Err(error) => show_project_error(&dialog_reanalyze, &error),
+        }
+    });
+
+    let project_apply_reanalyzed = Rc::clone(&project);
+    let pending_reanalysis_commit = Rc::clone(&pending_reanalysis);
+    let path_apply_reanalyzed = path.clone();
+    let rt_apply_reanalyzed = Arc::clone(rt);
+    let dialog_apply_reanalyzed = dialog;
+    let display_order_apply_reanalyzed = Rc::clone(&description_display_order);
+    apply_reanalyzed.on_click(move |_| {
+        if !pending_reanalysis_commit.get() {
+            return;
+        }
+        if let Some(index) =
+            selected_project_description_index(&choice, &display_order_apply_reanalyzed)
+        {
+            let draft = text.get_value().trim().to_string();
+            if draft.is_empty() {
+                show_project_error(
+                    &dialog_apply_reanalyzed,
+                    &tr("audio_description.project.error_empty"),
+                );
+                return;
+            }
+            if project_apply_reanalyzed
+                .borrow()
+                .descriptions
+                .get(index)
+                .is_some_and(|description| description.text != draft)
+            {
+                show_project_error(
+                    &dialog_apply_reanalyzed,
+                    &tr("audio_description.project.apply_before_export"),
+                );
+                return;
+            }
+        }
+        status.set_label(&tr("audio_description.project.status.exporting"));
+        match run_project_export_with_progress(
+            &dialog_apply_reanalyzed,
+            project_apply_reanalyzed.borrow().clone(),
+            path_apply_reanalyzed.clone(),
+            Arc::clone(&rt_apply_reanalyzed),
+            true,
+        ) {
+            Ok(_) => {
+                pending_reanalysis_commit.set(false);
+                show_completion(
+                    &dialog_apply_reanalyzed,
+                    &tr("audio_description.project.reanalyzed_applied"),
+                );
+                dialog_apply_reanalyzed.end_modal(ID_AUDIO_DESCRIPTION_PROJECT_CLOSE);
+            }
+            Err(error) if error == "cancelled" => {
+                status.set_label(&tr("audio_description.project.status.reanalyzed_ready"));
+            }
+            Err(error) => {
+                show_project_error(&dialog_apply_reanalyzed, &error);
+                status.set_label(&tr("audio_description.project.status.reanalyzed_ready"));
+            }
+        }
+    });
+
     let project_apply = Rc::clone(&project);
     let path_apply = path.clone();
     let dialog_apply = dialog;
     let rt_apply = Arc::clone(rt);
     let display_order_apply = Rc::clone(&description_display_order);
+    let pending_reanalysis_apply = Rc::clone(&pending_reanalysis);
+    let pending_text_apply = Rc::clone(&pending_text_edits);
+    let last_selected_apply = Rc::clone(&last_selected_description);
     apply.on_click(move |_| {
         let Some(index) = selected_project_description_index(&choice, &display_order_apply) else {
             show_project_error(&dialog_apply, &tr("audio_description.project.no_selection"));
@@ -6121,62 +8140,105 @@ pub fn open_project_editor(
             .borrow()
             .descriptions
             .get(index)
-            .is_some_and(|description| description.text == value)
+            .is_some_and(|description| description.text != value)
         {
+            pending_text_apply.borrow_mut().insert(index, value);
+        } else {
+            pending_text_apply.borrow_mut().remove(&index);
+        }
+        if pending_text_apply.borrow().is_empty() {
             status.set_label(&tr("audio_description.project.edit_saved"));
             return;
         }
 
         status.set_label(&tr("audio_description.project.status.checking_duration"));
-        let available = match project_edit_available_duration(&project_apply.borrow(), index) {
-            Ok(value) => value,
-            Err(error) => {
-                show_project_error(&dialog_apply, &error);
+        let mut staged = pending_text_apply
+            .borrow()
+            .iter()
+            .map(|(edit_index, value)| (*edit_index, value.clone()))
+            .collect::<Vec<_>>();
+        staged.sort_by_key(|(edit_index, _)| *edit_index);
+        let mut validated = Vec::<(usize, String)>::with_capacity(staged.len());
+        for (edit_index, edit_value) in staged {
+            if edit_value.trim().is_empty() {
+                let query = search.get_value();
+                refresh_project_description_choice(
+                    &choice,
+                    &project_apply.borrow().descriptions,
+                    &display_order_apply,
+                    &query,
+                    Some(edit_index),
+                );
+                text.set_value(&edit_value);
+                last_selected_apply.set(Some(edit_index));
+                show_project_error(&dialog_apply, &tr("audio_description.project.error_empty"));
                 return;
             }
-        };
-        let duration = match synthesize_project_text_duration(
-            &project_apply.borrow(),
-            &value,
-            index,
-            &rt_apply,
-        ) {
-            Ok(value) => value,
-            Err(error) => {
-                show_project_error(&dialog_apply, &error);
+            let available = match project_edit_available_duration(&project_apply.borrow(), edit_index) {
+                Ok(value) => value,
+                Err(error) => {
+                    show_project_error(&dialog_apply, &error);
+                    return;
+                }
+            };
+            let duration = match synthesize_project_text_duration(
+                &project_apply.borrow(),
+                &edit_value,
+                edit_index,
+                &rt_apply,
+            ) {
+                Ok(value) => value,
+                Err(error) => {
+                    show_project_error(&dialog_apply, &error);
+                    return;
+                }
+            };
+            if let Some(available) = available
+                && duration > available + 0.010
+            {
+                let query = search.get_value();
+                refresh_project_description_choice(
+                    &choice,
+                    &project_apply.borrow().descriptions,
+                    &display_order_apply,
+                    &query,
+                    Some(edit_index),
+                );
+                text.set_value(&edit_value);
+                last_selected_apply.set(Some(edit_index));
+                show_project_error(
+                    &dialog_apply,
+                    &trf(
+                        "audio_description.project.error_too_long",
+                        &[
+                            ("actual", format!("{duration:.3}")),
+                            ("available", format!("{available:.3}")),
+                        ],
+                    ),
+                );
+                status.set_label(&project_description_details(&project_apply.borrow(), edit_index));
                 return;
             }
-        };
-        if let Some(available) = available
-            && duration > available + 0.001
-        {
-            show_project_error(
-                &dialog_apply,
-                &trf(
-                    "audio_description.project.error_too_long",
-                    &[
-                        ("actual", format!("{duration:.3}")),
-                        ("available", format!("{available:.3}")),
-                    ],
-                ),
-            );
-            status.set_label(&project_description_details(&project_apply.borrow(), index));
-            return;
+            validated.push((edit_index, edit_value));
         }
 
-        {
-            let mut mutable = project_apply.borrow_mut();
-            if let Some(description) = mutable.descriptions.get_mut(index) {
-                description.text = value.clone();
-                description.rendered_text = value;
+        let mut updated_project = project_apply.borrow().clone();
+        for (edit_index, edit_value) in &validated {
+            if let Some(description) = updated_project.descriptions.get_mut(*edit_index) {
+                description.text = edit_value.clone();
                 description.modified = description.text != description.original_text;
             }
-            mutable.updated_at_utc = now_utc();
         }
-        if let Err(error) = save_project(&path_apply, &project_apply.borrow()) {
+        updated_project.updated_at_utc = now_utc();
+        if !pending_reanalysis_apply.get()
+            && let Err(error) = save_project(&path_apply, &updated_project)
+        {
             show_project_error(&dialog_apply, &error);
             return;
         }
+        *project_apply.borrow_mut() = updated_project;
+        let applied_count = validated.len();
+        pending_text_apply.borrow_mut().clear();
         let query = search.get_value();
         refresh_project_description_choice(
             &choice,
@@ -6185,8 +8247,20 @@ pub fn open_project_editor(
             &query,
             Some(index),
         );
-        status.set_label(&tr("audio_description.project.edit_saved"));
-        show_project_edit_success(&dialog_apply);
+        last_selected_apply.set(Some(index));
+        let message = trf(
+            "audio_description.project.edit_saved_multiple",
+            &[("count", applied_count.to_string())],
+        );
+        status.set_label(&message);
+        let info = MessageDialog::builder(
+            &dialog_apply,
+            &message,
+            &tr("audio_description.project.edit_success_title"),
+        )
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
+        .build();
+        info.show_modal();
     });
 
     let project_play = Rc::clone(&project);
@@ -6256,6 +8330,8 @@ pub fn open_project_editor(
     let path_delete = path.clone();
     let dialog_delete = dialog;
     let display_order_delete = Rc::clone(&description_display_order);
+    let pending_text_delete = Rc::clone(&pending_text_edits);
+    let last_selected_delete = Rc::clone(&last_selected_description);
     delete.on_click(move |_| {
         let Some(index) = selected_project_description_index(&choice, &display_order_delete) else {
             show_error(
@@ -6264,6 +8340,14 @@ pub fn open_project_editor(
             );
             return;
         };
+        if let Some(description) = project_delete.borrow().descriptions.get(index) {
+            let draft = text.get_value().trim().to_string();
+            if draft != description.text {
+                pending_text_delete.borrow_mut().insert(index, draft);
+            } else {
+                pending_text_delete.borrow_mut().remove(&index);
+            }
+        }
         if project_delete.borrow().descriptions.len() <= 1 {
             show_error(
                 &dialog_delete,
@@ -6278,17 +8362,32 @@ pub fn open_project_editor(
         ) {
             return;
         }
-        {
-            let mut mutable = project_delete.borrow_mut();
-            mutable.descriptions.remove(index);
-            for (new_id, description) in mutable.descriptions.iter_mut().enumerate() {
-                description.id = new_id;
-            }
-            mutable.updated_at_utc = now_utc();
+        let mut updated_project = project_delete.borrow().clone();
+        updated_project.descriptions.remove(index);
+        for (new_id, description) in updated_project.descriptions.iter_mut().enumerate() {
+            description.id = new_id;
         }
-        if let Err(error) = save_project(&path_delete, &project_delete.borrow()) {
+        updated_project.updated_at_utc = now_utc();
+        if let Err(error) = save_project(&path_delete, &updated_project) {
             show_error(&dialog_delete, &error);
             return;
+        }
+        *project_delete.borrow_mut() = updated_project;
+        {
+            let previous = std::mem::take(&mut *pending_text_delete.borrow_mut());
+            let mut adjusted = HashMap::new();
+            for (draft_index, draft) in previous {
+                if draft_index == index {
+                    continue;
+                }
+                let adjusted_index = if draft_index > index {
+                    draft_index - 1
+                } else {
+                    draft_index
+                };
+                adjusted.insert(adjusted_index, draft);
+            }
+            *pending_text_delete.borrow_mut() = adjusted;
         }
         let next_index = index.min(project_delete.borrow().descriptions.len() - 1);
         let query = search.get_value();
@@ -6302,7 +8401,13 @@ pub fn open_project_editor(
         if let Some(selected_index) = selected
             && let Some(description) = project_delete.borrow().descriptions.get(selected_index)
         {
-            text.set_value(&description.text);
+            let value = pending_text_delete
+                .borrow()
+                .get(&selected_index)
+                .cloned()
+                .unwrap_or_else(|| description.text.clone());
+            text.set_value(&value);
+            last_selected_delete.set(Some(selected_index));
         }
         status.set_label(&tr("audio_description.project.description_deleted"));
     });
@@ -6312,27 +8417,33 @@ pub fn open_project_editor(
     let rt_export = Arc::clone(rt);
     let dialog_export = dialog;
     let display_order_export = Rc::clone(&description_display_order);
+    let pending_text_export = Rc::clone(&pending_text_edits);
+    let last_selected_export = Rc::clone(&last_selected_description);
     export.on_click(move |_| {
-        if let Some(index) = selected_project_description_index(&choice, &display_order_export) {
+        if let Some(index) = selected_project_description_index(&choice, &display_order_export)
+            && let Some(description) = project_export.borrow().descriptions.get(index)
+        {
             let draft = text.get_value().trim().to_string();
-            if project_export
-                .borrow()
-                .descriptions
-                .get(index)
-                .is_some_and(|description| description.text != draft)
-            {
-                show_error(
-                    &dialog_export,
-                    &tr("audio_description.project.apply_before_export"),
-                );
-                return;
+            if draft != description.text {
+                pending_text_export.borrow_mut().insert(index, draft);
+            } else {
+                pending_text_export.borrow_mut().remove(&index);
             }
+            last_selected_export.set(Some(index));
+        }
+        if !pending_text_export.borrow().is_empty() {
+            show_error(
+                &dialog_export,
+                &tr("audio_description.project.apply_before_export"),
+            );
+            return;
         }
         let result = run_project_export_with_progress(
             &dialog_export,
             project_export.borrow().clone(),
             path_export.clone(),
             Arc::clone(&rt_export),
+            false,
         );
         match result {
             Ok(_) => {
@@ -6355,23 +8466,27 @@ pub fn open_project_editor(
     let project_export_srt = Rc::clone(&project);
     let dialog_export_srt = dialog;
     let display_order_export_srt = Rc::clone(&description_display_order);
+    let pending_text_export_srt = Rc::clone(&pending_text_edits);
+    let last_selected_export_srt = Rc::clone(&last_selected_description);
     export_srt.on_click(move |_| {
         if let Some(index) =
             selected_project_description_index(&choice, &display_order_export_srt)
+            && let Some(description) = project_export_srt.borrow().descriptions.get(index)
         {
             let draft = text.get_value().trim().to_string();
-            if project_export_srt
-                .borrow()
-                .descriptions
-                .get(index)
-                .is_some_and(|description| description.text != draft)
-            {
-                show_error(
-                    &dialog_export_srt,
-                    &tr("audio_description.project.apply_before_export"),
-                );
-                return;
+            if draft != description.text {
+                pending_text_export_srt.borrow_mut().insert(index, draft);
+            } else {
+                pending_text_export_srt.borrow_mut().remove(&index);
             }
+            last_selected_export_srt.set(Some(index));
+        }
+        if !pending_text_export_srt.borrow().is_empty() {
+            show_error(
+                &dialog_export_srt,
+                &tr("audio_description.project.apply_before_export"),
+            );
+            return;
         }
         let snapshot = project_export_srt.borrow();
         match export_project_subtitles(&dialog_export_srt, &snapshot, "srt") {
@@ -6399,23 +8514,27 @@ pub fn open_project_editor(
     let project_export_vtt = Rc::clone(&project);
     let dialog_export_vtt = dialog;
     let display_order_export_vtt = Rc::clone(&description_display_order);
+    let pending_text_export_vtt = Rc::clone(&pending_text_edits);
+    let last_selected_export_vtt = Rc::clone(&last_selected_description);
     export_vtt.on_click(move |_| {
         if let Some(index) =
             selected_project_description_index(&choice, &display_order_export_vtt)
+            && let Some(description) = project_export_vtt.borrow().descriptions.get(index)
         {
             let draft = text.get_value().trim().to_string();
-            if project_export_vtt
-                .borrow()
-                .descriptions
-                .get(index)
-                .is_some_and(|description| description.text != draft)
-            {
-                show_error(
-                    &dialog_export_vtt,
-                    &tr("audio_description.project.apply_before_export"),
-                );
-                return;
+            if draft != description.text {
+                pending_text_export_vtt.borrow_mut().insert(index, draft);
+            } else {
+                pending_text_export_vtt.borrow_mut().remove(&index);
             }
+            last_selected_export_vtt.set(Some(index));
+        }
+        if !pending_text_export_vtt.borrow().is_empty() {
+            show_error(
+                &dialog_export_vtt,
+                &tr("audio_description.project.apply_before_export"),
+            );
+            return;
         }
         let snapshot = project_export_vtt.borrow();
         match export_project_subtitles(&dialog_export_vtt, &snapshot, "vtt") {
@@ -6442,13 +8561,65 @@ pub fn open_project_editor(
 
     dialog.set_escape_id(ID_AUDIO_DESCRIPTION_PROJECT_CLOSE);
     let dialog_close = dialog;
+    let project_close = Rc::clone(&project);
+    let display_order_close = Rc::clone(&description_display_order);
+    let pending_text_close = Rc::clone(&pending_text_edits);
+    let last_selected_close = Rc::clone(&last_selected_description);
+    let pending_reanalysis_close = Rc::clone(&pending_reanalysis);
     close.on_click(move |_| {
         append_podcast_log("audio_description.project.close_requested_button");
+        if let Some(index) = selected_project_description_index(&choice, &display_order_close)
+            && let Some(description) = project_close.borrow().descriptions.get(index)
+        {
+            let draft = text.get_value().trim().to_string();
+            if draft != description.text {
+                pending_text_close.borrow_mut().insert(index, draft);
+            } else {
+                pending_text_close.borrow_mut().remove(&index);
+            }
+            last_selected_close.set(Some(index));
+        }
+        if (!pending_text_close.borrow().is_empty() || pending_reanalysis_close.get())
+            && !crate::ask_yes_no_dialog(
+                &dialog_close,
+                &tr("audio_description.project.title"),
+                &tr("audio_description.project.unsaved_close"),
+            )
+        {
+            return;
+        }
         dialog_close.end_modal(ID_AUDIO_DESCRIPTION_PROJECT_CLOSE);
     });
     let dialog_window_close = dialog;
+    let project_window_close = Rc::clone(&project);
+    let display_order_window_close = Rc::clone(&description_display_order);
+    let pending_text_window_close = Rc::clone(&pending_text_edits);
+    let last_selected_window_close = Rc::clone(&last_selected_description);
+    let pending_reanalysis_window_close = Rc::clone(&pending_reanalysis);
     dialog.on_close(move |event| {
         append_podcast_log("audio_description.project.close_requested_window");
+        if let Some(index) =
+            selected_project_description_index(&choice, &display_order_window_close)
+            && let Some(description) = project_window_close.borrow().descriptions.get(index)
+        {
+            let draft = text.get_value().trim().to_string();
+            if draft != description.text {
+                pending_text_window_close.borrow_mut().insert(index, draft);
+            } else {
+                pending_text_window_close.borrow_mut().remove(&index);
+            }
+            last_selected_window_close.set(Some(index));
+        }
+        if (!pending_text_window_close.borrow().is_empty() || pending_reanalysis_window_close.get())
+            && !crate::ask_yes_no_dialog(
+                &dialog_window_close,
+                &tr("audio_description.project.title"),
+                &tr("audio_description.project.unsaved_close"),
+            )
+        {
+            event.skip(false);
+            return;
+        }
         dialog_window_close.end_modal(ID_AUDIO_DESCRIPTION_PROJECT_CLOSE);
         event.skip(false);
     });

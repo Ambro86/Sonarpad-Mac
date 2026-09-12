@@ -1,5 +1,41 @@
 Changelog
 
+Versione 0.5.0 - 12 settembre 2026
+
+Audiodescrizioni, Strumenti e conversione batch
+
+1. Portate su macOS le più recenti migliorie del motore di audiodescrizione della versione Windows, con maggiore robustezza del bridge Gemini, migliore gestione dei segmenti video problematici e controlli più affidabili durante analisi e riesportazione.
+
+2. In “Crea audiodescrizione con IA” è ora possibile scegliere tra “Usa la mia chiave API Gemini” e “Usa il servizio Sonarpad AI”. Le due credenziali restano memorizzate separatamente: cambiare modalità non cancella né la chiave personale né il codice Sonarpad AI.
+
+3. Quando si usa Sonarpad AI viene mostrato anche il credito attuale in un campo di sola lettura, con i controlli per mostrare il codice e richiederne uno nuovo.
+
+4. Se il file contiene più tracce audio, Sonarpad chiede quale traccia analizzare prima di creare l’audiodescrizione. La scelta viene conservata nel progetto ed è rispettata anche nelle operazioni successive.
+
+5. Aggiunta l’opzione per riconoscere i testi importanti presenti sullo schermo e tenerne conto nella generazione delle descrizioni.
+
+6. È ora possibile scegliere facoltativamente di creare anche un video finale con l’audiodescrizione, oltre al normale output audio. Migliorata inoltre la gestione dei contenitori e dei timestamp nei casi in cui sia necessario un formato alternativo.
+
+7. Migliorato il ducking dell’audio originale: l’abbassamento e il ripristino del volume attorno alla voce narrante sono più graduali, con pre-duck e rilascio più morbidi.
+
+8. In “Modifica progetto audiodescrittivo” è stato aggiunto “Rianalizza segmento”. Il comando lavora sulla descrizione selezionata e usa automaticamente l’ultima modalità IA scelta nelle impostazioni globali, come nella versione Windows.
+
+9. L’editor dei progetti permette ora di modificare più descrizioni una dopo l’altra senza applicarle subito. Le modifiche restano in memoria passando tra i segmenti o usando la ricerca; premendo “Applica” vengono controllate e applicate tutte insieme. Se anche una sola descrizione non entra nel silenzio disponibile, non viene applicata nessuna modifica e Sonarpad riporta alla descrizione da correggere.
+
+10. Corretto il percorso di salvataggio quando si crea una seconda audiodescrizione senza chiudere la finestra: scegliendo un nuovo file sorgente viene ora proposto il percorso relativo al nuovo file e non quello usato in precedenza.
+
+11. Aggiunta nelle impostazioni l’opzione “Raggruppa il menu Strumenti per categoria”. Quando è attiva, Strumenti viene organizzato nelle categorie “Lettura e contenuti”, “Multimedia” e “Utilità”; disattivandola torna il menu piatto.
+
+12. Nell’Enciclopedia Treccani è stato rimosso dall’interfaccia accessibile il controllo dei risultati vuoto che compariva prima di effettuare una ricerca. Il controllo viene mostrato solo quando esistono risultati selezionabili.
+
+13. Aggiunto “Converti cartella…” in Strumenti > Multimedia. È possibile convertire in massa un’intera cartella usando gli stessi formati e parametri di “Converti media”, ad esempio convertendo molti file WMA in MP3 con una sola operazione.
+
+14. La conversione di cartelle mostra l’avanzamento file per file, propone la sottocartella “Convertiti”, mantiene i nomi di base dei file, riepiloga eventuali errori e protegge da sovrascritture accidentali o collisioni tra nomi di destinazione.
+
+15. Aggiunta un’impostazione, attiva per impostazione predefinita, che durante l’avanzamento o il riavvolgimento nei contenuti multimediali annuncia sia il tempo corrente sia la durata totale in forma naturale, ad esempio “1 minuto e 10 secondi di 1 ora, 10 minuti e 10 secondi”. Disattivandola, Sonarpad continua ad annunciare soltanto il tempo corrente come nelle versioni precedenti.
+
+16. Durante la riproduzione, Option+I annuncia in qualsiasi momento soltanto la durata totale del contenuto in forma naturale. Il comando funziona indipendentemente dall’impostazione che aggiunge la durata agli annunci di avanzamento e riavvolgimento; per le dirette viene annunciato che il contenuto è in diretta.
+
 Versione 0.4.0 - 3 settembre 2026
 
 Audiodescrizione con IA — nuova funzione principale

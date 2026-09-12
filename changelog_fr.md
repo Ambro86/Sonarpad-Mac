@@ -1,5 +1,41 @@
 Journal des nouveautés
 
+Version 0.5.0 - 12 septembre 2026
+
+Audiodescription, Outils et conversion par lots
+
+1. Les dernières améliorations du moteur d’audiodescription de Windows ont été portées sur macOS, avec un pont Gemini plus robuste, une meilleure gestion des segments vidéo problématiques et des contrôles plus fiables pendant l’analyse et la réexportation.
+
+2. Dans « Créer une audiodescription avec l’IA », il est désormais possible de choisir entre « Utiliser ma clé API Gemini » et « Utiliser Sonarpad AI ». Les deux identifiants sont conservés séparément : changer de mode ne supprime ni la clé personnelle ni le code Sonarpad AI.
+
+3. Avec Sonarpad AI, le crédit actuel est affiché dans un champ en lecture seule, avec les commandes permettant d’afficher le code et d’en demander un nouveau.
+
+4. Si un fichier contient plusieurs pistes audio, Sonarpad demande quelle piste analyser avant de créer l’audiodescription. La piste choisie est conservée dans le projet et réutilisée lors des opérations suivantes.
+
+5. Ajout d’une option permettant de reconnaître les textes importants affichés à l’écran et d’en tenir compte lors de la génération des descriptions.
+
+6. La création d’une audiodescription peut désormais produire, en option, une vidéo finale contenant l’audiodescription en plus de la sortie audio normale. La gestion des conteneurs et des horodatages a également été améliorée lorsqu’un format de sortie alternatif est nécessaire.
+
+7. Amélioration du ducking de la bande-son originale : la baisse et le retour du volume autour de la narration sont plus progressifs, avec un pré-duck et un relâchement plus doux.
+
+8. Ajout de « Réanalyser le segment » dans l’éditeur de projet d’audiodescription. La commande agit sur la description sélectionnée et utilise automatiquement le dernier mode IA global choisi, comme sous Windows.
+
+9. L’éditeur de projet peut désormais conserver simultanément les modifications de plusieurs descriptions. Les brouillons restent disponibles lors du passage d’un segment à l’autre ou pendant une recherche ; « Appliquer » les valide et les applique ensemble. Si une seule description dépasse le silence disponible, aucune modification n’est appliquée et Sonarpad revient à la description à corriger.
+
+10. Correction du chemin d’enregistrement lors de la création d’une deuxième audiodescription sans fermer la fenêtre : sélectionner un nouveau fichier source génère maintenant un chemin correspondant au nouveau fichier au lieu de conserver l’ancien.
+
+11. Ajout du réglage « Regrouper le menu Outils par catégorie ». Lorsqu’il est activé, Outils est organisé en « Lecture et contenu », « Multimédia » et « Utilitaires » ; lorsqu’il est désactivé, le menu redevient plat.
+
+12. Dans l’encyclopédie Treccani, le contrôle de résultats vide qui apparaissait avant toute recherche a été retiré de l’interface accessible. Il n’est affiché que lorsque des résultats sélectionnables existent.
+
+13. Ajout de « Convertir un dossier… » dans Outils > Multimédia. Un dossier entier peut être converti par lots avec les mêmes formats et paramètres que « Convertir un média », par exemple de nombreux fichiers WMA vers MP3 en une seule opération.
+
+14. La conversion de dossiers affiche la progression fichier par fichier, propose un sous-dossier « Convertis », conserve les noms de base, récapitule les erreurs et protège contre les écrasements accidentels et les collisions de noms de destination.
+
+15. Ajout d’un réglage, activé par défaut, qui annonce à la fois la position actuelle et la durée totale sous une forme naturelle lors d’une avance ou d’un retour dans un média, par exemple « 1 minute et 10 secondes sur 1 heure, 10 minutes et 10 secondes ». Lorsqu’il est désactivé, Sonarpad continue d’annoncer uniquement la position actuelle comme dans les versions précédentes.
+
+16. Pendant la lecture, Option+I annonce uniquement la durée totale du contenu dans un format naturel. Le raccourci fonctionne indépendamment du réglage qui ajoute la durée totale aux annonces lors des déplacements ; pour les flux en direct, Sonarpad annonce qu’il s’agit d’un direct.
+
 Version 0.4.0 - 3 septembre 2026
 
 Audiodescription avec IA — nouvelle fonction principale

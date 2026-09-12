@@ -68,6 +68,28 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('format!("0:{stream_index}?")', AUDIO)
         self.assertIn("preferred_audio_stream_index.is_none()", AUDIO)
 
+    def test_ai_access_modes_keep_personal_key_and_sonarpad_code_independent(self):
+        self.assertIn('audio_description.ai_access.personal', AUDIO)
+        self.assertIn('audio_description.ai_access.sonarpad', AUDIO)
+        self.assertIn('st.audio_description_use_sonarpad_ai = service;', AUDIO)
+        self.assertIn('st.audio_description_gemini_api_key = api_value_ai_access().trim().to_string();', AUDIO)
+        self.assertIn('st.sonarpad_ai_access_code = sonarpad_code_value_ai_access().trim().to_string();', AUDIO)
+        self.assertIn('if !use_sonarpad_ai && personal_api_key_value.is_empty()', AUDIO)
+        self.assertIn('if use_sonarpad_ai && sonarpad_code_value.is_empty()', AUDIO)
+        self.assertIn('// Keep the personal Gemini key independent from the Sonarpad AI credentials.', AUDIO)
+
+
+    def test_sonarpad_ai_mode_shows_read_only_credit_and_refreshes_account_balance(self):
+        self.assertIn('audio_description.sonarpad_balance', AUDIO)
+        self.assertIn('TextCtrlStyle::ReadOnly', AUDIO)
+        self.assertIn('fn fetch_sonarpad_balance', AUDIO)
+        self.assertIn('/v1/activate', AUDIO)
+        self.assertIn('/v1/account', AUDIO)
+        self.assertIn('balance_eur', AUDIO)
+        self.assertIn('request_sonarpad_balance_ai_access();', AUDIO)
+        self.assertIn('sonarpad_request_code', AUDIO)
+        self.assertIn('sonarpad_show_code', AUDIO)
+
     def test_multichannel_audio_is_downmixed_to_stereo_before_mp3_export(self):
         decode_start = AUDIO.index("fn decode_source_audio(")
         decode_end = AUDIO.index("fn create_pyannote_wav", decode_start)
@@ -449,12 +471,29 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
 
 
     def test_project_editor_uses_modal_feedback_for_applied_edits(self):
-        self.assertIn("show_project_edit_success(&dialog_apply)", AUDIO)
+        self.assertIn('audio_description.project.edit_saved_multiple', AUDIO)
         self.assertRegex(
             AUDIO,
-            r'(?s)duration > available \+ 0\.001.*show_project_error\(\s*&dialog_apply',
+            r'(?s)duration > available \+ 0\.010.*show_project_error\(\s*&dialog_apply',
+        )
+        self.assertRegex(
+            AUDIO,
+            r'(?s)let message = trf\(\s*"audio_description.project.edit_saved_multiple".*MessageDialog::builder\(\s*&dialog_apply',
         )
         self.assertIn('audio_description.project.edit_success_title', AUDIO)
+
+    def test_project_editor_stages_multiple_text_edits_before_atomic_apply(self):
+        editor = AUDIO[AUDIO.index("pub fn open_project_editor"):]
+        self.assertIn("pending_text_edits", editor)
+        self.assertRegex(editor, r"(?s)pending_text_selection\s*\.borrow_mut\(\)\s*\.insert\(previous_index, draft\)")
+        self.assertRegex(editor, r"(?s)pending_text_search\s*\.borrow_mut\(\)\s*\.insert\(previous_index, draft\)")
+        self.assertIn("let mut staged = pending_text_apply", editor)
+        self.assertIn("staged.sort_by_key", editor)
+        self.assertIn("let mut updated_project = project_apply.borrow().clone();", editor)
+        self.assertIn("save_project(&path_apply, &updated_project)", editor)
+        self.assertIn("*project_apply.borrow_mut() = updated_project;", editor)
+        self.assertIn("pending_text_apply.borrow_mut().clear();", editor)
+        self.assertIn("project_edit_available_duration", editor)
 
     def test_project_editor_voice_change_is_explicit_and_accessible(self):
         editor_start = AUDIO.index("pub fn open_project_editor")

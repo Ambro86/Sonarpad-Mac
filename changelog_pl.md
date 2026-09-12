@@ -1,5 +1,41 @@
 Lista zmian
 
+Wersja 0.5.0 - 12 września 2026
+
+Audiodeskrypcja, Narzędzia i konwersja wsadowa
+
+1. Na macOS przeniesiono najnowsze ulepszenia silnika audiodeskrypcji z wersji Windows, w tym bardziej odporny most Gemini, lepszą obsługę problematycznych segmentów wideo oraz pewniejsze kontrole podczas analizy i ponownego eksportu.
+
+2. W „Utwórz audiodeskrypcję z AI” można teraz wybrać „Użyj mojego klucza API Gemini” albo „Użyj Sonarpad AI”. Oba poświadczenia są przechowywane oddzielnie, więc zmiana trybu nie usuwa ani prywatnego klucza, ani kodu Sonarpad AI.
+
+3. Po wybraniu Sonarpad AI aktualny kredyt jest wyświetlany w polu tylko do odczytu, razem z elementami do pokazania kodu i poproszenia o nowy.
+
+4. Jeśli plik zawiera kilka ścieżek audio, Sonarpad przed utworzeniem audiodeskrypcji pyta, którą ścieżkę przeanalizować. Wybór jest zapisywany w projekcie i używany także w późniejszych operacjach.
+
+5. Dodano opcję rozpoznawania ważnych tekstów widocznych na ekranie i uwzględniania ich podczas tworzenia opisów.
+
+6. Audiodeskrypcja może teraz opcjonalnie tworzyć końcowy plik wideo zawierający audiodeskrypcję, oprócz zwykłego wyjścia audio. Ulepszono też obsługę kontenerów i znaczników czasu, gdy potrzebny jest alternatywny format wyjściowy.
+
+7. Ulepszono ducking oryginalnej ścieżki dźwiękowej: obniżanie i przywracanie głośności wokół narracji jest płynniejsze, z łagodniejszym pre-duckiem i wybrzmieniem.
+
+8. Do edytora projektu audiodeskrypcji dodano „Ponownie przeanalizuj segment”. Polecenie działa na aktualnie wybranym opisie i automatycznie korzysta z ostatnio wybranego globalnego trybu AI, tak jak w wersji Windows.
+
+9. Edytor projektu może teraz przechowywać oczekujące zmiany kilku opisów jednocześnie. Szkice pozostają dostępne podczas przechodzenia między segmentami i wyszukiwania; po wybraniu „Zastosuj” wszystkie są sprawdzane i stosowane razem. Jeśli choć jeden opis nie mieści się w dostępnym miejscu bez dialogu, żadna zmiana nie jest stosowana, a Sonarpad wraca do opisu wymagającego poprawy.
+
+10. Naprawiono ścieżkę zapisu przy tworzeniu drugiej audiodeskrypcji bez zamykania okna: wybór nowego pliku źródłowego tworzy teraz ścieżkę dla nowego pliku zamiast zachowywać poprzednią.
+
+11. Dodano ustawienie „Grupuj menu Narzędzia według kategorii”. Po włączeniu Narzędzia są podzielone na „Czytanie i treści”, „Multimedia” i „Narzędzia użytkowe”; po wyłączeniu wraca płaskie menu.
+
+12. W encyklopedii Treccani usunięto z interfejsu dostępności pusty element wyników, który pojawiał się przed wykonaniem wyszukiwania. Jest on teraz pokazywany tylko wtedy, gdy istnieją wyniki do wyboru.
+
+13. Dodano „Konwertuj folder…” w Narzędzia > Multimedia. Można wsadowo konwertować cały folder przy użyciu tych samych formatów i ustawień co w „Konwertuj multimedia”, na przykład wiele plików WMA do MP3 w jednej operacji.
+
+14. Konwersja folderu pokazuje postęp dla każdego pliku, proponuje podfolder „Przekonwertowane”, zachowuje podstawowe nazwy plików, podsumowuje błędy i chroni przed przypadkowym nadpisaniem oraz kolizjami nazw docelowych.
+
+15. Dodano ustawienie, domyślnie włączone, które podczas przewijania multimediów do przodu lub do tyłu ogłasza zarówno bieżącą pozycję, jak i całkowity czas trwania w naturalnej formie, na przykład „1 minuta i 10 sekund z 1 godziny, 10 minut i 10 sekund”. Po wyłączeniu Sonarpad nadal ogłasza tylko bieżącą pozycję, tak jak w poprzednich wersjach.
+
+16. Podczas odtwarzania skrót Option+I w każdej chwili ogłasza wyłącznie całkowity czas trwania multimediów w naturalnej formie. Skrót działa niezależnie od ustawienia dodającego całkowity czas do komunikatów podczas przewijania; w przypadku transmisji na żywo Sonarpad informuje, że jest to transmisja na żywo.
+
 Wersja 0.4.0 - 3 września 2026
 
 Audiodeskrypcja z AI — nowa główna funkcja

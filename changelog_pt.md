@@ -1,5 +1,41 @@
 Registo de alterações
 
+Versão 0.5.0 - 12 de setembro de 2026
+
+Audiodescrição, Ferramentas e conversão em lote
+
+1. Foram levadas para o macOS as melhorias mais recentes do motor de audiodescrição da versão Windows, com uma ponte Gemini mais robusta, melhor tratamento de segmentos de vídeo problemáticos e verificações mais fiáveis durante a análise e a reexportação.
+
+2. Em «Criar audiodescrição com IA» é agora possível escolher entre «Usar a minha chave API Gemini» e «Usar Sonarpad AI». As duas credenciais são guardadas separadamente, pelo que mudar de modo não elimina nem a chave pessoal nem o código Sonarpad AI.
+
+3. Ao usar Sonarpad AI, o crédito atual é apresentado num campo só de leitura, juntamente com os controlos para mostrar o código e pedir um novo.
+
+4. Se um ficheiro contiver várias faixas de áudio, o Sonarpad pergunta qual deve ser analisada antes de criar a audiodescrição. A faixa escolhida é guardada no projeto e reutilizada nas operações seguintes.
+
+5. Foi adicionada uma opção para reconhecer textos importantes apresentados no ecrã e tê-los em conta ao gerar as descrições.
+
+6. A criação de audiodescrições pode agora, opcionalmente, produzir um vídeo final com a audiodescrição, além da saída de áudio normal. Foi também melhorado o tratamento de contentores e marcas de tempo quando é necessário um formato alternativo.
+
+7. Foi melhorado o ducking do áudio original: a redução e a recuperação do volume em torno da narração são agora mais graduais, com pre-duck e libertação mais suaves.
+
+8. Foi adicionado «Reanalisar segmento» ao editor de projetos de audiodescrição. O comando atua sobre a descrição selecionada e utiliza automaticamente o último modo global de IA escolhido, tal como no Windows.
+
+9. O editor de projetos pode agora manter pendentes alterações a várias descrições ao mesmo tempo. Os rascunhos são conservados ao mudar de segmento ou ao pesquisar; ao premir «Aplicar», todos são validados e aplicados em conjunto. Se uma única descrição não couber no silêncio disponível, nenhuma alteração é aplicada e o Sonarpad regressa à descrição que precisa de ser corrigida.
+
+10. Foi corrigido o caminho de gravação ao criar uma segunda audiodescrição sem fechar a janela: ao selecionar um novo ficheiro de origem, é agora gerado um caminho correspondente ao novo ficheiro, em vez de manter o anterior.
+
+11. Foi adicionada a opção «Agrupar o menu Ferramentas por categoria». Quando está ativa, Ferramentas é organizado em «Leitura e conteúdos», «Multimédia» e «Utilitários»; ao desativá-la, regressa o menu plano.
+
+12. Na enciclopédia Treccani, o controlo de resultados vazio que aparecia antes de uma pesquisa foi removido da interface acessível. Passa a ser mostrado apenas quando existem resultados selecionáveis.
+
+13. Foi adicionado «Converter pasta…» em Ferramentas > Multimédia. É possível converter em lote uma pasta inteira usando os mesmos formatos e parâmetros de «Converter multimédia», por exemplo muitos ficheiros WMA para MP3 numa única operação.
+
+14. A conversão de pastas mostra o progresso ficheiro a ficheiro, propõe uma subpasta «Convertidos», mantém os nomes base, resume eventuais erros e protege contra substituições acidentais e colisões entre nomes de destino.
+
+15. Foi adicionada uma definição, ativa por predefinição, que ao avançar ou recuar num conteúdo multimédia anuncia tanto a posição atual como a duração total num formato natural, por exemplo «1 minuto e 10 segundos de 1 hora, 10 minutos e 10 segundos». Quando desativada, o Sonarpad continua a anunciar apenas a posição atual, como nas versões anteriores.
+
+16. Durante a reprodução, Option+I anuncia apenas a duração total do conteúdo em formato natural. O atalho funciona independentemente da definição que acrescenta a duração total aos anúncios de avanço e retrocesso; nas transmissões em direto é anunciado que o conteúdo está em direto.
+
 Versão 0.4.0 - 3 de setembro de 2026
 
 Audiodescrição com IA — nova função principal

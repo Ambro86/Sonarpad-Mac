@@ -1,5 +1,41 @@
 Seznam změn
 
+Verze 0.5.0 - 12. září 2026
+
+Audiopopis, Nástroje a dávkový převod
+
+1. Do macOS byla přenesena nejnovější vylepšení enginu audiopopisu z verze pro Windows, včetně odolnějšího propojení s Gemini, lepšího zpracování problematických video segmentů a spolehlivějších kontrol během analýzy a opětovného exportu.
+
+2. Ve funkci „Vytvořit audiopopis s AI“ lze nyní zvolit „Použít můj API klíč Gemini“ nebo „Použít Sonarpad AI“. Obě přihlašovací údaje se ukládají odděleně, takže změna režimu nesmaže osobní klíč ani kód Sonarpad AI.
+
+3. Při použití Sonarpad AI se aktuální kredit zobrazuje v poli pouze pro čtení spolu s ovládacími prvky pro zobrazení kódu a vyžádání nového.
+
+4. Pokud soubor obsahuje více zvukových stop, Sonarpad se před vytvořením audiopopisu zeptá, kterou stopu má analyzovat. Vybraná stopa se uloží do projektu a použije se i při dalších operacích.
+
+5. Byla přidána možnost rozpoznávat důležité texty zobrazené na obrazovce a zohlednit je při vytváření popisů.
+
+6. Vytváření audiopopisu může nyní volitelně vytvořit také výsledné video obsahující audiopopis, vedle běžného zvukového výstupu. Zlepšena byla také práce s kontejnery a časovými značkami, pokud je nutný alternativní výstupní formát.
+
+7. Bylo vylepšeno ducking původního zvuku: zeslabení a návrat hlasitosti kolem vyprávění jsou plynulejší, s jemnějším pre-duckem a uvolněním.
+
+8. Do editoru projektu audiopopisu byla přidána funkce „Znovu analyzovat segment“. Pracuje s aktuálně vybraným popisem a automaticky používá naposledy zvolený globální režim AI stejně jako ve Windows.
+
+9. Editor projektu nyní umí uchovat čekající změny několika popisů současně. Koncepty zůstávají zachovány při přechodu mezi segmenty i při vyhledávání; po volbě „Použít“ jsou všechny společně zkontrolovány a použity. Pokud se byť jediný popis nevejde do dostupného ticha, nepoužije se žádná změna a Sonarpad se vrátí k popisu, který je třeba opravit.
+
+10. Opravena cesta pro uložení při vytváření druhého audiopopisu bez zavření okna: po výběru nového zdrojového souboru se nyní vytvoří cesta pro nový soubor místo zachování předchozí.
+
+11. Do nastavení byla přidána volba „Seskupit nabídku Nástroje podle kategorií“. Je-li zapnutá, Nástroje jsou rozděleny na „Čtení a obsah“, „Multimédia“ a „Utility“; po vypnutí se obnoví plochá nabídka.
+
+12. V encyklopedii Treccani byl z přístupného rozhraní odstraněn prázdný ovládací prvek výsledků, který se zobrazoval ještě před vyhledáním. Nyní se zobrazí pouze tehdy, když existují výsledky k výběru.
+
+13. Do Nástroje > Multimédia byla přidána funkce „Převést složku…“. Celou složku lze dávkově převést pomocí stejných formátů a nastavení jako ve funkci „Převést média“, například více souborů WMA do MP3 v jediné operaci.
+
+14. Převod složky zobrazuje průběh po jednotlivých souborech, navrhuje podsložku „Převedeno“, zachovává základní názvy souborů, shrnuje případné chyby a chrání před nechtěným přepsáním a kolizemi cílových názvů.
+
+15. Bylo přidáno nastavení, které je ve výchozím stavu zapnuté a při posunu vpřed nebo vzad v médiích oznamuje jak aktuální pozici, tak celkovou délku v přirozeném formátu, například „1 minuta a 10 sekund z 1 hodiny, 10 minut a 10 sekund“. Po vypnutí Sonarpad nadále oznamuje pouze aktuální pozici stejně jako v předchozích verzích.
+
+16. Během přehrávání klávesová zkratka Option+I kdykoli oznámí pouze celkovou délku média v přirozeném formátu. Zkratka funguje nezávisle na nastavení, které přidává celkovou délku k oznámení při posunu; u živého vysílání Sonarpad oznámí, že jde o živý přenos.
+
 Verze 0.4.0 - 3. září 2026
 
 Audiopopis s AI — nová hlavní funkce

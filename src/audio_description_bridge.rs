@@ -38,8 +38,17 @@ pub struct AudioDescriptionBridgeRequest {
     pub verbosity: String,
     pub allow_extended_pauses: bool,
     pub recognize_characters: bool,
+    pub recognize_screen_text: bool,
     pub initial_character_glossary: Vec<BridgeCharacter>,
+    /// Explicit AI access mode. Never infer/fallback between personal and Sonarpad AI.
+    pub ai_access_mode: String,
     pub gemini_api_key: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sonarpad_ai_service_url: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sonarpad_ai_access_code: String,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub sonarpad_ai_device_id: String,
     pub gemini_model: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume: Option<AudioDescriptionBridgeResume>,

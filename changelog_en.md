@@ -1,5 +1,41 @@
 Changelog
 
+Version 0.5.0 - September 12, 2026
+
+Audio Description, Tools and batch conversion
+
+1. Brought the latest Windows audio-description engine improvements to macOS, with a more resilient Gemini bridge, better handling of problematic video segments, and more reliable checks during analysis and re-export.
+
+2. “Create AI Audio Description” can now use either “Use my Gemini API key” or “Use Sonarpad AI”. The two credentials are stored independently, so switching modes never deletes the personal key or the Sonarpad AI code.
+
+3. When Sonarpad AI is selected, the current credit is shown in a read-only field, together with controls to reveal the code and request a new one.
+
+4. If a source file contains multiple audio tracks, Sonarpad now asks which track should be analyzed before creating the audio description. The selected track is stored in the project and is reused by later operations.
+
+5. Added an option to recognize important on-screen text and take it into account when generating descriptions.
+
+6. Audio-description creation can now optionally produce a final video containing the audio description in addition to the normal audio output. Container and timestamp handling has also been improved when an alternate output format is required.
+
+7. Improved ducking of the original soundtrack: volume reduction and recovery around narration are now smoother, with gentler pre-duck and release behavior.
+
+8. Added “Reanalyze segment” to the audio-description project editor. It works on the currently selected description and automatically uses the last global AI access mode, matching the Windows behavior.
+
+9. The project editor can now keep edits to several descriptions pending at the same time. Drafts remain available while moving between segments or searching; pressing “Apply” validates and commits them together. If even one description does not fit the available silence, none of the edits are applied and Sonarpad returns to the description that needs correction.
+
+10. Fixed the save path when creating a second audio description without closing the window: selecting a new source now generates a path for the new file instead of keeping the previous one.
+
+11. Added the “Group the Tools menu by category” setting. When enabled, Tools is organized into “Reading and content”, “Multimedia”, and “Utilities”; disabling it restores the flat menu.
+
+12. In the Treccani encyclopedia, the empty results control that appeared before a search has been removed from the accessible interface. It is now shown only when selectable results exist.
+
+13. Added “Convert folder…” under Tools > Multimedia. An entire folder can be batch-converted using the same formats and settings as “Convert media”, for example converting many WMA files to MP3 in one operation.
+
+14. Folder conversion shows per-file progress, suggests a “Converted” subfolder, preserves base filenames, summarizes failures, and protects against accidental overwrites and destination-name collisions.
+
+15. Added a setting, enabled by default, that announces both the current position and the total duration in a natural format when seeking forward or backward through media, for example “1 minute 10 seconds of 1 hour 10 minutes 10 seconds”. When disabled, Sonarpad continues to announce only the current position as in previous versions.
+
+16. During playback, Option+I now announces only the total duration of the current media in a natural format. The shortcut works independently of the setting that adds total duration to seek announcements; live streams are announced as live.
+
 Version 0.4.0 - September 3, 2026
 
 AI Audio Description — major new feature
