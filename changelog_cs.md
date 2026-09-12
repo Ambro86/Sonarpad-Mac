@@ -38,6 +38,10 @@ Audiopopis, Nástroje a dávkový převod
 
 17. Ve funkci Vytvořit audiopopis s AI již motor a hlas nezabírají hlavní okno. Nové tlačítko „Upravit hlas“ otevře samostatné okno s motorem, hlasem, rychlostí a hlasitostí a také s testem hlasu; volby se ukládají pro audiopopis. Pokud toto okno nikdy nepoužijete, rychlost a hlasitost se stejně jako dříve převezmou z obecných nastavení.
 
+18. „Přehrát streamovaná média“ nyní zobrazuje u videa kromě názvu také délku. V „Převést složku“ jsou popisky jasnější: „Vybrat složku k převodu“ a „Cílová složka“; během převodu lze použít „Přerušit převod“, které okamžitě ukončí aktivní proces FFmpeg, odstraní aktuální neúplný soubor a zabrání spuštění dalších souborů.
+
+19. Přidána záložní ochrana pro problematické vícekanálové zdroje (například 5.1, 6.1 nebo 7.1): běžný postup zůstává beze změny a používá se stejně jako dříve; pouze pokud je interní WAV nečitelný, má neočekávaný formát nebo obsahuje neúplné PCM rámce, Sonarpad automaticky znovu vytvoří tento krok jako stereo 48 kHz a pokus zopakuje, aniž by měnil soubory, které již fungují.
+
 Verze 0.4.0 - 3. září 2026
 
 Audiopopis s AI — nová hlavní funkce

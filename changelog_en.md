@@ -38,6 +38,10 @@ Audio Description, Tools and batch conversion
 
 17. In Create audio description with AI, engine and voice no longer occupy the main window. The new “Adjust voice” button opens a dedicated window with engine, voice, speed and volume, plus voice testing; the choices are saved for audio descriptions. If the window is never used, speed and volume continue to inherit the general settings as before.
 
+18. “Play streaming media” now shows each video’s duration together with its title. In “Convert folder”, labels are clearer with “Choose folder to convert” and “Destination folder”; while conversion is running, “Stop conversion” now terminates the active FFmpeg process immediately, removes the partial current output, and prevents subsequent files from starting.
+
+19. Added a fallback safeguard for problematic multichannel sources (for example 5.1, 6.1 or 7.1): the normal pipeline remains unchanged and is used exactly as before; only if the internal WAV is unreadable, has an unexpected format, or contains misaligned PCM frames does Sonarpad automatically rebuild that step as 48 kHz stereo and retry, preventing finalization failures without affecting files that already work.
+
 Version 0.4.0 - September 3, 2026
 
 AI Audio Description — major new feature

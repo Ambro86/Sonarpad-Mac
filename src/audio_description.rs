@@ -13,7 +13,7 @@ use serde_json::Value;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::fs;
-use std::io::Read;
+use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -1382,6 +1382,41 @@ fn decode_source_audio(
         wav.to_string_lossy().to_string(),
     ]);
     run_ffmpeg(&args, cancel)?;
+
+    // Keep the normal path byte-for-byte unchanged for files that already work.
+    // Only if the resulting internal WAV is malformed, unexpectedly multichannel,
+    // or contains an incomplete PCM frame do we re-decode it through a conservative
+    // stereo fallback. This protects sources such as problematic 5.1/6.1/7.1 tracks
+    // without changing the successful pipeline for ordinary media.
+    if source_wav_needs_multichannel_fallback(wav)? {
+        let fallback = wav.with_file_name("source-stereo-fallback.wav");
+        let _ = fs::remove_file(&fallback);
+        append_podcast_log(&format!(
+            "audio_description.source_wav_guard fallback_started input={} target={}",
+            input.display(),
+            fallback.display()
+        ));
+        repair_source_wav_stereo_fallback(
+            input,
+            &fallback,
+            preferred_audio_stream_index,
+            cancel,
+        )?;
+        if source_wav_needs_multichannel_fallback(&fallback)? {
+            let _ = fs::remove_file(&fallback);
+            return Err(
+                "Fallback audio stereo non riuscito: il WAV interno resta non allineato.".to_string(),
+            );
+        }
+        fs::remove_file(wav)
+            .map_err(|e| format!("Sostituzione WAV interno fallita: {e}"))?;
+        fs::rename(&fallback, wav)
+            .map_err(|e| format!("Installazione fallback WAV stereo fallita: {e}"))?;
+        append_podcast_log(
+            "audio_description.source_wav_guard fallback_completed stereo=2ch sample_rate=48000",
+        );
+    }
+
     let reader =
         WavReader::open(wav).map_err(|e| format!("Audio sorgente WAV non leggibile: {e}"))?;
     let spec = reader.spec();
@@ -1393,6 +1428,138 @@ fn decode_source_audio(
         ));
     }
     Ok(probe)
+}
+
+fn wav_pcm_data_alignment(path: &Path) -> Result<Option<bool>, String> {
+    let mut file = fs::File::open(path)
+        .map_err(|e| format!("Apertura WAV interno fallita: {e}"))?;
+    let mut riff = [0u8; 12];
+    file.read_exact(&mut riff)
+        .map_err(|e| format!("Lettura intestazione WAV fallita: {e}"))?;
+    if &riff[8..12] != b"WAVE" {
+        return Ok(Some(false));
+    }
+    let is_rf64 = &riff[0..4] == b"RF64";
+    if &riff[0..4] != b"RIFF" && !is_rf64 {
+        return Ok(Some(false));
+    }
+
+    let mut block_align: Option<u16> = None;
+    loop {
+        let mut header = [0u8; 8];
+        match file.read_exact(&mut header) {
+            Ok(()) => {}
+            Err(error) if error.kind() == std::io::ErrorKind::UnexpectedEof => break,
+            Err(error) => return Err(format!("Lettura chunk WAV fallita: {error}")),
+        }
+        let chunk_id = &header[0..4];
+        let chunk_size = u32::from_le_bytes([header[4], header[5], header[6], header[7]]) as u64;
+
+        if chunk_id == b"fmt " {
+            if chunk_size < 16 {
+                return Ok(Some(false));
+            }
+            let mut fmt = [0u8; 16];
+            file.read_exact(&mut fmt)
+                .map_err(|e| format!("Lettura formato WAV fallita: {e}"))?;
+            block_align = Some(u16::from_le_bytes([fmt[12], fmt[13]]));
+            let remaining = chunk_size.saturating_sub(16);
+            if remaining > 0 {
+                file.seek(SeekFrom::Current(remaining as i64))
+                    .map_err(|e| format!("Scorrimento formato WAV fallito: {e}"))?;
+            }
+        } else if chunk_id == b"data" {
+            let Some(block_align) = block_align.filter(|value| *value > 0) else {
+                return Ok(Some(false));
+            };
+            if is_rf64 && chunk_size == u32::MAX as u64 {
+                // RF64 keeps the real data size in ds64. Do not alter a valid long file
+                // merely because this lightweight guard cannot resolve that size.
+                return Ok(None);
+            }
+            return Ok(Some(chunk_size % block_align as u64 == 0));
+        } else {
+            file.seek(SeekFrom::Current(chunk_size as i64))
+                .map_err(|e| format!("Scorrimento chunk WAV fallito: {e}"))?;
+        }
+
+        if chunk_size % 2 != 0 {
+            file.seek(SeekFrom::Current(1))
+                .map_err(|e| format!("Scorrimento padding WAV fallito: {e}"))?;
+        }
+    }
+    Ok(Some(false))
+}
+
+fn source_wav_needs_multichannel_fallback(path: &Path) -> Result<bool, String> {
+    let reader = match WavReader::open(path) {
+        Ok(reader) => reader,
+        Err(error) => {
+            append_podcast_log(&format!(
+                "audio_description.source_wav_guard unreadable_wav fallback=stereo_redecode error={error}"
+            ));
+            return Ok(true);
+        }
+    };
+    let spec = reader.spec();
+    if spec.sample_rate != MIX_SAMPLE_RATE
+        || spec.channels != MIX_CHANNELS
+        || spec.bits_per_sample != 16
+        || spec.sample_format != SampleFormat::Int
+    {
+        append_podcast_log(&format!(
+            "audio_description.source_wav_guard format_mismatch sample_rate={} channels={} bits={} sample_format={:?}",
+            spec.sample_rate, spec.channels, spec.bits_per_sample, spec.sample_format
+        ));
+        return Ok(true);
+    }
+    drop(reader);
+    match wav_pcm_data_alignment(path)? {
+        Some(true) | None => Ok(false),
+        Some(false) => {
+            append_podcast_log(
+                "audio_description.source_wav_guard frame_alignment_invalid fallback=stereo_redecode",
+            );
+            Ok(true)
+        }
+    }
+}
+
+fn repair_source_wav_stereo_fallback(
+    input: &Path,
+    target: &Path,
+    preferred_audio_stream_index: Option<i32>,
+    cancel: &Arc<AtomicBool>,
+) -> Result<(), String> {
+    let mut args = vec![
+        "-hide_banner".into(),
+        "-loglevel".into(),
+        "error".into(),
+        "-y".into(),
+        "-fflags".into(),
+        "+discardcorrupt".into(),
+        "-err_detect".into(),
+        "ignore_err".into(),
+        "-i".into(),
+        input.to_string_lossy().to_string(),
+    ];
+    if let Some(stream_index) = preferred_audio_stream_index {
+        args.push("-map".into());
+        args.push(format!("0:{stream_index}"));
+    }
+    args.extend([
+        "-vn".into(),
+        "-af".into(),
+        "aresample=async=1:first_pts=0".into(),
+        "-ac".into(),
+        MIX_CHANNELS.to_string(),
+        "-ar".into(),
+        MIX_SAMPLE_RATE.to_string(),
+        "-c:a".into(),
+        "pcm_s16le".into(),
+        target.to_string_lossy().to_string(),
+    ]);
+    run_ffmpeg(&args, cancel)
 }
 
 fn create_pyannote_wav(

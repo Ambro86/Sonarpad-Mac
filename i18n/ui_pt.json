@@ -399,9 +399,9 @@
   "tools_category_utilities": "&Utilitários",
   "group_tools_menu_by_category_label": "Agrupar o menu Ferramentas por categoria",
   "convert_folder_title": "Converter pasta…",
-  "convert_folder_input": "Pasta a converter",
+  "convert_folder_input": "Escolher pasta para converter",
   "convert_folder_output": "Pasta de destino",
-  "convert_folder_browse_input": "Escolher pasta de origem…",
+  "convert_folder_browse_input": "Escolher pasta para converter…",
   "convert_folder_browse_output": "Escolher pasta de destino…",
   "convert_folder_ready": "Pronto.",
   "convert_folder_found": "Ficheiros compatíveis encontrados: {count}.",
@@ -409,9 +409,13 @@
   "convert_folder_done": "Conversão concluída: {success} ficheiros convertidos.",
   "convert_folder_done_with_errors": "Conversão concluída: {success} convertidos, {failed} não convertidos.\n\nFicheiros não convertidos:\n{errors}",
   "convert_folder_button": "Converter pasta",
-  "convert_folder_no_input": "Selecione uma pasta para converter.",
-  "convert_folder_no_output": "Selecione uma pasta de destino.",
+  "convert_folder_no_input": "Escolha a pasta a converter.",
+  "convert_folder_no_output": "Escolha uma pasta de destino.",
   "convert_folder_no_files": "A pasta selecionada não contém ficheiros multimédia compatíveis.",
   "convert_folder_output_create_failed": "Não foi possível criar a pasta de destino: {error}",
-  "convert_folder_default_subfolder": "Convertidos"
+  "convert_folder_default_subfolder": "Convertidos",
+  "youtube_duration_label": "Duração",
+  "convert_folder_cancel_button": "Interromper conversão",
+  "convert_folder_cancelling": "A interromper a conversão…",
+  "convert_folder_cancelled": "Conversão interrompida: {success} ficheiros convertidos."
 }

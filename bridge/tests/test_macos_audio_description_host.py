@@ -125,6 +125,21 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("audio_description.multichannel_detected", AUDIO)
         self.assertIn("downmix_to_stereo=true", AUDIO)
 
+    def test_multichannel_wav_repair_is_fallback_only_and_preserves_normal_pipeline(self):
+        decode_start = AUDIO.index("fn decode_source_audio(")
+        decode_end = AUDIO.index("fn create_pyannote_wav", decode_start)
+        decode = AUDIO[decode_start:decode_end]
+        primary_run = decode.index("run_ffmpeg(&args, cancel)?;")
+        guard = decode.index("source_wav_needs_multichannel_fallback(wav)?")
+        self.assertLess(primary_run, guard)
+        self.assertIn("fn wav_pcm_data_alignment", AUDIO)
+        self.assertIn("fn repair_source_wav_stereo_fallback", AUDIO)
+        self.assertIn("frame_alignment_invalid fallback=stereo_redecode", AUDIO)
+        self.assertIn("unreadable_wav fallback=stereo_redecode", AUDIO)
+        self.assertIn("aresample=async=1:first_pts=0", AUDIO)
+        self.assertIn("fallback_completed stereo=2ch sample_rate=48000", AUDIO)
+        self.assertIn("Keep the normal path byte-for-byte unchanged for files that already work", AUDIO)
+
     def test_mkv_analysis_tolerates_corrupt_packets_and_recovers_bad_mux_timestamps(self):
         self.assertGreaterEqual(AUDIO.count('"+genpts+discardcorrupt".into()'), 2)
         self.assertGreaterEqual(AUDIO.count('"ignore_err".into()'), 3)

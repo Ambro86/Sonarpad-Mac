@@ -399,9 +399,9 @@
   "tools_category_utilities": "&Utilidades",
   "group_tools_menu_by_category_label": "Agrupar el menú Herramientas por categoría",
   "convert_folder_title": "Convertir carpeta…",
-  "convert_folder_input": "Carpeta para convertir",
+  "convert_folder_input": "Elegir carpeta para convertir",
   "convert_folder_output": "Carpeta de destino",
-  "convert_folder_browse_input": "Elegir carpeta de origen…",
+  "convert_folder_browse_input": "Elegir carpeta para convertir…",
   "convert_folder_browse_output": "Elegir carpeta de destino…",
   "convert_folder_ready": "Listo.",
   "convert_folder_found": "Archivos compatibles encontrados: {count}.",
@@ -409,9 +409,13 @@
   "convert_folder_done": "Conversión completada: {success} archivos convertidos.",
   "convert_folder_done_with_errors": "Conversión completada: {success} convertidos, {failed} no convertidos.\n\nArchivos no convertidos:\n{errors}",
   "convert_folder_button": "Convertir carpeta",
-  "convert_folder_no_input": "Selecciona una carpeta para convertir.",
-  "convert_folder_no_output": "Selecciona una carpeta de destino.",
+  "convert_folder_no_input": "Elige la carpeta que quieres convertir.",
+  "convert_folder_no_output": "Elige una carpeta de destino.",
   "convert_folder_no_files": "La carpeta seleccionada no contiene archivos multimedia compatibles.",
   "convert_folder_output_create_failed": "No se pudo crear la carpeta de destino: {error}",
-  "convert_folder_default_subfolder": "Convertidos"
+  "convert_folder_default_subfolder": "Convertidos",
+  "youtube_duration_label": "Duración",
+  "convert_folder_cancel_button": "Interrumpir conversión",
+  "convert_folder_cancelling": "Interrumpiendo la conversión…",
+  "convert_folder_cancelled": "Conversión interrumpida: {success} archivos convertidos."
 }

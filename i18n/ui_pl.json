@@ -399,9 +399,9 @@
   "tools_category_utilities": "&Narzędzia",
   "group_tools_menu_by_category_label": "Grupuj menu Narzędzia według kategorii",
   "convert_folder_title": "Konwertuj folder…",
-  "convert_folder_input": "Folder do konwersji",
+  "convert_folder_input": "Wybierz folder do konwersji",
   "convert_folder_output": "Folder docelowy",
-  "convert_folder_browse_input": "Wybierz folder źródłowy…",
+  "convert_folder_browse_input": "Wybierz folder do konwersji…",
   "convert_folder_browse_output": "Wybierz folder docelowy…",
   "convert_folder_ready": "Gotowe.",
   "convert_folder_found": "Znaleziono zgodnych plików: {count}.",
@@ -413,5 +413,9 @@
   "convert_folder_no_output": "Wybierz folder docelowy.",
   "convert_folder_no_files": "Wybrany folder nie zawiera zgodnych plików multimedialnych.",
   "convert_folder_output_create_failed": "Nie można utworzyć folderu docelowego: {error}",
-  "convert_folder_default_subfolder": "Przekonwertowane"
+  "convert_folder_default_subfolder": "Przekonwertowane",
+  "youtube_duration_label": "Czas trwania",
+  "convert_folder_cancel_button": "Przerwij konwersję",
+  "convert_folder_cancelling": "Przerywanie konwersji…",
+  "convert_folder_cancelled": "Konwersja przerwana: przekonwertowano {success} plików."
 }

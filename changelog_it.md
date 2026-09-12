@@ -38,6 +38,10 @@ Audiodescrizioni, Strumenti e conversione batch
 
 17. In Crea audiodescrizione con IA, motore e voce non occupano più la finestra principale. Il nuovo pulsante “Regola voce” apre una finestra dedicata con motore, voce, velocità e volume, oltre al test della voce; le scelte vengono salvate per le audiodescrizioni. Se la finestra non viene mai usata, velocità e volume continuano a ereditare le impostazioni generali come prima.
 
+18. In “Riproduci media da streaming” i risultati video mostrano ora anche la durata oltre al titolo. In “Converti cartella” le etichette sono state rese più chiare con “Scegli cartella da convertire” e “Cartella di destinazione”; durante una conversione è inoltre disponibile “Interrompi conversione”, che termina immediatamente FFmpeg, elimina l’eventuale file parziale corrente e non avvia i file successivi.
+
+19. Aggiunta una protezione di fallback per sorgenti con audio multicanale problematico (ad esempio 5.1, 6.1 o 7.1): la pipeline normale resta invariata e viene usata come prima; solo se il WAV interno risulta illeggibile, con formato inatteso o con frame PCM non allineati, Sonarpad rigenera automaticamente quel passaggio in stereo 48 kHz e riprova, evitando errori di finalizzazione senza modificare i file che già funzionano.
+
 Versione 0.4.0 - 3 settembre 2026
 
 Audiodescrizione con IA — nuova funzione principale

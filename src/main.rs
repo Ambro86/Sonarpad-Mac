@@ -961,6 +961,9 @@ struct UiStrings {
     convert_folder_no_output: String,
     convert_folder_no_files: String,
     convert_folder_output_create_failed: String,
+    convert_folder_cancel_button: String,
+    convert_folder_cancelling: String,
+    convert_folder_cancelled: String,
     bdciechi_title: String,
     bdciechi_username_label: String,
     bdciechi_password_label: String,
@@ -997,6 +1000,7 @@ struct UiStrings {
     wikipedia_open_preview: String,
     wikipedia_import_editor: String,
     youtube_title: String,
+    youtube_duration_label: String,
     youtube_search_label: String,
     youtube_favorites_label: String,
     youtube_format_label: String,
@@ -15569,6 +15573,24 @@ struct ConvertProgress {
 }
 
 fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProgress>>) {
+    run_convert_media_ffmpeg_cancellable(args, state_thread, None);
+}
+
+fn run_convert_media_ffmpeg_cancellable(
+    args: &[String],
+    state_thread: Arc<Mutex<ConvertProgress>>,
+    cancel_requested: Option<Arc<AtomicBool>>,
+) {
+    if cancel_requested
+        .as_ref()
+        .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+    {
+        let mut state = state_thread.lock().unwrap();
+        state.finished = true;
+        state.result = Some(Err("Conversione interrotta.".to_string()));
+        return;
+    }
+
     let ffmpeg = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
     let mut command = Command::new(&ffmpeg);
     command.args(args);
@@ -15584,8 +15606,6 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
         args
     ));
 
-    // FFmpeg writes diagnostics/progress to stderr. Do not pipe stdout without
-    // consuming it: a noisy tool could otherwise block on a full pipe.
     command.stdout(std::process::Stdio::null());
     command.stderr(std::process::Stdio::piped());
 
@@ -15597,78 +15617,105 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
                 ffmpeg.display(),
                 e
             ));
-            let mut s = state_thread.lock().unwrap();
-            s.finished = true;
-            s.result = Some(Err(format!("avvio FFmpeg fallito: {e}")));
+            let mut state = state_thread.lock().unwrap();
+            state.finished = true;
+            state.result = Some(Err(format!("avvio FFmpeg fallito: {e}")));
             return;
         }
     };
 
     let stderr = child.stderr.take().unwrap();
-    let mut reader = std::io::BufReader::new(stderr);
-    let mut total_secs = 0.0;
-    let mut full_stderr = String::new();
-    let mut buffer = Vec::new();
-    use std::io::BufRead;
-
-    while let Ok(n) = reader.read_until(b'\r', &mut buffer) {
-        if n == 0 {
-            break;
-        }
-        // also read \n if any
-
-        let line = String::from_utf8_lossy(&buffer).to_string();
-
-        full_stderr.push_str(&line);
-        if full_stderr.len() > 8000 {
-            let keep_from = full_stderr
-                .char_indices()
-                .map(|(index, _)| index)
-                .find(|index| *index >= full_stderr.len().saturating_sub(4000))
-                .unwrap_or(0);
-            full_stderr.drain(..keep_from);
-        }
-
-        if total_secs == 0.0 && line.contains("Duration: ") {
-            if let Some(idx) = line.find("Duration: ") {
-                let sub = &line[idx + 10..];
-                if let Some(comma) = sub.find(',') {
-                    let time_str = &sub[..comma];
-                    let parts: Vec<&str> = time_str.split(':').collect();
-                    if parts.len() == 3 {
-                        let h: f64 = parts[0].parse().unwrap_or(0.0);
-                        let m: f64 = parts[1].parse().unwrap_or(0.0);
-                        let s: f64 = parts[2].parse().unwrap_or(0.0);
-                        total_secs = h * 3600.0 + m * 60.0 + s;
-                    }
+    let stderr_capture = Arc::new(Mutex::new(String::new()));
+    let stderr_capture_reader = Arc::clone(&stderr_capture);
+    let state_reader = Arc::clone(&state_thread);
+    let reader_thread = std::thread::spawn(move || {
+        use std::io::BufRead;
+        let mut reader = std::io::BufReader::new(stderr);
+        let mut total_secs = 0.0;
+        let mut buffer = Vec::new();
+        while let Ok(n) = reader.read_until(b'\r', &mut buffer) {
+            if n == 0 {
+                break;
+            }
+            let line = String::from_utf8_lossy(&buffer).to_string();
+            {
+                let mut full_stderr = stderr_capture_reader.lock().unwrap();
+                full_stderr.push_str(&line);
+                if full_stderr.len() > 8000 {
+                    let keep_from = full_stderr
+                        .char_indices()
+                        .map(|(index, _)| index)
+                        .find(|index| *index >= full_stderr.len().saturating_sub(4000))
+                        .unwrap_or(0);
+                    full_stderr.drain(..keep_from);
                 }
             }
-        } else if line.contains("time=")
-            && let Some(idx) = line.find("time=")
-        {
-            let sub = &line[idx + 5..];
-            let time_end = sub.find(' ').unwrap_or(sub.len());
-            let time_str = &sub[..time_end];
-            let parts: Vec<&str> = time_str.split(':').collect();
-            if parts.len() == 3 && total_secs > 0.0 {
-                let h: f64 = parts[0].parse().unwrap_or(0.0);
-                let m: f64 = parts[1].parse().unwrap_or(0.0);
-                let s: f64 = parts[2].parse().unwrap_or(0.0);
-                let cur_secs = h * 3600.0 + m * 60.0 + s;
-                let pct = ((cur_secs / total_secs) * 100.0) as i32;
-                state_thread.lock().unwrap().percent = pct.clamp(0, 99);
+            if total_secs == 0.0 && line.contains("Duration: ") {
+                if let Some(idx) = line.find("Duration: ") {
+                    let sub = &line[idx + 10..];
+                    if let Some(comma) = sub.find(',') {
+                        let time_str = &sub[..comma];
+                        let parts: Vec<&str> = time_str.split(':').collect();
+                        if parts.len() == 3 {
+                            let h: f64 = parts[0].parse().unwrap_or(0.0);
+                            let m: f64 = parts[1].parse().unwrap_or(0.0);
+                            let sec: f64 = parts[2].parse().unwrap_or(0.0);
+                            total_secs = h * 3600.0 + m * 60.0 + sec;
+                        }
+                    }
+                }
+            } else if line.contains("time=")
+                && let Some(idx) = line.find("time=")
+            {
+                let sub = &line[idx + 5..];
+                let time_end = sub.find(' ').unwrap_or(sub.len());
+                let time_str = &sub[..time_end];
+                let parts: Vec<&str> = time_str.split(':').collect();
+                if parts.len() == 3 && total_secs > 0.0 {
+                    let h: f64 = parts[0].parse().unwrap_or(0.0);
+                    let m: f64 = parts[1].parse().unwrap_or(0.0);
+                    let sec: f64 = parts[2].parse().unwrap_or(0.0);
+                    let cur_secs = h * 3600.0 + m * 60.0 + sec;
+                    let pct = ((cur_secs / total_secs) * 100.0) as i32;
+                    state_reader.lock().unwrap().percent = pct.clamp(0, 99);
+                }
             }
+            buffer.clear();
         }
-        buffer.clear();
-    }
+    });
 
-    let status_res = child.wait();
+    let mut cancelled = false;
+    let status_res = loop {
+        if cancel_requested
+            .as_ref()
+            .is_some_and(|cancel| cancel.load(Ordering::SeqCst))
+        {
+            cancelled = true;
+            let _ = child.kill();
+        }
+        match child.try_wait() {
+            Ok(Some(status)) => break Ok(status),
+            Ok(None) => std::thread::sleep(Duration::from_millis(40)),
+            Err(err) => break Err(err),
+        }
+    };
+    let _ = reader_thread.join();
+    let full_stderr = stderr_capture.lock().unwrap().clone();
     let stderr_tail = full_stderr
         .trim()
         .replace('\r', " ")
         .replace('\n', " ");
-    let mut s = state_thread.lock().unwrap();
-    s.finished = true;
+    let mut state = state_thread.lock().unwrap();
+    state.finished = true;
+    if cancelled {
+        append_podcast_log(&format!(
+            "convert_media.ffmpeg.cancelled ffmpeg={} stderr_tail={}",
+            ffmpeg.display(),
+            stderr_tail
+        ));
+        state.result = Some(Err("Conversione interrotta.".to_string()));
+        return;
+    }
     match status_res {
         Ok(status) => {
             append_podcast_log(&format!(
@@ -15678,10 +15725,10 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
                 stderr_tail
             ));
             if status.success() {
-                s.percent = 100;
-                s.result = Some(Ok(()));
+                state.percent = 100;
+                state.result = Some(Ok(()));
             } else {
-                s.result = Some(Err(format!("FFmpeg fallito: \n{}", full_stderr.trim())));
+                state.result = Some(Err(format!("FFmpeg fallito: \n{}", full_stderr.trim())));
             }
         }
         Err(e) => {
@@ -15691,7 +15738,7 @@ fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProg
                 e,
                 stderr_tail
             ));
-            s.result = Some(Err(format!("Errore attendendo FFmpeg: {e}")));
+            state.result = Some(Err(format!("Errore attendendo FFmpeg: {e}")));
         }
     }
 }
@@ -16265,6 +16312,7 @@ struct BatchConvertProgress {
     total: usize,
     current_name: String,
     finished: bool,
+    cancelled: bool,
     succeeded: usize,
     failures: Vec<String>,
 }
@@ -16283,6 +16331,7 @@ struct BatchConvertOptions {
 fn run_convert_media_batch(
     options: BatchConvertOptions,
     state: Arc<Mutex<BatchConvertProgress>>,
+    cancel_requested: Arc<AtomicBool>,
 ) {
     if let Err(err) = std::fs::create_dir_all(&options.output_dir) {
         let mut batch = state.lock().unwrap();
@@ -16295,6 +16344,12 @@ fn run_convert_media_batch(
     let mut used_outputs = HashSet::new();
 
     for (index, input) in options.files.iter().enumerate() {
+        if cancel_requested.load(Ordering::SeqCst) {
+            let mut batch = state.lock().unwrap();
+            batch.cancelled = true;
+            batch.finished = true;
+            return;
+        }
         let file_name = input
             .file_name()
             .and_then(|value| value.to_str())
@@ -16334,7 +16389,18 @@ fn run_convert_media_batch(
             finished: false,
             result: None,
         }));
-        run_convert_media_ffmpeg(&args, Arc::clone(&single));
+        run_convert_media_ffmpeg_cancellable(
+            &args,
+            Arc::clone(&single),
+            Some(Arc::clone(&cancel_requested)),
+        );
+        if cancel_requested.load(Ordering::SeqCst) {
+            let _ = std::fs::remove_file(&output);
+            let mut batch = state.lock().unwrap();
+            batch.cancelled = true;
+            batch.finished = true;
+            return;
+        }
         let result = single
             .lock()
             .unwrap()
@@ -16507,11 +16573,16 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let convert_button = Button::builder(&panel)
         .with_label(&ui.convert_folder_button)
         .build();
+    let cancel_button = Button::builder(&panel)
+        .with_label(&ui.convert_folder_cancel_button)
+        .build();
+    cancel_button.enable(false);
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
     buttons.add(&convert_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -16579,11 +16650,13 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
 
     let conversion_job = Rc::new(RefCell::new(None::<Arc<Mutex<BatchConvertProgress>>>));
     let conversion_busy = Arc::new(AtomicBool::new(false));
+    let conversion_cancel_requested = Arc::new(AtomicBool::new(false));
     let conversion_timer = Rc::new(Timer::new(&dialog));
 
     let conversion_timer_tick = Rc::clone(&conversion_timer);
     let conversion_job_tick = Rc::clone(&conversion_job);
     let conversion_busy_tick = Arc::clone(&conversion_busy);
+    let conversion_cancel_tick = Arc::clone(&conversion_cancel_requested);
     let dialog_timer = dialog;
     let status_text_timer = status_text;
     let input_button_timer = input_button;
@@ -16595,6 +16668,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let flac_choice_timer = flac_choice;
     let wav_choice_timer = wav_choice;
     let convert_button_timer = convert_button;
+    let cancel_button_timer = cancel_button;
     let close_button_timer = close_button;
     conversion_timer_tick.on_tick(move |_| {
         let state = conversion_job_tick.borrow().as_ref().cloned();
@@ -16608,18 +16682,23 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
                 batch.total,
                 batch.current_name.clone(),
                 batch.finished,
+                batch.cancelled,
                 batch.succeeded,
                 batch.failures.clone(),
             )
         };
         let ui = current_ui_strings();
         if !snapshot.3 {
-            let status = ui
-                .convert_folder_running
-                .replace("{current}", &snapshot.0.to_string())
-                .replace("{total}", &snapshot.1.to_string())
-                .replace("{file}", &snapshot.2);
-            status_text_timer.set_label(&status);
+            if conversion_cancel_tick.load(Ordering::SeqCst) {
+                status_text_timer.set_label(&ui.convert_folder_cancelling);
+            } else {
+                let status = ui
+                    .convert_folder_running
+                    .replace("{current}", &snapshot.0.to_string())
+                    .replace("{total}", &snapshot.1.to_string())
+                    .replace("{file}", &snapshot.2);
+                status_text_timer.set_label(&status);
+            }
             return;
         }
 
@@ -16636,18 +16715,26 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
         convert_button_timer.enable(true);
         close_button_timer.enable(true);
 
-        if snapshot.5.is_empty() {
+        cancel_button_timer.enable(false);
+
+        if snapshot.4 {
+            let message = ui
+                .convert_folder_cancelled
+                .replace("{success}", &snapshot.5.to_string());
+            status_text_timer.set_label(&message);
+            show_message_subdialog(&dialog_timer, &ui.convert_folder_title, &message);
+        } else if snapshot.6.is_empty() {
             let message = ui
                 .convert_folder_done
-                .replace("{success}", &snapshot.4.to_string());
+                .replace("{success}", &snapshot.5.to_string());
             status_text_timer.set_label(&message);
             show_message_subdialog(&dialog_timer, &ui.convert_folder_title, &message);
         } else {
-            let errors = snapshot.5.join("\n");
+            let errors = snapshot.6.join("\n");
             let message = ui
                 .convert_folder_done_with_errors
-                .replace("{success}", &snapshot.4.to_string())
-                .replace("{failed}", &snapshot.5.len().to_string())
+                .replace("{success}", &snapshot.5.to_string())
+                .replace("{failed}", &snapshot.6.len().to_string())
                 .replace("{errors}", &errors);
             status_text_timer.set_label(&message);
             show_message_subdialog(&dialog_timer, &ui.convert_folder_title, &message);
@@ -16661,6 +16748,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let image_path_convert = Rc::clone(&image_path);
     let conversion_job_convert = Rc::clone(&conversion_job);
     let conversion_busy_convert = Arc::clone(&conversion_busy);
+    let conversion_cancel_convert = Arc::clone(&conversion_cancel_requested);
     let status_text_convert = status_text;
     convert_button.on_click(move |_| {
         if conversion_busy_convert.load(Ordering::SeqCst) {
@@ -16732,10 +16820,12 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
             total,
             current_name: String::new(),
             finished: false,
+            cancelled: false,
             succeeded: 0,
             failures: Vec::new(),
         }));
         *conversion_job_convert.borrow_mut() = Some(Arc::clone(&state));
+        conversion_cancel_convert.store(false, Ordering::SeqCst);
         conversion_busy_convert.store(true, Ordering::SeqCst);
         input_button.enable(false);
         output_button.enable(false);
@@ -16746,6 +16836,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
         flac_choice.enable(false);
         wav_choice.enable(false);
         convert_button.enable(false);
+        cancel_button.enable(true);
         close_button.enable(false);
         status_text_convert.set_label(
             &ui.convert_folder_running
@@ -16764,7 +16855,20 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
             flac_compression: flac_choice.get_selection().unwrap_or(5) as i32,
             wav_depth: convert_wav_bit_depth_from_choice(&wav_choice),
         };
-        std::thread::spawn(move || run_convert_media_batch(options, state));
+        let cancel_requested = Arc::clone(&conversion_cancel_convert);
+        std::thread::spawn(move || run_convert_media_batch(options, state, cancel_requested));
+    });
+
+    let conversion_cancel_click = Arc::clone(&conversion_cancel_requested);
+    let conversion_busy_cancel = Arc::clone(&conversion_busy);
+    let status_text_cancel = status_text;
+    let cancel_button_click = cancel_button;
+    cancel_button.on_click(move |_| {
+        if conversion_busy_cancel.load(Ordering::SeqCst) {
+            conversion_cancel_click.store(true, Ordering::SeqCst);
+            cancel_button_click.enable(false);
+            status_text_cancel.set_label(&current_ui_strings().convert_folder_cancelling);
+        }
     });
 
     let conversion_busy_close = Arc::clone(&conversion_busy);
@@ -17411,6 +17515,39 @@ struct YoutubeSearchResult {
     title: String,
     url: String,
     is_collection: bool,
+    duration: Option<String>,
+}
+
+fn youtube_duration_from_json(value: &serde_json::Value) -> Option<String> {
+    if let Some(text) = value.get("duration_string").and_then(|v| v.as_str()) {
+        let text = text.trim();
+        if !text.is_empty() {
+            return Some(text.to_string());
+        }
+    }
+    if let Some(seconds) = value.get("duration").and_then(|v| v.as_f64()) {
+        if seconds.is_finite() && seconds > 0.0 {
+            let total = seconds.round() as u64;
+            let hours = total / 3600;
+            let minutes = (total % 3600) / 60;
+            let secs = total % 60;
+            return Some(if hours > 0 {
+                format!("{hours}:{minutes:02}:{secs:02}")
+            } else {
+                format!("{minutes}:{secs:02}")
+            });
+        }
+    }
+    None
+}
+
+fn youtube_result_display_label(result: &YoutubeSearchResult, ui: &UiStrings) -> String {
+    match result.duration.as_deref() {
+        Some(duration) if !duration.trim().is_empty() => {
+            format!("{} — {} {}", result.title, ui.youtube_duration_label, duration)
+        }
+        _ => result.title.clone(),
+    }
 }
 
 #[derive(Clone)]
@@ -18703,7 +18840,7 @@ fn direct_external_media_url(value: &str) -> Option<String> {
     (!is_youtube_url(value)).then(|| value.to_string())
 }
 
-fn external_media_title(url: &str) -> Result<String, String> {
+fn external_media_metadata(url: &str) -> Result<(String, Option<String>), String> {
     let ytdlp = ytdlp_executable_path();
     let mut command = ytdlp_command(&ytdlp);
     configure_ytdlp_for_current_macos(&mut command);
@@ -18713,12 +18850,14 @@ fn external_media_title(url: &str) -> Result<String, String> {
         .arg("--skip-download")
         .arg("--print")
         .arg("title")
+        .arg("--print")
+        .arg("duration_string")
         .arg("--")
         .arg(url);
-    ytdlp_log_command_state("external_title", &ytdlp, &command);
+    ytdlp_log_command_state("external_metadata", &ytdlp, &command);
     let output = command.output().map_err(|err| err.to_string())?;
     ytdlp_log_output(
-        "external_title",
+        "external_metadata",
         output.status,
         &output.stdout,
         &output.stderr,
@@ -18726,12 +18865,29 @@ fn external_media_title(url: &str) -> Result<String, String> {
     if !output.status.success() {
         return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
     }
-    output
+    let lines = output
         .stdout
         .split(|byte| *byte == b'\n')
         .map(|line| String::from_utf8_lossy(line).trim().to_string())
-        .find(|title| !title.is_empty())
-        .ok_or_else(|| "yt-dlp non ha restituito il titolo del video.".to_string())
+        .filter(|line| !line.is_empty())
+        .collect::<Vec<_>>();
+    let title = lines
+        .first()
+        .cloned()
+        .ok_or_else(|| "yt-dlp non ha restituito il titolo del video.".to_string())?;
+    let duration = lines.get(1).cloned().filter(|value| {
+        let normalized = value.trim().to_ascii_lowercase();
+        !normalized.is_empty()
+            && normalized != "na"
+            && normalized != "n/a"
+            && normalized != "none"
+            && normalized != "unknown"
+    });
+    Ok((title, duration))
+}
+
+fn external_media_title(url: &str) -> Result<String, String> {
+    external_media_metadata(url).map(|(title, _)| title)
 }
 
 fn youtube_result_title_for_save(result: &YoutubeSearchResult) -> String {
@@ -18758,10 +18914,15 @@ fn youtube_collect_direct_results(
             {
                 let url = format!("https://www.youtube.com/watch?v={video_id}");
                 if seen.insert(url.clone()) {
+                    let duration = renderer
+                        .get("lengthText")
+                        .and_then(youtube_text_value)
+                        .filter(|value| !value.trim().is_empty());
                     results.push(YoutubeSearchResult {
                         title,
                         url,
                         is_collection: false,
+                        duration,
                     });
                 }
             }
@@ -18775,6 +18936,7 @@ fn youtube_collect_direct_results(
                     title,
                     url,
                     is_collection: true,
+                    duration: None,
                 });
             }
             if include_collections
@@ -18792,6 +18954,7 @@ fn youtube_collect_direct_results(
                         title,
                         url,
                         is_collection: true,
+                        duration: None,
                     });
                 }
             }
@@ -19044,11 +19207,14 @@ fn youtube_next_page(context: &YoutubeSearchContext) -> Result<YoutubeResultsPay
 
 fn youtube_search(query: &str) -> Result<YoutubeResultsPayload, String> {
     if let Some(url) = direct_external_media_url(query) {
+        let (title, duration) =
+            external_media_metadata(&url).unwrap_or_else(|_| (url.clone(), None));
         return Ok((
             vec![YoutubeSearchResult {
-                title: url.clone(),
+                title,
                 url,
                 is_collection: false,
+                duration,
             }],
             None,
         ));
@@ -19167,10 +19333,16 @@ fn youtube_search_page_ytdlp(query: &str, page: usize) -> Result<Vec<YoutubeSear
                 || url.contains("/c/")
                 || url.contains("/user/")
                 || url.contains("/@");
+            let duration = if is_collection {
+                None
+            } else {
+                youtube_duration_from_json(&entry)
+            };
             Some(YoutubeSearchResult {
                 title,
                 url,
                 is_collection,
+                duration,
             })
         })
         .collect::<Vec<_>>();
@@ -19262,6 +19434,7 @@ fn youtube_collection_entries_ytdlp(url: &str) -> Result<Vec<YoutubeSearchResult
                     title,
                     url,
                     is_collection: false,
+                    duration: youtube_duration_from_json(&entry),
                 })
             }
         })
@@ -20219,7 +20392,7 @@ fn open_youtube_results_dialog(
     );
     let choice = Choice::builder(&panel).build();
     for result in &results {
-        choice.append(&result.title);
+        choice.append(&youtube_result_display_label(result, &ui));
     }
     choice.set_selection(0);
     results_row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -20980,7 +21153,8 @@ fn open_youtube_dialog_ready(
         }
         if let Some(url) = direct_external_media_url(&query) {
             youtube_busy_search.store(false, Ordering::SeqCst);
-            let title = external_media_title(&url).unwrap_or_else(|_| url.clone());
+            let (title, duration) =
+                external_media_metadata(&url).unwrap_or_else(|_| (url.clone(), None));
             open_youtube_results_dialog(
                 &dialog_search_progress,
                 &settings_direct_open,
@@ -20988,6 +21162,7 @@ fn open_youtube_dialog_ready(
                     title,
                     url,
                     is_collection: false,
+                    duration,
                 }],
                 None,
                 &audio_context_direct_open,
@@ -31273,7 +31448,7 @@ mod ytdlp_path_tests {
             .expect("function after YouTube initial dialog");
         let dialog = &source[start..end];
         assert!(dialog.contains("if let Some(url) = direct_external_media_url(&query)"));
-        assert!(dialog.contains("let title = external_media_title(&url)"));
+        assert!(dialog.contains("external_media_metadata(&url)"));
         assert!(dialog.contains("open_youtube_results_dialog("));
         assert!(dialog.contains("&audio_context_direct_open"));
         assert!(dialog.contains("true,"));

@@ -38,6 +38,10 @@ Audiodeskrypcja, Narzędzia i konwersja wsadowa
 
 17. W funkcji Utwórz audiodeskrypcję z AI silnik i głos nie zajmują już miejsca w głównym oknie. Nowy przycisk „Dostosuj głos” otwiera osobne okno z silnikiem, głosem, szybkością i głośnością oraz testem głosu; wybory są zapisywane dla audiodeskrypcji. Jeśli okno nigdy nie zostanie użyte, szybkość i głośność nadal dziedziczą ustawienia ogólne tak jak wcześniej.
 
+18. „Odtwarzaj multimedia ze streamingu” pokazuje teraz przy filmie również czas trwania, oprócz tytułu. W „Konwertuj folder” etykiety są jaśniejsze: „Wybierz folder do konwersji” i „Folder docelowy”; podczas konwersji przycisk „Przerwij konwersję” natychmiast kończy aktywny proces FFmpeg, usuwa bieżący plik częściowy i nie uruchamia kolejnych plików.
+
+19. Dodano zabezpieczenie awaryjne dla problematycznych źródeł wielokanałowych (na przykład 5.1, 6.1 lub 7.1): normalny przebieg pozostaje bez zmian i jest używany tak jak wcześniej; tylko jeśli wewnętrzny plik WAV jest nieczytelny, ma nieoczekiwany format albo zawiera niepełne ramki PCM, Sonarpad automatycznie odtwarza ten etap jako stereo 48 kHz i ponawia próbę, nie wpływając na pliki, które już działają poprawnie.
+
 Wersja 0.4.0 - 3 września 2026
 
 Audiodeskrypcja z AI — nowa główna funkcja

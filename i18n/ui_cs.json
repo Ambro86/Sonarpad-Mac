@@ -399,9 +399,9 @@
   "tools_category_utilities": "&Nástroje",
   "group_tools_menu_by_category_label": "Seskupit nabídku Nástroje podle kategorií",
   "convert_folder_title": "Převést složku…",
-  "convert_folder_input": "Složka k převodu",
+  "convert_folder_input": "Vybrat složku k převodu",
   "convert_folder_output": "Cílová složka",
-  "convert_folder_browse_input": "Vybrat zdrojovou složku…",
+  "convert_folder_browse_input": "Vybrat složku k převodu…",
   "convert_folder_browse_output": "Vybrat cílovou složku…",
   "convert_folder_ready": "Připraveno.",
   "convert_folder_found": "Nalezeno kompatibilních souborů: {count}.",
@@ -413,5 +413,9 @@
   "convert_folder_no_output": "Vyberte cílovou složku.",
   "convert_folder_no_files": "Vybraná složka neobsahuje žádné kompatibilní multimediální soubory.",
   "convert_folder_output_create_failed": "Cílovou složku nelze vytvořit: {error}",
-  "convert_folder_default_subfolder": "Převedené"
+  "convert_folder_default_subfolder": "Převedené",
+  "youtube_duration_label": "Délka",
+  "convert_folder_cancel_button": "Přerušit převod",
+  "convert_folder_cancelling": "Přerušování převodu…",
+  "convert_folder_cancelled": "Převod přerušen: převedeno {success} souborů."
 }
