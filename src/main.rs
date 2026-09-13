@@ -46,7 +46,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
@@ -136,6 +136,10 @@ const ID_TOOLS_MEDIA_TRANSCRIPTION: i32 = 2377;
 const ID_LA7_PLAY: i32 = 2378;
 const ID_TOOLS_CONVERT_FOLDER: i32 = 2379;
 const ID_TOOLS_MEDIA_CUTTER: i32 = 2380;
+#[cfg(target_os = "macos")]
+const SHOW_MEDIA_CUTTER_IN_MENUS: bool = false;
+#[cfg(not(target_os = "macos"))]
+const SHOW_MEDIA_CUTTER_IN_MENUS: bool = true;
 // wxWidgets only accepts custom menu IDs below 32767. Keep the three
 // favorite-action ranges contiguous and below the podcast ranges at 27000.
 const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 24000;
@@ -950,6 +954,7 @@ struct UiStrings {
     convert_media_same_path: String,
     convert_media_invalid_bitrate: String,
     convert_media_failed: String,
+    convert_media_cancelled: String,
     conversion_started: String,
     convert_folder_title: String,
     convert_folder_input: String,
@@ -15912,14 +15917,11 @@ struct ConvertProgress {
     result: Option<Result<(), String>>,
 }
 
-fn run_convert_media_ffmpeg(args: &[String], state_thread: Arc<Mutex<ConvertProgress>>) {
-    run_convert_media_ffmpeg_cancellable(args, state_thread, None);
-}
-
 fn run_convert_media_ffmpeg_cancellable(
     args: &[String],
     state_thread: Arc<Mutex<ConvertProgress>>,
     cancel_requested: Option<Arc<AtomicBool>>,
+    progress_sink: Option<Arc<AtomicI32>>,
 ) {
     if cancel_requested
         .as_ref()
@@ -15968,6 +15970,7 @@ fn run_convert_media_ffmpeg_cancellable(
     let stderr_capture = Arc::new(Mutex::new(String::new()));
     let stderr_capture_reader = Arc::clone(&stderr_capture);
     let state_reader = Arc::clone(&state_thread);
+    let progress_sink_reader = progress_sink.clone();
     let reader_thread = std::thread::spawn(move || {
         use std::io::BufRead;
         let mut reader = std::io::BufReader::new(stderr);
@@ -16017,7 +16020,11 @@ fn run_convert_media_ffmpeg_cancellable(
                     let sec: f64 = parts[2].parse().unwrap_or(0.0);
                     let cur_secs = h * 3600.0 + m * 60.0 + sec;
                     let pct = ((cur_secs / total_secs) * 100.0) as i32;
-                    state_reader.lock().unwrap().percent = pct.clamp(0, 99);
+                    let pct = pct.clamp(0, 99);
+                    state_reader.lock().unwrap().percent = pct;
+                    if let Some(sink) = &progress_sink_reader {
+                        sink.store(pct, Ordering::SeqCst);
+                    }
                 }
             }
             buffer.clear();
@@ -16066,6 +16073,9 @@ fn run_convert_media_ffmpeg_cancellable(
             ));
             if status.success() {
                 state.percent = 100;
+                if let Some(sink) = &progress_sink {
+                    sink.store(100, Ordering::SeqCst);
+                }
                 state.result = Some(Ok(()));
             } else {
                 state.result = Some(Err(format!("FFmpeg fallito: \n{}", full_stderr.trim())));
@@ -16131,10 +16141,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     let image_path = Rc::new(RefCell::new(None::<PathBuf>));
 
     let input_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let input_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_input)
+        .build();
     input_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_input)
-            .build(),
+        &input_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16150,10 +16161,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
 
     let output_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let output_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_output)
+        .build();
     output_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_output)
-            .build(),
+        &output_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16169,10 +16181,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     root.add_sizer(&output_row, 0, SizerFlag::Expand, 0);
 
     let image_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let image_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_image)
+        .build();
     image_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_image)
-            .build(),
+        &image_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16188,10 +16201,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     root.add_sizer(&image_row, 0, SizerFlag::Expand, 0);
 
     let format_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let format_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_format)
+        .build();
     format_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_format)
-            .build(),
+        &format_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16205,10 +16219,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     root.add_sizer(&format_row, 0, SizerFlag::Expand, 0);
 
     let options_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let bitrate_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_bitrate)
+        .build();
     options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_bitrate)
-            .build(),
+        &bitrate_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16216,10 +16231,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     let bitrate_ctrl = TextCtrl::builder(&panel).build();
     bitrate_ctrl.set_value("192");
     options_row.add(&bitrate_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let ogg_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_ogg_quality)
+        .build();
     options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_ogg_quality)
-            .build(),
+        &ogg_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16233,10 +16249,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     root.add_sizer(&options_row, 0, SizerFlag::Expand, 0);
 
     let more_options_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let flac_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_flac_compression)
+        .build();
     more_options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_flac_compression)
-            .build(),
+        &flac_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16247,10 +16264,11 @@ fn open_convert_media_dialog(parent: &Frame) {
     }
     flac_choice.set_selection(5);
     more_options_row.add(&flac_choice, 0, SizerFlag::All, 5);
+    let wav_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_wav_bit_depth)
+        .build();
     more_options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_wav_bit_depth)
-            .build(),
+        &wav_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -16273,11 +16291,17 @@ fn open_convert_media_dialog(parent: &Frame) {
     let convert_button = Button::builder(&panel)
         .with_label(&ui.convert_media_button)
         .build();
+    let cancel_button = Button::builder(&panel)
+        .with_label(&ui.convert_folder_cancel_button)
+        .build();
+    cancel_button.show(false);
+    cancel_button.enable(false);
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
         .build();
     buttons.add(&convert_button, 0, SizerFlag::All, 10);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -16343,22 +16367,37 @@ fn open_convert_media_dialog(parent: &Frame) {
     // progress state while the normal event loop remains free to repaint and process input.
     let conversion_job = Rc::new(RefCell::new(None::<Arc<Mutex<ConvertProgress>>>));
     let conversion_busy = Arc::new(AtomicBool::new(false));
+    let conversion_cancel_requested = Arc::new(AtomicBool::new(false));
     let conversion_timer = Rc::new(Timer::new(&dialog));
 
     let conversion_timer_tick = Rc::clone(&conversion_timer);
     let conversion_job_tick = Rc::clone(&conversion_job);
     let conversion_busy_tick = Arc::clone(&conversion_busy);
+    let conversion_cancel_tick = Arc::clone(&conversion_cancel_requested);
     let dialog_timer = dialog;
+    let panel_timer = panel;
     let status_text_timer = status_text;
+    let input_label_timer = input_label;
+    let input_ctrl_timer = input_ctrl;
     let input_button_timer = input_button;
+    let output_label_timer = output_label;
+    let output_ctrl_timer = output_ctrl;
     let output_button_timer = output_button;
+    let image_label_timer = image_label;
+    let image_ctrl_timer = image_ctrl;
     let image_button_timer = image_button;
+    let format_label_timer = format_label;
     let format_choice_timer = format_choice;
+    let bitrate_label_timer = bitrate_label;
     let bitrate_ctrl_timer = bitrate_ctrl;
+    let ogg_label_timer = ogg_label;
     let ogg_choice_timer = ogg_choice;
+    let flac_label_timer = flac_label;
     let flac_choice_timer = flac_choice;
+    let wav_label_timer = wav_label;
     let wav_choice_timer = wav_choice;
     let convert_button_timer = convert_button;
+    let cancel_button_timer = cancel_button;
     let close_button_timer = close_button;
     conversion_timer_tick.on_tick(move |_| {
         let state = conversion_job_tick.borrow().as_ref().cloned();
@@ -16372,26 +16411,56 @@ fn open_convert_media_dialog(parent: &Frame) {
 
         let ui = current_ui_strings();
         if !snapshot.1 {
-            status_text_timer.set_label(&format!(
-                "{} {}%",
-                ui.convert_media_running,
-                snapshot.0.clamp(0, 99)
-            ));
+            status_text_timer.set_label(&format!("{}%", snapshot.0.clamp(0, 99)));
             return;
         }
 
         *conversion_job_tick.borrow_mut() = None;
         conversion_busy_tick.store(false, Ordering::SeqCst);
+        input_label_timer.show(true);
+        input_ctrl_timer.show(true);
+        input_ctrl_timer.enable(true);
+        input_button_timer.show(true);
         input_button_timer.enable(true);
+        output_label_timer.show(true);
+        output_ctrl_timer.show(true);
+        output_ctrl_timer.enable(true);
+        output_button_timer.show(true);
         output_button_timer.enable(true);
+        image_label_timer.show(true);
+        image_ctrl_timer.show(true);
+        image_ctrl_timer.enable(true);
+        image_button_timer.show(true);
         image_button_timer.enable(true);
+        format_label_timer.show(true);
+        format_choice_timer.show(true);
         format_choice_timer.enable(true);
+        bitrate_label_timer.show(true);
+        bitrate_ctrl_timer.show(true);
         bitrate_ctrl_timer.enable(true);
+        ogg_label_timer.show(true);
+        ogg_choice_timer.show(true);
         ogg_choice_timer.enable(true);
+        flac_label_timer.show(true);
+        flac_choice_timer.show(true);
         flac_choice_timer.enable(true);
+        wav_label_timer.show(true);
+        wav_choice_timer.show(true);
         wav_choice_timer.enable(true);
+        convert_button_timer.show(true);
         convert_button_timer.enable(true);
+        close_button_timer.show(true);
         close_button_timer.enable(true);
+        cancel_button_timer.enable(false);
+        cancel_button_timer.show(false);
+        panel_timer.layout();
+        dialog_timer.layout();
+
+        if conversion_cancel_tick.load(Ordering::SeqCst) {
+            status_text_timer.set_label(&ui.convert_media_cancelled);
+            announce_voiceover_message(&ui.convert_media_cancelled);
+            return;
+        }
 
         match snapshot
             .2
@@ -16423,7 +16492,9 @@ fn open_convert_media_dialog(parent: &Frame) {
     let image_path_convert = Rc::clone(&image_path);
     let conversion_job_convert = Rc::clone(&conversion_job);
     let conversion_busy_convert = Arc::clone(&conversion_busy);
+    let conversion_cancel_convert = Arc::clone(&conversion_cancel_requested);
     let status_text_convert = status_text;
+    let panel_convert = panel;
     convert_button.on_click(move |_| {
         if conversion_busy_convert.load(Ordering::SeqCst) {
             return;
@@ -16494,27 +16565,66 @@ fn open_convert_media_dialog(parent: &Frame) {
             result: None,
         }));
         *conversion_job_convert.borrow_mut() = Some(Arc::clone(&state));
+        conversion_cancel_convert.store(false, Ordering::SeqCst);
         conversion_busy_convert.store(true, Ordering::SeqCst);
-        input_button.enable(false);
-        output_button.enable(false);
-        image_button.enable(false);
-        format_choice.enable(false);
-        bitrate_ctrl.enable(false);
-        ogg_choice.enable(false);
-        flac_choice.enable(false);
-        wav_choice.enable(false);
-        convert_button.enable(false);
-        close_button.enable(false);
-        status_text_convert.set_label(&format!("{} 0%", ui.convert_media_running));
+        input_label.show(false);
+        input_ctrl.show(false);
+        input_button.show(false);
+        output_label.show(false);
+        output_ctrl.show(false);
+        output_button.show(false);
+        image_label.show(false);
+        image_ctrl.show(false);
+        image_button.show(false);
+        format_label.show(false);
+        format_choice.show(false);
+        bitrate_label.show(false);
+        bitrate_ctrl.show(false);
+        ogg_label.show(false);
+        ogg_choice.show(false);
+        flac_label.show(false);
+        flac_choice.show(false);
+        wav_label.show(false);
+        wav_choice.show(false);
+        convert_button.show(false);
+        close_button.show(false);
+        cancel_button.show(true);
+        cancel_button.enable(true);
+        status_text_convert.set_label("0%");
+        panel_convert.layout();
+        dialog_convert.layout();
+        cancel_button.set_focus();
         announce_voiceover_message(&ui.conversion_started);
         append_podcast_log(&format!(
-            "convert_media.worker_spawn output={}",
+            "convert_media.ui_state={} output={}",
+            ui.convert_media_running,
             output.display()
         ));
 
+        let cancel_requested = Arc::clone(&conversion_cancel_convert);
         std::thread::spawn(move || {
-            run_convert_media_ffmpeg(&args, state);
+            run_convert_media_ffmpeg_cancellable(
+                &args,
+                state,
+                Some(Arc::clone(&cancel_requested)),
+                None,
+            );
+            if cancel_requested.load(Ordering::SeqCst) {
+                let _ = std::fs::remove_file(&output);
+            }
         });
+    });
+
+    let conversion_cancel_click = Arc::clone(&conversion_cancel_requested);
+    let conversion_busy_cancel = Arc::clone(&conversion_busy);
+    let status_text_cancel = status_text;
+    let cancel_button_click = cancel_button;
+    cancel_button.on_click(move |_| {
+        if conversion_busy_cancel.load(Ordering::SeqCst) {
+            conversion_cancel_click.store(true, Ordering::SeqCst);
+            cancel_button_click.enable(false);
+            status_text_cancel.set_label(&current_ui_strings().convert_folder_cancelling);
+        }
     });
 
     let conversion_busy_close = Arc::clone(&conversion_busy);
@@ -16673,6 +16783,7 @@ fn run_convert_media_batch(
     options: BatchConvertOptions,
     state: Arc<Mutex<BatchConvertProgress>>,
     cancel_requested: Arc<AtomicBool>,
+    current_file_percent: Arc<AtomicI32>,
 ) {
     if let Err(err) = std::fs::create_dir_all(&options.output_dir) {
         let mut batch = state.lock().unwrap();
@@ -16696,6 +16807,7 @@ fn run_convert_media_batch(
             .and_then(|value| value.to_str())
             .unwrap_or("media")
             .to_string();
+        current_file_percent.store(0, Ordering::SeqCst);
         {
             let mut batch = state.lock().unwrap();
             batch.current = index + 1;
@@ -16734,6 +16846,7 @@ fn run_convert_media_batch(
             &args,
             Arc::clone(&single),
             Some(Arc::clone(&cancel_requested)),
+            Some(Arc::clone(&current_file_percent)),
         );
         if cancel_requested.load(Ordering::SeqCst) {
             let _ = std::fs::remove_file(&output);
@@ -16772,14 +16885,10 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let image_path = Rc::new(RefCell::new(None::<PathBuf>));
 
     let input_row = BoxSizer::builder(Orientation::Horizontal).build();
-    input_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_folder_input)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let input_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_folder_input)
+        .build();
+    input_row.add(&input_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let input_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ReadOnly)
         .build();
@@ -16791,14 +16900,10 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     root.add_sizer(&input_row, 0, SizerFlag::Expand, 0);
 
     let output_row = BoxSizer::builder(Orientation::Horizontal).build();
-    output_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_folder_output)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let output_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_folder_output)
+        .build();
+    output_row.add(&output_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let output_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ReadOnly)
         .build();
@@ -16810,14 +16915,10 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     root.add_sizer(&output_row, 0, SizerFlag::Expand, 0);
 
     let image_row = BoxSizer::builder(Orientation::Horizontal).build();
-    image_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_image)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let image_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_image)
+        .build();
+    image_row.add(&image_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let image_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ReadOnly)
         .build();
@@ -16829,14 +16930,10 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     root.add_sizer(&image_row, 0, SizerFlag::Expand, 0);
 
     let format_row = BoxSizer::builder(Orientation::Horizontal).build();
-    format_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_format)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let format_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_format)
+        .build();
+    format_row.add(&format_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let format_choice = Choice::builder(&panel).build();
     for format in CONVERT_MEDIA_FORMATS {
         format_choice.append(convert_media_format_label(format));
@@ -16846,25 +16943,17 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     root.add_sizer(&format_row, 0, SizerFlag::Expand, 0);
 
     let options_row = BoxSizer::builder(Orientation::Horizontal).build();
-    options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_bitrate)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let bitrate_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_bitrate)
+        .build();
+    options_row.add(&bitrate_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let bitrate_ctrl = TextCtrl::builder(&panel).build();
     bitrate_ctrl.set_value("192");
     options_row.add(&bitrate_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
-    options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_ogg_quality)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let ogg_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_ogg_quality)
+        .build();
+    options_row.add(&ogg_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let ogg_choice = Choice::builder(&panel).build();
     for quality in 0..=10 {
         ogg_choice.append(&format!("q{quality}"));
@@ -16874,28 +16963,20 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     root.add_sizer(&options_row, 0, SizerFlag::Expand, 0);
 
     let more_options_row = BoxSizer::builder(Orientation::Horizontal).build();
-    more_options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_flac_compression)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let flac_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_flac_compression)
+        .build();
+    more_options_row.add(&flac_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let flac_choice = Choice::builder(&panel).build();
     for compression in 0..=12 {
         flac_choice.append(&compression.to_string());
     }
     flac_choice.set_selection(5);
     more_options_row.add(&flac_choice, 0, SizerFlag::All, 5);
-    more_options_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.convert_media_wav_bit_depth)
-            .build(),
-        0,
-        SizerFlag::AlignCenterVertical | SizerFlag::All,
-        5,
-    );
+    let wav_label = StaticText::builder(&panel)
+        .with_label(&ui.convert_media_wav_bit_depth)
+        .build();
+    more_options_row.add(&wav_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let wav_choice = Choice::builder(&panel).build();
     for depth in CONVERT_WAV_BIT_DEPTHS {
         wav_choice.append(convert_wav_bit_depth_label(depth));
@@ -16917,6 +16998,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let cancel_button = Button::builder(&panel)
         .with_label(&ui.convert_folder_cancel_button)
         .build();
+    cancel_button.show(false);
     cancel_button.enable(false);
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
@@ -16992,21 +17074,35 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let conversion_job = Rc::new(RefCell::new(None::<Arc<Mutex<BatchConvertProgress>>>));
     let conversion_busy = Arc::new(AtomicBool::new(false));
     let conversion_cancel_requested = Arc::new(AtomicBool::new(false));
+    let batch_current_percent = Arc::new(AtomicI32::new(0));
     let conversion_timer = Rc::new(Timer::new(&dialog));
 
     let conversion_timer_tick = Rc::clone(&conversion_timer);
     let conversion_job_tick = Rc::clone(&conversion_job);
     let conversion_busy_tick = Arc::clone(&conversion_busy);
     let conversion_cancel_tick = Arc::clone(&conversion_cancel_requested);
+    let batch_current_percent_tick = Arc::clone(&batch_current_percent);
     let dialog_timer = dialog;
+    let panel_timer = panel;
     let status_text_timer = status_text;
+    let input_label_timer = input_label;
+    let input_ctrl_timer = input_ctrl;
     let input_button_timer = input_button;
+    let output_label_timer = output_label;
+    let output_ctrl_timer = output_ctrl;
     let output_button_timer = output_button;
+    let image_label_timer = image_label;
+    let image_ctrl_timer = image_ctrl;
     let image_button_timer = image_button;
+    let format_label_timer = format_label;
     let format_choice_timer = format_choice;
+    let bitrate_label_timer = bitrate_label;
     let bitrate_ctrl_timer = bitrate_ctrl;
+    let ogg_label_timer = ogg_label;
     let ogg_choice_timer = ogg_choice;
+    let flac_label_timer = flac_label;
     let flac_choice_timer = flac_choice;
+    let wav_label_timer = wav_label;
     let wav_choice_timer = wav_choice;
     let convert_button_timer = convert_button;
     let cancel_button_timer = cancel_button;
@@ -17033,30 +17129,55 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
             if conversion_cancel_tick.load(Ordering::SeqCst) {
                 status_text_timer.set_label(&ui.convert_folder_cancelling);
             } else {
-                let status = ui
-                    .convert_folder_running
-                    .replace("{current}", &snapshot.0.to_string())
-                    .replace("{total}", &snapshot.1.to_string())
-                    .replace("{file}", &snapshot.2);
-                status_text_timer.set_label(&status);
+                let current_file = batch_current_percent_tick.load(Ordering::SeqCst).clamp(0, 99);
+                let completed_before = snapshot.0.saturating_sub(1) as i32;
+                let total = snapshot.1.max(1) as i32;
+                let overall = ((completed_before * 100 + current_file) / total).clamp(0, 99);
+                status_text_timer.set_label(&format!("{overall}%"));
             }
             return;
         }
 
         *conversion_job_tick.borrow_mut() = None;
         conversion_busy_tick.store(false, Ordering::SeqCst);
+        input_label_timer.show(true);
+        input_ctrl_timer.show(true);
+        input_ctrl_timer.enable(true);
+        input_button_timer.show(true);
         input_button_timer.enable(true);
+        output_label_timer.show(true);
+        output_ctrl_timer.show(true);
+        output_ctrl_timer.enable(true);
+        output_button_timer.show(true);
         output_button_timer.enable(true);
+        image_label_timer.show(true);
+        image_ctrl_timer.show(true);
+        image_ctrl_timer.enable(true);
+        image_button_timer.show(true);
         image_button_timer.enable(true);
+        format_label_timer.show(true);
+        format_choice_timer.show(true);
         format_choice_timer.enable(true);
+        bitrate_label_timer.show(true);
+        bitrate_ctrl_timer.show(true);
         bitrate_ctrl_timer.enable(true);
+        ogg_label_timer.show(true);
+        ogg_choice_timer.show(true);
         ogg_choice_timer.enable(true);
+        flac_label_timer.show(true);
+        flac_choice_timer.show(true);
         flac_choice_timer.enable(true);
+        wav_label_timer.show(true);
+        wav_choice_timer.show(true);
         wav_choice_timer.enable(true);
+        convert_button_timer.show(true);
         convert_button_timer.enable(true);
+        close_button_timer.show(true);
         close_button_timer.enable(true);
-
         cancel_button_timer.enable(false);
+        cancel_button_timer.show(false);
+        panel_timer.layout();
+        dialog_timer.layout();
 
         if snapshot.4 {
             let message = ui
@@ -17090,7 +17211,9 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let conversion_job_convert = Rc::clone(&conversion_job);
     let conversion_busy_convert = Arc::clone(&conversion_busy);
     let conversion_cancel_convert = Arc::clone(&conversion_cancel_requested);
+    let batch_current_percent_convert = Arc::clone(&batch_current_percent);
     let status_text_convert = status_text;
+    let panel_convert = panel;
     convert_button.on_click(move |_| {
         if conversion_busy_convert.load(Ordering::SeqCst) {
             return;
@@ -17167,25 +17290,41 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
         }));
         *conversion_job_convert.borrow_mut() = Some(Arc::clone(&state));
         conversion_cancel_convert.store(false, Ordering::SeqCst);
+        batch_current_percent_convert.store(0, Ordering::SeqCst);
         conversion_busy_convert.store(true, Ordering::SeqCst);
-        input_button.enable(false);
-        output_button.enable(false);
-        image_button.enable(false);
-        format_choice.enable(false);
-        bitrate_ctrl.enable(false);
-        ogg_choice.enable(false);
-        flac_choice.enable(false);
-        wav_choice.enable(false);
-        convert_button.enable(false);
+        input_label.show(false);
+        input_ctrl.show(false);
+        input_button.show(false);
+        output_label.show(false);
+        output_ctrl.show(false);
+        output_button.show(false);
+        image_label.show(false);
+        image_ctrl.show(false);
+        image_button.show(false);
+        format_label.show(false);
+        format_choice.show(false);
+        bitrate_label.show(false);
+        bitrate_ctrl.show(false);
+        ogg_label.show(false);
+        ogg_choice.show(false);
+        flac_label.show(false);
+        flac_choice.show(false);
+        wav_label.show(false);
+        wav_choice.show(false);
+        convert_button.show(false);
+        close_button.show(false);
+        cancel_button.show(true);
         cancel_button.enable(true);
-        close_button.enable(false);
-        status_text_convert.set_label(
-            &ui.convert_folder_running
-                .replace("{current}", "0")
-                .replace("{total}", &total.to_string())
-                .replace("{file}", ""),
-        );
+        status_text_convert.set_label("0%");
+        panel_convert.layout();
+        dialog_convert.layout();
+        cancel_button.set_focus();
         announce_voiceover_message(&ui.conversion_started);
+        append_podcast_log(&format!(
+            "convert_folder.ui_state={} total={}",
+            ui.convert_folder_running,
+            total
+        ));
 
         let options = BatchConvertOptions {
             files,
@@ -17198,7 +17337,10 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
             wav_depth: convert_wav_bit_depth_from_choice(&wav_choice),
         };
         let cancel_requested = Arc::clone(&conversion_cancel_convert);
-        std::thread::spawn(move || run_convert_media_batch(options, state, cancel_requested));
+        let current_file_percent = Arc::clone(&batch_current_percent_convert);
+        std::thread::spawn(move || {
+            run_convert_media_batch(options, state, cancel_requested, current_file_percent)
+        });
     });
 
     let conversion_cancel_click = Arc::clone(&conversion_cancel_requested);
@@ -25160,6 +25302,8 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+    let date_button = Button::builder(&panel).with_label(&ui.go_to_date).build();
+    root.add(&date_button, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top, 8);
     let choice = Choice::builder(&panel).build();
     for item in &items {
         choice.append(&rai_item_label(&item.title, item.description.as_deref()));
@@ -25172,7 +25316,6 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     let save_button = Button::builder(&panel)
         .with_label(&ui.rai_save_content)
         .build();
-    let date_button = Button::builder(&panel).with_label(&ui.go_to_date).build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
@@ -25180,7 +25323,6 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
-    buttons.add(&date_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
@@ -28223,13 +28365,15 @@ fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
         &ui.convert_folder_title,
         ItemKind::Normal,
     );
-    let media_cutter_label = media_cutter::menu_label();
-    let _ = menu.append(
-        ID_TOOLS_MEDIA_CUTTER,
-        &media_cutter_label,
-        &media_cutter_label,
-        ItemKind::Normal,
-    );
+    if SHOW_MEDIA_CUTTER_IN_MENUS {
+        let media_cutter_label = media_cutter::menu_label();
+        let _ = menu.append(
+            ID_TOOLS_MEDIA_CUTTER,
+            &media_cutter_label,
+            &media_cutter_label,
+            ItemKind::Normal,
+        );
+    }
     if settings.ui_language == "it" {
         let _ = menu.append(
             ID_RAI_AUDIO_DESCRIPTIONS,
@@ -28375,13 +28519,15 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
             &ui.convert_folder_title,
             ItemKind::Normal,
         );
-        let media_cutter_label = media_cutter::menu_label();
-        let _ = tools_menu.append(
-            ID_TOOLS_MEDIA_CUTTER,
-            &media_cutter_label,
-            &media_cutter_label,
-            ItemKind::Normal,
-        );
+        if SHOW_MEDIA_CUTTER_IN_MENUS {
+            let media_cutter_label = media_cutter::menu_label();
+            let _ = tools_menu.append(
+                ID_TOOLS_MEDIA_CUTTER,
+                &media_cutter_label,
+                &media_cutter_label,
+                ItemKind::Normal,
+            );
+        }
         let _ = tools_menu.append(
             ID_TOOLS_ROUTES,
             &ui.routes_title,

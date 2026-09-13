@@ -308,71 +308,159 @@ fn format_duration_natural(seconds: f64) -> String {
     }
 }
 
-fn ffprobe_path() -> PathBuf {
-    if let Some(ffmpeg) = ffmpeg_executable_path() {
-        if let Some(parent) = ffmpeg.parent() {
-            let candidate = parent.join("ffprobe");
-            if candidate.is_file() {
-                return candidate;
-            }
+fn ffprobe_path() -> Option<PathBuf> {
+    if let Some(ffmpeg) = ffmpeg_executable_path()
+        && let Some(parent) = ffmpeg.parent()
+    {
+        let candidate = parent.join("ffprobe");
+        if candidate.is_file() {
+            return Some(candidate);
         }
     }
-    PathBuf::from("ffprobe")
+    let system = PathBuf::from("ffprobe");
+    Command::new(&system)
+        .arg("-version")
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .ok()
+        .filter(|status| status.success())
+        .map(|_| system)
 }
 
-fn probe_media(path: &Path) -> Result<ProbeInfo, String> {
-    let ffprobe = ffprobe_path();
-    let output = Command::new(&ffprobe)
-        .args([
-            "-v",
-            "error",
-            "-show_entries",
-            "format=duration",
-            "-show_entries",
-            "stream=codec_type:stream_disposition=attached_pic",
-            "-of",
-            "json",
-        ])
-        .arg(path)
-        .output()
-        .map_err(|err| format!("ffprobe: {err}"))?;
-    if !output.status.success() {
-        return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+fn parse_ffmpeg_clock(value: &str) -> Option<f64> {
+    let mut parts = value.trim().split(':');
+    let hours = parts.next()?.parse::<f64>().ok()?;
+    let minutes = parts.next()?.parse::<f64>().ok()?;
+    let seconds = parts.next()?.parse::<f64>().ok()?;
+    if parts.next().is_some() {
+        return None;
     }
-    let value: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .map_err(|err| format!("ffprobe JSON: {err}"))?;
-    let duration = value
-        .get("format")
-        .and_then(|v| v.get("duration"))
-        .and_then(|v| {
-            v.as_str()
-                .and_then(|text| text.parse::<f64>().ok())
-                .or_else(|| v.as_f64())
+    let total = hours * 3600.0 + minutes * 60.0 + seconds;
+    (total.is_finite() && total > 0.0).then_some(total)
+}
+
+fn probe_media_with_ffmpeg(path: &Path) -> Result<ProbeInfo, String> {
+    let ffmpeg = ffmpeg_executable_path().unwrap_or_else(|| PathBuf::from("ffmpeg"));
+    let mut command = Command::new(&ffmpeg);
+    if let Some(parent) = ffmpeg.parent().filter(|parent| !parent.as_os_str().is_empty()) {
+        command.current_dir(parent);
+    }
+    let output = command
+        .args(["-hide_banner", "-i"])
+        .arg(path)
+        .args(["-t", "0", "-f", "null", "-"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .output()
+        .map_err(|err| format!("FFmpeg: {err}"))?;
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let duration = stderr
+        .lines()
+        .find_map(|line| {
+            let marker = "Duration: ";
+            let start = line.find(marker)? + marker.len();
+            let rest = &line[start..];
+            let end = rest.find(',').unwrap_or(rest.len());
+            parse_ffmpeg_clock(&rest[..end])
         })
-        .filter(|v| v.is_finite() && *v > 0.0)
         .ok_or_else(|| "durata media non disponibile".to_string())?;
     let mut has_video = false;
     let mut has_audio = false;
-    if let Some(streams) = value.get("streams").and_then(|v| v.as_array()) {
-        for stream in streams {
-            match stream.get("codec_type").and_then(|v| v.as_str()) {
-                Some("video") => {
-                    let attached_picture = stream
-                        .get("disposition")
-                        .and_then(|v| v.get("attached_pic"))
-                        .and_then(|v| v.as_i64())
-                        .unwrap_or(0)
-                        != 0;
-                    if !attached_picture {
-                        has_video = true;
-                    }
-                }
-                Some("audio") => has_audio = true,
-                _ => {}
-            }
+    for line in stderr.lines().filter(|line| line.trim_start().starts_with("Stream #")) {
+        if line.contains("Audio:") {
+            has_audio = true;
+        }
+        if line.contains("Video:") && !line.to_ascii_lowercase().contains("attached pic") {
+            has_video = true;
         }
     }
-    Ok(ProbeInfo { duration, has_video, has_audio })
+    if !has_audio && !has_video {
+        return Err("nessuna traccia audio o video utilizzabile".to_string());
+    }
+    Ok(ProbeInfo {
+        duration,
+        has_video,
+        has_audio,
+    })
+}
+
+fn probe_media(path: &Path) -> Result<ProbeInfo, String> {
+    if let Some(ffprobe) = ffprobe_path() {
+        let ffprobe_result = (|| {
+            let output = Command::new(&ffprobe)
+                .args([
+                    "-v",
+                    "error",
+                    "-show_entries",
+                    "format=duration",
+                    "-show_entries",
+                    "stream=codec_type:stream_disposition=attached_pic",
+                    "-of",
+                    "json",
+                ])
+                .arg(path)
+                .output()
+                .map_err(|err| format!("ffprobe: {err}"))?;
+            if !output.status.success() {
+                return Err(String::from_utf8_lossy(&output.stderr).trim().to_string());
+            }
+            let value: serde_json::Value = serde_json::from_slice(&output.stdout)
+                .map_err(|err| format!("ffprobe JSON: {err}"))?;
+            let duration = value
+                .get("format")
+                .and_then(|v| v.get("duration"))
+                .and_then(|v| {
+                    v.as_str()
+                        .and_then(|text| text.parse::<f64>().ok())
+                        .or_else(|| v.as_f64())
+                })
+                .filter(|v| v.is_finite() && *v > 0.0)
+                .ok_or_else(|| "durata media non disponibile".to_string())?;
+            let mut has_video = false;
+            let mut has_audio = false;
+            if let Some(streams) = value.get("streams").and_then(|v| v.as_array()) {
+                for stream in streams {
+                    match stream.get("codec_type").and_then(|v| v.as_str()) {
+                        Some("video") => {
+                            let attached_picture = stream
+                                .get("disposition")
+                                .and_then(|v| v.get("attached_pic"))
+                                .and_then(|v| v.as_i64())
+                                .unwrap_or(0)
+                                != 0;
+                            if !attached_picture {
+                                has_video = true;
+                            }
+                        }
+                        Some("audio") => has_audio = true,
+                        _ => {}
+                    }
+                }
+            }
+            if !has_audio && !has_video {
+                return Err("nessuna traccia audio o video utilizzabile".to_string());
+            }
+            Ok(ProbeInfo {
+                duration,
+                has_video,
+                has_audio,
+            })
+        })();
+        if let Ok(info) = ffprobe_result {
+            return Ok(info);
+        }
+        append_podcast_log(&format!(
+            "media_cutter.probe ffprobe_failed path={} falling_back_to_ffmpeg",
+            path.display()
+        ));
+    } else {
+        append_podcast_log(&format!(
+            "media_cutter.probe ffprobe_unavailable path={} using_ffmpeg",
+            path.display()
+        ));
+    }
+    probe_media_with_ffmpeg(path)
 }
 
 fn mpv_path() -> PathBuf {
@@ -1141,8 +1229,15 @@ pub fn open_dialog(parent: &Frame) {
     let rotation = Rc::new(Cell::new(VideoRotation::None));
     let added_track = Rc::new(RefCell::new(None::<AddedTrackSettings>));
 
+    let top_buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(labels.open_file).build();
-    root.add(&open_button, 0, SizerFlag::Expand | SizerFlag::All, 8);
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(labels.close)
+        .build();
+    top_buttons.add(&open_button, 1, SizerFlag::All, 8);
+    top_buttons.add(&close_button, 1, SizerFlag::All, 8);
+    root.add_sizer(&top_buttons, 0, SizerFlag::Expand, 0);
     let file_status = StaticText::builder(&panel).with_label("").build();
     file_status.show(false);
     root.add(&file_status, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Bottom, 8);
@@ -1236,7 +1331,6 @@ pub fn open_dialog(parent: &Frame) {
     let bottom = BoxSizer::builder(Orientation::Horizontal).build();
     let save_button = Button::builder(&panel).with_label(labels.save).build();
     let cancel_button = Button::builder(&panel).with_label(labels.cancel_processing).build();
-    let close_button = Button::builder(&panel).with_label(labels.close).build();
     cancel_button.enable(false);
     save_button.enable(false);
     back.enable(false);
@@ -1246,7 +1340,6 @@ pub fn open_dialog(parent: &Frame) {
     split_here.enable(false);
     bottom.add(&save_button, 1, SizerFlag::All, 6);
     bottom.add(&cancel_button, 1, SizerFlag::All, 6);
-    bottom.add(&close_button, 1, SizerFlag::All, 6);
     root.add_sizer(&bottom, 0, SizerFlag::Expand, 0);
 
     panel.set_sizer(root, true);
@@ -1326,6 +1419,7 @@ pub fn open_dialog(parent: &Frame) {
                 forward.enable(true);
                 guided_primary.enable(true);
                 split_here.enable(true);
+                mode_choice.set_focus();
                 announce_voiceover_message(&format!("{}: {name}, {}", labels.file_loaded, format_duration_natural(info.duration)));
             }
             _ => show_error(&dialog_open, labels.title, labels.invalid_media),

@@ -11,7 +11,7 @@ use hound::{SampleFormat, WavReader, WavSpec, WavWriter};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
@@ -7292,6 +7292,7 @@ fn reanalyze_project_segment(
 
         let mut candidate = project.clone();
         let mut accepted = 0_usize;
+        let mut changed = 0_usize;
         for (saved_pos, fresh_pos) in associations {
             let project_index = segment_indices[saved_pos];
             let fresh = &mini_project.descriptions[mini_indices[fresh_pos]];
@@ -7312,6 +7313,9 @@ fn reanalyze_project_segment(
                 continue;
             }
             let saved = &mut candidate.descriptions[project_index];
+            if saved.text != fresh_text {
+                changed += 1;
+            }
             saved.text = fresh_text.to_string();
             saved.rendered_text = if fresh.rendered_text.trim().is_empty() {
                 fresh_text.to_string()
@@ -7325,6 +7329,10 @@ fn reanalyze_project_segment(
         if accepted == 0 {
             return Err("Nessuna nuova descrizione può essere associata in sicurezza agli slot salvati; segmento non modificato.".to_string());
         }
+        append_podcast_log(&format!(
+            "audio_description.project.reanalyze_candidate accepted={} changed={} saved_slots={} fresh_descriptions={}",
+            accepted, changed, old_count, new_count
+        ));
 
         let mut output_offset_sec = 0.0_f64;
         for description in &mut candidate.descriptions {
@@ -7928,16 +7936,30 @@ fn refresh_project_description_choice(
     display_order: &RefCell<Vec<usize>>,
     query: &str,
     preferred_real_index: Option<usize>,
+    reanalyzed_description_ids: Option<&HashSet<usize>>,
 ) -> Option<usize> {
     let order = project_description_search_order(descriptions, query);
     choice.clear();
     for index in &order {
         if let Some(description) = descriptions.get(*index) {
-            choice.append(&format!(
-                "{} - {}",
-                format_mmss(description.source_start_sec),
-                description.text
-            ));
+            let marker = reanalyzed_description_ids
+                .is_some_and(|ids| ids.contains(&description.id))
+                .then(|| tr("audio_description.project.reanalyzed_marker"));
+            let label = if let Some(marker) = marker {
+                format!(
+                    "{} - {} - {}",
+                    format_mmss(description.source_start_sec),
+                    marker,
+                    description.text
+                )
+            } else {
+                format!(
+                    "{} - {}",
+                    format_mmss(description.source_start_sec),
+                    description.text
+                )
+            };
+            choice.append(&label);
         }
     }
 
@@ -8000,12 +8022,14 @@ pub fn open_project_editor(
     );
     let choice = Choice::builder(&panel).build();
     let description_display_order = Rc::new(RefCell::new(Vec::<usize>::new()));
+    let reanalyzed_description_ids = Rc::new(RefCell::new(HashSet::<usize>::new()));
     refresh_project_description_choice(
         &choice,
         &project.borrow().descriptions,
         &description_display_order,
         "",
         None,
+        Some(&*reanalyzed_description_ids.borrow()),
     );
     root.add(&choice, 0, SizerFlag::Expand | SizerFlag::All, 5);
 
@@ -8216,6 +8240,7 @@ pub fn open_project_editor(
     let display_order_search = Rc::clone(&description_display_order);
     let pending_text_search = Rc::clone(&pending_text_edits);
     let last_selected_search = Rc::clone(&last_selected_description);
+    let reanalyzed_ids_search = Rc::clone(&reanalyzed_description_ids);
     let run_description_search = Rc::new(move || {
         if let Some(previous_index) = last_selected_search.get()
             && let Some(previous) = project_search.borrow().descriptions.get(previous_index)
@@ -8239,6 +8264,7 @@ pub fn open_project_editor(
             &display_order_search,
             &query,
             preferred,
+            Some(&*reanalyzed_ids_search.borrow()),
         );
         if let Some(index) = selected
             && let Some(description) = project_search.borrow().descriptions.get(index)
@@ -8263,6 +8289,7 @@ pub fn open_project_editor(
     let display_order_search_clear = Rc::clone(&description_display_order);
     let pending_text_search_clear = Rc::clone(&pending_text_edits);
     let last_selected_search_clear = Rc::clone(&last_selected_description);
+    let reanalyzed_ids_search_clear = Rc::clone(&reanalyzed_description_ids);
     search.on_text_changed(move |_| {
         if !search.get_value().trim().is_empty() {
             return;
@@ -8286,6 +8313,7 @@ pub fn open_project_editor(
             &display_order_search_clear,
             "",
             preferred,
+            Some(&*reanalyzed_ids_search_clear.borrow()),
         );
         if let Some(index) = selected
             && let Some(description) = project_search_clear.borrow().descriptions.get(index)
@@ -8325,6 +8353,7 @@ pub fn open_project_editor(
     let dialog_voice = dialog;
     let display_order_voice = Rc::clone(&description_display_order);
     let pending_text_voice = Rc::clone(&pending_text_edits);
+    let reanalyzed_ids_voice = Rc::clone(&reanalyzed_description_ids);
     let last_selected_voice = Rc::clone(&last_selected_description);
     change_voice.on_click(move |_| {
         let selected_description_index =
@@ -8404,6 +8433,7 @@ pub fn open_project_editor(
                         &display_order_voice,
                         &query,
                         Some(selected_description),
+                        Some(&*reanalyzed_ids_voice.borrow()),
                     );
                     if let Some(selected_description) = selected
                         && let Some(description) =
@@ -8470,6 +8500,7 @@ pub fn open_project_editor(
     let display_order_reanalyze = Rc::clone(&description_display_order);
     let pending_text_reanalyze = Rc::clone(&pending_text_edits);
     let last_selected_reanalyze = Rc::clone(&last_selected_description);
+    let reanalyzed_ids_reanalyze = Rc::clone(&reanalyzed_description_ids);
     reanalyze.on_click(move |_| {
         if pending_reanalysis_run.get() {
             return;
@@ -8509,7 +8540,19 @@ pub fn open_project_editor(
             Ok(reanalysis) => {
                 let affected_count = reanalysis.segment_description_ids.len();
                 let focus_index = reanalysis.focus_index;
+
+                // The Choice refresh can emit a selection-changed event.  Clear the
+                // old selection/draft state before swapping in the reanalyzed project,
+                // otherwise the old text can be captured as a pending edit against
+                // the new description and appear again when the user revisits it.
+                pending_text_reanalyze.borrow_mut().clear();
+                last_selected_reanalyze.set(None);
                 *project_reanalyze.borrow_mut() = reanalysis.project;
+                *reanalyzed_ids_reanalyze.borrow_mut() = reanalysis
+                    .segment_description_ids
+                    .iter()
+                    .copied()
+                    .collect();
                 pending_reanalysis_run.set(true);
                 apply_reanalyzed.enable(true);
                 reanalyze.enable(false);
@@ -8523,16 +8566,26 @@ pub fn open_project_editor(
                     &display_order_reanalyze,
                     &query,
                     Some(focus_index),
+                    Some(&*reanalyzed_ids_reanalyze.borrow()),
                 );
                 if let Some(selected_index) = selected
                     && let Some(description) =
                         project_reanalyze.borrow().descriptions.get(selected_index)
                 {
                     text.set_value(&description.text);
+                    last_selected_reanalyze.set(Some(selected_index));
+                    // A synchronous Choice event may have run while rebuilding the
+                    // control.  The visible text is now authoritative, so no stale
+                    // draft from the pre-reanalysis project must survive.
+                    pending_text_reanalyze.borrow_mut().clear();
                     status.set_label(&trf(
                         "audio_description.project.status.reanalyzed_ready_count",
                         &[("count", affected_count.to_string())],
                     ));
+                    // Match the Windows editor: return focus to the descriptions so
+                    // VoiceOver immediately announces the new text and the
+                    // "segment reanalyzed" marker.
+                    choice.set_focus();
                 }
                 append_podcast_log(&format!(
                     "audio_description.project.reanalyze_ready affected={} focus={}",
@@ -8613,6 +8666,7 @@ pub fn open_project_editor(
     let display_order_apply = Rc::clone(&description_display_order);
     let pending_reanalysis_apply = Rc::clone(&pending_reanalysis);
     let pending_text_apply = Rc::clone(&pending_text_edits);
+    let reanalyzed_ids_apply = Rc::clone(&reanalyzed_description_ids);
     let last_selected_apply = Rc::clone(&last_selected_description);
     apply.on_click(move |_| {
         let Some(index) = selected_project_description_index(&choice, &display_order_apply) else {
@@ -8656,6 +8710,7 @@ pub fn open_project_editor(
                     &display_order_apply,
                     &query,
                     Some(edit_index),
+                    Some(&*reanalyzed_ids_apply.borrow()),
                 );
                 text.set_value(&edit_value);
                 last_selected_apply.set(Some(edit_index));
@@ -8691,6 +8746,7 @@ pub fn open_project_editor(
                     &display_order_apply,
                     &query,
                     Some(edit_index),
+                    Some(&*reanalyzed_ids_apply.borrow()),
                 );
                 text.set_value(&edit_value);
                 last_selected_apply.set(Some(edit_index));
@@ -8734,6 +8790,7 @@ pub fn open_project_editor(
             &display_order_apply,
             &query,
             Some(index),
+            Some(&*reanalyzed_ids_apply.borrow()),
         );
         last_selected_apply.set(Some(index));
         let message = trf(
@@ -8819,6 +8876,7 @@ pub fn open_project_editor(
     let dialog_delete = dialog;
     let display_order_delete = Rc::clone(&description_display_order);
     let pending_text_delete = Rc::clone(&pending_text_edits);
+    let reanalyzed_ids_delete = Rc::clone(&reanalyzed_description_ids);
     let last_selected_delete = Rc::clone(&last_selected_description);
     delete.on_click(move |_| {
         let Some(index) = selected_project_description_index(&choice, &display_order_delete) else {
@@ -8885,6 +8943,7 @@ pub fn open_project_editor(
             &display_order_delete,
             &query,
             Some(next_index),
+            Some(&*reanalyzed_ids_delete.borrow()),
         );
         if let Some(selected_index) = selected
             && let Some(description) = project_delete.borrow().descriptions.get(selected_index)

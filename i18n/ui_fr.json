@@ -304,6 +304,7 @@
   "convert_media_same_path": "Le fichier converti doit être différent du fichier source.",
   "convert_media_invalid_bitrate": "Bitrate invalide. Saisissez une valeur entre 64 et 320 kbps.",
   "convert_media_failed": "Échec de la conversion : {error}",
+  "convert_media_cancelled": "Conversion interrompue.",
   "conversion_started": "Conversion commencée.",
   "bdciechi_title": "Bibliothèque numérique",
   "bdciechi_username_label": "Nom d’utilisateur :",

@@ -304,6 +304,7 @@
   "convert_media_same_path": "Převedený soubor musí být jiný než zdrojový.",
   "convert_media_invalid_bitrate": "Neplatný datový tok. Zadejte hodnotu mezi 64 a 320 kb/s.",
   "convert_media_failed": "Převod se nezdařil: {error}",
+  "convert_media_cancelled": "Převod byl přerušen.",
   "conversion_started": "Převod zahájen.",
   "bdciechi_title": "Digitální knihovna",
   "bdciechi_username_label": "Uživatelské jméno:",
