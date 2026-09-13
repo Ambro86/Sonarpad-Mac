@@ -107,6 +107,7 @@ const ID_PODCASTS_CATEGORY_BASE: i32 = 2400;
 const ID_PODCASTS_SOURCE_BASE: i32 = 2600;
 const ID_PODCASTS_EPISODE_BASE: i32 = 30000;
 const ID_PODCASTS_CATEGORY_PODCAST_BASE: i32 = 27000;
+const ID_PODCASTS_DATE_BASE: i32 = 29000;
 const ID_RADIO_SEARCH: i32 = 2350;
 const ID_RADIO_DELETE_FAVORITE: i32 = 2351;
 const ID_RADIO_ADD: i32 = 2352;
@@ -151,6 +152,8 @@ const ID_ARTICLE_SOURCE_DIALOG_BASE: i32 = 9000;
 const ID_ARTICLES_ARTICLE_BASE: i32 = 10000;
 const MAX_MENU_ARTICLES_PER_SOURCE: usize = 30;
 const MAX_MENU_PODCAST_EPISODES_PER_SOURCE: usize = 30;
+const MAX_PODCAST_DATE_SOURCES: usize = 1000;
+const _: () = assert!(ID_PODCASTS_DATE_BASE + MAX_PODCAST_DATE_SOURCES as i32 <= ID_PODCASTS_EPISODE_BASE);
 const MAX_RECENT_TEXT_FILES: usize = 10;
 const PODCAST_SEEK_CHOICE_FALLBACK_MINUTES: usize = 180;
 
@@ -945,6 +948,7 @@ struct UiStrings {
     convert_media_same_path: String,
     convert_media_invalid_bitrate: String,
     convert_media_failed: String,
+    conversion_started: String,
     convert_folder_title: String,
     convert_folder_input: String,
     convert_folder_output: String,
@@ -1066,6 +1070,9 @@ struct UiStrings {
     add_podcast: String,
     delete_podcast: String,
     reorder_podcasts: String,
+    go_to_date: String,
+    no_dates_available: String,
+    episodes_on_date: String,
     keyword: String,
     podcast_label: String,
     source_label: String,
@@ -1110,6 +1117,9 @@ struct UiStrings {
     article_community_sources_source: String,
     article_community_sources_import: String,
     article_community_sources_added: String,
+    article_community_sources_imported: String,
+    article_community_sources_replace_confirm: String,
+    article_community_sources_replaced: String,
     article_community_sources_empty: String,
     article_community_sources_error: String,
     sorted_podcasts_title: String,
@@ -7706,6 +7716,19 @@ fn podcasts_episode_menu_id(source_index: usize, episode_index: usize) -> i32 {
         + episode_index as i32
 }
 
+fn podcasts_date_menu_id(source_index: usize) -> Option<i32> {
+    (source_index < MAX_PODCAST_DATE_SOURCES)
+        .then_some(ID_PODCASTS_DATE_BASE + source_index as i32)
+}
+
+fn decode_podcast_date_menu_id(menu_id: i32) -> Option<usize> {
+    if !(ID_PODCASTS_DATE_BASE..ID_PODCASTS_EPISODE_BASE).contains(&menu_id) {
+        return None;
+    }
+    let source_index = (menu_id - ID_PODCASTS_DATE_BASE) as usize;
+    (source_index < MAX_PODCAST_DATE_SOURCES).then_some(source_index)
+}
+
 fn decode_podcast_episode_menu_id(menu_id: i32) -> Option<(usize, usize)> {
     if menu_id < ID_PODCASTS_EPISODE_BASE {
         return None;
@@ -8595,6 +8618,228 @@ fn open_podcast_episode_externally(
             save_downloaded_podcast_file(parent, &file_path, suggested_name)
         }
         PodcastDownloadAction::Close => Ok(()),
+    }
+}
+
+fn podcast_episode_date(episode: &podcasts::PodcastEpisode) -> Option<chrono::NaiveDate> {
+    chrono::NaiveDate::parse_from_str(episode.published_date.trim(), "%Y-%m-%d").ok()
+}
+
+fn podcast_source_dates(source: &podcasts::PodcastSource) -> Vec<chrono::NaiveDate> {
+    let mut dates = source
+        .episodes
+        .iter()
+        .filter_map(podcast_episode_date)
+        .collect::<Vec<_>>();
+    dates.sort_by(|left, right| right.cmp(left));
+    dates.dedup();
+    dates
+}
+
+fn open_podcast_date_episode_dialog(
+    parent: &Frame,
+    source: &podcasts::PodcastSource,
+    ui_language: &str,
+) -> Option<podcasts::PodcastEpisode> {
+    let ui = current_ui_strings();
+    let dates = podcast_source_dates(source);
+    if dates.is_empty() {
+        show_message_dialog(parent, &ui.go_to_date, &ui.no_dates_available);
+        return None;
+    }
+
+    let dialog = Dialog::builder(parent, &ui.go_to_date)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(460, 170)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let choice = Choice::builder(&panel).build();
+    for date in &dates {
+        choice.append(&calendar::localized_date(ui_language, *date));
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 10);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.open)
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let dialog_open = dialog;
+    open_button.on_click(move |_| dialog_open.end_modal(ID_OK));
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+
+    let focus_timer = Timer::new(&dialog);
+    let choice_focus = choice;
+    focus_timer.on_tick(move |_| choice_focus.set_focus());
+    focus_timer.start(80, true);
+    let result = dialog.show_modal();
+    focus_timer.stop();
+    let selected_date = if result == ID_OK {
+        choice
+            .get_selection()
+            .and_then(|index| dates.get(index as usize).copied())
+    } else {
+        None
+    };
+    dialog.destroy();
+
+    let date = selected_date?;
+    let episodes = source
+        .episodes
+        .iter()
+        .filter(|episode| podcast_episode_date(episode) == Some(date))
+        .cloned()
+        .collect::<Vec<_>>();
+    if episodes.is_empty() {
+        return None;
+    }
+
+    let localized_date = calendar::localized_date(ui_language, date);
+    let title = ui.episodes_on_date.replace("{date}", &localized_date);
+    let episode_dialog = Dialog::builder(parent, &title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(640, 210)
+        .build();
+    let episode_panel = Panel::builder(&episode_dialog).build();
+    let episode_root = BoxSizer::builder(Orientation::Vertical).build();
+    let episode_choice = Choice::builder(&episode_panel).build();
+    for episode in &episodes {
+        episode_choice.append(&episode.title);
+    }
+    episode_choice.set_selection(0);
+    episode_root.add(&episode_choice, 1, SizerFlag::Expand | SizerFlag::All, 10);
+
+    let episode_buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let episode_open = Button::builder(&episode_panel)
+        .with_id(ID_OK)
+        .with_label(&ui.open)
+        .build();
+    let episode_close = Button::builder(&episode_panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    episode_buttons.add_spacer(1);
+    episode_buttons.add(&episode_open, 0, SizerFlag::All, 10);
+    episode_buttons.add(&episode_close, 0, SizerFlag::All, 10);
+    episode_root.add_sizer(&episode_buttons, 0, SizerFlag::Expand, 0);
+    episode_panel.set_sizer(episode_root, true);
+
+    episode_dialog.set_affirmative_id(ID_OK);
+    episode_dialog.set_escape_id(ID_CANCEL);
+    let episode_dialog_open = episode_dialog;
+    episode_open.on_click(move |_| episode_dialog_open.end_modal(ID_OK));
+    let episode_dialog_close = episode_dialog;
+    episode_close.on_click(move |_| episode_dialog_close.end_modal(ID_CANCEL));
+
+    let episode_focus_timer = Timer::new(&episode_dialog);
+    let episode_choice_focus = episode_choice;
+    episode_focus_timer.on_tick(move |_| episode_choice_focus.set_focus());
+    episode_focus_timer.start(80, true);
+    let episode_result = episode_dialog.show_modal();
+    episode_focus_timer.stop();
+    let selected_episode = if episode_result == ID_OK {
+        episode_choice
+            .get_selection()
+            .and_then(|index| episodes.get(index as usize).cloned())
+    } else {
+        None
+    };
+    episode_dialog.destroy();
+    selected_episode
+}
+
+fn activate_podcast_episode(
+    parent: &Frame,
+    editor: &TextCtrl,
+    playback: &Rc<RefCell<PodcastPlaybackState>>,
+    episode: podcasts::PodcastEpisode,
+) {
+    let description = crate::reader::collapse_blank_lines(
+        &crate::reader::clean_text(&episode.description),
+    );
+    editor.set_value(&format!("{}\n\n{}", episode.title.trim(), description.trim()));
+
+    if episode.audio_url.trim().is_empty() {
+        append_podcast_log(&format!(
+            "podcast_menu.no_audio_url title={} link={}",
+            episode.title, episode.link
+        ));
+        let dialog = MessageDialog::builder(
+            parent,
+            "Questo episodio non espone un URL audio diretto nel feed RSS.\n\nNon posso scaricare la pagina web al posto dell'audio.",
+            "Audio podcast non disponibile",
+        )
+        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+        .build();
+        localize_standard_dialog_buttons(&dialog);
+        dialog.show_modal();
+        return;
+    }
+
+    append_podcast_log(&format!(
+        "podcast_menu.episode_resolved title={} audio_url={} link={}",
+        episode.title, episode.audio_url, episode.link
+    ));
+
+    #[cfg(any(target_os = "macos", windows))]
+    {
+        let external_url = episode.audio_url.as_str();
+        let mut playback_state = playback.borrow_mut();
+        if let Some(player) = playback_state.player.as_ref()
+            && let Err(err) = player.pause()
+        {
+            println!("ERROR: Pausa podcast fallita: {}", err);
+            append_podcast_log(&format!(
+                "podcast_menu.previous_pause_error audio_url={} error={}",
+                playback_state.current_audio_url, err
+            ));
+        }
+        playback_state.player = None;
+        playback_state.selected_episode = None;
+        playback_state.current_audio_url.clear();
+        playback_state.status = PlaybackStatus::Stopped;
+        drop(playback_state);
+        append_podcast_log("podcast_menu.external_open_call");
+
+        if let Err(err) = open_podcast_episode_externally(parent, external_url, &episode.title) {
+            append_podcast_log(&format!("podcast_menu.external_open_error error={}", err));
+            println!("ERROR: Apertura esterna podcast fallita: {}", err);
+            let dialog = MessageDialog::builder(
+                parent,
+                &if Settings::load().ui_language == "it" {
+                    format!("Impossibile aprire il podcast.\n\n{err}")
+                } else {
+                    format!("Unable to open the podcast.\n\n{err}")
+                },
+                &current_ui_strings().podcast_error_title,
+            )
+            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
+            .build();
+            localize_standard_dialog_buttons(&dialog);
+            dialog.show_modal();
+        } else {
+            append_podcast_log("podcast_menu.external_open_ok");
+        }
+    }
+
+    #[cfg(not(any(target_os = "macos", windows)))]
+    {
+        playback.borrow_mut().selected_episode = Some(episode);
     }
 }
 
@@ -10136,6 +10381,17 @@ fn rebuild_podcasts_menu(
             );
             let _ = submenu.enable_item(placeholder_id, false);
         } else {
+            if !podcast_source_dates(source).is_empty()
+                && let Some(date_menu_id) = podcasts_date_menu_id(source_index)
+            {
+                let _ = submenu.append(
+                    date_menu_id,
+                    &format!("{}...", ui.go_to_date),
+                    &ui.go_to_date,
+                    ItemKind::Normal,
+                );
+                submenu.append_separator();
+            }
             for (episode_index, episode) in source
                 .episodes
                 .iter()
@@ -10318,12 +10574,22 @@ fn refresh_all_article_sources(
     let settings_refresh = Arc::clone(settings);
     let menu_state_refresh = Arc::clone(article_menu_state);
     std::thread::spawn(move || {
-        let sources = settings_refresh.lock().unwrap().article_sources.clone();
-        append_podcast_log(&format!("articles_refresh.start sources={}", sources.len()));
+        let (sources, news_language) = {
+            let locked = settings_refresh.lock().unwrap();
+            (locked.article_sources.clone(), locked.news_language.clone())
+        };
+        append_podcast_log(&format!(
+            "articles_refresh.start sources={} language={}",
+            sources.len(),
+            news_language
+        ));
         let mut updated_sources = Vec::with_capacity(sources.len());
         let mut changed = false;
         for source in sources {
-            match rt_refresh.block_on(articles::fetch_source(&source)) {
+            match rt_refresh.block_on(articles::fetch_source_for_news_language(
+                &source,
+                &news_language,
+            )) {
                 Ok(updated) => {
                     let should_preserve_existing_items =
                         updated.items.is_empty() && !source.items.is_empty();
@@ -10397,18 +10663,23 @@ fn refresh_single_article_source(
     let settings_refresh = Arc::clone(settings);
     let menu_state_refresh = Arc::clone(article_menu_state);
     std::thread::spawn(move || {
-        let source = {
-            settings_refresh
-                .lock()
-                .unwrap()
-                .article_sources
-                .iter()
-                .find(|source| source.url.eq_ignore_ascii_case(&source_url))
-                .cloned()
+        let (source, news_language) = {
+            let locked = settings_refresh.lock().unwrap();
+            (
+                locked
+                    .article_sources
+                    .iter()
+                    .find(|source| source.url.eq_ignore_ascii_case(&source_url))
+                    .cloned(),
+                locked.news_language.clone(),
+            )
         };
 
         if let Some(source) = source {
-            match rt_refresh.block_on(articles::fetch_source(&source)) {
+            match rt_refresh.block_on(articles::fetch_source_for_news_language(
+                &source,
+                &news_language,
+            )) {
                 Ok(updated) => {
                     let mut locked = settings_refresh.lock().unwrap();
                     if let Some(existing) = locked
@@ -10618,6 +10889,7 @@ const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.4.0 (https://sonarpad.com
 struct CommunityArticleSource {
     name: String,
     url: String,
+    already_imported: bool,
 }
 
 fn normalize_community_news_language_code(value: &str) -> &'static str {
@@ -10907,12 +11179,19 @@ fn fetch_community_article_sources(
             continue;
         }
         let key = community_article_source_url_key(url);
-        if known_urls.contains(&key) || !result_urls.insert(key) {
+        let already_imported = known_urls.contains(&key);
+        if !result_urls.insert(key) {
             continue;
         }
+        let source_name = if already_imported {
+            name.to_string()
+        } else {
+            unique_community_article_source_name(name, &mut known_names)
+        };
         results.push(CommunityArticleSource {
-            name: unique_community_article_source_name(name, &mut known_names),
+            name: source_name,
             url: url.to_string(),
+            already_imported,
         });
     }
     results.sort_by_key(|source| source.name.to_lowercase());
@@ -11096,7 +11375,15 @@ fn open_community_article_sources_dialog(
     );
     let choice = Choice::builder(&panel).build();
     for source in &sources {
-        choice.append(&source.name);
+        let label = if source.already_imported {
+            format!(
+                "{}, {}",
+                source.name, ui.article_community_sources_imported
+            )
+        } else {
+            source.name.clone()
+        };
+        choice.append(&label);
     }
     choice.set_selection(0);
     row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
@@ -11140,6 +11427,7 @@ fn open_community_article_sources_dialog(
 
 fn import_community_article_source(
     source: CommunityArticleSource,
+    replace_existing: bool,
     settings: &Arc<Mutex<Settings>>,
     article_menu_state: &Arc<Mutex<ArticleMenuState>>,
     rt: &Arc<Runtime>,
@@ -11151,19 +11439,32 @@ fn import_community_article_source(
     let source_url = source.url.clone();
     {
         let mut locked = settings.lock().unwrap();
-        if locked
+        if let Some(existing_index) = locked
             .article_sources
             .iter()
-            .any(|existing| community_article_source_url_key(&existing.url) == source_key)
+            .position(|existing| community_article_source_url_key(&existing.url) == source_key)
         {
-            return false;
+            if !replace_existing {
+                return false;
+            }
+            // Replacing a community source must not disturb the user's library
+            // organization. Keep its folder, discard stale articles and refresh
+            // the same entry from the community URL.
+            let folder_path = locked.article_sources[existing_index].folder_path.clone();
+            locked.article_sources[existing_index] = articles::ArticleSource {
+                title: source.name,
+                url: source.url,
+                folder_path,
+                items: Vec::new(),
+            };
+        } else {
+            locked.article_sources.push(articles::ArticleSource {
+                title: source.name,
+                url: source.url,
+                folder_path: String::new(),
+                items: Vec::new(),
+            });
         }
-        locked.article_sources.push(articles::ArticleSource {
-            title: source.name,
-            url: source.url,
-            folder_path: String::new(),
-            items: Vec::new(),
-        });
         locked.save();
     }
     refresh_single_article_source(source_url, rt, settings, article_menu_state);
@@ -15566,6 +15867,43 @@ fn convert_media_build_args(args: ConvertMediaBuildArgs) -> Vec<String> {
     args
 }
 
+#[cfg(target_os = "macos")]
+fn announce_voiceover_message(message: &str) {
+    let message = message.trim();
+    if message.is_empty() {
+        return;
+    }
+    let message = message.to_string();
+    std::thread::spawn(move || {
+        let voiceover_running = Command::new("/usr/bin/pgrep")
+            .args(["-x", "VoiceOver"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok_and(|status| status.success());
+        if !voiceover_running {
+            return;
+        }
+
+        let _ = Command::new("/usr/bin/osascript")
+            .args([
+                "-e",
+                "on run argv",
+                "-e",
+                "tell application \"VoiceOver\" to output (item 1 of argv)",
+                "-e",
+                "end run",
+                &message,
+            ])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status();
+    });
+}
+
+#[cfg(not(target_os = "macos"))]
+fn announce_voiceover_message(_message: &str) {}
+
 struct ConvertProgress {
     percent: i32,
     finished: bool,
@@ -16166,6 +16504,7 @@ fn open_convert_media_dialog(parent: &Frame) {
         convert_button.enable(false);
         close_button.enable(false);
         status_text_convert.set_label(&format!("{} 0%", ui.convert_media_running));
+        announce_voiceover_message(&ui.conversion_started);
         append_podcast_log(&format!(
             "convert_media.worker_spawn output={}",
             output.display()
@@ -16844,6 +17183,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
                 .replace("{total}", &total.to_string())
                 .replace("{file}", ""),
         );
+        announce_voiceover_message(&ui.conversion_started);
 
         let options = BatchConvertOptions {
             files,
@@ -24712,6 +25052,94 @@ fn open_raiplaysound_page_subdialog_inner(
     open_raiplaysound_items_modal(&dialog, items);
 }
 
+fn raiplaysound_available_dates(items: &[raiplaysound::BrowseItem]) -> Vec<chrono::NaiveDate> {
+    let mut dates = items
+        .iter()
+        .filter(|item| item.audio_url.is_some())
+        .filter_map(|item| item.published_date)
+        .collect::<Vec<_>>();
+    dates.sort_by(|left, right| right.cmp(left));
+    dates.dedup();
+    dates
+}
+
+fn open_raiplaysound_date_selector(parent: &Dialog, items: &[raiplaysound::BrowseItem]) {
+    let ui = current_ui_strings();
+    let ui_language = Settings::load().ui_language;
+    let dates = raiplaysound_available_dates(items);
+    if dates.is_empty() {
+        show_message_subdialog(parent, &ui.go_to_date, &ui.no_dates_available);
+        return;
+    }
+
+    let dialog = Dialog::builder(parent, &ui.go_to_date)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(460, 170)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let choice = Choice::builder(&panel).build();
+    for date in &dates {
+        choice.append(&calendar::localized_date(&ui_language, *date));
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 10);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel)
+        .with_id(ID_OK)
+        .with_label(&ui.open)
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+
+    dialog.set_affirmative_id(ID_OK);
+    dialog.set_escape_id(ID_CANCEL);
+    let dialog_open = dialog;
+    open_button.on_click(move |_| dialog_open.end_modal(ID_OK));
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+
+    let focus_timer = Timer::new(&dialog);
+    let choice_focus = choice;
+    focus_timer.on_tick(move |_| choice_focus.set_focus());
+    focus_timer.start(80, true);
+    let result = dialog.show_modal();
+    focus_timer.stop();
+    let selected_date = if result == ID_OK {
+        choice
+            .get_selection()
+            .and_then(|index| dates.get(index as usize).copied())
+    } else {
+        None
+    };
+    dialog.destroy();
+
+    let Some(date) = selected_date else {
+        return;
+    };
+    let filtered_items = items
+        .iter()
+        .filter(|item| {
+            item.audio_url.is_some() && item.published_date == Some(date)
+        })
+        .cloned()
+        .collect::<Vec<_>>();
+    if filtered_items.is_empty() {
+        return;
+    }
+    let localized_date = calendar::localized_date(&ui_language, date);
+    let title = ui.episodes_on_date.replace("{date}", &localized_date);
+    open_raiplaysound_page_subdialog_inner(parent, &title, filtered_items);
+}
+
 fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::BrowseItem>) {
     let ui = current_ui_strings();
     let panel = Panel::builder(dialog).build();
@@ -24742,6 +25170,7 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     let save_button = Button::builder(&panel)
         .with_label(&ui.rai_save_content)
         .build();
+    let date_button = Button::builder(&panel).with_label(&ui.go_to_date).build();
     let close_button = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&ui.close)
@@ -24749,12 +25178,19 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
     buttons.add_spacer(1);
     buttons.add(&open_button, 0, SizerFlag::All, 10);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&date_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
 
     let items_rc = Rc::new(items);
+    update_choice_button_visibility(
+        dialog,
+        &panel,
+        &date_button,
+        !raiplaysound_available_dates(items_rc.as_ref()).is_empty(),
+    );
     if let Some(sel) = choice.get_selection() {
         let visible = items_rc
             .get(sel as usize)
@@ -24818,6 +25254,12 @@ fn open_raiplaysound_items_modal(dialog: &Dialog, items: Vec<raiplaysound::Brows
             }
         }
     });
+    let parent_date = *dialog;
+    let items_date = Rc::clone(&items_rc);
+    date_button.on_click(move |_| {
+        open_raiplaysound_date_selector(&parent_date, items_date.as_ref());
+    });
+
     let choice_visibility = choice;
     let dialog_visibility = *dialog;
     let panel_visibility = panel;
@@ -28777,6 +29219,12 @@ fn main() {
         let current_document_close = Arc::clone(&current_document);
         #[cfg(target_os = "macos")]
         let pending_mac_update_close = Arc::clone(&pending_mac_update);
+        // A close request can arrive twice on macOS (for example, the File > Exit
+        // handler confirms first and Frame::close then emits EVT_CLOSE).  Keep an
+        // explicit one-shot approval so an already answered Save/Don't Save prompt
+        // is never shown a second time.
+        let close_already_confirmed = Rc::new(Cell::new(false));
+        let close_already_confirmed_close = Rc::clone(&close_already_confirmed);
         let frame_close = frame;
         frame.on_close(move |event| {
             let can_veto = matches!(
@@ -28788,7 +29236,10 @@ fn main() {
                 tc_close.is_modified(),
                 can_veto
             ));
-            if !confirm_unsaved_changes_before_close(
+            let confirmation_already_done = close_already_confirmed_close.replace(false);
+            if confirmation_already_done {
+                append_podcast_log("window_close.unsaved_confirmation_already_done");
+            } else if !confirm_unsaved_changes_before_close(
                 &frame_close,
                 &settings_close,
                 &tc_close,
@@ -28812,6 +29263,9 @@ fn main() {
             #[cfg(target_os = "macos")]
             stop_all_active_mac_radio_sessions();
             timer_close.stop();
+            // Absorb a possible second EVT_CLOSE generated by macOS while this
+            // accepted close is being dispatched.
+            close_already_confirmed_close.set(true);
             append_podcast_log("window_close.accepted");
             event.skip(true);
         });
@@ -28839,6 +29293,7 @@ fn main() {
         let pending_recent_article_open_menu = Rc::clone(&pending_recent_article_open);
         let btn_recent_articles_menu = btn_recent_articles;
         let panel_menu = panel;
+        let close_already_confirmed_menu = Rc::clone(&close_already_confirmed);
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
             if let Some(recent_index) = recent_text_file_index(event.get_id()) {
@@ -28960,6 +29415,9 @@ fn main() {
                     "file_menu.exit",
                 ) {
                     append_podcast_log("file_menu.exit.close");
+                    // The menu path has already asked the unsaved-changes question.
+                    // Frame::close emits EVT_CLOSE, so tell that handler not to ask it again.
+                    close_already_confirmed_menu.set(true);
                     f_menu.close(false);
                 } else {
                     append_podcast_log("file_menu.exit.cancelled_before_close");
@@ -29142,16 +29600,33 @@ fn main() {
             } else if event.get_id() == ID_ARTICLES_COMMUNITY_SOURCES {
                 if let Some(source) = open_community_article_sources_dialog(&f_menu, &settings_menu) {
                     let source_title = source.name.clone();
-                    if import_community_article_source(
-                        source,
-                        &settings_menu,
-                        &article_menu_state_menu,
-                        &rt_articles_menu,
-                    ) {
+                    let replacing = source.already_imported;
+                    let confirmed = !replacing
+                        || ask_yes_no_dialog(
+                            &f_menu,
+                            &ui.article_community_sources_title,
+                            &ui.article_community_sources_replace_confirm,
+                        );
+                    if confirmed
+                        && import_community_article_source(
+                            source,
+                            replacing,
+                            &settings_menu,
+                            &article_menu_state_menu,
+                            &rt_articles_menu,
+                        )
+                    {
+                        let message = if replacing {
+                            ui.article_community_sources_replaced
+                                .replace("{title}", &source_title)
+                        } else {
+                            ui.article_community_sources_added
+                                .replace("{title}", &source_title)
+                        };
                         show_message_dialog(
                             &f_menu,
                             &ui.article_community_sources_title,
-                            &ui.article_community_sources_added.replace("{title}", &source_title),
+                            &message,
                         );
                     }
                 }
@@ -29419,6 +29894,30 @@ fn main() {
                         );
                     }
                 }
+            } else if let Some(source_index) = decode_podcast_date_menu_id(event.get_id()) {
+                let source = settings_menu
+                    .lock()
+                    .unwrap()
+                    .podcast_sources
+                    .get(source_index)
+                    .cloned();
+                if let Some(source) = source {
+                    let ui_language = settings_menu.lock().unwrap().ui_language.clone();
+                    if let Some(episode) =
+                        open_podcast_date_episode_dialog(&f_menu, &source, &ui_language)
+                    {
+                        append_podcast_log(&format!(
+                            "podcast_menu.date_select source_index={} title={}",
+                            source_index, episode.title
+                        ));
+                        activate_podcast_episode(
+                            &f_menu,
+                            &tc_menu,
+                            &podcast_selection_menu,
+                            episode,
+                        );
+                    }
+                }
             } else if let Some((source_index, episode_index)) =
                 decode_podcast_episode_menu_id(event.get_id())
             {
@@ -29436,91 +29935,12 @@ fn main() {
                     .and_then(|source| source.episodes.get(episode_index))
                     .cloned();
                 if let Some(episode) = episode {
-                    let description = crate::reader::collapse_blank_lines(
-                        &crate::reader::clean_text(&episode.description),
+                    activate_podcast_episode(
+                        &f_menu,
+                        &tc_menu,
+                        &podcast_selection_menu,
+                        episode,
                     );
-                    tc_menu.set_value(&format!("{}
-
-{}", episode.title.trim(), description.trim()));
-
-                    if episode.audio_url.trim().is_empty() {
-                        append_podcast_log(&format!(
-                            "podcast_menu.no_audio_url title={} link={}",
-                            episode.title, episode.link
-                        ));
-                        let dialog = MessageDialog::builder(
-                            &f_menu,
-                            "Questo episodio non espone un URL audio diretto nel feed RSS.
-
-Non posso scaricare la pagina web al posto dell'audio.",
-                            "Audio podcast non disponibile",
-                        )
-                        .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                        .build();
-                        localize_standard_dialog_buttons(&dialog);
-                        dialog.show_modal();
-                        return;
-                    }
-
-                    append_podcast_log(&format!(
-                        "podcast_menu.episode_resolved title={} audio_url={} link={}",
-                        episode.title, episode.audio_url, episode.link
-                    ));
-
-                    #[cfg(any(target_os = "macos", windows))]
-                    {
-                        let external_url = episode.audio_url.as_str();
-                        let mut playback_state = podcast_selection_menu.borrow_mut();
-                        if let Some(player) = playback_state.player.as_ref()
-                            && let Err(err) = player.pause()
-                        {
-                            println!("ERROR: Pausa podcast fallita: {}", err);
-                            append_podcast_log(&format!(
-                                "podcast_menu.previous_pause_error audio_url={} error={}",
-                                playback_state.current_audio_url, err
-                            ));
-                        }
-                        playback_state.player = None;
-                        playback_state.selected_episode = None;
-                        playback_state.current_audio_url.clear();
-                        playback_state.status = PlaybackStatus::Stopped;
-                        drop(playback_state);
-                        append_podcast_log("podcast_menu.external_open_call");
-
-                        if let Err(err) =
-                            open_podcast_episode_externally(&f_menu, external_url, &episode.title)
-                        {
-                            append_podcast_log(&format!(
-                                "podcast_menu.external_open_error error={}",
-                                err
-                            ));
-                            println!("ERROR: Apertura esterna podcast fallita: {}", err);
-                            let dialog = MessageDialog::builder(
-                                &f_menu,
-                                &if Settings::load().ui_language == "it" {
-                                    format!("Impossibile aprire il podcast.
-
-{err}")
-                                } else {
-                                    format!("Unable to open the podcast.
-
-{err}")
-                                },
-                                &current_ui_strings().podcast_error_title,
-                            )
-                            .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconError)
-                            .build();
-                            localize_standard_dialog_buttons(&dialog);
-                            dialog.show_modal();
-                        } else {
-                            append_podcast_log("podcast_menu.external_open_ok");
-                        }
-                    }
-
-                    #[cfg(not(any(target_os = "macos", windows)))]
-                    {
-                        podcast_selection_menu.borrow_mut().selected_episode = Some(episode.clone());
-                    }
                 }
             } else if let Some(command) = {
                 let state = radio_menu_state_menu.lock().unwrap();

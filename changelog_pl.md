@@ -42,6 +42,17 @@ Audiodeskrypcja, Narzędzia i konwersja wsadowa
 
 19. Dodano zabezpieczenie awaryjne dla problematycznych źródeł wielokanałowych (na przykład 5.1, 6.1 lub 7.1): normalny przebieg pozostaje bez zmian i jest używany tak jak wcześniej; tylko jeśli wewnętrzny plik WAV jest nieczytelny, ma nieoczekiwany format albo zawiera niepełne ramki PCM, Sonarpad automatycznie odtwarza ten etap jako stereo 48 kHz i ponawia próbę, nie wpływając na pliki, które już działają poprawnie.
 
+20. Po rozpoczęciu konwersji pojedynczego pliku lub folderu VoiceOver ogłasza teraz „Konwersja rozpoczęta”, dzięki czemu od razu wiadomo, że proces ruszył, bez przechodzenia do wskaźnika postępu.
+
+21. Zwiększono niezawodność źródeł RSS: jeśli oryginalny kanał wydawcy nie działa lub nie zwraca artykułów, Sonarpad automatycznie próbuje kanału Google News ograniczonego do witryny tego samego wydawcy i w wybranym języku wiadomości. Oryginalny kanał pozostaje zapisany i ma pierwszeństwo; fallback obejmuje także Il Giornale i główne techniczne hosty kanałów.
+
+22. Naprawiono problem w macOS, przez który po zamknięciu zmodyfikowanego dokumentu i wybraniu „Nie zapisuj” pytanie o zapis mogło pojawić się ponownie. Sonarpad zapamiętuje teraz potwierdzenie dla bieżącego zdarzenia zamykania i pyta tylko raz.
+
+
+23. „Źródła społeczności” pokazują teraz zawsze wszystkie źródła dostępne dla wybranego języka, także te już znajdujące się w bibliotece. Zaimportowane źródła są oznaczone jako „Już zaimportowane”; po wybraniu takiego źródła Sonarpad pyta, czy je zastąpić. Zastąpienie aktualizuje ten sam wpis bez tworzenia duplikatu i zachowuje folder, w którym użytkownik go umieścił.
+
+24. Dodano „Przejdź do daty” w Podcastach i RaiPlay Sound, zgodnie z działaniem wersji mobilnej. W Podcastach polecenie pojawia się na początku podmenu tylko wtedy, gdy kanał zawiera rzeczywiste daty; wybranie daty pokazuje pełną listę odcinków z tego dnia, również poza pierwszymi 30 pozycjami menu. RaiPlay Sound wyświetla kontekstowy przycisk „Przejdź do daty”, gdy dostępne są treści z datą. Selektory pokazują bezpośrednio tylko dostępne daty, bez zbędnych etykiet, co upraszcza nawigację VoiceOver.
+
 Wersja 0.4.0 - 3 września 2026
 
 Audiodeskrypcja z AI — nowa główna funkcja

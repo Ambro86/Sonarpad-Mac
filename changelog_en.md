@@ -42,6 +42,17 @@ Audio Description, Tools and batch conversion
 
 19. Added a fallback safeguard for problematic multichannel sources (for example 5.1, 6.1 or 7.1): the normal pipeline remains unchanged and is used exactly as before; only if the internal WAV is unreadable, has an unexpected format, or contains misaligned PCM frames does Sonarpad automatically rebuild that step as 48 kHz stereo and retry, preventing finalization failures without affecting files that already work.
 
+20. When a single-file or folder conversion starts, VoiceOver now announces “Conversion started”, so users immediately know that the process has begun without moving to the progress indicator.
+
+21. Improved RSS source reliability: if a publisher’s original feed fails or returns no articles, Sonarpad automatically tries a Google News feed restricted to the same publisher site and using the selected News language. The original feed remains stored and keeps priority; the fallback also covers Il Giornale and common technical feed hosts.
+
+22. Fixed an issue on macOS where closing a modified document and choosing “Don’t Save” could show the save prompt a second time. Sonarpad now remembers the confirmation for the current close event and asks only once.
+
+
+23. “Community news sources” now always shows every source available for the selected language, including sources already present in the library. Already imported sources are marked “Already imported”; selecting one asks whether to replace it. Replacing updates the same entry without creating duplicates and preserves any folder where the user organized it.
+
+24. Added “Go to date” to Podcasts and RaiPlay Sound, following the mobile behavior. In Podcasts the command appears at the top of a podcast submenu only when real feed dates are available; choosing a date shows the complete list of episodes from that day, including episodes beyond the first 30 shown in the menu. RaiPlay Sound now shows a contextual “Go to date” button when dated content is available. Date selectors contain only the available dates, without redundant labels, for cleaner VoiceOver navigation.
+
 Version 0.4.0 - September 3, 2026
 
 AI Audio Description — major new feature

@@ -42,6 +42,17 @@ Audiodescrizioni, Strumenti e conversione batch
 
 19. Aggiunta una protezione di fallback per sorgenti con audio multicanale problematico (ad esempio 5.1, 6.1 o 7.1): la pipeline normale resta invariata e viene usata come prima; solo se il WAV interno risulta illeggibile, con formato inatteso o con frame PCM non allineati, Sonarpad rigenera automaticamente quel passaggio in stereo 48 kHz e riprova, evitando errori di finalizzazione senza modificare i file che già funzionano.
 
+20. All’avvio di una conversione singola o di una conversione di cartella, VoiceOver annuncia ora “Conversione iniziata”, così è possibile sapere subito che il processo è partito senza spostarsi fino all’indicatore di avanzamento.
+
+21. Migliorata l’affidabilità delle fonti RSS: se il feed originale di una testata fallisce o non restituisce articoli, Sonarpad prova automaticamente un feed Google News limitato al sito della stessa testata e nella lingua Notizie selezionata. Il feed originale resta memorizzato e continua ad avere la priorità; il fallback copre anche Il Giornale e le principali URL tecniche dei feed.
+
+22. Corretto un problema su macOS per cui, chiudendo un documento modificato e scegliendo “Non salvare”, la richiesta di salvataggio poteva comparire una seconda volta. Sonarpad ora ricorda la conferma già data per l’evento di chiusura corrente e mostra la domanda una sola volta.
+
+
+23. Le “Testate della comunità” mostrano ora sempre tutte le testate disponibili per la lingua selezionata, anche quelle già presenti nella libreria. Le testate già importate sono contrassegnate come “Già importata”; selezionandone una viene chiesto se sostituirla. La sostituzione aggiorna la stessa voce senza creare duplicati e conserva l’eventuale cartella in cui l’utente l’aveva organizzata.
+
+24. Aggiunto “Vai alla data” nei Podcast e in RaiPlay Sound, riprendendo il comportamento della versione mobile. Nei Podcast la voce compare all’inizio del sottomenu solo quando sono disponibili date reali del feed; scegliendo una data viene mostrato l’elenco completo degli episodi di quel giorno, anche oltre i primi 30 del menu. In RaiPlay Sound compare un pulsante contestuale “Vai alla data” quando i contenuti hanno una data. I selettori mostrano direttamente le sole date disponibili, senza etichette ridondanti, per una navigazione più pulita con VoiceOver.
+
 Versione 0.4.0 - 3 settembre 2026
 
 Audiodescrizione con IA — nuova funzione principale

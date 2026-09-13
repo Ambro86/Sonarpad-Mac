@@ -16,6 +16,8 @@ pub struct PodcastEpisode {
     pub description: String,
     #[serde(default)]
     pub guid: String,
+    #[serde(default)]
+    pub published_date: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -646,12 +648,19 @@ fn parse_feed(
             })
             .unwrap_or_default();
 
+        let published_date = entry
+            .published
+            .or(entry.updated)
+            .map(|value| value.date_naive().format("%Y-%m-%d").to_string())
+            .unwrap_or_default();
+
         episodes.push(PodcastEpisode {
             title,
             link,
             audio_url,
             description,
             guid,
+            published_date,
         });
     }
 

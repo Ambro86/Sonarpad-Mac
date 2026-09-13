@@ -1,4 +1,5 @@
 use base64::Engine;
+use chrono::{DateTime, NaiveDate};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::time::Duration;
@@ -25,6 +26,7 @@ pub(crate) struct BrowseItem {
     pub(crate) description: Option<String>,
     pub(crate) path_id: Option<String>,
     pub(crate) audio_url: Option<String>,
+    pub(crate) published_date: Option<NaiveDate>,
     pub(crate) kind: BrowseItemKind,
 }
 
@@ -253,8 +255,41 @@ fn parse_card(
         description,
         path_id: path_id.map(|value| absolute_url(&value)).transpose()?,
         audio_url,
+        published_date: preferred_date(card),
         kind,
     }))
+}
+
+fn preferred_date(card: &Value) -> Option<NaiveDate> {
+    for key in [
+        "publication_date_iso",
+        "publication_date",
+        "create_date",
+        "literal_publication_date",
+    ] {
+        let Some(raw) = string_field(card, key) else {
+            continue;
+        };
+
+        if let Ok(value) = DateTime::parse_from_rfc3339(&raw) {
+            return Some(value.date_naive());
+        }
+        if let Ok(value) = DateTime::parse_from_rfc2822(&raw) {
+            return Some(value.date_naive());
+        }
+        for format in ["%Y-%m-%d", "%d-%m-%Y", "%d/%m/%Y"] {
+            if let Ok(value) = NaiveDate::parse_from_str(&raw, format) {
+                return Some(value);
+            }
+        }
+        if raw.len() >= 10 {
+            let prefix = &raw[..10];
+            if let Ok(value) = NaiveDate::parse_from_str(prefix, "%Y-%m-%d") {
+                return Some(value);
+            }
+        }
+    }
+    None
 }
 
 fn preferred_title(card: &Value) -> String {

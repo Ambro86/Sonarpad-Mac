@@ -42,6 +42,17 @@ Audiopopis, Nástroje a dávkový převod
 
 19. Přidána záložní ochrana pro problematické vícekanálové zdroje (například 5.1, 6.1 nebo 7.1): běžný postup zůstává beze změny a používá se stejně jako dříve; pouze pokud je interní WAV nečitelný, má neočekávaný formát nebo obsahuje neúplné PCM rámce, Sonarpad automaticky znovu vytvoří tento krok jako stereo 48 kHz a pokus zopakuje, aniž by měnil soubory, které již fungují.
 
+20. Po spuštění převodu jednoho souboru nebo celé složky nyní VoiceOver oznámí „Převod zahájen“, takže je ihned zřejmé, že proces začal, bez nutnosti přesouvat se k ukazateli průběhu.
+
+21. Zvýšena spolehlivost zdrojů RSS: pokud původní kanál vydavatele selže nebo nevrátí žádné články, Sonarpad automaticky zkusí kanál Google News omezený na web stejného vydavatele a v jazyce vybraném pro zprávy. Původní RSS zůstává uložené a má přednost; fallback zahrnuje také Il Giornale a běžné technické hostitele kanálů.
+
+22. Opraven problém v macOS, kdy se při zavření upraveného dokumentu a volbě „Neukládat“ mohla výzva k uložení zobrazit podruhé. Sonarpad si nyní potvrzení pro aktuální událost zavření zapamatuje a zeptá se pouze jednou.
+
+
+23. „Komunitní zdroje“ nyní vždy zobrazují všechny zdroje dostupné pro vybraný jazyk, včetně těch, které již jsou v knihovně. Již importované zdroje jsou označeny „Již importováno“; při jejich výběru se Sonarpad zeptá, zda je chcete nahradit. Nahrazení aktualizuje stejnou položku bez vytvoření duplikátu a zachová složku, do které ji uživatel zařadil.
+
+24. Do Podcastů a RaiPlay Sound byla přidána funkce „Přejít na datum“ podle chování mobilní verze. U podcastů se příkaz zobrazí na začátku podnabídky pouze tehdy, když zdroj obsahuje skutečná data; po výběru data se zobrazí úplný seznam epizod daného dne, včetně epizod mimo prvních 30 položek nabídky. RaiPlay Sound zobrazí kontextové tlačítko „Přejít na datum“, pokud jsou k dispozici položky s datem. Výběry obsahují přímo pouze dostupná data bez nadbytečných popisků pro čistší práci s VoiceOverem.
+
 Verze 0.4.0 - 3. září 2026
 
 Audiopopis s AI — nová hlavní funkce

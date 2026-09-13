@@ -42,6 +42,17 @@ Audiodescrição, Ferramentas e conversão em lote
 
 19. Adicionada uma proteção de fallback para fontes multicanal problemáticas (por exemplo 5.1, 6.1 ou 7.1): o fluxo normal permanece inalterado e é usado como antes; apenas se o WAV interno estiver ilegível, com formato inesperado ou com quadros PCM desalinhados, o Sonarpad refaz automaticamente essa etapa em estéreo a 48 kHz e tenta novamente, evitando erros de finalização sem afetar os ficheiros que já funcionam.
 
+20. Ao iniciar uma conversão de ficheiro ou de pasta, o VoiceOver anuncia agora «Conversão iniciada», permitindo confirmar imediatamente o início do processo sem navegar até ao indicador de progresso.
+
+21. Melhorada a fiabilidade das fontes RSS: se o feed original de uma publicação falhar ou não devolver artigos, o Sonarpad tenta automaticamente um feed do Google News limitado ao site da mesma publicação e no idioma de notícias selecionado. O feed original permanece guardado e continua a ter prioridade; o fallback também cobre Il Giornale e os principais hosts técnicos de feeds.
+
+22. Corrigido um problema no macOS em que, ao fechar um documento modificado e escolher «Não guardar», o pedido para guardar podia aparecer uma segunda vez. O Sonarpad agora memoriza a confirmação para o evento de fecho atual e pergunta apenas uma vez.
+
+
+23. “Fontes da comunidade” passa a mostrar sempre todas as fontes disponíveis para o idioma selecionado, incluindo as que já estão na biblioteca. As fontes já importadas são assinaladas como “Já importada”; ao selecionar uma, é perguntado se deseja substituí-la. A substituição atualiza a mesma entrada sem criar duplicados e mantém a pasta em que o utilizador a tinha organizado.
+
+24. Adicionado “Ir para a data” aos Podcasts e ao RaiPlay Sound, seguindo o comportamento da versão móvel. Nos Podcasts, o comando aparece no início do submenu apenas quando o feed contém datas reais; ao escolher uma data é apresentada a lista completa dos episódios desse dia, incluindo os que ficam para além dos primeiros 30 do menu. O RaiPlay Sound mostra um botão contextual “Ir para a data” quando existem conteúdos com data. Os seletores mostram diretamente apenas as datas disponíveis, sem rótulos redundantes, para uma navegação mais limpa com o VoiceOver.
+
 Versão 0.4.0 - 3 de setembro de 2026
 
 Audiodescrição com IA — nova função principal
