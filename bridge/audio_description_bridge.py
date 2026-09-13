@@ -181,6 +181,22 @@ def _validate_request(request: dict) -> None:
     initial_glossary = request.get("initial_character_glossary", [])
     if initial_glossary is not None and not isinstance(initial_glossary, list):
         raise ValueError("initial_character_glossary must be a list.")
+    fixed_slots = request.get("fixed_reanalysis_slots", [])
+    if fixed_slots is not None and not isinstance(fixed_slots, list):
+        raise ValueError("fixed_reanalysis_slots must be a list.")
+    if fixed_slots:
+        seen_ids = set()
+        for index, slot in enumerate(fixed_slots, 1):
+            if not isinstance(slot, dict):
+                raise ValueError(f"Invalid fixed reanalysis slot {index}.")
+            slot_id = str(slot.get("id") or "").strip()
+            if not slot_id or slot_id in seen_ids:
+                raise ValueError(f"Invalid or duplicate fixed reanalysis slot id at {index}.")
+            seen_ids.add(slot_id)
+            start = float(slot.get("start_sec") or 0.0)
+            end = float(slot.get("end_sec") or 0.0)
+            if start < 0.0 or end <= start or end > duration + 0.250:
+                raise ValueError(f"Fixed reanalysis slot {slot_id} is outside the mini-film timeline.")
     resume = request.get("resume")
     if resume is not None:
         if not isinstance(resume, dict):
@@ -404,6 +420,204 @@ def _normalise_descriptions(
     return result
 
 
+def _normalise_fixed_reanalysis_slots(value, duration: float) -> list[dict]:
+    slots = []
+    seen = set()
+    for item in value or []:
+        if not isinstance(item, dict):
+            continue
+        slot_id = str(item.get("id") or "").strip()
+        if not slot_id or slot_id in seen:
+            continue
+        try:
+            start = max(0.0, float(item.get("start_sec") or 0.0))
+            end = min(float(duration), float(item.get("end_sec") or 0.0))
+        except (TypeError, ValueError):
+            continue
+        if end <= start:
+            continue
+        reference = item.get("visual_reference_sec")
+        try:
+            reference = float(reference) if reference is not None else None
+        except (TypeError, ValueError):
+            reference = None
+        if reference is not None:
+            reference = min(max(reference, start), end)
+        slots.append({
+            "id": slot_id,
+            "start": start,
+            "end": end,
+            "visual_reference": reference,
+            "previous_text": " ".join(str(item.get("previous_text") or "").split()).strip(),
+            "extended_pause": bool(item.get("extended_pause", False)),
+        })
+        seen.add(slot_id)
+    return slots
+
+
+def _parse_fixed_reanalysis_json(raw_text: str, slots: list[dict]) -> dict[str, str]:
+    text = audio_describer._strip_json_fences(str(raw_text or "")).strip()
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        first = text.find("{")
+        last = text.rfind("}")
+        if first < 0 or last <= first:
+            raise ValueError("Gemini fixed-slot response is not valid JSON.")
+        payload = json.loads(text[first:last + 1])
+    if not isinstance(payload, dict):
+        raise ValueError("Gemini fixed-slot response root is not an object.")
+    rows = payload.get("slot_descriptions")
+    if not isinstance(rows, list):
+        rows = payload.get("descriptions")
+    if not isinstance(rows, list):
+        raise ValueError("Gemini fixed-slot response has no slot_descriptions array.")
+    allowed = {slot["id"] for slot in slots}
+    result = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        slot_id = str(row.get("slot_id") or row.get("id") or "").strip()
+        text_value = " ".join(str(row.get("description_text") or row.get("text") or "").split()).strip()
+        if slot_id in allowed and text_value and slot_id not in result:
+            result[slot_id] = text_value
+    return result
+
+
+def _run_fixed_reanalysis(request: dict, input_path: str, duration: float, prepared_chunks: list[dict]) -> dict:
+    slots = _normalise_fixed_reanalysis_slots(
+        request.get("fixed_reanalysis_slots") or [], duration
+    )
+    if not slots:
+        raise ValueError("No valid saved reanalysis slots were provided.")
+    if len(prepared_chunks) != 1:
+        raise ValueError("Fixed segment reanalysis expects exactly one prepared mini-film chunk.")
+
+    _status("gemini_start", "", 30)
+    client = gemini_helpers.get_gemini_client()
+    model = gemini_helpers.validate_model_for_generate_content(
+        str(request.get("gemini_model") or "gemini-3.5-flash-lite").strip(),
+        client=client,
+        status_callback=_gemini_status,
+    )
+    _language_code, language_name, _examples = audio_describer._target_language_details()
+    slot_lines = []
+    for slot in slots:
+        span = slot["end"] - slot["start"]
+        max_words = max(2, int(span * 2.0))
+        reference = (
+            f"; visual reference {slot['visual_reference']:.3f}s"
+            if slot["visual_reference"] is not None else ""
+        )
+        length_rule = (
+            "extended pause; keep the rewrite concise and close to the old narration length"
+            if slot["extended_pause"] else f"maximum about {max_words} words so TTS can fit the saved pause"
+        )
+        previous = json.dumps(slot["previous_text"], ensure_ascii=False)
+        slot_lines.append(
+            f"- {slot['id']}: inspect only {slot['start']:.3f}-{slot['end']:.3f}s"
+            f"{reference}; {length_rule}; previous description={previous}"
+        )
+
+    system_instruction = f"""
+You are revising audio-description text for Sonarpad. The app has ALREADY determined and saved
+all narration pauses and timings. You must NEVER create, infer, move, rewrite, or return timestamps.
+For each supplied slot id, inspect only that exact window in the attached mini-film and write one
+fresh visual description in {language_name}. The soundtrack/dialogue may be used privately only to
+identify visible people or understand context; never transcribe, quote, paraphrase, or narrate speech.
+Preserve established character names from the previous description when they are still correct and
+visually applicable. Do not blindly paraphrase the previous sentence: re-inspect the video and write
+the best description for what is actually visible in that saved slot. Do not describe an action from
+another slot. If the view is static, describe the visible state, setting, expression, object or relevant
+on-screen text. Return strict JSON only, with exactly one top-level key `slot_descriptions`. Each item
+must contain only `slot_id` and `description_text`. Do not include start_time, end_time, evidence time,
+seconds, timestamps or any other timing field.
+""".strip()
+    user_prompt = (
+        "Rewrite the descriptions for these already-saved Sonarpad slots. Return each supplied id at "
+        "most once; do not invent ids. If a slot truly cannot be described visually, omit only that id "
+        "instead of inventing timing or content.\n\n" + "\n".join(slot_lines)
+    )
+    config = gemini_helpers.build_generation_config(
+        system_instruction_text=system_instruction,
+        is_json_response=True,
+        enable_thinking=True,
+    )
+    chunk_path = prepared_chunks[0]["path"]
+    video_part = None
+    uploaded = None
+    try:
+        video_part, uploaded = audio_describer._prepare_video_for_gemini(
+            client, chunk_path, _gemini_status, trusted_prepared_video=True
+        )
+        _status("gemini_contacting", "", 40)
+        response = gemini_helpers.generate_content_with_retry(
+            client,
+            model=model,
+            contents=[user_prompt, video_part],
+            config=config,
+            status_callback=_gemini_status,
+            prohibited_content_max_attempts=2,
+        )
+        gemini_helpers.save_raw_ai_output(
+            os.path.basename(input_path), "fixed_reanalysis_response", response
+        )
+        gemini_helpers.log_token_usage("Fixed_Reanalysis", response)
+        raw_text, success = gemini_helpers.process_gemini_response(response, _gemini_status)
+        if not success or not raw_text:
+            raise RuntimeError("Gemini returned no usable fixed-slot reanalysis text.")
+        mapped = _parse_fixed_reanalysis_json(raw_text, slots)
+        if not mapped:
+            raise RuntimeError("Gemini returned no descriptions for the saved reanalysis slots.")
+        descriptions = []
+        for slot in slots:
+            text_value = mapped.get(slot["id"])
+            if not text_value:
+                continue
+            row = {
+                "start_sec": slot["start"],
+                "end_sec": slot["end"],
+                "visual_start_sec": slot["visual_reference"] if slot["visual_reference"] is not None else slot["start"],
+                "text": text_value,
+                "mandatory": True,
+                "slot_id": slot["id"],
+                "slot_start_sec": slot["start"],
+                "slot_end_sec": slot["end"],
+            }
+            if slot["visual_reference"] is not None:
+                row["visual_evidence_time_sec"] = slot["visual_reference"]
+            descriptions.append(row)
+        app_logger.info(
+            "Fixed-slot reanalysis complete: requested=%d returned=%d; Gemini produced text only and Sonarpad preserved saved timings.",
+            len(slots), len(descriptions),
+        )
+        _status("ready_for_tts", "", 100)
+        return {
+            "ok": True,
+            "schema_version": 2,
+            "input_path": input_path,
+            "duration_sec": duration,
+            "chunk_duration_sec": CHUNK_DURATION_SECONDS,
+            "analysis_engine": "saved-project-fixed-slots",
+            "description_mode": "fixed_reanalysis",
+            "safety_block_none": True,
+            "allow_extended_pauses": bool(request.get("allow_extended_pauses", True)),
+            "recognize_characters": bool(request.get("recognize_characters", True)),
+            "protected_intervals": [],
+            "descriptions": descriptions,
+            "dropped_before_tts": 0,
+            "short_gap_candidates": 0,
+            "character_glossary": _normalise_initial_character_glossary(
+                request.get("initial_character_glossary", [])
+            ),
+            "token_usage": [],
+            "gemini_model": model,
+        }
+    finally:
+        if uploaded is not None:
+            audio_describer._cleanup_uploaded_file(client, uploaded, _gemini_status)
+
+
 def run(request: dict) -> dict:
     _validate_request(request)
     _configure_omni(request)
@@ -417,6 +631,9 @@ def run(request: dict) -> dict:
         }
         for chunk in request["chunks"]
     ]
+
+    if request.get("fixed_reanalysis_slots"):
+        return _run_fixed_reanalysis(request, input_path, duration, prepared_chunks)
 
     wav_path = str(request.get("audio_wav_path") or "").strip()
     if wav_path:

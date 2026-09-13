@@ -29,6 +29,18 @@ pub struct BridgeCharacter {
 }
 
 #[derive(Debug, Clone, Serialize)]
+pub struct AudioDescriptionFixedReanalysisSlot {
+    pub id: String,
+    pub start_sec: f64,
+    pub end_sec: f64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub visual_reference_sec: Option<f64>,
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub previous_text: String,
+    pub extended_pause: bool,
+}
+
+#[derive(Debug, Clone, Serialize)]
 pub struct AudioDescriptionBridgeRequest {
     pub input_path: String,
     pub audio_wav_path: Option<String>,
@@ -50,6 +62,8 @@ pub struct AudioDescriptionBridgeRequest {
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub sonarpad_ai_device_id: String,
     pub gemini_model: String,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub fixed_reanalysis_slots: Vec<AudioDescriptionFixedReanalysisSlot>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resume: Option<AudioDescriptionBridgeResume>,
 }

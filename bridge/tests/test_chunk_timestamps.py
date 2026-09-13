@@ -248,6 +248,30 @@ class ChunkTimestampTests(unittest.TestCase):
             (174.53, 180.23, "Orizzonte serale."),
         ])
 
+    def test_local_clip_repairs_dropped_leading_zero_ss_fraction_from_mac_log(self):
+        corrected = _post_process_mmss_timestamps(
+            [
+                ("06:35", "11:34", "Hershel guarda serio."),
+                ("47:12", "51:77", "Il barista torna dietro al bancone."),
+                ("173:09", "178:83", "Shane cammina con la fiaccola."),
+            ],
+            local_timeline_window=(0.0, 178.830),
+        )
+
+        self.assertEqual(corrected, [
+            (6.35, 11.34, "Hershel guarda serio."),
+            (47.12, 51.77, "Il barista torna dietro al bancone."),
+            (173.09, 178.83, "Shane cammina con la fiaccola."),
+        ])
+
+    def test_local_clip_does_not_reinterpret_valid_mmss_as_fraction(self):
+        corrected = _post_process_mmss_timestamps(
+            [("02:30", "02:35", "Timestamp MM:SS valido.")],
+            local_timeline_window=(0.0, 178.830),
+        )
+
+        self.assertEqual(corrected, [(150.0, 155.0, "Timestamp MM:SS valido.")])
+
     def test_logged_chunk_two_recovery_entries_cover_all_three_missing_ranges(self):
         corrected = _post_process_mmss_timestamps(
             [

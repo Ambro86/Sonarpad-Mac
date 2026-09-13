@@ -1564,13 +1564,25 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
             # Minute fallback already returns full-video timestamps. Normal
             # chunks still need their local timestamps converted exactly once.
             if not minute_fallback_used:
-                corrected_chunk = _post_process_mmss_timestamps(chunk_descriptions, _update_status)
+                corrected_chunk = _post_process_mmss_timestamps(
+                    chunk_descriptions,
+                    _update_status,
+                    local_timeline_window=(0.0, chunk_end - chunk_start)
+                    if use_per_chunk_uploads else None,
+                )
                 normalized_chunk = _normalize_chunk_timestamps(
                     corrected_chunk, chunk_start, chunk_end, i + 1,
                     force_mode="relative" if use_per_chunk_uploads else None,
                 )
+                evidence_records = chunk_visual_evidence
+                if use_per_chunk_uploads:
+                    evidence_records = _retime_visual_evidence_records(
+                        chunk_visual_evidence,
+                        normalized_chunk,
+                        timeline_offset_sec=chunk_start,
+                    )
                 _register_visual_evidence_records(
-                    chunk_visual_evidence,
+                    evidence_records,
                     timeline_offset_sec=chunk_start if use_per_chunk_uploads else 0.0,
                 )
             max_recovery_passes = 0 if minute_fallback_used else (
@@ -2657,6 +2669,26 @@ def _mmss_to_total_seconds_in_local_window(value, window_start, window_end):
     tolerance_sec = 2.0
     if start - tolerance_sec <= parsed <= end + tolerance_sec:
         return parsed
+
+    # Gemini sometimes drops the leading ``00:`` and uses a colon as the
+    # decimal separator, e.g. ``06:35`` for 6.35 seconds.  Never reinterpret a
+    # normally valid MM:SS value.  Only repair it when the normal reading is
+    # outside the authoritative local clip while the SS:fraction reading is
+    # inside, making the correction mechanically unambiguous.
+    short_match = re.fullmatch(r"\s*(\d+):(\d{1,2})\s*", str(value))
+    if short_match is not None:
+        whole_seconds = int(short_match.group(1))
+        fraction_text = short_match.group(2)
+        repaired = float(
+            whole_seconds + int(fraction_text) / (10 ** len(fraction_text))
+        )
+        if start - tolerance_sec <= repaired <= end + tolerance_sec:
+            app_logger.warning(
+                "Normalized contextually unambiguous Gemini SS:fraction timestamp "
+                "'%s' from %.3fs to %.3fs for local recovery window %.3f-%.3fs.",
+                value, parsed, repaired, start, end,
+            )
+            return repaired
 
     match = re.fullmatch(r"\s*(\d+):([0-5]\d):(\d{1,2})\s*", str(value))
     if match is None:
