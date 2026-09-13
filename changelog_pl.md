@@ -53,6 +53,8 @@ Audiodeskrypcja, Narzędzia i konwersja wsadowa
 
 24. Dodano „Przejdź do daty” w Podcastach i RaiPlay Sound, zgodnie z działaniem wersji mobilnej. W Podcastach polecenie pojawia się na początku podmenu tylko wtedy, gdy kanał zawiera rzeczywiste daty; wybranie daty pokazuje pełną listę odcinków z tego dnia, również poza pierwszymi 30 pozycjami menu. RaiPlay Sound wyświetla kontekstowy przycisk „Przejdź do daty”, gdy dostępne są treści z datą. Selektory pokazują bezpośrednio tylko dostępne daty, bez zbędnych etykiet, co upraszcza nawigację VoiceOver.
 
+25. Dodano „Przytnij plik multimedialny…” w Narzędzia > Multimedia. Nowy Media Cutter przenosi na Maca sposób pracy z wersji mobilnej w trybie prowadzonym i zaawansowanym: ustawianie początku i końca cięcia, odsłuch i regulację z dokładnością do 0,10 sekundy, dzielenie na wiele części, niedestrukcyjne usuwanie i przywracanie, podgląd, obrót wideo oraz możliwość dodania nowej ścieżki audio z oddzielną regulacją głośności i opcjonalnym zapętleniem. Zapis korzysta z pliku tymczasowego, ogłasza rozpoczęcie w VoiceOver, udostępnia postęp i może zostać przerwany bez modyfikowania pliku źródłowego ani pozostawiania niepełnego wyniku. Niepotrzebne kontrolki są ukrywane, aby uniknąć zbędnych komunikatów VoiceOver.
+
 Wersja 0.4.0 - 3 września 2026
 
 Audiodeskrypcja z AI — nowa główna funkcja

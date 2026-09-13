@@ -12,6 +12,7 @@ mod file_loader;
 mod faster_whisper_bridge;
 mod la7_play;
 mod media_transcription;
+mod media_cutter;
 mod podcast_player;
 mod podcasts;
 mod rai_audiodescrizioni;
@@ -134,6 +135,7 @@ const ID_TOOLS_AUDIO_DESCRIPTION: i32 = 2376;
 const ID_TOOLS_MEDIA_TRANSCRIPTION: i32 = 2377;
 const ID_LA7_PLAY: i32 = 2378;
 const ID_TOOLS_CONVERT_FOLDER: i32 = 2379;
+const ID_TOOLS_MEDIA_CUTTER: i32 = 2380;
 // wxWidgets only accepts custom menu IDs below 32767. Keep the three
 // favorite-action ranges contiguous and below the podcast ranges at 27000.
 const ID_RADIO_FAVORITE_OPEN_BASE: i32 = 24000;
@@ -28221,6 +28223,13 @@ fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
         &ui.convert_folder_title,
         ItemKind::Normal,
     );
+    let media_cutter_label = media_cutter::menu_label();
+    let _ = menu.append(
+        ID_TOOLS_MEDIA_CUTTER,
+        &media_cutter_label,
+        &media_cutter_label,
+        ItemKind::Normal,
+    );
     if settings.ui_language == "it" {
         let _ = menu.append(
             ID_RAI_AUDIO_DESCRIPTIONS,
@@ -28364,6 +28373,13 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
             ID_TOOLS_CONVERT_FOLDER,
             &ui.convert_folder_title,
             &ui.convert_folder_title,
+            ItemKind::Normal,
+        );
+        let media_cutter_label = media_cutter::menu_label();
+        let _ = tools_menu.append(
+            ID_TOOLS_MEDIA_CUTTER,
+            &media_cutter_label,
+            &media_cutter_label,
             ItemKind::Normal,
         );
         let _ = tools_menu.append(
@@ -29470,6 +29486,8 @@ fn main() {
                 open_convert_media_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CONVERT_FOLDER {
                 open_convert_media_folder_dialog(&f_menu);
+            } else if event.get_id() == ID_TOOLS_MEDIA_CUTTER {
+                media_cutter::open_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_ROUTES {
                 routes::open_routes_dialog(&f_menu, tc_menu);
             } else if event.get_id() == ID_TOOLS_VOICE_DICTIONARY {

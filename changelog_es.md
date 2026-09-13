@@ -53,6 +53,8 @@ Audiodescripción, Herramientas y conversión por lotes
 
 24. Se añadió “Ir a la fecha” a Podcasts y RaiPlay Sound, siguiendo el comportamiento de la versión móvil. En Podcasts el comando aparece al principio del submenú solo cuando el feed contiene fechas reales; al elegir una fecha se muestra la lista completa de episodios de ese día, incluidos los que quedan fuera de los primeros 30 del menú. RaiPlay Sound muestra un botón contextual “Ir a la fecha” cuando hay contenidos con fecha. Los selectores muestran directamente solo las fechas disponibles, sin etiquetas redundantes, para una navegación más limpia con VoiceOver.
 
+25. Se añadió “Cortar archivo multimedia…” en Herramientas > Multimedia. El nuevo Media Cutter lleva al Mac el flujo de la versión móvil con modos guiado y avanzado: selección de inicio y fin del corte, escucha y ajuste hasta 0,10 segundos, división en varias partes, eliminación y restauración no destructivas, vista previa, rotación de vídeo y posibilidad de añadir una nueva pista de audio con volúmenes separados y repetición opcional. El guardado usa un archivo temporal, anuncia el inicio a VoiceOver, muestra el progreso y puede interrumpirse sin modificar el archivo original ni dejar un resultado incompleto. Los controles no pertinentes se ocultan para evitar lecturas redundantes con VoiceOver.
+
 Versión 0.4.0 - 3 de septiembre de 2026
 
 Audiodescripción con IA — nueva función principal

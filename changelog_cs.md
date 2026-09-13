@@ -53,6 +53,8 @@ Audiopopis, Nástroje a dávkový převod
 
 24. Do Podcastů a RaiPlay Sound byla přidána funkce „Přejít na datum“ podle chování mobilní verze. U podcastů se příkaz zobrazí na začátku podnabídky pouze tehdy, když zdroj obsahuje skutečná data; po výběru data se zobrazí úplný seznam epizod daného dne, včetně epizod mimo prvních 30 položek nabídky. RaiPlay Sound zobrazí kontextové tlačítko „Přejít na datum“, pokud jsou k dispozici položky s datem. Výběry obsahují přímo pouze dostupná data bez nadbytečných popisků pro čistší práci s VoiceOverem.
 
+25. Do Nástroje > Multimédia byla přidána funkce „Oříznout multimediální soubor…“. Nový Media Cutter přináší na Mac postup z mobilní verze v řízeném a pokročilém režimu: nastavení začátku a konce střihu, poslech a úpravy s přesností až 0,10 sekundy, rozdělení na více částí, nedestruktivní odstranění a obnovení, náhled, otočení videa a možnost přidat novou zvukovou stopu se samostatnou hlasitostí a volitelným opakováním. Ukládání používá dočasný soubor, oznámí zahájení přes VoiceOver, zpřístupní průběh a lze je přerušit bez změny původního souboru nebo zanechání neúplného výsledku. Nepotřebné ovládací prvky jsou skryté, aby VoiceOver nečetl nadbytečné informace.
+
 Verze 0.4.0 - 3. září 2026
 
 Audiopopis s AI — nová hlavní funkce

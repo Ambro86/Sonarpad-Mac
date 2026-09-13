@@ -53,6 +53,8 @@ Audio Description, Tools and batch conversion
 
 24. Added “Go to date” to Podcasts and RaiPlay Sound, following the mobile behavior. In Podcasts the command appears at the top of a podcast submenu only when real feed dates are available; choosing a date shows the complete list of episodes from that day, including episodes beyond the first 30 shown in the menu. RaiPlay Sound now shows a contextual “Go to date” button when dated content is available. Date selectors contain only the available dates, without redundant labels, for cleaner VoiceOver navigation.
 
+25. Added “Cut media file…” under Tools > Multimedia. The new Media Cutter brings the mobile workflow to Mac with guided and advanced modes: cut start/end selection, listening and adjustment down to 0.10 seconds, splitting into multiple parts, non-destructive delete and restore, preview, video rotation, and the option to add a new audio track with separate volume controls and optional looping. Saving uses a temporary file, announces the start to VoiceOver, exposes progress, and can be stopped without modifying the original file or leaving an incomplete result. Irrelevant controls are hidden to avoid redundant VoiceOver announcements.
+
 Version 0.4.0 - September 3, 2026
 
 AI Audio Description — major new feature
