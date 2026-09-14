@@ -7060,68 +7060,6 @@ fn audio_description_job_from_project(
     }
 }
 
-fn fixed_reanalysis_slots_for_segment(
-    project: &AudioDescriptionProject,
-    segment_indices: &[usize],
-    segment_start_sec: f64,
-    segment_end_sec: f64,
-) -> Result<Vec<AudioDescriptionFixedReanalysisSlot>, String> {
-    let segment_duration = (segment_end_sec - segment_start_sec).max(0.0);
-    let mut slots = Vec::with_capacity(segment_indices.len());
-    for &project_index in segment_indices {
-        let description = project
-            .descriptions
-            .get(project_index)
-            .ok_or_else(|| tr("audio_description.project.no_selection"))?;
-
-        // Prefer the exact mandatory slot saved in the original project.  Older
-        // projects and optional/extended descriptions may not have slot metadata;
-        // in that case derive the same safe window from the already-saved project
-        // timeline.  No new speech/silence detection is performed here.
-        // The saved narration anchor is the authority. For a normal cue, derive
-        // the remaining already-known free time from that exact source position;
-        // for an extended cue keep the saved pause anchor and expose only a small
-        // visual inspection window. This never creates a new pause.
-        let absolute_start = description
-            .source_start_sec
-            .max(segment_start_sec)
-            .min(segment_end_sec);
-        let derived_end = match project_edit_available_duration(project, project_index)? {
-            Some(available) if available.is_finite() && available > 0.0 => {
-                description.source_start_sec + available
-            }
-            _ => {
-                description.source_start_sec
-                    + description.tts_duration_sec.max(1.0).min(6.0)
-            }
-        };
-        let mut absolute_end = derived_end.max(absolute_start + 0.250).min(segment_end_sec);
-        if absolute_end <= absolute_start {
-            absolute_end = (absolute_start + 0.250).min(segment_end_sec);
-        }
-        if absolute_end <= absolute_start || segment_duration <= 0.0 {
-            continue;
-        }
-        let visual_reference_sec = description
-            .visual_evidence_time_sec
-            .filter(|value| value.is_finite())
-            .or_else(|| description.gemini_start_sec.is_finite().then_some(description.gemini_start_sec))
-            .map(|value| (value - segment_start_sec).clamp(0.0, segment_duration));
-        slots.push(AudioDescriptionFixedReanalysisSlot {
-            id: format!("saved-{}", description.id),
-            start_sec: (absolute_start - segment_start_sec).clamp(0.0, segment_duration),
-            end_sec: (absolute_end - segment_start_sec).clamp(0.0, segment_duration),
-            visual_reference_sec,
-            previous_text: description.text.clone(),
-            extended_pause: description.extended_pause,
-        });
-    }
-    if slots.is_empty() {
-        return Err("Il segmento selezionato non contiene slot salvati rianalizzabili.".to_string());
-    }
-    Ok(slots)
-}
-
 fn reanalyze_project_segment(
     project: &AudioDescriptionProject,
     index: usize,
@@ -7234,6 +7172,65 @@ fn reanalyze_project_segment(
             );
         }
 
+        // Windows parity: analyze the self-contained mini-film with the exact same
+        // normal creation pipeline. The mini-film timeline is only an association
+        // aid; it is never allowed to overwrite the saved project timeline.
+        append_podcast_log(&format!(
+            "audio_description.project.reanalyze_windows_parity source_range={:.3}-{:.3}",
+            segment_start_sec, segment_end_sec
+        ));
+        let mini_output = cache.join("reanalyzed-mini-film-audiodescritto.mp3");
+        let mini_job = audio_description_job_from_project(
+            project,
+            mini_film_path,
+            mini_output,
+            settings,
+        );
+        let mini_outcome = create_audio_description(
+            &mini_job,
+            rt,
+            cancel.clone(),
+            Arc::clone(&state),
+        )?;
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let mini_project_path = mini_outcome
+            .project_path
+            .ok_or_else(|| "La rianalisi non ha prodotto un progetto temporaneo.".to_string())?;
+        let mini_project = load_project(&mini_project_path)?;
+        append_podcast_log(&format!(
+            "audio_description.project.reanalyze_mini_project descriptions={} duration={:.3}",
+            mini_project.descriptions.len(), mini_project.source_duration_sec
+        ));
+        if mini_project.descriptions.is_empty() {
+            return Err("La rianalisi non ha prodotto descrizioni utilizzabili.".to_string());
+        }
+
+        let segment_span_sec = (segment_end_sec - segment_start_sec).max(0.0);
+        let mini_duration_sec = mini_project.source_duration_sec;
+        if !segment_span_sec.is_finite()
+            || segment_span_sec <= 0.0
+            || !mini_duration_sec.is_finite()
+            || mini_duration_sec <= 0.0
+        {
+            return Err("Cronologia del mini-film non valida; segmento non modificato.".to_string());
+        }
+        // CRITICAL INVARIANT: the mini-film timestamps below are used only to
+        // associate fresh text to an existing saved description. source_start_sec,
+        // gemini_start_sec, visual evidence, slot metadata and pause information in
+        // the original project remain authoritative and are never copied from Gemini.
+        let mini_to_source_scale = segment_span_sec / mini_duration_sec;
+        if !mini_to_source_scale.is_finite() || !(0.98..=1.02).contains(&mini_to_source_scale) {
+            return Err(format!(
+                "Deriva temporale del mini-film troppo grande ({mini_to_source_scale:.6}); segmento non modificato."
+            ));
+        }
+        let map_mini_time = |time_sec: f64| {
+            let local = time_sec.max(0.0).min(mini_duration_sec);
+            (segment_start_sec + local * mini_to_source_scale).min(segment_end_sec)
+        };
+
         let mut segment_indices = project
             .descriptions
             .iter()
@@ -7252,67 +7249,79 @@ fn reanalyze_project_segment(
         if segment_indices.is_empty() {
             return Err("Il segmento selezionato non contiene descrizioni salvate.".to_string());
         }
-        let fixed_slots = fixed_reanalysis_slots_for_segment(
-            project,
-            &segment_indices,
-            segment_start_sec,
-            segment_end_sec,
-        )?;
-        append_podcast_log(&format!(
-            "audio_description.project.reanalyze_fixed_slots count={} source_range={:.3}-{:.3}",
-            fixed_slots.len(), segment_start_sec, segment_end_sec
-        ));
+        let mut mini_indices = (0..mini_project.descriptions.len()).collect::<Vec<_>>();
+        mini_indices.sort_by(|left, right| {
+            mini_project.descriptions[*left]
+                .source_start_sec
+                .total_cmp(&mini_project.descriptions[*right].source_start_sec)
+        });
 
-        let mini_output = cache.join("reanalyzed-mini-film-audiodescritto.mp3");
-        let mut mini_job = audio_description_job_from_project(
-            project,
-            mini_film_path,
-            mini_output,
-            settings,
-        );
-        mini_job.fixed_reanalysis_slots = fixed_slots;
-        let mini_outcome = create_audio_description(
-            &mini_job,
-            rt,
-            cancel.clone(),
-            Arc::clone(&state),
-        )?;
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-        let mini_project_path = mini_outcome
-            .project_path
-            .ok_or_else(|| "La rianalisi non ha prodotto un progetto temporaneo.".to_string())?;
-        let mini_project = load_project(&mini_project_path)?;
-        if mini_project.descriptions.is_empty() {
-            return Err("Gemini non ha restituito nuovi testi utilizzabili per gli slot salvati.".to_string());
-        }
-
-        // The bridge returns the original saved slot id with each rewritten text.
-        // Timings from Gemini are not requested and therefore are not used for
-        // association.  This is the root invariant of segment reanalysis.
-        let fresh_by_slot = mini_project
-            .descriptions
-            .iter()
-            .filter(|description| !description.slot_id.trim().is_empty())
-            .map(|description| (description.slot_id.clone(), description))
-            .collect::<HashMap<_, _>>();
         let old_count = segment_indices.len();
-        let new_count = fresh_by_slot.len();
+        let new_count = mini_indices.len();
+        let skip_penalty = 4.0_f64;
+        let mut cost = vec![vec![f64::INFINITY; new_count + 1]; old_count + 1];
+        let mut step = vec![vec![0_u8; new_count + 1]; old_count + 1];
+        cost[0][0] = 0.0;
+        for old_pos in 0..=old_count {
+            for new_pos in 0..=new_count {
+                let current_cost = cost[old_pos][new_pos];
+                if !current_cost.is_finite() {
+                    continue;
+                }
+                if old_pos < old_count {
+                    let candidate = current_cost + skip_penalty;
+                    if candidate < cost[old_pos + 1][new_pos] {
+                        cost[old_pos + 1][new_pos] = candidate;
+                        step[old_pos + 1][new_pos] = 1;
+                    }
+                }
+                if new_pos < new_count {
+                    let candidate = current_cost + skip_penalty;
+                    if candidate < cost[old_pos][new_pos + 1] {
+                        cost[old_pos][new_pos + 1] = candidate;
+                        step[old_pos][new_pos + 1] = 2;
+                    }
+                }
+                if old_pos < old_count && new_pos < new_count {
+                    let old_time = project.descriptions[segment_indices[old_pos]].source_start_sec;
+                    let new_time = map_mini_time(
+                        mini_project.descriptions[mini_indices[new_pos]].source_start_sec,
+                    );
+                    let distance = (old_time - new_time).abs();
+                    if distance <= 12.0 {
+                        let candidate = current_cost + distance;
+                        if candidate < cost[old_pos + 1][new_pos + 1] {
+                            cost[old_pos + 1][new_pos + 1] = candidate;
+                            step[old_pos + 1][new_pos + 1] = 3;
+                        }
+                    }
+                }
+            }
+        }
+        let mut associations = Vec::new();
+        let (mut old_pos, mut new_pos) = (old_count, new_count);
+        while old_pos > 0 || new_pos > 0 {
+            match step[old_pos][new_pos] {
+                3 => {
+                    associations.push((old_pos - 1, new_pos - 1));
+                    old_pos -= 1;
+                    new_pos -= 1;
+                }
+                1 => old_pos -= 1,
+                2 => new_pos -= 1,
+                _ if old_pos > 0 => old_pos -= 1,
+                _ if new_pos > 0 => new_pos -= 1,
+                _ => break,
+            }
+        }
+        associations.reverse();
 
         let mut candidate = project.clone();
         let mut accepted = 0_usize;
         let mut changed = 0_usize;
-        for &project_index in &segment_indices {
-            let saved_original = &project.descriptions[project_index];
-            let fixed_slot_id = format!("saved-{}", saved_original.id);
-            let Some(fresh) = fresh_by_slot.get(&fixed_slot_id).copied() else {
-                append_podcast_log(&format!(
-                    "audio_description.project.reanalyze_keep_old id={} reason=missing_fixed_slot_response",
-                    saved_original.id
-                ));
-                continue;
-            };
+        for (saved_pos, fresh_pos) in associations {
+            let project_index = segment_indices[saved_pos];
+            let fresh = &mini_project.descriptions[mini_indices[fresh_pos]];
             let fresh_text = fresh.text.trim();
             if fresh_text.is_empty() {
                 continue;
@@ -7323,7 +7332,7 @@ fn reanalyze_project_segment(
             {
                 append_podcast_log(&format!(
                     "audio_description.project.reanalyze_keep_old id={} reason=fresh_too_long fresh={:.3} available={:.3}",
-                    saved_original.id,
+                    project.descriptions[project_index].id,
                     fresh.tts_duration_sec,
                     available_sec
                 ));
@@ -7341,16 +7350,15 @@ fn reanalyze_project_segment(
             };
             saved.tts_duration_sec = fresh.tts_duration_sec;
             saved.modified = saved.text != saved.original_text;
-            // Deliberately preserve every original timing and pause field:
-            // id, gemini_start_sec, visual evidence, source_start_sec,
-            // mandatory/slot metadata, extended_pause and ducking anchors.
+            // Deliberately preserve every original timing/pause field. Only text,
+            // rendered_text and measured TTS duration come from the mini analysis.
             accepted += 1;
         }
         if accepted == 0 {
             return Err("Nessuna nuova descrizione può essere associata in sicurezza agli slot salvati; segmento non modificato.".to_string());
         }
         append_podcast_log(&format!(
-            "audio_description.project.reanalyze_candidate mode=fixed_slots accepted={} changed={} saved_slots={} fresh_descriptions={}",
+            "audio_description.project.reanalyze_candidate mode=windows_parity accepted={} changed={} saved_slots={} fresh_descriptions={}",
             accepted, changed, old_count, new_count
         ));
 
@@ -7459,6 +7467,17 @@ fn run_project_reanalysis_with_progress(
             thread_cancel,
             thread_state,
         );
+        match &outcome {
+            Ok(reanalysis) => append_podcast_log(&format!(
+                "audio_description.project.reanalyze_worker_done ok=true affected={} focus={}",
+                reanalysis.segment_description_ids.len(),
+                reanalysis.focus_index
+            )),
+            Err(error) => append_podcast_log(&format!(
+                "audio_description.project.reanalyze_worker_done ok=false error={}",
+                error.replace('\n', " ")
+            )),
+        }
         *thread_result.lock().unwrap() = Some(outcome);
     });
 
