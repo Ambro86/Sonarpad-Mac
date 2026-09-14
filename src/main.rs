@@ -1380,8 +1380,8 @@ fn automatic_background_refresh_enabled() -> bool {
     !cfg!(debug_assertions)
 }
 
-fn get_language_name(locale: &str) -> String {
-    match Settings::load().ui_language.as_str() {
+fn get_language_name_for_ui(locale: &str, ui_language: &str) -> String {
+    match normalize_ui_language(ui_language).as_str() {
         "en" => get_language_name_en(locale),
         "fr" => get_language_name_fr(locale),
         "es" => get_language_name_es(locale),
@@ -1390,6 +1390,17 @@ fn get_language_name(locale: &str) -> String {
         "pl" => get_language_name_pl(locale),
         _ => get_language_name_it(locale),
     }
+}
+
+fn get_language_name(locale: &str) -> String {
+    get_language_name_for_ui(locale, &Settings::load().ui_language)
+}
+
+fn interface_language_options(ui_language: &str) -> Vec<(String, &'static str)> {
+    ["it", "en", "fr", "es", "pt", "cs", "pl"]
+        .into_iter()
+        .map(|code| (get_language_name_for_ui(code, ui_language), code))
+        .collect()
 }
 
 fn get_language_name_en(locale: &str) -> String {
@@ -8961,14 +8972,7 @@ fn save_cached_voices(voices: &[edge_tts::VoiceInfo]) {
 fn build_language_list(voices: &[edge_tts::VoiceInfo], ui_language: &str) -> Vec<(String, String)> {
     let mut l_map = BTreeMap::new();
     for voice in voices {
-        let label = match normalize_ui_language(ui_language).as_str() {
-            "en" => get_language_name_en(&voice.locale),
-            "es" => get_language_name_es(&voice.locale),
-            "pt" => get_language_name_pt(&voice.locale),
-            "cs" => get_language_name_cs(&voice.locale),
-            "pl" => get_language_name_pl(&voice.locale),
-            _ => get_language_name_it(&voice.locale),
-        };
+        let label = get_language_name_for_ui(&voice.locale, ui_language);
         l_map.insert(label, voice.locale.clone());
     }
     l_map.into_iter().collect()
@@ -13571,15 +13575,7 @@ fn open_settings_dialog(
     } else {
         build_language_list(&voices_snapshot, &settings_before.ui_language)
     };
-    let interface_languages = [
-        ("Italiano", "it"),
-        ("English", "en"),
-        ("Français", "fr"),
-        ("Español", "es"),
-        ("Português", "pt"),
-        ("Čeština", "cs"),
-        ("Polski", "pl"),
-    ];
+    let interface_languages = interface_language_options(&settings_before.ui_language);
     let news_language_choices = news_language_options(&settings_before.ui_language);
 
     let dialog = Dialog::builder(parent, &ui.settings_title)
@@ -13943,7 +13939,7 @@ fn open_settings_dialog(
 
     panel.set_sizer(root, true);
 
-    for (label, _) in interface_languages {
+    for (label, _) in &interface_languages {
         choice_ui_lang.append(label);
     }
     if let Some(pos) = interface_languages
