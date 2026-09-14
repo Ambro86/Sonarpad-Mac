@@ -53,6 +53,7 @@ Audiodescripción, Herramientas y conversión por lotes
 
 24. Se añadió “Ir a la fecha” a Podcasts y RaiPlay Sound, siguiendo el comportamiento de la versión móvil. En Podcasts el comando aparece al principio del submenú solo cuando el feed contiene fechas reales; al elegir una fecha se muestra la lista completa de episodios de ese día, incluidos los que quedan fuera de los primeros 30 del menú. RaiPlay Sound muestra un botón contextual “Ir a la fecha” cuando hay contenidos con fecha. Los selectores muestran directamente solo las fechas disponibles, sin etiquetas redundantes, para una navegación más limpia con VoiceOver.
 
+25. Se añadieron los atajos Inicio y Fin al reproductor multimedia: Inicio, o Fn + Flecha izquierda en los MacBook, va al principio del archivo; Fin, o Fn + Flecha derecha, va a 5 segundos del final. Las flechas izquierda y derecha normales siguen usando el intervalo de salto configurado.
 
 Versión 0.4.0 - 3 de septiembre de 2026
 

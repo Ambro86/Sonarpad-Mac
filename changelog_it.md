@@ -53,6 +53,7 @@ Audiodescrizioni, Strumenti e conversione batch
 
 24. Aggiunto “Vai alla data” nei Podcast e in RaiPlay Sound, riprendendo il comportamento della versione mobile. Nei Podcast la voce compare all’inizio del sottomenu solo quando sono disponibili date reali del feed; scegliendo una data viene mostrato l’elenco completo degli episodi di quel giorno, anche oltre i primi 30 del menu. In RaiPlay Sound compare un pulsante contestuale “Vai alla data” quando i contenuti hanno una data. I selettori mostrano direttamente le sole date disponibili, senza etichette ridondanti, per una navigazione più pulita con VoiceOver.
 
+25. Nel player multimediale sono state aggiunte le scorciatoie Home e Fine: Home, oppure Fn + Freccia sinistra sui MacBook, porta all’inizio del file; Fine, oppure Fn + Freccia destra, porta a 5 secondi dalla fine. Le normali frecce sinistra e destra continuano a usare il salto configurato.
 
 Versione 0.4.0 - 3 settembre 2026
 

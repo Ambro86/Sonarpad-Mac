@@ -53,6 +53,7 @@ Audiodescrição, Ferramentas e conversão em lote
 
 24. Adicionado “Ir para a data” aos Podcasts e ao RaiPlay Sound, seguindo o comportamento da versão móvel. Nos Podcasts, o comando aparece no início do submenu apenas quando o feed contém datas reais; ao escolher uma data é apresentada a lista completa dos episódios desse dia, incluindo os que ficam para além dos primeiros 30 do menu. O RaiPlay Sound mostra um botão contextual “Ir para a data” quando existem conteúdos com data. Os seletores mostram diretamente apenas as datas disponíveis, sem rótulos redundantes, para uma navegação mais limpa com o VoiceOver.
 
+25. Foram adicionados os atalhos Home e End ao leitor multimédia: Home, ou Fn + Seta para a esquerda nos MacBook, vai para o início do ficheiro; End, ou Fn + Seta para a direita, vai para 5 segundos antes do fim. As setas esquerda e direita normais continuam a usar o intervalo de avanço ou recuo configurado.
 
 Versão 0.4.0 - 3 de setembro de 2026
 

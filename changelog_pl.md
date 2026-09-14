@@ -53,6 +53,7 @@ Audiodeskrypcja, Narzędzia i konwersja wsadowa
 
 24. Dodano „Przejdź do daty” w Podcastach i RaiPlay Sound, zgodnie z działaniem wersji mobilnej. W Podcastach polecenie pojawia się na początku podmenu tylko wtedy, gdy kanał zawiera rzeczywiste daty; wybranie daty pokazuje pełną listę odcinków z tego dnia, również poza pierwszymi 30 pozycjami menu. RaiPlay Sound wyświetla kontekstowy przycisk „Przejdź do daty”, gdy dostępne są treści z datą. Selektory pokazują bezpośrednio tylko dostępne daty, bez zbędnych etykiet, co upraszcza nawigację VoiceOver.
 
+25. Dodano skróty Home i End do odtwarzacza multimediów: Home lub Fn + Strzałka w lewo na MacBookach przechodzi na początek pliku; End lub Fn + Strzałka w prawo przechodzi na 5 sekund przed końcem. Zwykłe strzałki w lewo i w prawo nadal używają skonfigurowanego kroku przewijania.
 
 Wersja 0.4.0 - 3 września 2026
 

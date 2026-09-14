@@ -53,6 +53,7 @@ Audio Description, Tools and batch conversion
 
 24. Added “Go to date” to Podcasts and RaiPlay Sound, following the mobile behavior. In Podcasts the command appears at the top of a podcast submenu only when real feed dates are available; choosing a date shows the complete list of episodes from that day, including episodes beyond the first 30 shown in the menu. RaiPlay Sound now shows a contextual “Go to date” button when dated content is available. Date selectors contain only the available dates, without redundant labels, for cleaner VoiceOver navigation.
 
+25. Added Home and End shortcuts to the media player: Home, or Fn + Left Arrow on MacBooks, jumps to the beginning of the file; End, or Fn + Right Arrow, jumps to 5 seconds before the end. The normal Left and Right Arrow keys continue to use the configured seek interval.
 
 Version 0.4.0 - September 3, 2026
 

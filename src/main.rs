@@ -27627,6 +27627,34 @@ local function seek_with_speech(seconds)
     speak_position_later()
 end
 
+local function seek_to_start_with_speech()
+    local seekable = mp.get_property_bool("seekable", false)
+    local before = mp.get_property_number("time-pos")
+    local duration = mp.get_property_number("duration")
+    log_line("seek_to_start requested before=" .. tostring(before) .. " duration=" .. tostring(duration) .. " seekable=" .. tostring(seekable))
+    if not seekable then
+        speak(msg_live_stream)
+        return
+    end
+    mp.commandv("seek", "0", "absolute+exact")
+    speak_position_later()
+end
+
+local function seek_to_end_with_speech()
+    local seekable = mp.get_property_bool("seekable", false)
+    local before = mp.get_property_number("time-pos")
+    local duration = mp.get_property_number("duration")
+    log_line("seek_to_end requested before=" .. tostring(before) .. " duration=" .. tostring(duration) .. " seekable=" .. tostring(seekable))
+    if not seekable or duration == nil or duration <= 0 then
+        speak(msg_live_stream)
+        return
+    end
+    local target = math.max(0, duration - 5)
+    log_line("seek_to_end target=" .. tostring(target))
+    mp.commandv("seek", tostring(target), "absolute+exact")
+    speak_position_later()
+end
+
 local function volume_with_speech(delta)
     local before = mp.get_property_number("volume", 0)
     mp.commandv("add", "volume", tostring(delta))
@@ -27671,6 +27699,10 @@ end
 mp.add_forced_key_binding("SPACE", "sonarpad-pause-speech", toggle_pause_with_speech)
 mp.add_forced_key_binding("RIGHT", "sonarpad-seek-forward-speech", function() seek_with_speech(seek_step_seconds) end, {repeatable = true})
 mp.add_forced_key_binding("LEFT", "sonarpad-seek-backward-speech", function() seek_with_speech(-seek_step_seconds) end, {repeatable = true})
+-- On MacBook keyboards Fn+Left/Fn+Right are delivered by macOS as Home/End.
+-- Keep the same Home/End convention used by Sonarpad on Windows.
+mp.add_forced_key_binding("HOME", "sonarpad-seek-start-speech", seek_to_start_with_speech)
+mp.add_forced_key_binding("END", "sonarpad-seek-end-speech", seek_to_end_with_speech)
 mp.add_forced_key_binding("Alt+i", "sonarpad-announce-duration", speak_total_duration)
 mp.add_forced_key_binding("Alt+I", "sonarpad-announce-duration-uppercase", speak_total_duration)
 mp.add_forced_key_binding("UP", "sonarpad-volume-up-speech", function() volume_with_speech(5) end, {repeatable = true})

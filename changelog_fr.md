@@ -53,6 +53,7 @@ Audiodescription, Outils et conversion par lots
 
 24. Ajout de « Aller à la date » dans les Podcasts et RaiPlay Sound, selon le fonctionnement de la version mobile. Dans les Podcasts, la commande apparaît en tête du sous-menu uniquement lorsque le flux contient de vraies dates ; choisir une date affiche la liste complète des épisodes de ce jour, y compris au-delà des 30 premiers du menu. RaiPlay Sound affiche un bouton contextuel « Aller à la date » lorsque des contenus datés sont disponibles. Les sélecteurs affichent directement uniquement les dates disponibles, sans libellés redondants, pour une navigation VoiceOver plus claire.
 
+25. Ajout des raccourcis Début et Fin dans le lecteur multimédia : Début, ou Fn + Flèche gauche sur les MacBook, revient au début du fichier ; Fin, ou Fn + Flèche droite, va à 5 secondes avant la fin. Les flèches gauche et droite normales continuent d’utiliser l’intervalle de déplacement configuré.
 
 Version 0.4.0 - 3 septembre 2026
 

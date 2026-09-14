@@ -53,6 +53,7 @@ Audiopopis, Nástroje a dávkový převod
 
 24. Do Podcastů a RaiPlay Sound byla přidána funkce „Přejít na datum“ podle chování mobilní verze. U podcastů se příkaz zobrazí na začátku podnabídky pouze tehdy, když zdroj obsahuje skutečná data; po výběru data se zobrazí úplný seznam epizod daného dne, včetně epizod mimo prvních 30 položek nabídky. RaiPlay Sound zobrazí kontextové tlačítko „Přejít na datum“, pokud jsou k dispozici položky s datem. Výběry obsahují přímo pouze dostupná data bez nadbytečných popisků pro čistší práci s VoiceOverem.
 
+25. Do přehrávače médií byly přidány klávesové zkratky Home a End: Home nebo Fn + šipka doleva na MacBooku přejde na začátek souboru; End nebo Fn + šipka doprava přejde 5 sekund před konec. Běžné šipky doleva a doprava nadále používají nastavený krok posunu.
 
 Verze 0.4.0 - 3. září 2026
 
