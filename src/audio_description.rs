@@ -7452,12 +7452,16 @@ fn run_project_reanalysis_with_progress(
         overload: None,
     }));
     let cancel = Arc::new(AtomicBool::new(false));
-    let result = Arc::new(Mutex::new(None::<Result<ProjectSegmentReanalysis, String>>));
+    // Use a one-shot channel for the terminal result.  The previous implementation
+    // polled an Arc<Mutex<Option<...>>> from the wx timer; on macOS the worker could
+    // finish successfully while the modal progress dialog never observed the value,
+    // leaving the UI stuck until the user closed it manually.  A channel gives the
+    // worker exactly one hand-off and lets the UI consume it without sharing a lock.
+    let (result_sender, result_receiver) = mpsc::channel::<Result<ProjectSegmentReanalysis, String>>();
     let quota_api_key = settings.audio_description_gemini_api_key.clone();
     let thread_settings = settings.clone();
     let thread_state = Arc::clone(&state);
     let thread_cancel = Arc::clone(&cancel);
-    let thread_result = Arc::clone(&result);
     thread::spawn(move || {
         let outcome = reanalyze_project_segment(
             &project,
@@ -7478,7 +7482,9 @@ fn run_project_reanalysis_with_progress(
                 error.replace('\n', " ")
             )),
         }
-        *thread_result.lock().unwrap() = Some(outcome);
+        if result_sender.send(outcome).is_err() {
+            append_podcast_log("audio_description.project.reanalyze_result_send_failed");
+        }
     });
 
     let cancelling = Rc::new(Cell::new(false));
@@ -7507,7 +7513,6 @@ fn run_project_reanalysis_with_progress(
     let timer_tick = Rc::clone(&timer);
     let timer_handle = Rc::clone(&timer);
     let state_tick = Arc::clone(&state);
-    let result_tick = Arc::clone(&result);
     let ui_result_tick = Rc::clone(&ui_result);
     let dialog_tick = progress_dialog;
     timer_tick.on_tick(move |_| {
@@ -7531,11 +7536,24 @@ fn run_project_reanalysis_with_progress(
             label.set_label(&snapshot.status);
         }
         gauge.set_value(snapshot.progress.clamp(0, 99));
-        if let Some(done) = result_tick.lock().unwrap().take() {
-            timer_handle.stop();
-            gauge.set_value(100);
-            *ui_result_tick.borrow_mut() = Some(done);
-            dialog_tick.end_modal(ID_OK);
+        match result_receiver.try_recv() {
+            Ok(done) => {
+                timer_handle.stop();
+                gauge.set_value(100);
+                append_podcast_log("audio_description.project.reanalyze_result_received");
+                *ui_result_tick.borrow_mut() = Some(done);
+                dialog_tick.end_modal(ID_OK);
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => {
+                timer_handle.stop();
+                append_podcast_log("audio_description.project.reanalyze_result_channel_disconnected");
+                *ui_result_tick.borrow_mut() = Some(Err(
+                    "La rianalisi si è conclusa senza restituire il risultato alla finestra del progetto."
+                        .to_string(),
+                ));
+                dialog_tick.end_modal(ID_OK);
+            }
         }
     });
     timer.start(100, false);
