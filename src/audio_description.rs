@@ -7525,7 +7525,6 @@ fn run_project_reanalysis_with_progress(
     let ui_result = Rc::new(RefCell::new(None::<Result<ProjectSegmentReanalysis, String>>));
     let timer = Rc::new(Timer::new(&progress_dialog));
     let timer_tick = Rc::clone(&timer);
-    let timer_handle = Rc::clone(&timer);
     let state_tick = Arc::clone(&state);
     let ui_result_tick = Rc::clone(&ui_result);
     let finished_tick = Rc::clone(&finished);
@@ -7553,7 +7552,6 @@ fn run_project_reanalysis_with_progress(
         gauge.set_value(snapshot.progress.clamp(0, 99));
         match result_receiver.try_recv() {
             Ok(done) => {
-                timer_handle.stop();
                 gauge.set_value(100);
                 append_podcast_log("audio_description.project.reanalyze_result_received");
                 *ui_result_tick.borrow_mut() = Some(done);
@@ -7564,7 +7562,6 @@ fn run_project_reanalysis_with_progress(
             }
             Err(mpsc::TryRecvError::Empty) => {}
             Err(mpsc::TryRecvError::Disconnected) => {
-                timer_handle.stop();
                 append_podcast_log("audio_description.project.reanalyze_result_channel_disconnected");
                 *ui_result_tick.borrow_mut() = Some(Err(
                     "La rianalisi si è conclusa senza restituire il risultato alla finestra del progetto."
@@ -7579,16 +7576,23 @@ fn run_project_reanalysis_with_progress(
     progress_dialog.show_modal();
     append_podcast_log("audio_description.project.reanalyze_modal_returned");
     timer.stop();
+    // Own the terminal result BEFORE destroying the dialog.  On macOS the timer
+    // callback and its captured UI state belong to the dialog event lifecycle;
+    // reading the shared RefCell after destroy() could leave the hand-off trapped
+    // behind already-destroyed wx objects.  From this point onward the result is a
+    // plain Rust value, completely independent from the progress UI.
+    let terminal_result = ui_result
+        .borrow_mut()
+        .take()
+        .unwrap_or_else(|| Err("cancelled".to_string()));
+    append_podcast_log("audio_description.project.reanalyze_result_extracted");
     // The modal may also return because the user cancelled.  Mark the lifecycle
     // finished before destroy() so the close handler can never veto destruction
     // of an already-returned modal dialog.
     finished.set(true);
     progress_dialog.destroy();
     append_podcast_log("audio_description.project.reanalyze_dialog_destroyed");
-    ui_result
-        .borrow_mut()
-        .take()
-        .unwrap_or_else(|| Err("cancelled".to_string()))
+    terminal_result
 }
 
 fn rebuild_project(
@@ -8612,13 +8616,22 @@ pub fn open_project_editor(
             return;
         }
         let settings_snapshot = settings_reanalyze.lock().unwrap().clone();
-        match run_project_reanalysis_with_progress(
+        // IMPORTANT: clone the project in a separate statement.  Keeping
+        // `project_reanalyze.borrow()` inside the scrutinee of the `match` can
+        // extend the RefCell immutable borrow through the whole match statement.
+        // The Ok arm then needs `borrow_mut()` to replace the project, which can
+        // panic with BorrowMutError on macOS exactly after the progress dialog
+        // closes.  A separate snapshot guarantees the Ref is dropped here.
+        let project_snapshot = { project_reanalyze.borrow().clone() };
+        let reanalysis_result = run_project_reanalysis_with_progress(
             &dialog_reanalyze,
-            project_reanalyze.borrow().clone(),
+            project_snapshot,
             index,
             settings_snapshot,
             Arc::clone(&rt_reanalyze),
-        ) {
+        );
+        append_podcast_log("audio_description.project.reanalyze_call_returned");
+        match reanalysis_result {
             Ok(reanalysis) => {
                 let affected_count = reanalysis.segment_description_ids.len();
                 let focus_index = reanalysis.focus_index;
@@ -8629,7 +8642,9 @@ pub fn open_project_editor(
                 // the new description and appear again when the user revisits it.
                 pending_text_reanalyze.borrow_mut().clear();
                 last_selected_reanalyze.set(None);
+                append_podcast_log("audio_description.project.reanalyze_apply_begin");
                 *project_reanalyze.borrow_mut() = reanalysis.project;
+                append_podcast_log("audio_description.project.reanalyze_project_replaced");
                 *reanalyzed_ids_reanalyze.borrow_mut() = reanalysis
                     .segment_description_ids
                     .iter()

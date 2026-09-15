@@ -11,8 +11,11 @@ def test_reanalyzed_marker_is_rendered_in_description_choice():
 
 
 def test_reanalysis_cannot_capture_pre_reanalysis_text_as_a_draft():
-    before_swap = '''pending_text_reanalyze.borrow_mut().clear();\n                last_selected_reanalyze.set(None);\n                *project_reanalyze.borrow_mut() = reanalysis.project;'''
-    assert before_swap in text
+    assert 'pending_text_reanalyze.borrow_mut().clear();' in text
+    assert 'last_selected_reanalyze.set(None);' in text
+    assert '*project_reanalyze.borrow_mut() = reanalysis.project;' in text
+    assert 'let project_snapshot = { project_reanalyze.borrow().clone() };' in text
+    assert 'match reanalysis_result {' in text
     assert 'last_selected_reanalyze.set(Some(selected_index));' in text
     assert text.count('pending_text_reanalyze.borrow_mut().clear();') >= 2
     assert 'choice.set_focus();' in text
