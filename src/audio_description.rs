@@ -7488,6 +7488,12 @@ fn run_project_reanalysis_with_progress(
     });
 
     let cancelling = Rc::new(Cell::new(false));
+    // Keep the modal-close path distinct from user cancellation.  wxDragon can
+    // deliver a close event while end_modal()/destroy() is completing; without
+    // this flag the reanalysis dialog used to interpret its own successful
+    // programmatic close as Cancel and could prevent the caller from ever
+    // receiving/applying the already-computed result.
+    let finished = Rc::new(Cell::new(false));
     let cancel_click = Arc::clone(&cancel);
     let cancelling_click = Rc::clone(&cancelling);
     cancel_button.on_click(move |_| {
@@ -7499,7 +7505,15 @@ fn run_project_reanalysis_with_progress(
     });
     let cancel_close = Arc::clone(&cancel);
     let cancelling_close = Rc::clone(&cancelling);
+    let finished_close = Rc::clone(&finished);
     progress_dialog.on_close(move |event| {
+        if finished_close.get() {
+            // Programmatic close after a terminal result: allow wxDragon to
+            // finish the modal lifecycle.  This mirrors the proven export
+            // progress dialog and must not be converted into cancellation.
+            event.skip(true);
+            return;
+        }
         if !cancelling_close.replace(true) {
             cancel_close.store(true, Ordering::SeqCst);
             cancel_button.enable(false);
@@ -7514,6 +7528,7 @@ fn run_project_reanalysis_with_progress(
     let timer_handle = Rc::clone(&timer);
     let state_tick = Arc::clone(&state);
     let ui_result_tick = Rc::clone(&ui_result);
+    let finished_tick = Rc::clone(&finished);
     let dialog_tick = progress_dialog;
     timer_tick.on_tick(move |_| {
         let overload = { state_tick.lock().unwrap().overload.take() };
@@ -7542,6 +7557,9 @@ fn run_project_reanalysis_with_progress(
                 gauge.set_value(100);
                 append_podcast_log("audio_description.project.reanalyze_result_received");
                 *ui_result_tick.borrow_mut() = Some(done);
+                // Set this before end_modal: the modal close event may fire
+                // synchronously on macOS.
+                finished_tick.set(true);
                 dialog_tick.end_modal(ID_OK);
             }
             Err(mpsc::TryRecvError::Empty) => {}
@@ -7552,14 +7570,21 @@ fn run_project_reanalysis_with_progress(
                     "La rianalisi si è conclusa senza restituire il risultato alla finestra del progetto."
                         .to_string(),
                 ));
+                finished_tick.set(true);
                 dialog_tick.end_modal(ID_OK);
             }
         }
     });
     timer.start(100, false);
     progress_dialog.show_modal();
+    append_podcast_log("audio_description.project.reanalyze_modal_returned");
     timer.stop();
+    // The modal may also return because the user cancelled.  Mark the lifecycle
+    // finished before destroy() so the close handler can never veto destruction
+    // of an already-returned modal dialog.
+    finished.set(true);
     progress_dialog.destroy();
+    append_podcast_log("audio_description.project.reanalyze_dialog_destroyed");
     ui_result
         .borrow_mut()
         .take()
