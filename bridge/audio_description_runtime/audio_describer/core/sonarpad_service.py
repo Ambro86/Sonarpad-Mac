@@ -12,11 +12,33 @@ import mimetypes
 import os
 import re
 import socket
+import ssl
 import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
 from types import SimpleNamespace
+
+
+def _verified_ssl_context():
+    """Build a verified TLS context that also trusts the CA bundle shipped with Sonarpad.
+
+    PyInstaller's embedded Python on macOS does not always discover the system
+    certificate roots used by urllib.  certifi is already bundled with the
+    audio-description worker, so augment the normal verified context with it.
+    Verification and hostname checking remain enabled.
+    """
+    context = ssl.create_default_context()
+    try:
+        import certifi
+
+        ca_file = certifi.where()
+        if ca_file and os.path.isfile(ca_file):
+            context.load_verify_locations(cafile=ca_file)
+    except (ImportError, OSError, ssl.SSLError):
+        # Keep Python's normal verified context as a safe fallback.
+        pass
+    return context
 
 
 class SonarpadServiceError(Exception):
@@ -194,6 +216,7 @@ class SonarpadServiceClient:
         self.session_token = ""
         self.account = {}
         self._uploads: dict[str, _UploadRecord] = {}
+        self._ssl_context = _verified_ssl_context()
         self._activate()
         self._load_account()
         self.files = _FilesApi(self)
@@ -226,7 +249,7 @@ class SonarpadServiceClient:
             request_headers.update(headers)
         request = urllib.request.Request(url, data=body, headers=request_headers, method=method)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with urllib.request.urlopen(request, timeout=timeout, context=self._ssl_context) as response:
                 raw = response.read().decode("utf-8", errors="replace")
                 if not raw.strip():
                     return {}
@@ -286,7 +309,7 @@ class SonarpadServiceClient:
         }
         request = urllib.request.Request(upload_url, data=data, headers=headers, method="POST")
         try:
-            with urllib.request.urlopen(request, timeout=650) as response:
+            with urllib.request.urlopen(request, timeout=650, context=self._ssl_context) as response:
                 raw = response.read().decode("utf-8", errors="replace")
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")

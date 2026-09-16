@@ -1,6 +1,6 @@
 Changelog
 
-Versione 0.5.0 - 12 settembre 2026
+Versione 0.5.0 - 16 settembre 2026
 
 Audiodescrizioni, Strumenti e conversione batch
 

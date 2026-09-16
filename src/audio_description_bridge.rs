@@ -3,7 +3,7 @@ use std::fs;
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, mpsc};
@@ -242,6 +242,15 @@ fn bridge_candidates() -> Vec<PathBuf> {
     candidates
 }
 
+fn bridge_certifi_bundle(bridge_path: &Path) -> Option<PathBuf> {
+    let ca_bundle = bridge_path
+        .parent()?
+        .join("_internal")
+        .join("certifi")
+        .join("cacert.pem");
+    ca_bundle.is_file().then_some(ca_bundle)
+}
+
 fn ensure_bridge(
     cancel: &Arc<AtomicBool>,
     _progress: &mut Option<Box<dyn FnMut(i32) + Send>>,
@@ -316,13 +325,31 @@ pub fn run_audio_description_bridge(
         .map_err(|error| format!("write audio-description request failed: {error}"))?;
 
     let run_result = (|| -> Result<AudioDescriptionBridgeResult, String> {
-        let mut child = Command::new(&bridge_path)
+        let mut command = Command::new(&bridge_path);
+        command
             .process_group(0)
             .arg("--request")
             .arg(&request_path)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
+            .stderr(Stdio::piped());
+
+        if let Some(ca_bundle) = bridge_certifi_bundle(&bridge_path) {
+            crate::append_podcast_log(&format!(
+                "audio_description.worker ca_bundle={}",
+                ca_bundle.display()
+            ));
+            command
+                .env("SSL_CERT_FILE", &ca_bundle)
+                .env("REQUESTS_CA_BUNDLE", &ca_bundle)
+                .env("CURL_CA_BUNDLE", &ca_bundle);
+        } else {
+            crate::append_podcast_log(
+                "audio_description.worker ca_bundle=system_default reason=bundled_certifi_not_found",
+            );
+        }
+
+        let mut child = command
             .spawn()
             .map_err(|error| format!("start audio-description worker failed: {error}"))?;
 

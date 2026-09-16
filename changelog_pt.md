@@ -1,6 +1,6 @@
 Registo de alterações
 
-Versão 0.5.0 - 12 de setembro de 2026
+Versão 0.5.0 - 16 de setembro de 2026
 
 Audiodescrição, Ferramentas e conversão em lote
 
