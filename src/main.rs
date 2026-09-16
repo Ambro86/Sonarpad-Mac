@@ -22,6 +22,7 @@ mod reader;
 mod routes;
 mod scheduled_radio;
 mod scheduled_tv;
+mod sonarpad_audiodescrizioni;
 mod treccani;
 mod tv;
 
@@ -136,6 +137,7 @@ const ID_TOOLS_MEDIA_TRANSCRIPTION: i32 = 2377;
 const ID_LA7_PLAY: i32 = 2378;
 const ID_TOOLS_CONVERT_FOLDER: i32 = 2379;
 const ID_TOOLS_MEDIA_CUTTER: i32 = 2380;
+const ID_SONARPAD_AUDIO_DESCRIPTIONS: i32 = 2381;
 #[cfg(target_os = "macos")]
 const SHOW_MEDIA_CUTTER_IN_MENUS: bool = false;
 #[cfg(not(target_os = "macos"))]
@@ -17553,6 +17555,491 @@ fn update_choice_button_visibility(dialog: &Dialog, panel: &Panel, button: &Butt
     dialog.layout();
 }
 
+
+fn sonarpad_audio_item_label(item: &sonarpad_audiodescrizioni::CatalogItem) -> String {
+    let date = item.date_label();
+    if date.is_empty() {
+        item.title.clone()
+    } else {
+        format!("{} - {}", item.title, date)
+    }
+}
+
+fn open_sonarpad_audio_descriptions_dialog(parent: &Frame) {
+    if Settings::load().ui_language != "it" || load_saved_rai_luce_code().is_none() {
+        return;
+    }
+    match sonarpad_audiodescrizioni::load_recent_catalog() {
+        Ok(items) => open_sonarpad_audio_recent_dialog(parent, &items),
+        Err(err) => show_message_dialog(parent, "Audiodescrizioni Sonarpad", &err),
+    }
+}
+
+fn open_sonarpad_audio_recent_dialog(
+    parent: &Frame,
+    items: &[sonarpad_audiodescrizioni::CatalogItem],
+) {
+    if items.is_empty() {
+        show_message_dialog(
+            parent,
+            "Audiodescrizioni Sonarpad",
+            "Nessuna audiodescrizione Sonarpad disponibile.",
+        );
+        return;
+    }
+
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, "Audiodescrizioni Sonarpad")
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(720, 230)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label("Cerca:").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label("Cerca").build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+
+    let choice = Choice::builder(&panel).build();
+    for item in items {
+        choice.append(&sonarpad_audio_item_label(item));
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel).with_label("Apri").build();
+    let save_button = Button::builder(&panel).with_label("Scarica").build();
+    let all_button = Button::builder(&panel)
+        .with_label("Tutte le audiodescrizioni")
+        .build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&all_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let items = Rc::new(items.to_vec());
+    let choice_open = choice;
+    let dialog_open = dialog;
+    let items_open = Rc::clone(&items);
+    open_button.on_click(move |_| {
+        if let Some(sel) = choice_open.get_selection()
+            && let Some(item) = items_open.get(sel as usize)
+        {
+            open_sonarpad_audio_item(&dialog_open, item);
+        }
+    });
+
+    let choice_save = choice;
+    let dialog_save = dialog;
+    let items_save = Rc::clone(&items);
+    save_button.on_click(move |_| {
+        if let Some(sel) = choice_save.get_selection()
+            && let Some(item) = items_save.get(sel as usize)
+        {
+            match save_sonarpad_direct_media(&dialog_save, item) {
+                Ok(true) => show_message_subdialog(
+                    &dialog_save,
+                    "Audiodescrizioni Sonarpad",
+                    "Download completato.",
+                ),
+                Ok(false) => {}
+                Err(err) => show_message_subdialog(
+                    &dialog_save,
+                    "Audiodescrizioni Sonarpad",
+                    &err,
+                ),
+            }
+            choice_save.set_focus();
+        }
+    });
+
+    let dialog_all = dialog;
+    all_button.on_click(move |_| {
+        open_sonarpad_audio_folder_dialog(
+            &dialog_all,
+            String::new(),
+            "Tutte le audiodescrizioni Sonarpad".to_string(),
+        );
+    });
+
+    let dialog_search = dialog;
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match sonarpad_audiodescrizioni::search_catalog(&query) {
+            Ok(results) => open_sonarpad_audio_items_dialog(
+                &dialog_search,
+                &format!("Risultati ricerca: {query}"),
+                results,
+            ),
+            Err(err) => show_message_subdialog(
+                &dialog_search,
+                "Audiodescrizioni Sonarpad",
+                &err,
+            ),
+        }
+    });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.centre();
+    choice.set_focus();
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn open_sonarpad_audio_folder_dialog(parent: &Dialog, folder: String, title: String) {
+    let items = match sonarpad_audiodescrizioni::load_folder_catalog(&folder) {
+        Ok(items) => items,
+        Err(err) => {
+            show_message_subdialog(parent, "Audiodescrizioni Sonarpad", &err);
+            return;
+        }
+    };
+    if items.is_empty() {
+        show_message_subdialog(
+            parent,
+            "Audiodescrizioni Sonarpad",
+            "Nessun contenuto disponibile in questa cartella.",
+        );
+        return;
+    }
+
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, &title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(720, 230)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+
+    let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    search_row.add(
+        &StaticText::builder(&panel).with_label("Cerca:").build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let search_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
+    search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let search_button = Button::builder(&panel).with_label("Cerca").build();
+    search_row.add(&search_button, 0, SizerFlag::All, 5);
+    root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+
+    let choice = Choice::builder(&panel).build();
+    for item in &items {
+        if item.is_folder() {
+            choice.append(&format!("{} - cartella", item.title));
+        } else {
+            choice.append(&sonarpad_audio_item_label(item));
+        }
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel).with_label("Apri").build();
+    let save_button = Button::builder(&panel).with_label("Scarica").build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let items = Rc::new(items);
+    let first_is_file = items.first().is_some_and(|item| !item.is_folder());
+    update_choice_button_visibility(&dialog, &panel, &save_button, first_is_file);
+
+    let dialog_open = dialog;
+    let choice_open = choice;
+    let items_open = Rc::clone(&items);
+    open_button.on_click(move |_| {
+        let Some(sel) = choice_open.get_selection() else {
+            return;
+        };
+        let Some(item) = items_open.get(sel as usize) else {
+            return;
+        };
+        if item.is_folder() {
+            open_sonarpad_audio_folder_dialog(
+                &dialog_open,
+                item.path.clone(),
+                if item.title.trim().is_empty() {
+                    "Audiodescrizioni Sonarpad".to_string()
+                } else {
+                    item.title.clone()
+                },
+            );
+        } else {
+            open_sonarpad_audio_item(&dialog_open, item);
+        }
+    });
+
+    let dialog_save = dialog;
+    let choice_save = choice;
+    let items_save = Rc::clone(&items);
+    save_button.on_click(move |_| {
+        if let Some(sel) = choice_save.get_selection()
+            && let Some(item) = items_save.get(sel as usize)
+            && !item.is_folder()
+        {
+            match save_sonarpad_direct_media(&dialog_save, item) {
+                Ok(true) => show_message_subdialog(
+                    &dialog_save,
+                    "Audiodescrizioni Sonarpad",
+                    "Download completato.",
+                ),
+                Ok(false) => {}
+                Err(err) => show_message_subdialog(
+                    &dialog_save,
+                    "Audiodescrizioni Sonarpad",
+                    &err,
+                ),
+            }
+            choice_save.set_focus();
+        }
+    });
+
+    let choice_visibility = choice;
+    let dialog_visibility = dialog;
+    let panel_visibility = panel;
+    let save_button_visibility = save_button;
+    let items_visibility = Rc::clone(&items);
+    choice.on_selection_changed(move |_| {
+        let visible = choice_visibility
+            .get_selection()
+            .and_then(|sel| items_visibility.get(sel as usize))
+            .is_some_and(|item| !item.is_folder());
+        update_choice_button_visibility(
+            &dialog_visibility,
+            &panel_visibility,
+            &save_button_visibility,
+            visible,
+        );
+    });
+
+    let dialog_search = dialog;
+    let search_ctrl_button = search_ctrl;
+    let perform_search = Rc::new(move || {
+        let query = search_ctrl_button.get_value().trim().to_string();
+        match sonarpad_audiodescrizioni::search_catalog(&query) {
+            Ok(results) => open_sonarpad_audio_items_dialog(
+                &dialog_search,
+                &format!("Risultati ricerca: {query}"),
+                results,
+            ),
+            Err(err) => show_message_subdialog(
+                &dialog_search,
+                "Audiodescrizioni Sonarpad",
+                &err,
+            ),
+        }
+    });
+    let perform_search_button = Rc::clone(&perform_search);
+    search_button.on_click(move |_| perform_search_button());
+    let perform_search_enter = Rc::clone(&perform_search);
+    search_ctrl.on_text_enter(move |_| perform_search_enter());
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.centre();
+    choice.set_focus();
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn open_sonarpad_audio_items_dialog(
+    parent: &Dialog,
+    title: &str,
+    items_input: Vec<sonarpad_audiodescrizioni::CatalogItem>,
+) {
+    if items_input.is_empty() {
+        show_message_subdialog(
+            parent,
+            "Audiodescrizioni Sonarpad",
+            "Nessun risultato trovato.",
+        );
+        return;
+    }
+
+    let ui = current_ui_strings();
+    let dialog = Dialog::builder(parent, title)
+        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
+        .with_size(700, 210)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let choice = Choice::builder(&panel).build();
+    for item in &items_input {
+        choice.append(&sonarpad_audio_item_label(item));
+    }
+    choice.set_selection(0);
+    root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
+
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_button = Button::builder(&panel).with_label("Apri").build();
+    let save_button = Button::builder(&panel).with_label("Scarica").build();
+    let close_button = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&ui.close)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&open_button, 0, SizerFlag::All, 10);
+    buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&close_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+
+    let items = Rc::new(items_input);
+    let choice_open = choice;
+    let dialog_open = dialog;
+    let items_open = Rc::clone(&items);
+    open_button.on_click(move |_| {
+        if let Some(sel) = choice_open.get_selection()
+            && let Some(item) = items_open.get(sel as usize)
+        {
+            open_sonarpad_audio_item(&dialog_open, item);
+        }
+    });
+
+    let choice_save = choice;
+    let dialog_save = dialog;
+    let items_save = Rc::clone(&items);
+    save_button.on_click(move |_| {
+        if let Some(sel) = choice_save.get_selection()
+            && let Some(item) = items_save.get(sel as usize)
+        {
+            match save_sonarpad_direct_media(&dialog_save, item) {
+                Ok(true) => show_message_subdialog(
+                    &dialog_save,
+                    "Audiodescrizioni Sonarpad",
+                    "Download completato.",
+                ),
+                Ok(false) => {}
+                Err(err) => show_message_subdialog(
+                    &dialog_save,
+                    "Audiodescrizioni Sonarpad",
+                    &err,
+                ),
+            }
+            choice_save.set_focus();
+        }
+    });
+
+    let dialog_close = dialog;
+    close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
+    dialog.centre();
+    choice.set_focus();
+    dialog.show_modal();
+    dialog.destroy();
+}
+
+fn open_sonarpad_audio_item(parent: &Dialog, item: &sonarpad_audiodescrizioni::CatalogItem) {
+    let Some(url) = item
+        .stream_url
+        .as_deref()
+        .map(str::trim)
+        .filter(|url| !url.is_empty())
+    else {
+        show_message_subdialog(
+            parent,
+            "Audiodescrizioni Sonarpad",
+            "Il contenuto selezionato non dispone di uno stream riproducibile.",
+        );
+        return;
+    };
+
+    if let Err(err) = open_stream_with_mpv(url, &item.title, None, true) {
+        show_message_subdialog(parent, "Audiodescrizioni Sonarpad", &err);
+    }
+}
+
+fn save_sonarpad_direct_media(
+    parent: &Dialog,
+    item: &sonarpad_audiodescrizioni::CatalogItem,
+) -> Result<bool, String> {
+    let url = item
+        .download_url
+        .trim()
+        .is_empty()
+        .then(|| item.stream_url.as_deref().unwrap_or_default().trim())
+        .unwrap_or_else(|| item.download_url.trim());
+    if url.is_empty() {
+        return Err("Il contenuto selezionato non dispone di un URL di download.".to_string());
+    }
+
+    let suggested = sanitize_filename(&item.suggested_download_name());
+    let extension = Path::new(&suggested)
+        .extension()
+        .and_then(|value| value.to_str())
+        .filter(|value| !value.is_empty())
+        .unwrap_or("mp3")
+        .to_string();
+    let wildcard = format!(
+        "File {} (*.{})|*.{}|Tutti|*.*",
+        extension.to_uppercase(),
+        extension,
+        extension
+    );
+    let dialog = FileDialog::builder(parent)
+        .with_message("Scarica audiodescrizione Sonarpad")
+        .with_default_file(&suggested)
+        .with_wildcard(&wildcard)
+        .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
+        .build();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(true);
+    let dialog_result = dialog.show_modal();
+    #[cfg(target_os = "macos")]
+    set_mac_native_file_dialog_open(false);
+    if dialog_result != ID_OK {
+        return Ok(false);
+    }
+    let path = dialog
+        .get_path()
+        .ok_or_else(|| "Nessun file di destinazione selezionato.".to_string())?;
+    let bytes = crate::curl_client::CurlClient::fetch_url_impersonated_with_timeout(
+        url,
+        Duration::from_secs(300),
+    )
+    .map_err(|err| format!("Download audiodescrizione Sonarpad fallito: {err}"))?;
+    std::fs::write(&path, bytes)
+        .map_err(|err| format!("Salvataggio audiodescrizione Sonarpad fallito: {err}"))?;
+    Ok(true)
+}
+
 fn open_rai_audio_descriptions_dialog(parent: &Frame) {
     match rai_audiodescrizioni::load_catalog() {
         Ok(items) => open_rai_audio_recent_dialog(parent, &items),
@@ -28403,6 +28890,14 @@ fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
         );
     }
     if settings.ui_language == "it" {
+        if load_saved_rai_luce_code().is_some() {
+            let _ = menu.append(
+                ID_SONARPAD_AUDIO_DESCRIPTIONS,
+                "Audiodescrizioni Sonarpad",
+                "Audiodescrizioni Sonarpad",
+                ItemKind::Normal,
+            );
+        }
         let _ = menu.append(
             ID_RAI_AUDIO_DESCRIPTIONS,
             &ui.rai_audio_descriptions_label,
@@ -28582,6 +29077,14 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
                 &ui.bdciechi_title,
                 ItemKind::Normal,
             );
+            if load_saved_rai_luce_code().is_some() {
+                let _ = tools_menu.append(
+                    ID_SONARPAD_AUDIO_DESCRIPTIONS,
+                    "Audiodescrizioni Sonarpad",
+                    "Audiodescrizioni Sonarpad",
+                    ItemKind::Normal,
+                );
+            }
             let _ = tools_menu.append(
                 ID_RAI_AUDIO_DESCRIPTIONS,
                 &ui.rai_audio_descriptions_label,
@@ -29666,6 +30169,8 @@ fn main() {
                 routes::open_routes_dialog(&f_menu, tc_menu);
             } else if event.get_id() == ID_TOOLS_VOICE_DICTIONARY {
                 open_voice_dictionary_dialog(&f_menu);
+            } else if event.get_id() == ID_SONARPAD_AUDIO_DESCRIPTIONS {
+                open_sonarpad_audio_descriptions_dialog(&f_menu);
             } else if event.get_id() == ID_RAI_AUDIO_DESCRIPTIONS {
                 open_rai_audio_descriptions_dialog(&f_menu);
             } else if event.get_id() == ID_RAIPLAY_BROWSE {
@@ -31533,6 +32038,7 @@ fn main() {
             let updated_news_language = snapshot_after.news_language.clone();
             if snapshot_before.group_tools_menu_by_category
                 != snapshot_after.group_tools_menu_by_category
+                || snapshot_before.rai_luce_code != snapshot_after.rai_luce_code
             {
                 let tools_ui = ui_strings(&snapshot_after.ui_language);
                 rebuild_tools_menu(&tools_menu_settings, &snapshot_after, tools_ui);

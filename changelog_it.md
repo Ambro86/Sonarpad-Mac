@@ -55,6 +55,8 @@ Audiodescrizioni, Strumenti e conversione batch
 
 25. Nel player multimediale sono state aggiunte le scorciatoie Home e Fine: Home, oppure Fn + Freccia sinistra sui MacBook, porta all’inizio del file; Fine, oppure Fn + Freccia destra, porta a 5 secondi dalla fine. Le normali frecce sinistra e destra continuano a usare il salto configurato.
 
+26. Aggiunta la funzione “Audiodescrizioni Sonarpad”, disponibile dal menu Strumenti > Multimedia per ascoltare e scaricare i film audiodescritti con Sonarpad. La finestra permette di cercare nell’intero catalogo, consultare le audiodescrizioni più recenti e aprire “Tutte le audiodescrizioni” con navigazione per cartelle. La funzione è disponibile quando è configurato il codice Sonarpad per le funzionalità aggiuntive.
+
 Versione 0.4.0 - 3 settembre 2026
 
 Audiodescrizione con IA — nuova funzione principale
