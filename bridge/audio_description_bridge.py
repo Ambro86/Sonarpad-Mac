@@ -40,6 +40,7 @@ from audio_describer.utils.logger import app_logger  # noqa: E402
 
 CHUNK_DURATION_SECONDS = 180
 GEMINI_FRAME_RATE_FOR_AI = 0
+SONARPAD_AI_FORCED_GEMINI_MODEL = "gemini-3.8-flash"
 
 
 def _emit(prefix: str, value) -> None:
@@ -242,7 +243,12 @@ def _normalise_initial_character_glossary(value) -> list[dict]:
 
 def _configure_omni(request: dict) -> None:
     language = str(request.get("language") or "it").strip() or "it"
-    model = str(request.get("gemini_model") or "gemini-3.5-flash-lite").strip()
+    use_sonarpad_ai = bool(str(request.get("sonarpad_ai_service_url") or "").strip())
+    model = (
+        SONARPAD_AI_FORCED_GEMINI_MODEL
+        if use_sonarpad_ai
+        else str(request.get("gemini_model") or "gemini-3.5-flash-lite").strip()
+    )
     config_model.configure(
         {
             "user_gemini_api_key": str(request.get("gemini_api_key") or ""),
@@ -495,8 +501,13 @@ def _run_fixed_reanalysis(request: dict, input_path: str, duration: float, prepa
 
     _status("gemini_start", "", 30)
     client = gemini_helpers.get_gemini_client()
+    requested_model = (
+        SONARPAD_AI_FORCED_GEMINI_MODEL
+        if str(request.get("sonarpad_ai_service_url") or "").strip()
+        else str(request.get("gemini_model") or "gemini-3.5-flash-lite").strip()
+    )
     model = gemini_helpers.validate_model_for_generate_content(
-        str(request.get("gemini_model") or "gemini-3.5-flash-lite").strip(),
+        requested_model,
         client=client,
         status_callback=_gemini_status,
     )

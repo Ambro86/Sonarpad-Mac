@@ -64,6 +64,7 @@ const ID_AUDIO_DESCRIPTION_RESUME_BROWSE: i32 = 7104;
 const CHECKPOINT_SUFFIX: &str = ".sonarpad-ad.partial.json";
 const MAX_RECENT_PROJECT_FOLDERS: usize = 8;
 const SONARPAD_AI_SERVICE_URL: &str = "https://sonarpad.com/sonarpad-ai";
+const SONARPAD_AI_FORCED_GEMINI_MODEL: &str = "gemini-3.8-flash";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Verbosity {
@@ -4869,11 +4870,14 @@ fn execute_audio_description_job(
             if !job.sonarpad_ai_device_id.trim().is_empty() {
                 st.sonarpad_ai_device_id = job.sonarpad_ai_device_id.clone();
             }
+            // Sonarpad AI always uses the service model. Do not overwrite the
+            // user's personal Gemini model preference with the forced service model.
         } else {
             // Keep the personal Gemini key independent from the Sonarpad AI credentials.
+            // Keep the personal model independent from the forced Sonarpad AI model.
             st.audio_description_gemini_api_key = job.gemini_api_key.clone();
+            st.audio_description_gemini_model = selected_model;
         }
-        st.audio_description_gemini_model = selected_model;
         st.audio_description_language = job.language_code.clone();
         st.audio_description_tts_engine = job.tts_engine.clone();
         st.audio_description_tts_voice = job.tts_voice.clone();
@@ -5690,7 +5694,13 @@ fn open_create_dialog_impl(
         .with_label(&tr("audio_description.gemini_model"))
         .build();
     let model = Choice::builder(&p).build();
-    model.append(&saved.audio_description_gemini_model);
+    let personal_gemini_model = Rc::new(RefCell::new(saved.audio_description_gemini_model.clone()));
+    let initial_model = if initial_sonarpad_ai {
+        SONARPAD_AI_FORCED_GEMINI_MODEL
+    } else {
+        saved.audio_description_gemini_model.as_str()
+    };
+    model.append(initial_model);
     model.set_selection(0);
     let refresh = Button::builder(&p)
         .with_label(&tr("audio_description.gemini_refresh_models"))
@@ -5799,25 +5809,58 @@ fn open_create_dialog_impl(
     let api_value_ai_access = Rc::clone(&api_value);
     let sonarpad_code_value_ai_access = Rc::clone(&sonarpad_code_value);
     let request_sonarpad_balance_ai_access = Rc::clone(&request_sonarpad_balance);
+    let personal_gemini_model_ai_access = Rc::clone(&personal_gemini_model);
     ai_access.on_selection_changed(move |_| {
         let service = ai_access.get_selection().unwrap_or(0) == 1;
+        let current_model = model
+            .get_string_selection()
+            .unwrap_or_default()
+            .trim()
+            .to_string();
 
-        // Persist both credential sets before changing the visible controls.  The
-        // inactive credential must never be cleared merely because the user
+        // When entering Sonarpad AI, remember the personal model first. The
+        // service model is forced exactly as on Windows and must never replace
+        // the user's personal-model preference.
+        if service
+            && !current_model.is_empty()
+            && current_model != SONARPAD_AI_FORCED_GEMINI_MODEL
+        {
+            *personal_gemini_model_ai_access.borrow_mut() = current_model.clone();
+        }
+        let personal_model = personal_gemini_model_ai_access.borrow().clone();
+
+        // Persist both credential sets before changing the visible controls. The
+        // inactive credential/model must never be cleared merely because the user
         // switches between the personal Gemini key and Sonarpad AI.
         {
             let mut st = settings_ai_access.lock().unwrap();
             st.audio_description_use_sonarpad_ai = service;
             st.audio_description_gemini_api_key = api_value_ai_access().trim().to_string();
             st.sonarpad_ai_access_code = sonarpad_code_value_ai_access().trim().to_string();
-            if let Some(selected_model) = model.get_string_selection() {
-                let selected_model = selected_model.trim();
-                if !selected_model.is_empty() {
-                    st.audio_description_gemini_model = selected_model.to_string();
+            if service {
+                if !current_model.is_empty()
+                    && current_model != SONARPAD_AI_FORCED_GEMINI_MODEL
+                {
+                    st.audio_description_gemini_model = current_model;
                 }
+            } else if !personal_model.trim().is_empty() {
+                st.audio_description_gemini_model = personal_model.clone();
             }
             st.save();
         }
+
+        model.clear();
+        if service {
+            model.append(SONARPAD_AI_FORCED_GEMINI_MODEL);
+        } else {
+            let restored = if personal_model.trim().is_empty() {
+                "gemini-3.5-flash-lite"
+            } else {
+                personal_model.as_str()
+            };
+            model.append(restored);
+        }
+        model.set_selection(0);
 
         api_label.show(!service);
         if service {
@@ -6247,13 +6290,18 @@ fn open_create_dialog_impl(
             .unwrap()
             .sonarpad_ai_device_id
             .clone();
+        let resume_model = if use_sonarpad_ai {
+            SONARPAD_AI_FORCED_GEMINI_MODEL.to_string()
+        } else {
+            selection.gemini_model.clone()
+        };
         let job = match job_from_checkpoint(
             &selection.checkpoint_path,
             if use_sonarpad_ai { String::new() } else { personal_api_key_value },
             if use_sonarpad_ai { SONARPAD_AI_SERVICE_URL.to_string() } else { String::new() },
             if use_sonarpad_ai { sonarpad_code_value } else { String::new() },
             if use_sonarpad_ai { resume_device_id } else { String::new() },
-            selection.gemini_model.clone(),
+            resume_model.clone(),
         ) {
             Ok(job) => job,
             Err(error) => {
@@ -6268,7 +6316,7 @@ fn open_create_dialog_impl(
             "audio_description.create.resume_selected chunk={}/{} model={} path={}",
             resume.completed_chunks,
             resume.total_chunks,
-            selection.gemini_model,
+            resume_model,
             selection.checkpoint_path.display()
         ));
         if execute_audio_description_job(
@@ -6277,7 +6325,7 @@ fn open_create_dialog_impl(
             &settings_resume,
             &rt_resume,
             job,
-            selection.gemini_model,
+            resume_model,
         ) {
             d_resume.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
         }
@@ -6390,6 +6438,11 @@ fn open_create_dialog_impl(
             api.set_focus();
             return;
         }
+        let effective_model = if use_sonarpad_ai {
+            SONARPAD_AI_FORCED_GEMINI_MODEL.to_string()
+        } else {
+            model_value.clone()
+        };
         let job = CreateJob {
             input_path,
             output_path,
@@ -6425,7 +6478,7 @@ fn open_create_dialog_impl(
             } else {
                 String::new()
             },
-            gemini_model: model_value.clone(),
+            gemini_model: effective_model.clone(),
             fixed_reanalysis_slots: Vec::new(),
             resume_checkpoint_path: None,
         };
@@ -6435,7 +6488,7 @@ fn open_create_dialog_impl(
             &settings_run,
             &rt_run,
             job,
-            model_value,
+            effective_model,
         ) {
             d.end_modal(ID_AUDIO_DESCRIPTION_CLOSE);
         }
@@ -7050,7 +7103,9 @@ fn audio_description_job_from_project(
         } else {
             String::new()
         },
-        gemini_model: if settings.audio_description_gemini_model.trim().is_empty() {
+        gemini_model: if use_sonarpad_ai {
+            SONARPAD_AI_FORCED_GEMINI_MODEL.to_string()
+        } else if settings.audio_description_gemini_model.trim().is_empty() {
             project.gemini_model.clone()
         } else {
             settings.audio_description_gemini_model.clone()
