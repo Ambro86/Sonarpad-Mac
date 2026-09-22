@@ -1,6 +1,6 @@
 Changelog
 
-Versione 0.5.0 - 16 settembre 2026
+Versione 0.5.0 - 22 settembre 2026
 
 Audiodescrizioni, Strumenti e conversione batch
 
@@ -56,6 +56,10 @@ Audiodescrizioni, Strumenti e conversione batch
 25. Nel player multimediale sono state aggiunte le scorciatoie Home e Fine: Home, oppure Fn + Freccia sinistra sui MacBook, porta all’inizio del file; Fine, oppure Fn + Freccia destra, porta a 5 secondi dalla fine. Le normali frecce sinistra e destra continuano a usare il salto configurato.
 
 26. Aggiunta la funzione “Audiodescrizioni Sonarpad”, disponibile dal menu Strumenti > Multimedia per ascoltare e scaricare i film audiodescritti con Sonarpad. La finestra permette di cercare nell’intero catalogo, consultare le audiodescrizioni più recenti e aprire “Tutte le audiodescrizioni” con navigazione per cartelle. La funzione è disponibile quando è configurato il codice Sonarpad per le funzionalità aggiuntive.
+
+27. Nei “Recenti” di Audiodescrizioni Sonarpad viene ora rispettato il raggruppamento del catalogo per cartelle, come su Windows e mobile: una serie con molte puntate recenti compare come una sola cartella, che può essere aperta per visualizzare gli episodi al suo interno.
+
+28. In Audiodescrizioni Sonarpad, quando un film o una puntata dispone di una trama nel catalogo, VoiceOver la legge subito dopo il titolo, come nella versione Windows. Nei Recenti la data resta annunciata dopo la trama.
 
 Versione 0.4.0 - 3 settembre 2026
 

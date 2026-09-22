@@ -116,6 +116,15 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('sonarpad_request_code', AUDIO)
         self.assertIn('sonarpad_show_code', AUDIO)
 
+    def test_video_without_audio_uses_silent_source_track_without_touching_normal_path(self):
+        decode_start = AUDIO.index("fn decode_source_audio(")
+        decode_end = AUDIO.index("fn create_pyannote_wav", decode_start)
+        decode = AUDIO[decode_start:decode_end]
+        self.assertIn("if !probe.has_audio", decode)
+        self.assertIn("write_silent_source_wav(wav, probe.duration_sec)?;", decode)
+        self.assertIn("audio_description.source has_audio=false; using silent source track", decode)
+        self.assertLess(decode.index("if !probe.has_audio"), decode.index("run_ffmpeg(&args, cancel)?;"))
+
     def test_multichannel_audio_is_downmixed_to_stereo_before_mp3_export(self):
         decode_start = AUDIO.index("fn decode_source_audio(")
         decode_end = AUDIO.index("fn create_pyannote_wav", decode_start)

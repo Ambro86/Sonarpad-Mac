@@ -1,6 +1,6 @@
 Journal des nouveautés
 
-Version 0.5.0 - 16 septembre 2026
+Version 0.5.0 - 22 septembre 2026
 
 Audiodescription, Outils et conversion par lots
 

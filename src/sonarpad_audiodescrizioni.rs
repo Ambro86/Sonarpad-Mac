@@ -22,6 +22,8 @@ pub(crate) struct CatalogItem {
     #[serde(default)]
     pub(crate) download_filename: String,
     #[serde(default)]
+    pub(crate) plot: String,
+    #[serde(default)]
     pub(crate) download_url: String,
     #[serde(default)]
     pub(crate) stream_url: Option<String>,
@@ -106,10 +108,10 @@ struct ApiResponse {
 }
 
 pub(crate) fn load_recent_catalog() -> Result<Vec<CatalogItem>, String> {
-    request_catalog("recent", None, None, Some("recent")).map(|items| {
+    request_catalog("recent", None, None, Some("recent"), true).map(|items| {
         items
             .into_iter()
-            .filter(CatalogItem::is_playable_file)
+            .filter(CatalogItem::is_catalog_entry)
             .collect()
     })
 }
@@ -119,7 +121,7 @@ pub(crate) fn search_catalog(query: &str) -> Result<Vec<CatalogItem>, String> {
     if query.is_empty() {
         return Err("Inserisci un testo da cercare nelle audiodescrizioni Sonarpad.".to_string());
     }
-    request_catalog("search", Some(query), None, Some("alpha")).map(|items| {
+    request_catalog("search", Some(query), None, Some("alpha"), false).map(|items| {
         items
             .into_iter()
             .filter(CatalogItem::is_playable_file)
@@ -135,6 +137,7 @@ pub(crate) fn load_folder_catalog(folder: &str) -> Result<Vec<CatalogItem>, Stri
         None,
         (!folder.is_empty()).then_some(folder),
         Some("alpha"),
+        false,
     )
     .map(|items| {
         items
@@ -149,6 +152,7 @@ fn request_catalog(
     query: Option<&str>,
     folder: Option<&str>,
     sort: Option<&str>,
+    group_recent_folders: bool,
 ) -> Result<Vec<CatalogItem>, String> {
     let code = crate::load_saved_rai_luce_code()
         .map(|value| value.trim().to_string())
@@ -172,6 +176,9 @@ fn request_catalog(
     }
     if let Some(sort) = sort.map(str::trim).filter(|value| !value.is_empty()) {
         body["sort"] = serde_json::Value::String(sort.to_string());
+    }
+    if group_recent_folders {
+        body["group_recent_folders"] = serde_json::Value::Bool(true);
     }
 
     let authorization = format!("X-Sonarpad-Password: {code}");
@@ -206,6 +213,18 @@ mod tests {
     use super::CatalogItem;
 
     #[test]
+    fn catalog_item_deserializes_plot() {
+        let item: CatalogItem = serde_json::from_value(serde_json::json!({
+            "type": "file",
+            "title": "Titolo",
+            "plot": "Una trama di prova."
+        }))
+        .expect("catalog item");
+
+        assert_eq!(item.plot, "Una trama di prova.");
+    }
+
+    #[test]
     fn suggested_download_name_prefers_server_filename() {
         let item = CatalogItem {
             item_type: "file".to_string(),
@@ -215,6 +234,7 @@ mod tests {
             modified_timestamp: 0,
             filename: "origine.mp4".to_string(),
             download_filename: "film.mp4".to_string(),
+            plot: String::new(),
             download_url: String::new(),
             stream_url: Some("https://example.invalid/stream".to_string()),
         };

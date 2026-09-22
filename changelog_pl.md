@@ -1,6 +1,6 @@
 Lista zmian
 
-Wersja 0.5.0 - 16 września 2026
+Wersja 0.5.0 - 22 września 2026
 
 Audiodeskrypcja, Narzędzia i konwersja wsadowa
 

@@ -10896,7 +10896,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
 const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.4.0 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.0 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {
@@ -17557,12 +17557,24 @@ fn update_choice_button_visibility(dialog: &Dialog, panel: &Panel, button: &Butt
 
 
 fn sonarpad_audio_item_label(item: &sonarpad_audiodescrizioni::CatalogItem) -> String {
-    let date = item.date_label();
-    if date.is_empty() {
-        item.title.clone()
+    let title = item.title.trim();
+    let mut parts = vec![if title.is_empty() {
+        "Audiodescrizione Sonarpad".to_string()
     } else {
-        format!("{} - {}", item.title, date)
+        title.to_string()
+    }];
+
+    let plot = item.plot.trim();
+    if !plot.is_empty() {
+        parts.push(format!("Trama: {plot}"));
     }
+
+    let date = item.date_label();
+    if !date.is_empty() {
+        parts.push(date);
+    }
+
+    parts.join(" - ")
 }
 
 fn open_sonarpad_audio_descriptions_dialog(parent: &Frame) {
@@ -17612,7 +17624,11 @@ fn open_sonarpad_audio_recent_dialog(
 
     let choice = Choice::builder(&panel).build();
     for item in items {
-        choice.append(&sonarpad_audio_item_label(item));
+        if item.is_folder() {
+            choice.append(&format!("{} - cartella", item.title));
+        } else {
+            choice.append(&sonarpad_audio_item_label(item));
+        }
     }
     choice.set_selection(0);
     root.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 8);
@@ -17637,6 +17653,9 @@ fn open_sonarpad_audio_recent_dialog(
     dialog.set_escape_id(ID_CANCEL);
 
     let items = Rc::new(items.to_vec());
+    let first_is_file = items.first().is_some_and(|item| !item.is_folder());
+    update_choice_button_visibility(&dialog, &panel, &save_button, first_is_file);
+
     let choice_open = choice;
     let dialog_open = dialog;
     let items_open = Rc::clone(&items);
@@ -17644,7 +17663,19 @@ fn open_sonarpad_audio_recent_dialog(
         if let Some(sel) = choice_open.get_selection()
             && let Some(item) = items_open.get(sel as usize)
         {
-            open_sonarpad_audio_item(&dialog_open, item);
+            if item.is_folder() {
+                open_sonarpad_audio_folder_dialog(
+                    &dialog_open,
+                    item.path.clone(),
+                    if item.title.trim().is_empty() {
+                        "Audiodescrizioni Sonarpad".to_string()
+                    } else {
+                        item.title.clone()
+                    },
+                );
+            } else {
+                open_sonarpad_audio_item(&dialog_open, item);
+            }
         }
     });
 
@@ -17654,6 +17685,7 @@ fn open_sonarpad_audio_recent_dialog(
     save_button.on_click(move |_| {
         if let Some(sel) = choice_save.get_selection()
             && let Some(item) = items_save.get(sel as usize)
+            && !item.is_folder()
         {
             match save_sonarpad_direct_media(&dialog_save, item) {
                 Ok(true) => show_message_subdialog(
@@ -17670,6 +17702,24 @@ fn open_sonarpad_audio_recent_dialog(
             }
             choice_save.set_focus();
         }
+    });
+
+    let choice_visibility = choice;
+    let dialog_visibility = dialog;
+    let panel_visibility = panel;
+    let save_button_visibility = save_button;
+    let items_visibility = Rc::clone(&items);
+    choice.on_selection_changed(move |_| {
+        let visible = choice_visibility
+            .get_selection()
+            .and_then(|sel| items_visibility.get(sel as usize))
+            .is_some_and(|item| !item.is_folder());
+        update_choice_button_visibility(
+            &dialog_visibility,
+            &panel_visibility,
+            &save_button_visibility,
+            visible,
+        );
     });
 
     let dialog_all = dialog;

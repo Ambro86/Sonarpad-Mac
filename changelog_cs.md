@@ -1,6 +1,6 @@
 Seznam změn
 
-Verze 0.5.0 - 16. září 2026
+Verze 0.5.0 - 22. září 2026
 
 Audiopopis, Nástroje a dávkový převod
 
