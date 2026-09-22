@@ -17625,7 +17625,12 @@ fn open_sonarpad_audio_recent_dialog(
     let choice = Choice::builder(&panel).build();
     for item in items {
         if item.is_folder() {
-            choice.append(&format!("{} - cartella", item.title));
+            let plot = item.plot.trim();
+            if plot.is_empty() {
+                choice.append(&format!("{} - cartella", item.title));
+            } else {
+                choice.append(&format!("{} - cartella - Trama: {plot}", item.title));
+            }
         } else {
             choice.append(&sonarpad_audio_item_label(item));
         }
@@ -17804,7 +17809,12 @@ fn open_sonarpad_audio_folder_dialog(parent: &Dialog, folder: String, title: Str
     let choice = Choice::builder(&panel).build();
     for item in &items {
         if item.is_folder() {
-            choice.append(&format!("{} - cartella", item.title));
+            let plot = item.plot.trim();
+            if plot.is_empty() {
+                choice.append(&format!("{} - cartella", item.title));
+            } else {
+                choice.append(&format!("{} - cartella - Trama: {plot}", item.title));
+            }
         } else {
             choice.append(&sonarpad_audio_item_label(item));
         }

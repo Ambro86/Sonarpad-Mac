@@ -57,9 +57,13 @@ Audiodescrizioni, Strumenti e conversione batch
 
 26. Aggiunta la funzione “Audiodescrizioni Sonarpad”, disponibile dal menu Strumenti > Multimedia per ascoltare e scaricare i film audiodescritti con Sonarpad. La finestra permette di cercare nell’intero catalogo, consultare le audiodescrizioni più recenti e aprire “Tutte le audiodescrizioni” con navigazione per cartelle. La funzione è disponibile quando è configurato il codice Sonarpad per le funzionalità aggiuntive.
 
+Per questa funzione ringrazio Nicolò La Ferla, che mi ha fornito lo spazio dove conservare i film audiodescritti e Chiara Schiroli, che gestisce quotidianamente il gruppo dove vengono condivise le audiodescrizioni.
+
 27. Nei “Recenti” di Audiodescrizioni Sonarpad viene ora rispettato il raggruppamento del catalogo per cartelle, come su Windows e mobile: una serie con molte puntate recenti compare come una sola cartella, che può essere aperta per visualizzare gli episodi al suo interno.
 
 28. In Audiodescrizioni Sonarpad, quando un film o una puntata dispone di una trama nel catalogo, VoiceOver la legge subito dopo il titolo, come nella versione Windows. Nei Recenti la data resta annunciata dopo la trama.
+
+29. In Audiodescrizioni Sonarpad, se anche una cartella del catalogo dispone di una trama, VoiceOver la legge dopo l’annuncio “cartella”, ad esempio “Il Trono di Spade - cartella - Trama: …”.
 
 Versione 0.4.0 - 3 settembre 2026
 
