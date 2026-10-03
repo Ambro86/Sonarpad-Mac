@@ -23492,7 +23492,7 @@ fn refresh_tv_channel_choice(
         guide_button.enable(
             channels
                 .get(first_index)
-                .is_some_and(|channel| channel.has_guide && !channel.programs.is_empty()),
+                .is_some_and(|channel| channel.has_guide),
         );
     } else {
         choice.show(false);
@@ -23531,18 +23531,18 @@ fn tv_channel_indices_for_search(channels: &[tv::TvChannel], query: &str) -> Vec
 }
 
 fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
-    let Some(guide_channel) = channel.guide_channel.as_deref() else {
+    if !channel.has_guide {
         show_message_subdialog(
             parent,
             &current_ui_strings().tv_label,
             tv_guide_unavailable_message(),
         );
         return;
-    };
+    }
     let title = tv_guide_window_title(&channel.name);
     let day_labels = tv_guide_day_labels();
     let initial_programs =
-        tv::load_channel_guide(guide_channel, 0).unwrap_or_else(|_| channel.programs.clone());
+        tv::load_channel_guide(channel, 0).unwrap_or_else(|_| channel.programs.clone());
     let dialog = Dialog::builder(parent, &title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(700, 470)
@@ -23623,12 +23623,12 @@ fn open_tv_guide_dialog(parent: &Dialog, channel: &tv::TvChannel) {
     let program_choice_day = program_choice;
     let plot_text_day = plot_text;
     let current_programs_day = Rc::clone(&current_programs);
-    let guide_channel_day = guide_channel.to_string();
+    let channel_day = channel.clone();
     day_choice.on_selection_changed(move |_| {
         if let Some(sel) = day_choice.get_selection()
             && let Some((_, offset)) = day_labels.get(sel as usize)
         {
-            match tv::load_channel_guide(&guide_channel_day, *offset) {
+            match tv::load_channel_guide(&channel_day, *offset) {
                 Ok(programs) => {
                     refresh_tv_guide_programs(&program_choice_day, &plot_text_day, &programs);
                     *current_programs_day.borrow_mut() = programs;
@@ -24110,8 +24110,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             category_choice_visibility.set_selection(category_index as u32);
             programmatic_category_change.set(false);
         }
-        let has_guide = selected_channel
-            .is_some_and(|channel| channel.has_guide && !channel.programs.is_empty());
+        let has_guide = selected_channel.is_some_and(|channel| channel.has_guide);
         guide_button_visibility.enable(has_guide);
     });
     let choice_open = choice;
