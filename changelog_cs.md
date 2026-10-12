@@ -2,19 +2,23 @@ Seznam změn
 
 Verze 0.5.2 - 12. října 2026
 
-Spolehlivost Edge a obnova audiopopisů
+Hlasy Edge, audiopopisy a spolehlivost
 
-Do verze pro Mac byly přeneseny ochrany Edge z mobilní a windowsové verze při zachování osmi souběžných syntéz audiopopisu. Dočasné chyby včetně HTTP 403, omezení služby a výpadků sítě opakují pouze dotčený blok; čekání lze zrušit a respektuje Retry-After. Dokončené věty se neopakují.
+1. Novější připojení Edge. Sonarpad nyní nejprve vyzkouší novou službu Microsoft Edge, která při testování úspěšně vytvořila zvuk. Pokud není dostupná, automaticky použije původní připojení, aniž by změnil zvolený hlas.
 
-Posíleny kontroly prázdného, neúplného, poškozeného nebo tichého audia, přijatých rámců a limitů UTF-8 po escapování XML. Pro litevské hlasy bylo přidáno adaptivní dělení, pokud je audio podezřele krátké. Věta vyprázdněná hlasovým slovníkem se přeskočí bez zastavení ostatních; prázdné audio pro platný text se vytvoří znovu. Zlepšeno rušení, ukázky a čtení. Audioknihy obnovují dočasné chyby až do zastavení, uchovávají platné bloky a cílový soubor nahrazují teprve po dokončení; mezipaměť čtení se používá pouze kompletní.
+2. Méně přerušení. Pokud Edge vrátí chybu HTTP 403, přeruší spojení nebo dočasně odmítne požadavek, Sonarpad se pokusí pokračovat automaticky. Při omezení HTTP 429 počká déle a dodrží dobu určenou Microsoftem. Zastavit nebo Zrušit lze kdykoli.
 
-Přeneseny záložní postupy Windows pro neočekávanou strukturu JSON a Sonarpad AI: na probíhající generování se čeká se stejným idempotentním klíčem, bez spuštění dalšího. Dočasné chyby a vypršené relace mají omezenou obnovu; úklid nahraných souborů obnoví neplatnou relaci jen jednou. Souhlas s čekáním při přetížení Gemini platí pro aktuální požadavek. Zavření kanálu bridge při zastavení již nevyvolává vedlejší chyby.
+3. Úplné věty bez začínání od začátku. Sonarpad přijme zvuk až po potvrzení konce (`turn.end`). Prázdný, uříznutý nebo poškozený záznam zahodí a zopakuje pouze danou část. Hotové části audioknihy zůstávají zachovány a audiopopisy dál využívají až osm souběžných syntéz. Zlepšily se také kontroly litevských hlasů, slovníku výslovnosti a delších textů.
 
-Opakované počáteční posuny nebo několik chybných údajů o délce se opravují až po selhání běžné časové osy a opravy malého driftu, se stejnými konzervativními limity jako ve Windows. Pokud časová osa zůstane neplatná, vytvoří se normalizovaná kopie videa vázaná na zdroj a vybranou zvukovou stopu a běžný postup se jednou restartuje. Kontrolní body se ověřují vůči zdroji a stopě. Pokud nelze zapsat hlavičku segmentů se zvukem, zkusí se pro Gemini kopie pouze videa; analýza dialogů dál používá původní zvuk.
+4. Srozumitelnější diagnostika. V záznamu je vidět, zda zvuk skutečně vytvořilo nové připojení Edge, nebo starší záložní služba. Samotné navázání spojení se nepovažuje za úspěšnou syntézu.
 
-Přidána izolovaná obnova poškozeného zvuku pomocí přiloženého FFmpeg: opakované chyby již neblokují diagnostický výstup; platné části zůstávají zachovány, přeskoky a vložené ticho jsou omezeny a neúplné výsledky odmítnuty. Běžné dekódování se nemění.
+5. Pohodlnější zkoušení hlasů. Spuštění nové zkoušky hlasu audiopopisu ukončí tu předchozí; zavření nastavení zastaví právě běžící zkoušku. Zlepšilo se i obnovení čtení a ověřování zvuku před přehráváním.
 
-Pokud nelze vložit žádný popis, nabídne se druhý pokus Stručně se stejnou ochranou tichých intervalů. Jestliže již byla zvolena stručná varianta, analýza se zbytečně neopakuje. Až po samostatném výslovném souhlasu může poslední záložní postup znovu použít uložené stručné popisy a povolit překrytí dialogů se ztlumením původního zvuku, bez dalšího požadavku Gemini. Prompty, Pyannote, zarovnání a běžná pipeline zůstávají beze změn.
+6. Spolehlivější audiopopisy. Sonarpad lépe zpracovává nečekané odpovědi Gemini a neplatné relace. Pokud už generování Sonarpad AI probíhá, počká na výsledek místo spuštění druhého požadavku. Zrušení již nezpůsobuje matoucí chyby.
+
+7. Pomoc s problematickými videi. Pokud časové značky neodpovídají, Sonarpad provede opatrné opravy až tehdy, když běžné zpracování selže. V obtížnějších případech může připravit kopii pro analýzu a zachovat původní zvuk dialogů. Poškozený zvuk lze někdy zachránit pomocí FFmpeg.
+
+8. Další možnost, když se popisy nevejdou. Pokud se žádný popis nevejde do dostupných pauz, Sonarpad může nabídnout další pokus v režimu Stručný. Teprve po samostatném výslovném souhlasu může mluvit přes dialogy a ztlumit původní zvuk. Běžná analýza zůstává beze změny.
 
 Verze 0.5.0 - 22. září 2026
 

@@ -2,19 +2,23 @@ Journal des nouveautés
 
 Version 0.5.2 - 12 octobre 2026
 
-Fiabilité Edge et récupération des audiodescriptions
+Voix Edge, audiodescriptions et fiabilité
 
-Portage sur Mac des protections Edge des versions mobile et Windows, en conservant huit synthèses simultanées pour les audiodescriptions. Les erreurs temporaires, dont HTTP 403, les limites du service et les coupures réseau, relancent uniquement le bloc concerné avec des attentes annulables et le respect de Retry-After. Les phrases terminées ne sont pas répétées.
+1. Une connexion Edge plus récente. Sonarpad essaie d'abord le nouveau service Microsoft Edge, qui a bien produit de l'audio lors des tests. S'il n'est pas disponible, l'ancienne connexion prend le relais, sans changer la voix choisie.
 
-Contrôles renforcés des données audio vides, tronquées, corrompues ou silencieuses, des trames reçues et des limites UTF-8 après échappement XML. Découpage adaptatif ajouté pour les voix lituaniennes lorsque l’audio est anormalement court. Une phrase vidée par le dictionnaire vocal est ignorée sans arrêter les autres ; un audio vide pour un texte valide est régénéré. Annulation, aperçus et lecture améliorés. Les livres audio récupèrent les erreurs temporaires jusqu’à Arrêter, conservent les blocs valides et remplacent le fichier final seulement après achèvement ; le cache de lecture n’est réutilisé que s’il est complet.
+2. Moins d'interruptions. En cas d'erreur HTTP 403, de coupure ou de refus temporaire, Sonarpad tente de reprendre automatiquement. Lors d'une limitation HTTP 429, il attend davantage et respecte le délai indiqué par Microsoft. Arrêter et Annuler restent disponibles.
 
-Portage des solutions de repli Windows pour les structures JSON inattendues et Sonarpad AI : une génération en cours est attendue avec la même clé d’idempotence, sans en lancer une autre. La récupération des erreurs temporaires et des sessions expirées est limitée ; le nettoyage des envois ne renouvelle une session invalide qu’une fois. Le consentement à attendre après une surcharge Gemini s’applique à la requête courante. La fermeture du canal du bridge lors de l’arrêt ne produit plus d’erreurs parasites.
+3. Des phrases complètes sans tout recommencer. Sonarpad attend le signal de fin (`turn.end`) avant d'accepter l'audio. Si un extrait est vide, coupé ou abîmé, seule cette partie est régénérée. Les passages déjà terminés d'un livre audio sont conservés et les audiodescriptions utilisent toujours jusqu'à huit synthèses simultanées. Les voix lituaniennes, le dictionnaire de prononciation et les textes longs bénéficient aussi de vérifications renforcées.
 
-Les décalages initiaux répétés et quelques durées de conteneur anormales ne sont corrigés qu’après l’échec de la chronologie normale et du petit ajustement de dérive, avec les mêmes limites prudentes que Windows. Si la chronologie reste invalide, une copie vidéo normalisée liée à la source et à la piste choisie est créée, puis la procédure normale redémarre une seule fois. Les points de reprise sont vérifiés par rapport à la source et à la piste. Si l’en-tête des segments avec audio ne peut pas être écrit, une copie vidéo seule est essayée pour Gemini ; la bande sonore originale reste utilisée pour analyser les dialogues.
+4. Un diagnostic plus clair. Les journaux indiquent quelle connexion Edge a réellement fourni l'audio : la nouvelle ou l'ancienne. Une connexion ouverte ne signifie plus à elle seule que la synthèse a réussi.
 
-Ajout d’une récupération isolée de l’audio endommagé avec FFmpeg inclus : les erreurs répétées ne bloquent plus la sortie de diagnostic ; les portions valides sont conservées, les sauts et le silence ajouté sont limités et les résultats incomplets sont refusés. Le décodage normal reste identique.
+5. Des essais de voix plus simples. Lancer un nouvel essai pour une audiodescription arrête le précédent ; fermer les réglages interrompt l'essai en cours. La reprise de la lecture et la vérification du son avant écoute ont également été améliorées.
 
-Si aucune description ne peut être placée, un second essai Bref est proposé avec les mêmes contraintes de silence. Si Bref était déjà choisi, l’analyse redondante est évitée. Uniquement après un consentement explicite distinct, le dernier recours réutilise les descriptions brèves du point de reprise en autorisant un chevauchement des dialogues avec atténuation sonore, sans nouvelle requête Gemini. Les instructions, Pyannote, l’alignement et la procédure ordinaire restent inchangés.
+6. Des audiodescriptions plus robustes. Sonarpad gère mieux certaines réponses inattendues de Gemini et les sessions expirées. Si une génération Sonarpad AI est déjà en cours, il attend son résultat sans la lancer une deuxième fois. L'annulation ne provoque plus de fausses erreurs.
+
+7. Une aide pour les vidéos difficiles. En cas d'horodatages irréguliers, Sonarpad n'essaie de petites réparations que si le traitement normal échoue. Pour les fichiers complexes, une copie adaptée à l'analyse peut être préparée tout en gardant la piste originale des dialogues. FFmpeg peut aussi récupérer certains sons endommagés.
+
+8. Une solution de plus lorsque les descriptions ne tiennent pas. Si aucune description ne peut être placée dans les pauses, Sonarpad peut proposer un nouvel essai Bref. Une lecture par-dessus les dialogues, avec baisse du volume original, demande un accord explicite supplémentaire. L'analyse habituelle reste inchangée.
 
 Version 0.5.0 - 22 septembre 2026
 

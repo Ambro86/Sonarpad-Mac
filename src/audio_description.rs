@@ -17,7 +17,7 @@ use std::fs;
 use std::io::{Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 use std::rc::Rc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, mpsc};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -5514,6 +5514,8 @@ fn open_audio_description_voice_settings(
         );
     });
 
+    let voice_preview_generation = Arc::new(AtomicU64::new(0));
+    let voice_preview_generation_click = Arc::clone(&voice_preview_generation);
     let active_test = active_voices.clone();
     let rates_test = rate_items.clone();
     let volumes_test = volume_items.clone();
@@ -5542,6 +5544,7 @@ fn open_audio_description_voice_settings(
             rate_value,
             preview_pitch,
             volume_value,
+            Arc::clone(&voice_preview_generation_click),
         );
     });
 
@@ -5584,6 +5587,7 @@ fn open_audio_description_voice_settings(
 
     engine.set_focus();
     let modal_result = d.show_modal();
+    voice_preview_generation.fetch_add(1, Ordering::Relaxed);
     let selected = if modal_result == ID_OK {
         result.borrow().clone()
     } else {

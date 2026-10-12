@@ -31,8 +31,61 @@ const EDGE_TTS_TURN_TIMEOUT: Duration = Duration::from_secs(60);
 const EDGE_TTS_CANCEL_POLL: Duration = Duration::from_millis(100);
 const EDGE_TTS_MIN_AUDIO_BYTES: usize = 1000;
 const EDGE_TTS_MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
-const EDGE_TTS_CLIENT_VERSION: &str = "1-132.0.2917.39";
-const EDGE_TTS_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0";
+// Edge 155 is the primary read-aloud service. Sonarpad Windows confirmed
+// the v1-compatible signature by receiving complete MP3 audio from it.
+// Keep the earlier endpoint as a working fallback, not as another pipeline.
+const EDGE_TTS_MODERN_WSS_URL: &str =
+    "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1";
+const EDGE_TTS_MODERN_CLIENT_VERSION: &str = "1-155.0.4283.45";
+const EDGE_TTS_LEGACY_CLIENT_VERSION: &str = "1-132.0.2917.39";
+const EDGE_TTS_MODERN_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0";
+const EDGE_TTS_LEGACY_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0";
+// The old voices/list endpoint is retained to avoid unrelated behavior changes.
+const EDGE_TTS_USER_AGENT: &str = EDGE_TTS_LEGACY_USER_AGENT;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum EdgeEndpoint {
+    Modern,
+    Legacy,
+}
+
+impl EdgeEndpoint {
+    fn label(self) -> &'static str {
+        match self {
+            Self::Modern => "Edge 155 (api.msedgeservices.com)",
+            Self::Legacy => "legacy (speech.platform.bing.com)",
+        }
+    }
+
+    fn url(self) -> &'static str {
+        match self {
+            Self::Modern => EDGE_TTS_MODERN_WSS_URL,
+            Self::Legacy => WSS_URL_BASE,
+        }
+    }
+
+    fn query_key(self) -> &'static str {
+        match self {
+            Self::Modern => "Ocp-Apim-Subscription-Key",
+            Self::Legacy => "TrustedClientToken",
+        }
+    }
+
+    fn client_version(self) -> &'static str {
+        match self {
+            Self::Modern => EDGE_TTS_MODERN_CLIENT_VERSION,
+            Self::Legacy => EDGE_TTS_LEGACY_CLIENT_VERSION,
+        }
+    }
+
+    fn user_agent(self) -> &'static str {
+        match self {
+            Self::Modern => EDGE_TTS_MODERN_USER_AGENT,
+            Self::Legacy => EDGE_TTS_LEGACY_USER_AGENT,
+        }
+    }
+}
+
 
 // The service's authenticated Date header can correct a local clock skew.
 // Reconnect normally with a new request; never modify a caller's system clock.
@@ -58,6 +111,7 @@ pub struct VoiceInfo {
 struct EdgeHttpFailure {
     status: u16,
     retry_after: Option<Duration>,
+    endpoint: EdgeEndpoint,
 }
 
 impl fmt::Display for EdgeHttpFailure {
@@ -69,7 +123,7 @@ impl fmt::Display for EdgeHttpFailure {
         write!(
             f,
             "Edge TTS HTTP {} {} endpoint={}",
-            self.status, status, WSS_URL_BASE
+            self.status, status, self.endpoint.label()
         )
     }
 }
@@ -211,10 +265,15 @@ fn is_transient_io_error(error: &std::io::Error) -> bool {
     ) || is_transient_edge_message(&error.to_string())
 }
 
-// Same persistent-reading backoff as mobile. A Retry-After response is a
-// minimum requested by the server and therefore may exceed the normal 2s cap.
+// Normal connection errors retain the existing quick retry. HTTP 429 uses
+// a slower 5–60 second backoff; Retry-After is always a minimum wait.
 pub fn edge_retry_delay(error: &anyhow::Error, retry: usize) -> Duration {
     let message = format!("{error:#}").to_lowercase();
+    if is_edge_rate_limited(error) {
+        // Respect throttling instead of hammering Microsoft: 5, 10, ... 60s.
+        let delay = Duration::from_secs((retry.min(12) as u64 * 5).min(60));
+        return with_server_retry_after(error, delay);
+    }
     let fast = [
         "403",
         "os error 10054",
@@ -230,9 +289,26 @@ pub fn edge_retry_delay(error: &anyhow::Error, retry: usize) -> Duration {
 }
 
 fn bounded_edge_retry_delay(error: &anyhow::Error, retry: usize) -> Duration {
-    // The mobile preview/export path uses 400, 800, 1200, 1600 and 2000ms.
+    // Preview/export keeps its previous short waits unless the server
+    // explicitly rate-limits us (HTTP 429).
+    if is_edge_rate_limited(error) {
+        return edge_retry_delay(error, retry);
+    }
     let delay = Duration::from_millis((retry.min(5) as u64 * 400).min(2_000));
     with_server_retry_after(error, delay)
+}
+
+fn is_edge_rate_limited(error: &anyhow::Error) -> bool {
+    for cause in error.chain() {
+        if let Some(failure) = cause.downcast_ref::<EdgeHttpFailure>() {
+            return failure.status == 429;
+        }
+        if let Some(tungstenite::Error::Http(response)) = cause.downcast_ref::<tungstenite::Error>() {
+            return response.status().as_u16() == 429;
+        }
+    }
+    let message = format!("{error:#}").to_lowercase();
+    message.contains("429") || message.contains("too many requests")
 }
 
 fn with_server_retry_after(error: &anyhow::Error, delay: Duration) -> Duration {
@@ -430,6 +506,7 @@ pub struct EdgeRealtimeSession {
     // A 403 in a reused reading session switches the remaining reading to
     // fresh connections, matching Windows without resending completed chunks.
     fresh_for_each_chunk: bool,
+    endpoint: EdgeEndpoint,
 }
 
 fn format_rate(rate: i32) -> String {
@@ -445,15 +522,20 @@ fn format_volume(volume: i32) -> String {
     format!("{:+}%", delta)
 }
 
-async fn connect_edge_socket() -> Result<EdgeSocket> {
-    let connection_id = Uuid::new_v4().simple().to_string().to_uppercase();
+// Only the endpoint name/status are logged; never expose a GEC, subscription
+// key, cookie, connection id or a full WebSocket URL in diagnostics.
+fn edge_socket_request(
+    endpoint: EdgeEndpoint,
+    connection_id: &str,
+) -> Result<tungstenite::http::Request<()>> {
     let url = format!(
-        "{}?TrustedClientToken={}&ConnectionId={}&Sec-MS-GEC={}&Sec-MS-GEC-Version={}",
-        WSS_URL_BASE,
+        "{}?{}={}&ConnectionId={}&Sec-MS-GEC={}&Sec-MS-GEC-Version={}",
+        endpoint.url(),
+        endpoint.query_key(),
         TRUSTED_CLIENT_TOKEN,
         connection_id,
         generate_sec_ms_gec(),
-        EDGE_TTS_CLIENT_VERSION
+        endpoint.client_version()
     );
     let mut request = url.as_str().into_client_request()?;
     let headers = request.headers_mut();
@@ -463,22 +545,79 @@ async fn connect_edge_socket() -> Result<EdgeSocket> {
         "Origin",
         HeaderValue::from_static("chrome-extension://jdiccldimpdaibmpdkjnbmckianbfold"),
     );
-    headers.insert("User-Agent", HeaderValue::from_static(EDGE_TTS_USER_AGENT));
+    headers.insert("User-Agent", HeaderValue::from_static(endpoint.user_agent()));
+    headers.insert("Accept-Encoding", HeaderValue::from_static("gzip, deflate, br"));
+    headers.insert("Accept-Language", HeaderValue::from_static("en-US,en;q=0.9"));
     headers.insert(
         "Cookie",
         HeaderValue::from_str(&format!("muid={};", generate_muid()))?,
     );
+    Ok(request)
+}
 
+async fn connect_edge_socket_route(endpoint: EdgeEndpoint) -> Result<EdgeSocket> {
+    let connection_id = Uuid::new_v4().simple().to_string().to_uppercase();
+    let request = edge_socket_request(endpoint, &connection_id)?;
     match tokio::time::timeout(EDGE_TTS_CONNECT_TIMEOUT, connect_async(request)).await {
-        Ok(Ok((socket, _))) => Ok(socket),
-        Ok(Err(error)) => Err(map_connect_error(error)),
-        Err(_) => Err(anyhow!(
-            "Edge WebSocket connect timeout endpoint={WSS_URL_BASE}"
-        )),
+        Ok(Ok((socket, _response))) => Ok(socket),
+        Ok(Err(error)) => Err(map_connect_error_for_endpoint(error, endpoint)),
+        Err(_) => Err(anyhow!("Edge WebSocket connect timeout endpoint={}", endpoint.label())),
     }
 }
 
-fn map_connect_error(error: tungstenite::Error) -> anyhow::Error {
+async fn connect_edge_socket() -> Result<(EdgeSocket, EdgeEndpoint)> {
+    match connect_edge_socket_route(EdgeEndpoint::Modern).await {
+        Ok(socket) => {
+            crate::append_podcast_log(&format!(
+                "Edge TTS: WebSocket connected (HTTP 101), endpoint={} [PRIMARY]",
+                EdgeEndpoint::Modern.label()
+            ));
+            Ok((socket, EdgeEndpoint::Modern))
+        }
+        Err(primary_error) => {
+            crate::append_podcast_log(&format!(
+                "Edge TTS: primary endpoint={} failed: {}; trying fallback={}",
+                EdgeEndpoint::Modern.label(), primary_error, EdgeEndpoint::Legacy.label()
+            ));
+            match connect_edge_socket_route(EdgeEndpoint::Legacy).await {
+                Ok(socket) => {
+                    crate::append_podcast_log(&format!(
+                        "Edge TTS: WebSocket connected (HTTP 101), endpoint={} [FALLBACK]",
+                        EdgeEndpoint::Legacy.label()
+                    ));
+                    Ok((socket, EdgeEndpoint::Legacy))
+                }
+                Err(fallback_error) => {
+                    crate::append_podcast_log(&format!(
+                        "Edge TTS: both endpoints failed: primary={} error={}; fallback={} error={}",
+                        EdgeEndpoint::Modern.label(), primary_error,
+                        EdgeEndpoint::Legacy.label(), fallback_error
+                    ));
+                    // Preserve structured Retry-After and error classification.
+                    // In particular, do not lose a rate limit from the primary
+                    // endpoint just because the legacy handshake also failed.
+                    if is_edge_rate_limited(&primary_error)
+                        && !is_edge_rate_limited(&fallback_error)
+                        && is_transient_edge_error(&fallback_error)
+                    {
+                        Err(primary_error)
+                    } else if is_transient_edge_error(&fallback_error) {
+                        Err(fallback_error)
+                    } else if is_transient_edge_error(&primary_error) {
+                        Err(primary_error)
+                    } else {
+                        Err(fallback_error)
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn map_connect_error_for_endpoint(
+    error: tungstenite::Error,
+    endpoint: EdgeEndpoint,
+) -> anyhow::Error {
     if let tungstenite::Error::Http(response) = error {
         let status = response.status().as_u16();
         if status == 403
@@ -492,9 +631,7 @@ fn map_connect_error(error: tungstenite::Error) -> anyhow::Error {
             let previous = EDGE_TTS_CLOCK_OFFSET_SECONDS.swap(offset, Ordering::Relaxed);
             crate::append_podcast_log(&format!(
                 "edge_tts.clock_sync status=403 offset_seconds={} changed={} endpoint={}",
-                offset,
-                previous != offset,
-                WSS_URL_BASE
+                offset, previous != offset, endpoint.label()
             ));
         }
         let retry_after = response
@@ -505,12 +642,17 @@ fn map_connect_error(error: tungstenite::Error) -> anyhow::Error {
         return EdgeHttpFailure {
             status,
             retry_after,
+            endpoint,
         }
         .into();
     }
-    // No request URL, query, cookie, authentication header or response body is
-    // put into the error. Standard I/O/protocol details are sufficient to debug.
+    // Never serialize the request, auth URL or response body into the log.
     error.into()
+}
+
+#[cfg(test)]
+fn map_connect_error(error: tungstenite::Error) -> anyhow::Error {
+    map_connect_error_for_endpoint(error, EdgeEndpoint::Legacy)
 }
 
 fn parse_http_date(value: &str) -> Option<i64> {
@@ -589,7 +731,8 @@ fn validate_voice(voice: &str) -> Result<()> {
 impl EdgeRealtimeSession {
     pub async fn connect() -> Result<Self> {
         let started = Instant::now();
-        let (mut write, read) = connect_edge_socket().await?.split::<Message>();
+        let (socket, endpoint) = connect_edge_socket().await?;
+        let (mut write, read) = socket.split::<Message>();
         tokio::time::timeout(EDGE_TTS_SEND_TIMEOUT, write.send(speech_config_message()))
             .await
             .map_err(|_| anyhow!("Edge speech.config send timeout"))??;
@@ -602,6 +745,7 @@ impl EdgeRealtimeSession {
             read,
             healthy: true,
             fresh_for_each_chunk: false,
+            endpoint,
         })
     }
 
@@ -649,6 +793,12 @@ impl EdgeRealtimeSession {
             EDGE_TTS_TURN_TIMEOUT,
         )
         .await?;
+        // Only an audio turn terminated by turn.end is reported as successful.
+        crate::append_podcast_log(&format!(
+            "Edge TTS: SYNTHESIS SUCCEEDED, endpoint={} audio_bytes={} path=single_chunk",
+            self.endpoint.label(),
+            audio_data.len()
+        ));
         self.healthy = true;
         if audio_data.len() < 4096 && normalized_text.encode_utf16().count() > 600 {
             crate::append_podcast_log(&format!(
@@ -1597,6 +1747,7 @@ mod tests {
             read,
             healthy: true,
             fresh_for_each_chunk: false,
+            endpoint: EdgeEndpoint::Legacy,
         }
     }
 
@@ -1652,14 +1803,16 @@ mod tests {
         for status in [400, 401, 404] {
             let error = anyhow!(EdgeHttpFailure {
                 status,
-                retry_after: None
+                retry_after: None,
+                endpoint: EdgeEndpoint::Legacy,
             });
             assert!(!is_transient_edge_error(&error));
         }
         for status in [403, 408, 429, 500, 502, 503, 504] {
             let error = anyhow!(EdgeHttpFailure {
                 status,
-                retry_after: None
+                retry_after: None,
+                endpoint: EdgeEndpoint::Legacy,
             });
             assert!(is_transient_edge_error(&error));
         }
@@ -1692,8 +1845,18 @@ mod tests {
         let server = anyhow!(EdgeHttpFailure {
             status: 429,
             retry_after: Some(Duration::from_secs(30)),
+            endpoint: EdgeEndpoint::Modern,
         });
         assert_eq!(edge_retry_delay(&server, 1), Duration::from_secs(30));
+        let limited = anyhow!(EdgeHttpFailure {
+            status: 429,
+            retry_after: None,
+            endpoint: EdgeEndpoint::Modern,
+        });
+        assert_eq!(edge_retry_delay(&limited, 1), Duration::from_secs(5));
+        assert_eq!(edge_retry_delay(&limited, 2), Duration::from_secs(10));
+        assert_eq!(edge_retry_delay(&limited, 13), Duration::from_secs(60));
+        assert_eq!(bounded_edge_retry_delay(&limited, 2), Duration::from_secs(10));
     }
 
     #[test]
@@ -1713,6 +1876,24 @@ mod tests {
         );
         assert_eq!(parse_retry_after(date, now + 20), Some(Duration::ZERO));
         assert_eq!(parse_retry_after("invalid", now), None);
+    }
+
+    #[test]
+    fn read_aloud_endpoints_keep_distinct_authentication_and_fallback() {
+        let modern = edge_socket_request(EdgeEndpoint::Modern, "TESTCONNECTION").unwrap();
+        let legacy = edge_socket_request(EdgeEndpoint::Legacy, "TESTCONNECTION").unwrap();
+        let modern_uri = modern.uri().to_string();
+        let legacy_uri = legacy.uri().to_string();
+        assert!(modern_uri.starts_with(EDGE_TTS_MODERN_WSS_URL));
+        assert!(modern_uri.contains("Ocp-Apim-Subscription-Key="));
+        assert!(modern_uri.contains("Sec-MS-GEC-Version=1-155.0.4283.45"));
+        assert!(!modern_uri.contains("TrustedClientToken="));
+        assert!(legacy_uri.starts_with(WSS_URL_BASE));
+        assert!(legacy_uri.contains("TrustedClientToken="));
+        assert!(legacy_uri.contains("Sec-MS-GEC-Version=1-132.0.2917.39"));
+        assert!(!legacy_uri.contains("Ocp-Apim-Subscription-Key="));
+        assert!(modern.headers().get("User-Agent").unwrap().to_str().unwrap().contains("155"));
+        assert!(legacy.headers().get("User-Agent").unwrap().to_str().unwrap().contains("132"));
     }
 
     #[test]
@@ -1967,6 +2148,7 @@ mod tests {
                             read,
                             healthy: true,
                             fresh_for_each_chunk: false,
+                            endpoint: EdgeEndpoint::Legacy,
                         })
                     }
                 },
@@ -2148,6 +2330,7 @@ mod tests {
                     Err::<(), _>(anyhow!(EdgeHttpFailure {
                         status: 429,
                         retry_after: Some(Duration::from_secs(60)),
+                        endpoint: EdgeEndpoint::Modern,
                     }))
                 }
             },
@@ -2209,6 +2392,7 @@ mod tests {
                         read,
                         healthy: true,
                         fresh_for_each_chunk: false,
+                        endpoint: EdgeEndpoint::Legacy,
                     };
                     session
                         .synthesize_chunk("frase recuperata", "it-IT-ElsaNeural", 0, 0, 100)

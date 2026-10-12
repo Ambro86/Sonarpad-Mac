@@ -71,6 +71,53 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         ):
             self.assertIn(key, panel)
 
+    def test_voice_preview_call_sites_match_the_current_signature(self):
+        # Keep this host integration check tied to the real Rust signature:
+        # the audio-description dialog was missed when preview cancellation
+        # added a parameter, even though the isolated TTS tests still passed.
+        def count_arguments(source, opening):
+            depth = 0
+            quoted = False
+            escaped = False
+            count = 0
+            argument_start = opening + 1
+            for index in range(opening, len(source)):
+                char = source[index]
+                if quoted:
+                    if escaped:
+                        escaped = False
+                    elif char == "\\":
+                        escaped = True
+                    elif char == '"':
+                        quoted = False
+                    continue
+                if char == '"':
+                    quoted = True
+                elif char in "([{":
+                    depth += 1
+                elif char in ")]}":
+                    depth -= 1
+                    if depth == 0:
+                        return count + bool(source[argument_start:index].strip())
+                elif char == "," and depth == 1:
+                    count += bool(source[argument_start:index].strip())
+                    argument_start = index + 1
+            self.fail("Unterminated voice-preview signature or call")
+
+        signature = re.search(r"\bfn\s+play_voice_preview\s*\(", MAIN)
+        self.assertIsNotNone(signature)
+        expected = count_arguments(MAIN, signature.end() - 1)
+        calls = 0
+        for path in sorted((ROOT / "src").rglob("*.rs")):
+            source = path.read_text(encoding="utf-8")
+            for match in re.finditer(r"\bplay_voice_preview\s*\(", source):
+                if re.search(r"\bfn\s+$", source[max(0, match.start() - 20):match.start()]):
+                    continue
+                calls += 1
+                with self.subTest(file=path.name, line=source.count("\n", 0, match.start()) + 1):
+                    self.assertEqual(count_arguments(source, match.end() - 1), expected)
+        self.assertGreater(calls, 0)
+
     def test_mac_pipeline_uses_bundled_ffmpeg_and_measures_segment_durations(self):
         self.assertIn("ffmpeg_executable_path", AUDIO)
         self.assertIn('"-f".into()', AUDIO)

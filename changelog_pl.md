@@ -2,19 +2,23 @@ Lista zmian
 
 Wersja 0.5.2 - 12 października 2026
 
-Niezawodność Edge i odzyskiwanie audiodeskrypcji
+Głosy Edge, audiodeskrypcje i niezawodność
 
-Przeniesiono na Mac zabezpieczenia Edge z wersji mobilnej i Windows, zachowując osiem równoczesnych syntez audiodeskrypcji. Błędy tymczasowe, w tym HTTP 403, limity usługi i przerwy w sieci, ponawiają tylko dany fragment, z możliwością anulowania oczekiwania i uwzględnieniem Retry-After. Ukończone zdania nie są powtarzane.
+1. Nowsze połączenie Edge. Sonarpad najpierw korzysta z nowej usługi Microsoft Edge, która pomyślnie wygenerowała dźwięk podczas testów. Gdy jest niedostępna, automatycznie próbuje poprzedniego połączenia, bez zmiany wybranego głosu.
 
-Wzmocniono kontrolę pustego, uciętego, uszkodzonego lub cichego dźwięku, odebranych ramek i limitów UTF-8 po zakodowaniu XML. Dodano adaptacyjny podział dla głosów litewskich, gdy dźwięk jest podejrzanie krótki. Zdanie usunięte przez słownik głosowy jest pomijane bez zatrzymania pozostałych; pusty dźwięk dla prawidłowego tekstu jest generowany ponownie. Poprawiono anulowanie, próbki i czytanie. Audiobooki odzyskują błędy tymczasowe aż do zatrzymania, zachowują poprawne fragmenty i zastępują plik docelowy dopiero po zakończeniu; pamięć czytania jest używana tylko wtedy, gdy jest kompletna.
+2. Mniej przerw. Jeśli Edge zwróci błąd HTTP 403, zerwie połączenie lub chwilowo odrzuci żądanie, Sonarpad spróbuje wznowić pracę. Przy HTTP 429 odczeka dłużej i uwzględni czas wskazany przez Microsoft. Zawsze można użyć przycisku Zatrzymaj lub Anuluj.
 
-Przeniesiono mechanizmy Windows dla nieoczekiwanej struktury JSON i Sonarpad AI: trwające generowanie jest oczekiwane z tym samym kluczem idempotencji, bez uruchamiania kolejnego. Błędy tymczasowe i wygasłe sesje mają ograniczone próby odzyskania; czyszczenie przesłanych plików odnawia nieprawidłową sesję tylko raz. Zgoda na oczekiwanie przy przeciążeniu Gemini dotyczy bieżącego żądania. Zamknięcie kanału bridge podczas zatrzymania nie powoduje zbędnych błędów.
+3. Całe zdania bez zaczynania od nowa. Sonarpad przyjmuje dźwięk dopiero po potwierdzeniu końca (`turn.end`). Puste, urwane lub uszkodzone nagranie zostanie odrzucone, a program spróbuje ponownie wygenerować tylko ten fragment. Gotowe części audiobooka pozostają zachowane, a audiodeskrypcje nadal wykorzystują do ośmiu równoległych syntez. Ulepszono także sprawdzanie litewskich głosów, słownika wymowy i długich tekstów.
 
-Powtarzające się przesunięcia początkowe lub nieliczne błędne metadane długości są naprawiane dopiero po niepowodzeniu zwykłej osi czasu i korekty małego dryfu, z takimi samymi ostrożnymi limitami jak w Windows. Jeśli oś nadal jest nieprawidłowa, tworzona jest znormalizowana kopia wideo związana ze źródłem i wybraną ścieżką dźwiękową, po czym zwykły proces jest uruchamiany ponownie tylko raz. Punkty wznowienia są sprawdzane względem źródła i ścieżki. Gdy zapis nagłówków segmentów z dźwiękiem zawodzi, Gemini otrzymuje próbę kopii samego wideo, a analiza dialogów nadal używa oryginalnego dźwięku.
+4. Czytelniejsza diagnostyka. Dziennik wskazuje, czy dźwięk faktycznie powstał dzięki nowemu połączeniu Edge, czy starszemu zapasowemu. Samo otwarcie połączenia nie jest traktowane jak udana synteza.
 
-Dodano odrębne odzyskiwanie uszkodzonego dźwięku przy użyciu dołączonego FFmpeg: powtarzające się błędy nie blokują już diagnostyki; poprawne części są zachowywane, skoki i dodawana cisza ograniczone, a niekompletne wyniki odrzucane. Zwykłe dekodowanie pozostaje bez zmian.
+5. Wygodniejsze testowanie głosów. Uruchomienie nowej próby głosu audiodeskrypcji przerywa poprzednią, a zamknięcie ustawień zatrzymuje aktywny test. Poprawiono także wznawianie czytania i sprawdzanie dźwięku przed odtwarzaniem.
 
-Jeśli żadnego opisu nie da się wstawić, proponowana jest druga próba Krótka z tymi samymi ograniczeniami ciszy. Jeśli już wybrano Krótką, analiza nie jest niepotrzebnie powtarzana. Dopiero po osobnej wyraźnej zgodzie ostatni mechanizm może użyć zapisanych krótkich opisów, dopuszczając nakładanie na dialogi ze ściszeniem oryginalnego dźwięku, bez kolejnego żądania Gemini. Prompty, Pyannote, wyrównanie i zwykła pipeline pozostają niezmienione.
+6. Pewniejsze audiodeskrypcje. Sonarpad lepiej obsługuje nietypowe odpowiedzi Gemini i wygasłe sesje. Jeśli generowanie w Sonarpad AI już trwa, czeka na jego wynik zamiast uruchamiać drugie żądanie. Anulowanie nie wywołuje już mylących komunikatów o błędach.
+
+7. Pomoc przy trudnych plikach wideo. Gdy znaczniki czasu są nieprawidłowe, Sonarpad podejmuje ostrożne próby naprawy dopiero po niepowodzeniu zwykłej metody. W trudniejszych przypadkach może przygotować kopię do analizy, zachowując oryginalną ścieżkę dialogów. Uszkodzony dźwięk można też czasem odzyskać przez FFmpeg.
+
+8. Dodatkowa szansa na umieszczenie opisów. Jeśli żaden opis nie mieści się w dostępnych przerwach, Sonarpad może zaproponować tryb Krótki. Dopiero po osobnej, wyraźnej zgodzie może nałożyć narrację na dialogi, ściszając oryginalny dźwięk. Zwykła analiza pozostaje bez zmian.
 
 Wersja 0.5.0 - 22 września 2026
 

@@ -2,19 +2,23 @@ Changelog
 
 Version 0.5.2 - October 12, 2026
 
-Edge reliability and audio-description recovery
+Edge voices, audio descriptions and reliability
 
-Ported the mobile and Windows Edge protections to Mac while keeping eight simultaneous audio-description syntheses. Temporary failures, including HTTP 403, service limits and network interruptions, retry only the affected chunk with cancellable waits and respect for Retry-After. Completed phrases are not repeated.
+1. A newer Edge connection. Sonarpad now tries the newer Microsoft Edge service first, which successfully produced audio in testing. If it is unavailable, Sonarpad falls back to the previous connection without changing your selected voice.
 
-Strengthened checks for empty, truncated, corrupt or silent audio, received frames and UTF-8 text limits after XML escaping. Added adaptive splitting for Lithuanian voices when audio is suspiciously short. A phrase emptied by the voice dictionary is skipped without stopping the others; empty audio for valid text is regenerated. Improved cancellation, previews and reading. Audiobooks recover temporary failures until Stop, retain valid chunks and replace the final file only after completion; reading caches are reused only when complete.
+2. Fewer interruptions. If Edge returns HTTP 403, drops a connection or temporarily refuses a request, Sonarpad tries to recover automatically. For HTTP 429 rate limits, it waits longer and respects any wait time supplied by Microsoft. Stop and Cancel remain available during long operations.
 
-Ported the Windows fallbacks for unexpected JSON structures and Sonarpad AI: an ongoing generation is awaited with the same idempotency key, without starting another generation. Temporary failures and expired sessions have bounded recovery; upload cleanup refreshes an invalid session only once. Consent to wait after Gemini overload applies to the current request. Closing the bridge channel during Stop no longer produces spurious errors.
+3. Complete sentences, without starting over. Sonarpad waits for the end-of-turn confirmation (`turn.end`) before accepting a sentence. Empty, cut-off or damaged audio is discarded and only that part is tried again. Finished audiobook chunks are kept, and audio descriptions still use up to eight simultaneous syntheses. Additional checks cover Lithuanian voices, voice-dictionary edits and text length.
 
-Only after the normal timeline and small-drift recovery fail are repeated starting offsets or sparse anomalous duration metadata repaired, using the same conservative Windows limits. If the timeline remains invalid, a normalized video copy tied to the source and selected audio track is prepared, followed by one clean restart of the normal pipeline. Checkpoints are verified against the source and soundtrack. If writing analysis-chunk headers with audio fails, a video-only stream copy is tried for Gemini while the original soundtrack remains available for dialogue analysis.
+4. Clearer diagnostics. Logs now show whether the new Edge service or the older fallback actually delivered audio. Opening a connection is not mistaken for successful synthesis.
 
-Added isolated damaged-audio recovery using the bundled FFmpeg: repeated errors no longer block diagnostic output; the decoder retains valid portions, limits skips and inserted silence, and rejects incomplete results. Successful decoding follows the existing path.
+5. Easier voice previews. Starting a new audio-description voice preview stops the old one, and closing the settings stops the active preview. Reading recovery, audio checks before playback and reuse of completed chunks have also been improved.
 
-When no description can be placed, a second Brief attempt is offered with the same silence constraints. An initial Brief selection avoids redundant analysis. Only after separate explicit consent can the final fallback reuse the completed Brief checkpoint, allowing dialogue overlap with ducking and without another Gemini request. Prompts, Pyannote, alignment and the ordinary pipeline remain unchanged.
+6. More dependable audio descriptions. Sonarpad better handles unusual Gemini responses and expired sessions. If a Sonarpad AI generation is already running, it waits for the same request rather than creating a duplicate. Cancelling no longer causes misleading errors.
+
+7. Recovery for tricky media. If video timestamps cause trouble, Sonarpad attempts small repairs only after the normal process fails. More difficult files can be prepared for analysis without losing the original dialogue track. Damaged audio may also be recovered with FFmpeg where possible, while healthy files take the usual path.
+
+8. Another option when descriptions won't fit. If no descriptions can fit the available pauses, Sonarpad can offer a Brief attempt. Only after separate, explicit consent may the final alternative speak over dialogue with automatic volume reduction. The normal analysis process is unchanged.
 
 Version 0.5.0 - September 22, 2026
 
