@@ -1,5 +1,21 @@
 Lista zmian
 
+Wersja 0.5.2 - 12 października 2026
+
+Niezawodność Edge i odzyskiwanie audiodeskrypcji
+
+Przeniesiono na Mac zabezpieczenia Edge z wersji mobilnej i Windows, zachowując osiem równoczesnych syntez audiodeskrypcji. Błędy tymczasowe, w tym HTTP 403, limity usługi i przerwy w sieci, ponawiają tylko dany fragment, z możliwością anulowania oczekiwania i uwzględnieniem Retry-After. Ukończone zdania nie są powtarzane.
+
+Wzmocniono kontrolę pustego, uciętego, uszkodzonego lub cichego dźwięku, odebranych ramek i limitów UTF-8 po zakodowaniu XML. Dodano adaptacyjny podział dla głosów litewskich, gdy dźwięk jest podejrzanie krótki. Zdanie usunięte przez słownik głosowy jest pomijane bez zatrzymania pozostałych; pusty dźwięk dla prawidłowego tekstu jest generowany ponownie. Poprawiono anulowanie, próbki i czytanie. Audiobooki odzyskują błędy tymczasowe aż do zatrzymania, zachowują poprawne fragmenty i zastępują plik docelowy dopiero po zakończeniu; pamięć czytania jest używana tylko wtedy, gdy jest kompletna.
+
+Przeniesiono mechanizmy Windows dla nieoczekiwanej struktury JSON i Sonarpad AI: trwające generowanie jest oczekiwane z tym samym kluczem idempotencji, bez uruchamiania kolejnego. Błędy tymczasowe i wygasłe sesje mają ograniczone próby odzyskania; czyszczenie przesłanych plików odnawia nieprawidłową sesję tylko raz. Zgoda na oczekiwanie przy przeciążeniu Gemini dotyczy bieżącego żądania. Zamknięcie kanału bridge podczas zatrzymania nie powoduje zbędnych błędów.
+
+Powtarzające się przesunięcia początkowe lub nieliczne błędne metadane długości są naprawiane dopiero po niepowodzeniu zwykłej osi czasu i korekty małego dryfu, z takimi samymi ostrożnymi limitami jak w Windows. Jeśli oś nadal jest nieprawidłowa, tworzona jest znormalizowana kopia wideo związana ze źródłem i wybraną ścieżką dźwiękową, po czym zwykły proces jest uruchamiany ponownie tylko raz. Punkty wznowienia są sprawdzane względem źródła i ścieżki. Gdy zapis nagłówków segmentów z dźwiękiem zawodzi, Gemini otrzymuje próbę kopii samego wideo, a analiza dialogów nadal używa oryginalnego dźwięku.
+
+Dodano odrębne odzyskiwanie uszkodzonego dźwięku przy użyciu dołączonego FFmpeg: powtarzające się błędy nie blokują już diagnostyki; poprawne części są zachowywane, skoki i dodawana cisza ograniczone, a niekompletne wyniki odrzucane. Zwykłe dekodowanie pozostaje bez zmian.
+
+Jeśli żadnego opisu nie da się wstawić, proponowana jest druga próba Krótka z tymi samymi ograniczeniami ciszy. Jeśli już wybrano Krótką, analiza nie jest niepotrzebnie powtarzana. Dopiero po osobnej wyraźnej zgodzie ostatni mechanizm może użyć zapisanych krótkich opisów, dopuszczając nakładanie na dialogi ze ściszeniem oryginalnego dźwięku, bez kolejnego żądania Gemini. Prompty, Pyannote, wyrównanie i zwykła pipeline pozostają niezmienione.
+
 Wersja 0.5.0 - 22 września 2026
 
 Audiodeskrypcja, Narzędzia i konwersja wsadowa

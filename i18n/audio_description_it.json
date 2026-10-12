@@ -223,5 +223,16 @@
   "audio_description.voice_settings.volume.a_bit_high": "Un po’ alto",
   "audio_description.voice_settings.volume.high": "Alto",
   "audio_description.voice_settings.volume.very_high": "Molto alto",
-  "audio_description.voice_settings.volume.maximum": "Massimo"
+  "audio_description.voice_settings.volume.maximum": "Massimo",
+  "audio_description.progress.timestamp_recode_start": "Il video sorgente contiene timestamp non validi. Sonarpad sta creando una copia normalizzata permanente prima di continuare...",
+  "audio_description.progress.timestamp_recode_done": "Normalizzazione dei timestamp completata. Sonarpad sta riavviando la normale procedura di audiodescrizione usando il file ricodificato...",
+  "audio_description.short_silence_retry_title": "Nessuna descrizione inseribile",
+  "audio_description.short_silence_retry_prompt": "L’analisi normale non ha trovato descrizioni che possano essere inserite negli spazi liberi senza sovrapporsi al parlato. Vuoi ripetere l’analisi usando descrizioni molto brevi? I vincoli sui silenzi resteranno attivi.",
+  "audio_description.short_silence_retrying": "Ripetizione dell’analisi con descrizioni molto brevi...",
+  "audio_description.no_silence_result": "Non è stato possibile inserire descrizioni negli spazi liberi senza sovrapporsi al parlato.",
+  "audio_description.dialogue_overlap_retry_title": "Fallback finale",
+  "audio_description.dialogue_overlap_retry_prompt": "Anche il tentativo con descrizioni molto brevi non è riuscito a inserirle senza sovrapporsi al parlato. Vuoi effettuare un ultimo tentativo consentendo brevi sovrapposizioni ai dialoghi? È un fallback isolato e non modifica la normale analisi dell’audiodescrizione.",
+  "audio_description.dialogue_overlap_retrying": "Creazione del fallback finale con sovrapposizioni ai dialoghi...",
+  "audio_description.dialogue_overlap_unavailable": "Il fallback finale non può essere usato perché non sono disponibili descrizioni generate da riutilizzare.",
+  "audio_description.dialogue_overlap_direct_prompt": "L’analisi è già stata eseguita con descrizioni Brevi, ma nessuna può essere inserita senza sovrapporsi al parlato. Vuoi creare comunque l’audiodescrizione consentendo brevi sovrapposizioni ai dialoghi? È un fallback isolato e non modifica la normale pipeline dell’audiodescrizione."
 }

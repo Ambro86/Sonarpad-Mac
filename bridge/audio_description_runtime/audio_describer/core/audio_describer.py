@@ -223,14 +223,33 @@ def _target_language_details():
 
 def _is_permission_denied_error(exc):
     """Return True for Gemini HTTP 403 / PERMISSION_DENIED errors."""
-    code = getattr(exc, "code", None)
-    try:
-        if int(code) == 403:
+    seen = set()
+    chain = []
+    current = exc
+    while current is not None and id(current) not in seen:
+        seen.add(id(current))
+        # An unreadable or missing local file cannot be fixed by changing the
+        # Gemini delivery method, even if its filename mentions an HTTP error.
+        if isinstance(current, (PermissionError, FileNotFoundError, IsADirectoryError, NotADirectoryError)):
+            return False
+        chain.append(current)
+        current = current.__cause__ or current.__context__
+    # Check the complete chain for local file failures first: an outer upload
+    # wrapper can repeat an ambiguous filename from a local exception.
+    for current in chain:
+        code = getattr(current, "code", None)
+        status_code = getattr(current, "status_code", None)
+        response_code = getattr(getattr(current, "response", None), "status_code", None)
+        for candidate in (code, status_code, response_code):
+            try:
+                if int(candidate) == 403:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        text = str(current).upper()
+        if "403" in text and "PERMISSION_DENIED" in text:
             return True
-    except (TypeError, ValueError):
-        pass
-    text = str(exc).upper()
-    return "403" in text and "PERMISSION_DENIED" in text
+    return False
 
 class _GeminiFileProcessingError(GeminiAPIError):
     """Gemini accepted an upload but failed while processing it."""
@@ -3026,6 +3045,18 @@ def _parse_unified_response(json_string, status_update_callback):
 
     try:
         data = json.loads(processed_str)
+        if not isinstance(data, dict):
+            root_type = type(data).__name__
+            message = _(
+                "Warning: AI JSON root was %(type)s instead of an object; requesting JSON repair."
+            ) % {"type": root_type}
+            if status_update_callback:
+                status_update_callback(message)
+            app_logger.warning(
+                "Unified JSON root type was %s instead of dict; deferring to JSON repair.",
+                root_type,
+            )
+            return [], [], False
         descs, gloss = _extract_descriptions_and_glossary_from_dict(data, status_update_callback)
         return descs, gloss, True
 
@@ -3040,12 +3071,18 @@ def _parse_unified_response(json_string, status_update_callback):
             if 0 <= start_idx < end_idx:
                 corrected_json_string = processed_str[start_idx:end_idx]
                 data = json.loads(corrected_json_string)
-                if status_update_callback:
-                    status_update_callback(_("Successfully parsed a fallback JSON object."))
-                descs, gloss = _extract_descriptions_and_glossary_from_dict(
-                    data, status_update_callback
-                )
-                return descs, gloss, True
+                if not isinstance(data, dict):
+                    app_logger.warning(
+                        "Fallback unified JSON root type was %s instead of dict; continuing repair path.",
+                        type(data).__name__,
+                    )
+                else:
+                    if status_update_callback:
+                        status_update_callback(_("Successfully parsed a fallback JSON object."))
+                    descs, gloss = _extract_descriptions_and_glossary_from_dict(
+                        data, status_update_callback
+                    )
+                    return descs, gloss, True
         except json.JSONDecodeError:
             if status_update_callback:
                 status_update_callback(_("Fallback JSON parsing also failed."))

@@ -1,5 +1,21 @@
 Journal des nouveautés
 
+Version 0.5.2 - 12 octobre 2026
+
+Fiabilité Edge et récupération des audiodescriptions
+
+Portage sur Mac des protections Edge des versions mobile et Windows, en conservant huit synthèses simultanées pour les audiodescriptions. Les erreurs temporaires, dont HTTP 403, les limites du service et les coupures réseau, relancent uniquement le bloc concerné avec des attentes annulables et le respect de Retry-After. Les phrases terminées ne sont pas répétées.
+
+Contrôles renforcés des données audio vides, tronquées, corrompues ou silencieuses, des trames reçues et des limites UTF-8 après échappement XML. Découpage adaptatif ajouté pour les voix lituaniennes lorsque l’audio est anormalement court. Une phrase vidée par le dictionnaire vocal est ignorée sans arrêter les autres ; un audio vide pour un texte valide est régénéré. Annulation, aperçus et lecture améliorés. Les livres audio récupèrent les erreurs temporaires jusqu’à Arrêter, conservent les blocs valides et remplacent le fichier final seulement après achèvement ; le cache de lecture n’est réutilisé que s’il est complet.
+
+Portage des solutions de repli Windows pour les structures JSON inattendues et Sonarpad AI : une génération en cours est attendue avec la même clé d’idempotence, sans en lancer une autre. La récupération des erreurs temporaires et des sessions expirées est limitée ; le nettoyage des envois ne renouvelle une session invalide qu’une fois. Le consentement à attendre après une surcharge Gemini s’applique à la requête courante. La fermeture du canal du bridge lors de l’arrêt ne produit plus d’erreurs parasites.
+
+Les décalages initiaux répétés et quelques durées de conteneur anormales ne sont corrigés qu’après l’échec de la chronologie normale et du petit ajustement de dérive, avec les mêmes limites prudentes que Windows. Si la chronologie reste invalide, une copie vidéo normalisée liée à la source et à la piste choisie est créée, puis la procédure normale redémarre une seule fois. Les points de reprise sont vérifiés par rapport à la source et à la piste. Si l’en-tête des segments avec audio ne peut pas être écrit, une copie vidéo seule est essayée pour Gemini ; la bande sonore originale reste utilisée pour analyser les dialogues.
+
+Ajout d’une récupération isolée de l’audio endommagé avec FFmpeg inclus : les erreurs répétées ne bloquent plus la sortie de diagnostic ; les portions valides sont conservées, les sauts et le silence ajouté sont limités et les résultats incomplets sont refusés. Le décodage normal reste identique.
+
+Si aucune description ne peut être placée, un second essai Bref est proposé avec les mêmes contraintes de silence. Si Bref était déjà choisi, l’analyse redondante est évitée. Uniquement après un consentement explicite distinct, le dernier recours réutilise les descriptions brèves du point de reprise en autorisant un chevauchement des dialogues avec atténuation sonore, sans nouvelle requête Gemini. Les instructions, Pyannote, l’alignement et la procédure ordinaire restent inchangés.
+
 Version 0.5.0 - 22 septembre 2026
 
 Audiodescription, Outils et conversion par lots

@@ -13,6 +13,7 @@ import os
 import re
 import socket
 import ssl
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -42,10 +43,24 @@ def _verified_ssl_context():
 
 
 class SonarpadServiceError(Exception):
-    def __init__(self, message: str, status_code: int | None = None):
+    def __init__(self, message: str, status_code: int | None = None, *, retry_after: int = 5):
         super().__init__(message)
         self.status_code = status_code
         self.code = status_code
+        self.retry_after = max(1, min(60, retry_after))
+
+
+def _http_retry_after(raw: str) -> int:
+    """Use the backend polling interval, bounded to its documented safe range."""
+    try:
+        value = json.loads(raw)
+        if isinstance(value, dict):
+            delay = float(value.get("retry_after", 5))
+            if 1 <= delay <= 60:
+                return int(delay)
+    except (ValueError, TypeError, OverflowError):
+        pass
+    return 5
 
 
 class _EnumValue:
@@ -256,7 +271,10 @@ class SonarpadServiceClient:
                 return json.loads(raw)
         except urllib.error.HTTPError as exc:
             raw = exc.read().decode("utf-8", errors="replace")
-            raise SonarpadServiceError(_http_error_message(exc.code, raw), exc.code) from exc
+            raise SonarpadServiceError(
+                _http_error_message(exc.code, raw), exc.code,
+                retry_after=_http_retry_after(raw),
+            ) from exc
         except (urllib.error.URLError, TimeoutError, socket.timeout, OSError) as exc:
             raise SonarpadServiceError(f"Sonarpad AI network error: {exc}", 503) from exc
         except json.JSONDecodeError as exc:
@@ -371,15 +389,40 @@ class SonarpadServiceClient:
                 generation[camel] = item
         if generation:
             body["generationConfig"] = generation
+        # Keep the same id while recovering this request. Changing it after an
+        # ambiguous POST failure could start another paid operation for the clip.
         idem = "ad_" + uuid.uuid4().hex
-        value = self._request_json(
-            "POST",
-            "/v1/generate",
-            body,
-            headers={"X-Idempotency-Key": idem},
-            timeout=650,
-        )
-        return _objectify(value)
+        transient_failures = 0
+        refreshed_session = False
+        while True:
+            try:
+                value = self._request_json(
+                    "POST", "/v1/generate", body,
+                    headers={"X-Idempotency-Key": idem}, timeout=650,
+                )
+                return _objectify(value)
+            except SonarpadServiceError as exc:
+                if (exc.status_code == 401
+                        and "invalid_session" in str(exc).lower()
+                        and not refreshed_session):
+                    refreshed_session = True
+                    self._activate()
+                    continue
+                if exc.status_code == 503 and "generation_in_progress" in str(exc).lower():
+                    transient_failures = 0
+                    time.sleep(exc.retry_after)
+                    continue
+                # Retry ambiguous network/server failures using the same id.
+                # Media validation, quota and permanent errors remain available
+                # to the existing upstream recovery or user-decision paths.
+                is_network = str(exc).startswith("Sonarpad AI network error:")
+                is_transient = is_network or exc.status_code in {500, 502, 503, 504}
+                is_file_error = "file_verification_failed" in str(exc).lower()
+                if is_transient and not is_file_error and transient_failures < 6:
+                    transient_failures += 1
+                    time.sleep(min(30, 3 * transient_failures))
+                    continue
+                raise
 
 
 class _FilesApi:
@@ -408,12 +451,20 @@ class _FilesApi:
         record = self.owner._uploads.get(str(name))
         if record is None:
             return None
-        self.owner._request_json(
-            "POST",
-            "/v1/upload/delete",
-            {"upload_id": record.upload_id},
-            timeout=60,
-        )
+        try:
+            self.owner._request_json(
+                "POST", "/v1/upload/delete",
+                {"upload_id": record.upload_id}, timeout=60,
+            )
+        except SonarpadServiceError as exc:
+            # Refresh only a known stale session, once, for this owned upload.
+            if exc.status_code != 401 or "invalid_session" not in str(exc).lower():
+                raise
+            self.owner._activate()
+            self.owner._request_json(
+                "POST", "/v1/upload/delete",
+                {"upload_id": record.upload_id}, timeout=60,
+            )
         self.owner._uploads.pop(str(name), None)
         return None
 

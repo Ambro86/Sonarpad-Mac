@@ -123,7 +123,7 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn("if !probe.has_audio", decode)
         self.assertIn("write_silent_source_wav(wav, probe.duration_sec)?;", decode)
         self.assertIn("audio_description.source has_audio=false; using silent source track", decode)
-        self.assertLess(decode.index("if !probe.has_audio"), decode.index("run_ffmpeg(&args, cancel)?;"))
+        self.assertLess(decode.index("if !probe.has_audio"), decode.index("let primary = ffmpeg_recovery::run_audio_decode"))
 
     def test_multichannel_audio_is_downmixed_to_stereo_before_mp3_export(self):
         decode_start = AUDIO.index("fn decode_source_audio(")
@@ -138,7 +138,7 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         decode_start = AUDIO.index("fn decode_source_audio(")
         decode_end = AUDIO.index("fn create_pyannote_wav", decode_start)
         decode = AUDIO[decode_start:decode_end]
-        primary_run = decode.index("run_ffmpeg(&args, cancel)?;")
+        primary_run = decode.index("let primary = ffmpeg_recovery::run_audio_decode")
         guard = decode.index("source_wav_needs_multichannel_fallback(wav)?")
         self.assertLess(primary_run, guard)
         self.assertIn("fn wav_pcm_data_alignment", AUDIO)
@@ -588,13 +588,13 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('progress_dialog.show_modal()', voice_progress)
         self.assertNotIn('thread::sleep', voice_progress)
 
-    def test_edge_audio_description_tts_uses_eight_workers_and_empty_retry(self):
+    def test_edge_audio_description_tts_limits_bursts_and_retries_failed_cues(self):
         self.assertIn("const EDGE_AUDIO_DESCRIPTION_PARALLELISM: usize = 8;", AUDIO)
         self.assertIn("fn synthesize_description_tasks_parallel", AUDIO)
         self.assertIn("synthesized.sort_by_key(|description| description.original_index);", AUDIO)
         self.assertIn("fn audio_description_pcm_has_signal", AUDIO)
-        self.assertIn("fn wait_for_empty_tts_retry", AUDIO)
-        self.assertIn("audio_description.tts_empty_retry", AUDIO)
+        self.assertIn("fn synthesize_text_pcm_while_active", AUDIO)
+        self.assertIn("audio_description.tts_retry", AUDIO)
 
     def test_dropped_description_keeps_original_index_for_voice_fit_errors(self):
         dropped_start = AUDIO.index('struct DroppedDescription')

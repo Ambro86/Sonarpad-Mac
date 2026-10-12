@@ -223,5 +223,16 @@
   "audio_description.voice_settings.volume.a_bit_high": "Trochu vysoká",
   "audio_description.voice_settings.volume.high": "Vysoká",
   "audio_description.voice_settings.volume.very_high": "Velmi vysoká",
-  "audio_description.voice_settings.volume.maximum": "Maximum"
+  "audio_description.voice_settings.volume.maximum": "Maximum",
+  "audio_description.progress.timestamp_recode_start": "Zdrojové video obsahuje neplatná časová razítka. Sonarpad před pokračováním vytváří trvalou normalizovanou kopii...",
+  "audio_description.progress.timestamp_recode_done": "Normalizace časových razítek byla dokončena. Sonarpad znovu spouští běžný proces audiopopisu s překódovaným souborem...",
+  "audio_description.short_silence_retry_title": "Nelze vložit žádný popis",
+  "audio_description.short_silence_retry_prompt": "Běžná analýza nenašla žádný popis, který by se vešel do dostupných mezer bez překrytí řeči. Chcete analýzu zopakovat s velmi krátkými popisy? Omezení ticha zůstanou aktivní.",
+  "audio_description.short_silence_retrying": "Opakování analýzy s velmi krátkými popisy...",
+  "audio_description.no_silence_result": "Do dostupných mezer se nepodařilo vložit žádný popis bez překrytí řeči.",
+  "audio_description.dialogue_overlap_retry_title": "Poslední záložní režim",
+  "audio_description.dialogue_overlap_retry_prompt": "Ani pokus s velmi krátkými popisy je nedokázal vložit bez překrytí řeči. Chcete provést poslední pokus a povolit krátké překrytí dialogu? Jde o izolovaný záložní režim a běžnou analýzu audiopopisu nemění.",
+  "audio_description.dialogue_overlap_retrying": "Vytváří se poslední záložní varianta s překrytím dialogu...",
+  "audio_description.dialogue_overlap_unavailable": "Poslední záložní režim nelze použít, protože nejsou k dispozici žádné vygenerované popisy k opětovnému použití.",
+  "audio_description.dialogue_overlap_direct_prompt": "Analýza již proběhla s krátkými popisy, ale žádný z nich nebylo možné vložit bez překrytí mluvené řeči. Chcete přesto vytvořit audiopopis a povolit krátká překrytí s dialogem? Jde o izolovaný záložní režim, který nemění běžnou pipeline audiopopisu."
 }

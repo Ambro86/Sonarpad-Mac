@@ -1,5 +1,21 @@
 Changelog
 
+Version 0.5.2 - October 12, 2026
+
+Edge reliability and audio-description recovery
+
+Ported the mobile and Windows Edge protections to Mac while keeping eight simultaneous audio-description syntheses. Temporary failures, including HTTP 403, service limits and network interruptions, retry only the affected chunk with cancellable waits and respect for Retry-After. Completed phrases are not repeated.
+
+Strengthened checks for empty, truncated, corrupt or silent audio, received frames and UTF-8 text limits after XML escaping. Added adaptive splitting for Lithuanian voices when audio is suspiciously short. A phrase emptied by the voice dictionary is skipped without stopping the others; empty audio for valid text is regenerated. Improved cancellation, previews and reading. Audiobooks recover temporary failures until Stop, retain valid chunks and replace the final file only after completion; reading caches are reused only when complete.
+
+Ported the Windows fallbacks for unexpected JSON structures and Sonarpad AI: an ongoing generation is awaited with the same idempotency key, without starting another generation. Temporary failures and expired sessions have bounded recovery; upload cleanup refreshes an invalid session only once. Consent to wait after Gemini overload applies to the current request. Closing the bridge channel during Stop no longer produces spurious errors.
+
+Only after the normal timeline and small-drift recovery fail are repeated starting offsets or sparse anomalous duration metadata repaired, using the same conservative Windows limits. If the timeline remains invalid, a normalized video copy tied to the source and selected audio track is prepared, followed by one clean restart of the normal pipeline. Checkpoints are verified against the source and soundtrack. If writing analysis-chunk headers with audio fails, a video-only stream copy is tried for Gemini while the original soundtrack remains available for dialogue analysis.
+
+Added isolated damaged-audio recovery using the bundled FFmpeg: repeated errors no longer block diagnostic output; the decoder retains valid portions, limits skips and inserted silence, and rejects incomplete results. Successful decoding follows the existing path.
+
+When no description can be placed, a second Brief attempt is offered with the same silence constraints. An initial Brief selection avoids redundant analysis. Only after separate explicit consent can the final fallback reuse the completed Brief checkpoint, allowing dialogue overlap with ducking and without another Gemini request. Prompts, Pyannote, alignment and the ordinary pipeline remain unchanged.
+
 Version 0.5.0 - September 22, 2026
 
 Audio Description, Tools and batch conversion

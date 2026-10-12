@@ -275,7 +275,7 @@ class GeminiRetryTests(unittest.TestCase):
         handler.assert_called_once()
         self.assertEqual(sleep_mock.call_count, 2)
 
-    def test_high_demand_prompt_reappears_after_three_more_errors(self):
+    def test_high_demand_wait_consent_persists_for_the_current_request(self):
         error = RuntimeError(
             "503 UNAVAILABLE. This model is currently experiencing high demand. "
             "Spikes in demand are usually temporary. Please try again later."
@@ -293,10 +293,10 @@ class GeminiRetryTests(unittest.TestCase):
             )
 
         self.assertEqual(result, "ok")
-        self.assertEqual(handler.call_count, 2)
+        self.assertEqual(handler.call_count, 1)
         waits = [call.args[0] for call in sleep_mock.call_args_list]
-        self.assertEqual(waits.count(gemini_helpers.OVERLOAD_WAIT_AFTER_USER_CONFIRM_SEC), 2)
-        self.assertEqual(waits.count(gemini_helpers.RETRY_DELAY_SEC), 4)
+        self.assertEqual(waits.count(gemini_helpers.OVERLOAD_WAIT_AFTER_USER_CONFIRM_SEC), 1)
+        self.assertEqual(waits.count(gemini_helpers.RETRY_DELAY_SEC), 5)
 
     def test_quota_can_switch_model_without_losing_current_request(self):
         quota_error = RuntimeError("429 RESOURCE_EXHAUSTED: quota exceeded")

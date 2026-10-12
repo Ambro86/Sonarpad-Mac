@@ -1,5 +1,21 @@
 Changelog
 
+Versione 0.5.2 - 12 ottobre 2026
+
+Affidabilità Edge e recupero delle audiodescrizioni
+
+Portate su Mac le protezioni Edge delle versioni mobile e Windows, mantenendo otto sintesi contemporanee nelle audiodescrizioni. Gli errori temporanei, compresi HTTP 403, limiti del servizio e interruzioni di rete, fanno riprovare soltanto il blocco interessato con attese annullabili e rispetto di Retry-After. Le frasi già completate non vengono ripetute.
+
+Rafforzati i controlli su audio vuoto, troncato, corrotto o silenzioso, sui frame ricevuti e sui limiti di testo UTF-8 dopo l’escape XML. Aggiunta la suddivisione adattiva per le voci lituane quando l’audio risulta sospettosamente corto. Una frase svuotata dal dizionario viene saltata senza interrompere le altre; un risultato audio vuoto su testo valido viene invece rigenerato. Migliorati l’annullamento, le anteprime e la lettura. Gli audiolibri recuperano gli errori temporanei fino a Stop, conservano i blocchi validi e sostituiscono il file finale solo dopo il completamento; la cache della lettura viene riutilizzata soltanto se completa.
+
+Portati i fallback Windows per risposte JSON con struttura inattesa e per il servizio Sonarpad AI: una generazione già in corso viene attesa usando la stessa chiave di idempotenza, senza avviarne un’altra. Gli errori temporanei e le sessioni scadute hanno recuperi limitati; la pulizia degli upload rinnova una sessione invalida una sola volta. Il consenso ad attendere dopo un sovraccarico Gemini vale per la richiesta corrente. La chiusura del canale del bridge durante Stop non genera errori spuri.
+
+Solo dopo il fallimento della timeline normale e del recupero del piccolo drift vengono riconosciuti offset iniziali ripetuti o pochi metadati di durata anomali, con gli stessi limiti conservativi di Windows. Se la timeline rimane non valida, viene preparata una copia video normalizzata, legata alla sorgente e alla traccia audio scelta, seguita da una sola ripartenza della pipeline normale. I checkpoint vengono verificati rispetto alla sorgente e alla traccia. Se la scrittura dell’header dei segmenti con audio fallisce, viene provata una copia dei soli flussi video per Gemini, mantenendo la traccia originale per l’analisi dei dialoghi.
+
+Aggiunto un recupero isolato per audio danneggiato tramite FFmpeg già incluso: gli errori ripetuti non bloccano più la lettura della diagnostica; il decoder conserva le parti valide, limita i salti e il silenzio aggiunto e rifiuta risultati incompleti. Il percorso di decodifica dei file validi resta invariato.
+
+Se non rimane alcuna descrizione inseribile, viene proposto un secondo tentativo Breve con gli stessi vincoli sui silenzi. Se Breve era già selezionato, l’analisi ridondante viene evitata. Solo dopo un consenso esplicito separato, l’ultimo fallback può riutilizzare le descrizioni brevi del checkpoint consentendo sovrapposizioni ai dialoghi con ducking, senza una nuova richiesta Gemini. Prompt, Pyannote, allineamento e pipeline ordinaria restano invariati.
+
 Versione 0.5.0 - 22 settembre 2026
 
 Audiodescrizioni, Strumenti e conversione batch

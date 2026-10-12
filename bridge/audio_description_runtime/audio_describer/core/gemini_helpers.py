@@ -922,6 +922,7 @@ def generate_content_with_retry(client, model, contents, config, status_callback
     current_model = normalize_model_id(configured_model or model)
     quota_prompted_models = set()
     overload_failures_since_prompt = 0
+    overload_wait_forever = False
     malformed_response_failures = 0
     attempt = 0
 
@@ -1039,6 +1040,7 @@ def generate_content_with_retry(client, model, contents, config, status_callback
                 overload_failures_since_prompt += 1
                 if (
                     _OVERLOAD_DECISION_HANDLER is not None
+                    and not overload_wait_forever
                     and overload_failures_since_prompt
                     >= OVERLOAD_PROMPT_AFTER_CONSECUTIVE_ERRORS
                 ):
@@ -1055,6 +1057,9 @@ def generate_content_with_retry(client, model, contents, config, status_callback
                                 "temporarily overloaded."
                             )
                         ) from exc
+                    # Keep the user's consent for this request, as on Windows.
+                    # Preserve the existing macOS pause after that first choice.
+                    overload_wait_forever = True
                     overload_failures_since_prompt = 0
                     wait_msg = _(
                         "Gemini is temporarily overloaded. Waiting %(delay)d seconds "

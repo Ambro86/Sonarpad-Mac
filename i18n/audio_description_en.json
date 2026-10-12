@@ -223,5 +223,16 @@
   "audio_description.voice_settings.volume.a_bit_high": "A bit high",
   "audio_description.voice_settings.volume.high": "High",
   "audio_description.voice_settings.volume.very_high": "Very high",
-  "audio_description.voice_settings.volume.maximum": "Maximum"
+  "audio_description.voice_settings.volume.maximum": "Maximum",
+  "audio_description.progress.timestamp_recode_start": "The source video has invalid timestamps. Sonarpad is creating a permanent normalized copy before continuing...",
+  "audio_description.progress.timestamp_recode_done": "Timestamp normalization completed. Sonarpad is restarting the normal audio-description pipeline using the recoded file...",
+  "audio_description.short_silence_retry_title": "No description can be inserted",
+  "audio_description.short_silence_retry_prompt": "The normal analysis did not find any description that can fit into the available gaps without overlapping speech. Do you want to repeat the analysis using very short descriptions? The silence constraints will remain active.",
+  "audio_description.short_silence_retrying": "Repeating the analysis with very short descriptions...",
+  "audio_description.no_silence_result": "No description could be inserted into the available gaps without overlapping speech.",
+  "audio_description.dialogue_overlap_retry_title": "Final fallback",
+  "audio_description.dialogue_overlap_retry_prompt": "The retry with very short descriptions also could not place them without overlapping speech. Do you want to make one final attempt allowing brief overlaps with dialogue? This is an isolated fallback and does not change the normal audio-description analysis.",
+  "audio_description.dialogue_overlap_retrying": "Creating the final fallback with dialogue overlap...",
+  "audio_description.dialogue_overlap_unavailable": "The final fallback cannot be used because there are no generated descriptions available to reuse.",
+  "audio_description.dialogue_overlap_direct_prompt": "The analysis was already run with Brief descriptions, but none could be inserted without overlapping speech. Do you want to create the audio description anyway by allowing brief overlaps with dialogue? This is an isolated fallback and does not change the normal audio-description pipeline."
 }

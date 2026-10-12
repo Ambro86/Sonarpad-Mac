@@ -1,5 +1,21 @@
 Seznam změn
 
+Verze 0.5.2 - 12. října 2026
+
+Spolehlivost Edge a obnova audiopopisů
+
+Do verze pro Mac byly přeneseny ochrany Edge z mobilní a windowsové verze při zachování osmi souběžných syntéz audiopopisu. Dočasné chyby včetně HTTP 403, omezení služby a výpadků sítě opakují pouze dotčený blok; čekání lze zrušit a respektuje Retry-After. Dokončené věty se neopakují.
+
+Posíleny kontroly prázdného, neúplného, poškozeného nebo tichého audia, přijatých rámců a limitů UTF-8 po escapování XML. Pro litevské hlasy bylo přidáno adaptivní dělení, pokud je audio podezřele krátké. Věta vyprázdněná hlasovým slovníkem se přeskočí bez zastavení ostatních; prázdné audio pro platný text se vytvoří znovu. Zlepšeno rušení, ukázky a čtení. Audioknihy obnovují dočasné chyby až do zastavení, uchovávají platné bloky a cílový soubor nahrazují teprve po dokončení; mezipaměť čtení se používá pouze kompletní.
+
+Přeneseny záložní postupy Windows pro neočekávanou strukturu JSON a Sonarpad AI: na probíhající generování se čeká se stejným idempotentním klíčem, bez spuštění dalšího. Dočasné chyby a vypršené relace mají omezenou obnovu; úklid nahraných souborů obnoví neplatnou relaci jen jednou. Souhlas s čekáním při přetížení Gemini platí pro aktuální požadavek. Zavření kanálu bridge při zastavení již nevyvolává vedlejší chyby.
+
+Opakované počáteční posuny nebo několik chybných údajů o délce se opravují až po selhání běžné časové osy a opravy malého driftu, se stejnými konzervativními limity jako ve Windows. Pokud časová osa zůstane neplatná, vytvoří se normalizovaná kopie videa vázaná na zdroj a vybranou zvukovou stopu a běžný postup se jednou restartuje. Kontrolní body se ověřují vůči zdroji a stopě. Pokud nelze zapsat hlavičku segmentů se zvukem, zkusí se pro Gemini kopie pouze videa; analýza dialogů dál používá původní zvuk.
+
+Přidána izolovaná obnova poškozeného zvuku pomocí přiloženého FFmpeg: opakované chyby již neblokují diagnostický výstup; platné části zůstávají zachovány, přeskoky a vložené ticho jsou omezeny a neúplné výsledky odmítnuty. Běžné dekódování se nemění.
+
+Pokud nelze vložit žádný popis, nabídne se druhý pokus Stručně se stejnou ochranou tichých intervalů. Jestliže již byla zvolena stručná varianta, analýza se zbytečně neopakuje. Až po samostatném výslovném souhlasu může poslední záložní postup znovu použít uložené stručné popisy a povolit překrytí dialogů se ztlumením původního zvuku, bez dalšího požadavku Gemini. Prompty, Pyannote, zarovnání a běžná pipeline zůstávají beze změn.
+
 Verze 0.5.0 - 22. září 2026
 
 Audiopopis, Nástroje a dávkový převod

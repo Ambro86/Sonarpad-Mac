@@ -8,6 +8,7 @@ mod calendar;
 mod curl_client;
 mod directories;
 mod edge_tts;
+mod edge_tts_support;
 mod file_loader;
 mod faster_whisper_bridge;
 mod la7_play;
@@ -23,6 +24,7 @@ mod routes;
 mod scheduled_radio;
 mod scheduled_tv;
 mod sonarpad_audiodescrizioni;
+mod sonarpad_download;
 mod treccani;
 mod tv;
 
@@ -47,7 +49,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::rc::Rc;
 use std::sync::OnceLock;
-use std::sync::atomic::{AtomicBool, AtomicI32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::runtime::Runtime;
@@ -9321,8 +9323,8 @@ fn synthesize_voice_chunk_blocking(
     if is_system_voice_engine(engine) {
         synthesize_system_voice_to_mp3(text, voice, rate, pitch, volume)
     } else {
-        rt.block_on(edge_tts::synthesize_text_with_retry(
-            text, voice, rate, pitch, volume, 3,
+        rt.block_on(edge_tts_support::synthesize_preview(
+            text, voice, rate, pitch, volume,
         ))
         .map_err(|err| err.to_string())
     }
@@ -10896,7 +10898,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
 const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.0 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.2 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {
@@ -13521,8 +13523,16 @@ fn play_voice_preview(
     rate: i32,
     pitch: i32,
     volume: i32,
+    preview_generation: Arc<AtomicU64>,
 ) {
+    let generation = preview_generation
+        .fetch_add(1, Ordering::Relaxed)
+        .wrapping_add(1);
     std::thread::spawn(move || {
+        let is_active = || preview_generation.load(Ordering::Relaxed) == generation;
+        if !is_active() {
+            return;
+        }
         append_podcast_log(&format!(
             "settings.voice_preview.begin engine={} voice={} rate={} pitch={} volume={}",
             engine, voice, rate, pitch, volume
@@ -13531,15 +13541,27 @@ fn play_voice_preview(
             append_podcast_log("settings.voice_preview.runtime_failed");
             return;
         };
-        let audio =
-            match synthesize_voice_chunk_blocking(&engine, &text, &voice, rate, pitch, volume, &rt)
-            {
-                Ok(audio) => audio,
-                Err(err) => {
-                    append_podcast_log(&format!("settings.voice_preview.tts_failed err={err}"));
-                    return;
-                }
-            };
+        let result = if is_system_voice_engine(&engine) {
+            synthesize_system_voice_to_mp3(&text, &voice, rate, pitch, volume).map(Some)
+        } else {
+            rt.block_on(edge_tts_support::synthesize_preview_cancellable(
+                &text,
+                &voice,
+                rate,
+                pitch,
+                volume,
+                &is_active,
+            ))
+            .map_err(|error| error.to_string())
+        };
+        let audio = match result {
+            Ok(Some(audio)) if is_active() => audio,
+            Ok(_) => return,
+            Err(err) => {
+                append_podcast_log(&format!("settings.voice_preview.tts_failed err={err}"));
+                return;
+            }
+        };
         let Ok((_stream, handle)) = OutputStream::try_default() else {
             append_podcast_log("settings.voice_preview.audio_output_failed");
             return;
@@ -13550,9 +13572,19 @@ fn play_voice_preview(
         };
         match Decoder::new(Cursor::new(audio)) {
             Ok(source) => {
+                if !is_active() {
+                    return;
+                }
                 sink.append(source);
-                sink.sleep_until_end();
-                append_podcast_log("settings.voice_preview.done");
+                while !sink.empty() && is_active() {
+                    std::thread::sleep(Duration::from_millis(100));
+                }
+                if is_active() {
+                    append_podcast_log("settings.voice_preview.done");
+                } else {
+                    sink.stop();
+                    append_podcast_log("settings.voice_preview.cancelled");
+                }
             }
             Err(err) => {
                 append_podcast_log(&format!("settings.voice_preview.decode_failed err={err}"));
@@ -14148,6 +14180,8 @@ fn open_settings_dialog(
     }
     .to_string();
     let dialog_voice_preview = dialog;
+    let voice_preview_generation = Arc::new(AtomicU64::new(0));
+    let voice_preview_generation_click = Arc::clone(&voice_preview_generation);
     voice_preview_button.on_click(move |_| {
         let engine = selected_voice_engine_preview.borrow().clone();
         let voice = if is_system_voice_engine(&engine) {
@@ -14175,7 +14209,15 @@ fn open_settings_dialog(
             .get_selection()
             .and_then(|sel| VOLUME_PRESETS.get(sel as usize).map(|(_, value)| *value))
             .unwrap_or(100);
-        play_voice_preview(preview_text.clone(), engine, voice, rate, pitch, volume);
+        play_voice_preview(
+            preview_text.clone(),
+            engine,
+            voice,
+            rate,
+            pitch,
+            volume,
+            Arc::clone(&voice_preview_generation_click),
+        );
     });
 
     dialog.set_affirmative_id(ID_OK);
@@ -14184,7 +14226,9 @@ fn open_settings_dialog(
         dialog_ok.end_modal(ID_OK);
     });
 
-    if dialog.show_modal() == ID_OK {
+    let dialog_result = dialog.show_modal();
+    voice_preview_generation.fetch_add(1, Ordering::Relaxed);
+    if dialog_result == ID_OK {
         let mut updated = settings_before.clone();
         if let Some(sel) = choice_ui_lang.get_selection()
             && let Some((_, value)) = interface_languages.get(sel as usize)
@@ -18090,14 +18134,206 @@ fn save_sonarpad_direct_media(
     let path = dialog
         .get_path()
         .ok_or_else(|| "Nessun file di destinazione selezionato.".to_string())?;
-    let bytes = crate::curl_client::CurlClient::fetch_url_impersonated_with_timeout(
-        url,
-        Duration::from_secs(300),
-    )
-    .map_err(|err| format!("Download audiodescrizione Sonarpad fallito: {err}"))?;
-    std::fs::write(&path, bytes)
-        .map_err(|err| format!("Salvataggio audiodescrizione Sonarpad fallito: {err}"))?;
-    Ok(true)
+    download_sonarpad_media_with_progress(parent, url, PathBuf::from(path))
+}
+
+#[derive(Clone, Default)]
+struct SonarpadDirectDownloadState {
+    downloaded_bytes: u64,
+    total_bytes: Option<u64>,
+    done: Option<Result<bool, String>>,
+}
+
+fn sonarpad_download_progress_text(downloaded: u64, total: Option<u64>) -> (Option<i32>, String) {
+    let downloaded_mb = downloaded as f64 / (1024.0 * 1024.0);
+    match total.filter(|total| *total > 0) {
+        Some(total) => {
+            // Reserve 100% for the completed file, after flushing and renaming it.
+            let percent = ((u128::from(downloaded) * 100) / u128::from(total)).min(99) as i32;
+            let total_mb = total as f64 / (1024.0 * 1024.0);
+            (
+                Some(percent),
+                format!("Scaricamento: {percent}% - {downloaded_mb:.1} di {total_mb:.1} MB"),
+            )
+        }
+        None if downloaded == 0 => (None, "Connessione al server...".to_string()),
+        None => (
+            None,
+            format!("Scaricati {downloaded_mb:.1} MB. Dimensione totale non disponibile."),
+        ),
+    }
+}
+
+fn download_sonarpad_media_with_progress(
+    parent: &Dialog,
+    url: &str,
+    destination: PathBuf,
+) -> Result<bool, String> {
+    const ID_SONARPAD_AUDIO_DOWNLOAD_CANCEL: i32 = 19650;
+
+    let dialog = Dialog::builder(parent, "Download audiodescrizione Sonarpad")
+        .with_style(DialogStyle::DefaultDialogStyle)
+        .with_size(560, 190)
+        .build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let status_label = StaticText::builder(&panel)
+        .with_label("Connessione al server...")
+        .build();
+    root.add(&status_label, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    let gauge = Gauge::builder(&panel).with_range(100).build();
+    gauge.set_accessibility_label("Avanzamento del download");
+    // With no Content-Length, report received bytes without inventing a percentage.
+    gauge.show(false);
+    root.add(&gauge, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let cancel_button = Button::builder(&panel)
+        .with_id(ID_SONARPAD_AUDIO_DOWNLOAD_CANCEL)
+        .with_label(&current_ui_strings().cancel)
+        .build();
+    buttons.add_spacer(1);
+    buttons.add(&cancel_button, 0, SizerFlag::All, 10);
+    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_SONARPAD_AUDIO_DOWNLOAD_CANCEL);
+
+    let state = Arc::new(Mutex::new(SonarpadDirectDownloadState::default()));
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let finished = Rc::new(Cell::new(false));
+    let result = Rc::new(RefCell::new(None::<Result<bool, String>>));
+
+    let request_cancel: Rc<dyn Fn()> = {
+        let cancelled = Arc::clone(&cancelled);
+        Rc::new(move || {
+            if !cancelled.swap(true, Ordering::SeqCst) {
+                cancel_button.enable(false);
+                status_label.set_label("Annullamento del download in corso...");
+                append_podcast_log("sonarpad.download.cancel_requested");
+            }
+        })
+    };
+    let request_cancel_button = Rc::clone(&request_cancel);
+    cancel_button.on_click(move |_| request_cancel_button());
+    let request_cancel_close = Rc::clone(&request_cancel);
+    let finished_close = Rc::clone(&finished);
+    dialog.on_close(move |event| {
+        if finished_close.get() {
+            event.skip(true);
+        } else {
+            request_cancel_close();
+            // Keep the modal event loop alive while the worker removes its partial file.
+            event.skip(false);
+        }
+    });
+
+    let timer = Rc::new(Timer::new(&dialog));
+    let timer_handle = Rc::clone(&timer);
+    let state_tick = Arc::clone(&state);
+    let cancelled_tick = Arc::clone(&cancelled);
+    let finished_tick = Rc::clone(&finished);
+    let result_tick = Rc::clone(&result);
+    let mut gauge_visible = false;
+    let mut last_status = String::new();
+    let mut started_announced = false;
+    timer.on_tick(move |_| {
+        let snapshot = state_tick
+            .lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner())
+            .clone();
+        if let Some(done) = snapshot.done {
+            timer_handle.stop();
+            if matches!(&done, Ok(true)) {
+                gauge.show(true);
+                gauge.set_value(100);
+            }
+            *result_tick.borrow_mut() = Some(done);
+            finished_tick.set(true);
+            dialog.end_modal(ID_OK);
+            return;
+        }
+        if cancelled_tick.load(Ordering::SeqCst) {
+            return;
+        }
+        if !started_announced {
+            started_announced = true;
+            announce_voiceover_message("Download avviato.");
+        }
+        let (percent, message) =
+            sonarpad_download_progress_text(snapshot.downloaded_bytes, snapshot.total_bytes);
+        if percent.is_some() != gauge_visible {
+            gauge_visible = percent.is_some();
+            gauge.show(gauge_visible);
+            panel.layout();
+        }
+        if let Some(percent) = percent {
+            gauge.set_value(percent);
+        }
+        if message != last_status {
+            status_label.set_label(&message);
+            last_status = message;
+        }
+    });
+
+    let timer_destroy = Rc::clone(&timer);
+    let cancelled_destroy = Arc::clone(&cancelled);
+    dialog.on_destroy(move |event| {
+        timer_destroy.stop();
+        cancelled_destroy.store(true, Ordering::SeqCst);
+        event.skip(true);
+    });
+    dialog.centre();
+    cancel_button.set_focus();
+    if !timer.start(100, false) {
+        finished.set(true);
+        dialog.destroy();
+        return Err("Impossibile avviare l’aggiornamento del download.".to_string());
+    }
+
+    let state_worker = Arc::clone(&state);
+    let cancelled_worker = Arc::clone(&cancelled);
+    let url = url.to_string();
+    let worker = std::thread::Builder::new()
+        .name("sonarpad-audio-download".to_string())
+        .spawn(move || {
+            let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                sonarpad_download::download(&url, &destination, &cancelled_worker, |bytes, total| {
+                    let mut state = state_worker
+                        .lock()
+                        .unwrap_or_else(|poisoned| poisoned.into_inner());
+                    state.downloaded_bytes = bytes;
+                    state.total_bytes = total;
+                })
+            }))
+            .unwrap_or_else(|_| Err("Il download è stato interrotto da un errore inatteso.".to_string()));
+            state_worker
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner())
+                .done = Some(outcome);
+        });
+    if let Err(error) = worker {
+        timer.stop();
+        finished.set(true);
+        dialog.destroy();
+        return Err(format!("Impossibile avviare il download: {error}"));
+    }
+
+    append_podcast_log("sonarpad.download.started");
+    // show_modal runs wxWidgets' normal event loop; all network and file I/O stays on the worker.
+    dialog.show_modal();
+    timer.stop();
+    let outcome = result.borrow_mut().take().unwrap_or(Ok(false));
+    finished.set(true);
+    cancelled.store(true, Ordering::SeqCst);
+    dialog.destroy();
+    match &outcome {
+        Ok(true) => append_podcast_log("sonarpad.download.completed"),
+        Ok(false) => {
+            append_podcast_log("sonarpad.download.cancelled");
+            announce_voiceover_message("Download annullato.");
+        }
+        Err(error) => append_podcast_log(&format!("sonarpad.download.failed error={error}")),
+    }
+    outcome
 }
 
 fn open_rai_audio_descriptions_dialog(parent: &Frame) {
@@ -31252,6 +31488,11 @@ fn main() {
                 let mut sink_arc = Arc::new(sink);
                 {
                     let mut pb_lock = pb_thread.lock().unwrap();
+                    if pb_lock.generation != playback_generation
+                        || pb_lock.status == PlaybackStatus::Stopped
+                    {
+                        return;
+                    }
                     pb_lock.sink = Some(Arc::clone(&sink_arc));
                 }
 
@@ -31269,8 +31510,12 @@ fn main() {
                     ));
                     merged_chunks
                 } else {
-                    edge_tts::split_text_realtime_lazy(&text).collect()
+                    edge_tts::split_text_realtime_lazy(&text)
+                        .filter(|chunk| edge_tts::is_edge_text_usable(chunk))
+                        .collect()
                 };
+                let expected_chunks = chunks.len();
+                let mut synthesis_failed = false;
                 let mut cached_chunks = Vec::with_capacity(chunks.len());
                 let (audio_tx, mut audio_rx) =
                     tokio::sync::mpsc::channel::<Result<(usize, Vec<u8>), String>>(10);
@@ -31311,23 +31556,42 @@ fn main() {
                                     pitch,
                                     volume,
                                 )
-                                .map(|data| (data, None))
+                                .map(|data| Some((data, None)))
                                 .map_err(|err| anyhow::anyhow!(err))
                             } else {
-                                edge_tts::synthesize_realtime_chunk_with_retry(
+                                // Recover only this chunk. Already queued audio is never
+                                // synthesized or enqueued again when Edge reconnects.
+                                edge_tts_support::synthesize_reading_chunk(
                                     edge_session,
                                     &chunk,
                                     &voice_download,
                                     rate,
                                     pitch,
                                     volume,
-                                    10,
+                                    chunk_index,
+                                    || {
+                                        if audio_tx.is_closed() {
+                                            return false;
+                                        }
+                                        let pb_lock = pb_download.lock().unwrap();
+                                        pb_lock.generation == playback_generation
+                                            && pb_lock.status != PlaybackStatus::Stopped
+                                    },
                                 )
                                 .await
                             };
                             match synth_result {
-                                Ok((data, session)) => {
+                                Ok(None) => break,
+                                Ok(Some((data, session))) => {
                                     edge_session = session;
+                                    {
+                                        let pb_lock = pb_download.lock().unwrap();
+                                        if pb_lock.generation != playback_generation
+                                            || pb_lock.status == PlaybackStatus::Stopped
+                                        {
+                                            break;
+                                        }
+                                    }
                                     if data.is_empty() {
                                         append_podcast_log(&format!(
                                             "start_action.tts_chunk_empty index={chunk_index}"
@@ -31394,6 +31658,7 @@ fn main() {
                     let (chunk_index, data) = match packet {
                         Ok(data) => data,
                         Err(err) => {
+                            synthesis_failed = true;
                             let mut pb_lock = pb_thread.lock().unwrap();
                             if pb_lock.generation == playback_generation {
                                 println!("ERROR: Sintesi realtime fallita: {}", err);
@@ -31404,8 +31669,8 @@ fn main() {
                         }
                     };
 
-                    cached_chunks.push(data.clone());
-                    if let Ok(source) = Decoder::new(Cursor::new(data)) {
+                    if let Ok(source) = Decoder::new(Cursor::new(data.clone())) {
+                        cached_chunks.push(data);
                         sink_arc.append(source);
                         if chunk_index == 0 {
                             append_podcast_log(&format!(
@@ -31414,6 +31679,7 @@ fn main() {
                             ));
                         }
                     } else {
+                        synthesis_failed = true;
                         append_podcast_log(&format!(
                             "start_action.decoder_failed index={}",
                             chunk_index
@@ -31425,15 +31691,22 @@ fn main() {
                     let mut pb_lock = pb_thread.lock().unwrap();
                     if pb_lock.generation == playback_generation {
                         pb_lock.download_finished = true;
-                        pb_lock.cached_tts = Some(TtsPlaybackCache {
-                            text,
-                            engine,
-                            voice,
-                            rate,
-                            pitch,
-                            volume,
-                            chunks: cached_chunks,
-                        });
+                        // A stopped or failed download must not become a cache hit
+                        // that makes the next reading silently end halfway through.
+                        if !synthesis_failed
+                            && pb_lock.status != PlaybackStatus::Stopped
+                            && cached_chunks.len() == expected_chunks
+                        {
+                            pb_lock.cached_tts = Some(TtsPlaybackCache {
+                                text,
+                                engine,
+                                voice,
+                                rate,
+                                pitch,
+                                volume,
+                                chunks: cached_chunks,
+                            });
+                        }
                     } else {
                         return;
                     }
@@ -31661,12 +31934,21 @@ fn main() {
                     ));
                     merged_chunks
                 } else {
-                    edge_tts::split_text_lazy(&text).collect()
+                    edge_tts::split_text_edge_audiobook(&text, &voice)
                 };
                 let total = chunks.len();
                 append_podcast_log(&format!(
                     "audiobook_save.chunks total={total} blank_line_pauses_disabled={disable_blank_line_pauses}"
                 ));
+                if total == 0 {
+                    append_podcast_log("audiobook_save.no_speakable_chunks");
+                    show_modeless_message_dialog(
+                        &f_save,
+                        &ui.conversion_error_title,
+                        &audiobook_conversion_failed,
+                    );
+                    return;
+                }
 
                 let progress_dialog = Dialog::builder(&f_save, &ui.create_audiobook_title)
                     .with_style(
@@ -31717,6 +31999,7 @@ fn main() {
                 let rt_save = Arc::clone(&rt_s);
                 let abort_requested = Arc::new(AtomicBool::new(false));
                 let abort_requested_thread = Arc::clone(&abort_requested);
+                let worker_failed = Arc::new(AtomicBool::new(false));
                 let save_state = Arc::new(Mutex::new(SaveAudiobookState {
                     completed_chunks: 0,
                     completed: false,
@@ -31726,6 +32009,34 @@ fn main() {
                 let save_state_thread = Arc::clone(&save_state);
                 let chunks = Arc::new(chunks);
                 std::thread::spawn(move || {
+                    let cache = if is_system_voice_engine(&engine) {
+                        None
+                    } else {
+                        match edge_tts_support::AudiobookCache::open(
+                            &app_storage_path("edge-audiobook-jobs"),
+                            &chunks,
+                            &voice,
+                            rate,
+                            pitch,
+                            volume,
+                        ) {
+                            Ok(cache) => {
+                                append_podcast_log(&format!(
+                                    "audiobook_save.cache_open path={}",
+                                    cache.directory().display()
+                                ));
+                                Some(cache)
+                            }
+                            Err(error) => {
+                                // A cache I/O failure must not prevent a valid
+                                // export. Keep the current job's audio in memory.
+                                append_podcast_log(&format!(
+                                    "audiobook_save.cache_unavailable error={error}"
+                                ));
+                                None
+                            }
+                        }
+                    };
                     let next_index = Arc::new(Mutex::new(0usize));
                     let results = Arc::new(Mutex::new(vec![None; chunks.len()]));
                     let worker_count = if is_system_voice_engine(&engine) {
@@ -31742,13 +32053,17 @@ fn main() {
                         let results_worker = Arc::clone(&results);
                         let save_state_worker = Arc::clone(&save_state_thread);
                         let abort_worker = Arc::clone(&abort_requested_thread);
+                        let failed_worker = Arc::clone(&worker_failed);
+                        let cache_worker = cache.clone();
                         let voice_worker = voice.clone();
                         let engine_worker = engine.clone();
                         let audiobook_conversion_failed_worker =
                             audiobook_conversion_failed.clone();
                         workers.push(std::thread::spawn(move || {
                             loop {
-                                if abort_worker.load(Ordering::Relaxed) {
+                                if abort_worker.load(Ordering::Relaxed)
+                                    || failed_worker.load(Ordering::Relaxed)
+                                {
                                     return;
                                 }
 
@@ -31763,27 +32078,79 @@ fn main() {
                                 };
 
                                 let chunk = chunks_worker[index].clone();
-                                match synthesize_voice_chunk_blocking(
-                                    &engine_worker,
-                                    &chunk,
-                                    &voice_worker,
-                                    rate,
-                                    pitch,
-                                    volume,
-                                    &rt_worker,
-                                ) {
-                                    Ok(data) => {
+                                if let Some(data) = cache_worker
+                                    .as_ref()
+                                    .and_then(|cache| cache.load(index))
+                                {
+                                    if abort_worker.load(Ordering::Relaxed)
+                                        || failed_worker.load(Ordering::Relaxed)
+                                    {
+                                        return;
+                                    }
+                                    append_podcast_log(&format!(
+                                        "audiobook_save.chunk_resumed index={index} bytes={}",
+                                        data.len()
+                                    ));
+                                    results_worker.lock().unwrap()[index] = Some(data);
+                                    save_state_worker.lock().unwrap().completed_chunks += 1;
+                                    continue;
+                                }
+                                let result = if is_system_voice_engine(&engine_worker) {
+                                    synthesize_system_voice_to_mp3(
+                                        &chunk,
+                                        &voice_worker,
+                                        rate,
+                                        pitch,
+                                        volume,
+                                    )
+                                    .map(Some)
+                                } else {
+                                    rt_worker.block_on(
+                                        edge_tts_support::synthesize_audiobook_chunk(
+                                            &chunk,
+                                            &voice_worker,
+                                            rate,
+                                            pitch,
+                                            volume,
+                                            index,
+                                            || {
+                                                !abort_worker.load(Ordering::Relaxed)
+                                                    && !failed_worker.load(Ordering::Relaxed)
+                                            },
+                                        ),
+                                    )
+                                    .map_err(|error| error.to_string())
+                                };
+                                match result {
+                                    Ok(None) => return,
+                                    Ok(Some(data)) => {
+                                        if let Some(cache) = cache_worker.as_ref()
+                                            && let Err(error) = cache.store(index, &data)
+                                        {
+                                            append_podcast_log(&format!(
+                                                "audiobook_save.cache_write_failed index={index} error={error}"
+                                            ));
+                                        }
+                                        if abort_worker.load(Ordering::Relaxed)
+                                            || failed_worker.load(Ordering::Relaxed)
+                                        {
+                                            return;
+                                        }
                                         results_worker.lock().unwrap()[index] = Some(data);
                                         save_state_worker.lock().unwrap().completed_chunks += 1;
                                     }
                                     Err(err) => {
+                                        if abort_worker.load(Ordering::Relaxed)
+                                            || failed_worker.swap(true, Ordering::Relaxed)
+                                        {
+                                            return;
+                                        }
                                         append_podcast_log(&format!(
                                             "audiobook_save.chunk_error index={} chars={} error={}",
                                             index,
                                             chunk.chars().count(),
                                             err
                                         ));
-                                        abort_worker.store(true, Ordering::Relaxed);
                                         save_state_worker.lock().unwrap().error_message =
                                             Some(audiobook_conversion_failed_worker.clone());
                                         return;
@@ -31795,14 +32162,21 @@ fn main() {
 
                     for worker in workers {
                         if worker.join().is_err() {
-                            abort_requested_thread.store(true, Ordering::Relaxed);
-                            save_state_thread.lock().unwrap().error_message =
-                                Some(audiobook_conversion_failed.clone());
+                            worker_failed.store(true, Ordering::Relaxed);
+                            save_state_thread
+                                .lock()
+                                .unwrap()
+                                .error_message
+                                .get_or_insert_with(|| audiobook_conversion_failed.clone());
                             append_podcast_log("audiobook_save.worker_join_failed");
-                            return;
                         }
                     }
 
+                    if worker_failed.load(Ordering::Relaxed) {
+                        // Preserve the real failure; stopping sibling workers is
+                        // separate from an explicit user cancellation.
+                        return;
+                    }
                     if abort_requested_thread.load(Ordering::Relaxed) {
                         save_state_thread.lock().unwrap().cancelled = true;
                         append_podcast_log("audiobook_save.cancelled");
@@ -31825,6 +32199,7 @@ fn main() {
                         .and_then(|ext| ext.to_str())
                         .map(|ext| ext.to_ascii_lowercase())
                         .unwrap_or_else(|| "mp3".to_string());
+                    let staged_output = edge_tts_support::AudiobookOutput::new(&path_buf);
 
                     if extension == "m4b" || extension == "m4a" || extension == "wav" {
                         append_podcast_log(&format!(
@@ -31841,9 +32216,9 @@ fn main() {
                             return;
                         }
                         let convert_result = match extension.as_str() {
-                            "m4b" => convert_mp3_to_m4b(&temp_mp3, &path_buf, 128),
-                            "m4a" => convert_mp3_to_m4a(&temp_mp3, &path_buf, 128),
-                            "wav" => convert_mp3_to_wav(&temp_mp3, &path_buf),
+                            "m4b" => convert_mp3_to_m4b(&temp_mp3, staged_output.path(), 128),
+                            "m4a" => convert_mp3_to_m4a(&temp_mp3, staged_output.path(), 128),
+                            "wav" => convert_mp3_to_wav(&temp_mp3, staged_output.path()),
                             _ => Ok(()),
                         };
                         if let Err(remove_err) = std::fs::remove_file(&temp_mp3) {
@@ -31868,7 +32243,6 @@ fn main() {
                                 "audiobook_save.transcode_failed format={} error={err}",
                                 extension
                             ));
-                            let _ = std::fs::remove_file(&path_buf);
                             return;
                         }
                         append_podcast_log(&format!(
@@ -31876,13 +32250,29 @@ fn main() {
                             extension,
                             path_buf.display()
                         ));
-                    } else if std::fs::write(&path_buf, full_audio).is_err() {
+                    } else if std::fs::write(staged_output.path(), full_audio).is_err() {
                         save_state_thread.lock().unwrap().error_message =
                             Some(audiobook_file_not_saved.clone());
                         append_podcast_log("audiobook_save.write_failed");
                         return;
                     }
 
+                    if abort_requested_thread.load(Ordering::Relaxed) {
+                        save_state_thread.lock().unwrap().cancelled = true;
+                        append_podcast_log("audiobook_save.cancelled_before_publish");
+                        return;
+                    }
+                    if let Err(error) = staged_output.commit(&path_buf) {
+                        save_state_thread.lock().unwrap().error_message =
+                            Some(audiobook_file_not_saved.clone());
+                        append_podcast_log(&format!(
+                            "audiobook_save.publish_failed error={error}"
+                        ));
+                        return;
+                    }
+                    if let Some(cache) = cache.as_ref() {
+                        cache.finish();
+                    }
                     save_state_thread.lock().unwrap().completed = true;
                     append_podcast_log("audiobook_save.completed");
                 });

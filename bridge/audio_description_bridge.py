@@ -48,7 +48,14 @@ def _emit(prefix: str, value) -> None:
         text = json.dumps(value, ensure_ascii=True, separators=(",", ":"))
     else:
         text = str(value)
-    print(f"{prefix}:{text}", flush=True)
+    try:
+        print(f"{prefix}:{text}", flush=True)
+    except OSError as exc:
+        # The host can close stdout while cancelling the worker. Emitting a
+        # second RESULT or traceback to that same pipe cannot recover it.
+        if isinstance(exc, BrokenPipeError) or exc.errno in (22, 32):
+            raise SystemExit(0) from None
+        raise
 
 
 def _status(stage: str, message: str, progress: int | None = None) -> None:

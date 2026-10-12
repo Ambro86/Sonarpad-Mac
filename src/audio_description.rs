@@ -24,6 +24,15 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::runtime::Runtime;
 use wxdragon::prelude::*;
 
+#[path = "audio_description_tts_retry.rs"]
+mod tts_retry;
+#[path = "audio_description_timeline_fallback.rs"]
+mod timeline_fallback;
+#[path = "audio_description_fallbacks.rs"]
+mod fallbacks;
+#[path = "audio_description_ffmpeg_recovery.rs"]
+mod ffmpeg_recovery;
+
 const CHUNK_SECONDS: f64 = 180.0;
 const GEMINI_MAX_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 // Keep prepared clips comfortably below the bridge's 48 MiB inline threshold.
@@ -53,8 +62,10 @@ const EDGE_TRAILING_MIN_REMOVE_MS: u64 = 60;
 const EDGE_TRAILING_KEEP_MS: u64 = 30;
 const EDGE_TRAILING_SEEK_MS: u64 = 5;
 const EDGE_TRAILING_WINDOW_MS: u64 = 60;
+// Preserve eight concurrent syntheses; each failed cue retries independently
+// and remains cancellable without replaying descriptions already completed.
 const EDGE_AUDIO_DESCRIPTION_PARALLELISM: usize = 8;
-const EMPTY_TTS_RETRY_DELAY_MS: u64 = 750;
+const TTS_EMPTY_AFTER_DICTIONARY: &str = "TTS_EMPTY_AFTER_DICTIONARY";
 const MAX_CHARACTER_DESCRIPTION_CHARS: usize = 2_000;
 const ID_AUDIO_DESCRIPTION_START: i32 = 7100;
 const ID_AUDIO_DESCRIPTION_PROGRESS_CANCEL: i32 = 7101;
@@ -153,6 +164,8 @@ struct AudioDescriptionPartialCheckpoint {
     source_path: PathBuf,
     output_mp3_path: PathBuf,
     source_file_size: u64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    source_modified_ns: Option<u64>,
     source_duration_sec: f64,
     language_code: String,
     verbosity: String,
@@ -830,41 +843,9 @@ fn ffmpeg_path() -> PathBuf {
 }
 
 fn run_ffmpeg(args: &[String], cancel: &Arc<AtomicBool>) -> Result<(), String> {
-    if cancel.load(Ordering::Relaxed) {
-        return Err("cancelled".to_string());
-    }
-    let mut child = std::process::Command::new(ffmpeg_path())
-        .args(args)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Avvio FFmpeg fallito: {e}"))?;
-    let mut stderr = child
-        .stderr
-        .take()
-        .ok_or_else(|| "FFmpeg stderr non disponibile".to_string())?;
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err("cancelled".to_string());
-        }
-        match child.try_wait() {
-            Ok(Some(status)) => {
-                let mut raw = Vec::new();
-                let _ = stderr.read_to_end(&mut raw);
-                if status.success() {
-                    return Ok(());
-                }
-                return Err(format!(
-                    "FFmpeg fallito: {}",
-                    String::from_utf8_lossy(&raw).trim()
-                ));
-            }
-            Ok(None) => thread::sleep(Duration::from_millis(100)),
-            Err(e) => return Err(format!("Controllo FFmpeg fallito: {e}")),
-        }
-    }
+    // Arguments and successful output are unchanged. Drain diagnostics while
+    // FFmpeg runs so a damaged file cannot fill stderr and deadlock the child.
+    ffmpeg_recovery::run(&ffmpeg_path(), args, cancel, false)
 }
 
 #[derive(Clone, Debug)]
@@ -1384,7 +1365,19 @@ fn decode_source_audio(
         "pcm_s16le".into(),
         wav.to_string_lossy().to_string(),
     ]);
-    run_ffmpeg(&args, cancel)?;
+    let primary = ffmpeg_recovery::run_audio_decode(
+        &ffmpeg_path(), &args, cancel, probe.duration_sec,
+    );
+    match primary {
+        Ok(()) => {}
+        Err(error) if ffmpeg_recovery::needs_audio_recovery(&error) => {
+            append_podcast_log(&format!("audio_description.source_audio_corruption_fallback error={error}"));
+            ffmpeg_recovery::recover_source_audio(
+                &ffmpeg_path(), input, wav, preferred_audio_stream_index, probe.duration_sec, cancel,
+            )?;
+        }
+        Err(error) => return Err(error),
+    }
 
     // Keep the normal path byte-for-byte unchanged for files that already work.
     // Only if the resulting internal WAV is malformed, unexpectedly multichannel,
@@ -1753,7 +1746,31 @@ fn segment_video_for_gemini(
         "matroska".into(),
         output_pattern.to_string_lossy().to_string(),
     ];
-    match run_ffmpeg(&args, cancel) {
+    let mut segmentation_result = run_ffmpeg(&args, cancel);
+    if let Err(error) = &segmentation_result
+        && gemini_audio_header_mux_error(error)
+        && !cancel.load(Ordering::Relaxed)
+    {
+        // Pyannote continues to use the original selected soundtrack. Only the
+        // rejected analysis container drops audio, as in the Windows fallback.
+        let mut video_only = Vec::with_capacity(args.len());
+        let mut index = 0;
+        while index < args.len() {
+            if args[index] == "-map" && args.get(index + 1).is_some_and(|value| value != "0:v:0") {
+                index += 2;
+            } else {
+                video_only.push(args[index].clone());
+                index += 1;
+            }
+        }
+        let output = video_only.pop().expect("segmentation output path");
+        video_only.push("-an".into());
+        video_only.push(output);
+        append_podcast_log(&format!("audio_description.chunk_audio_header_fallback video_only=true error={error}"));
+        remove_prepared_chunk_files(dir, prefix, &suffix)?;
+        segmentation_result = run_ffmpeg(&video_only, cancel);
+    }
+    match segmentation_result {
         Ok(()) => collect_prepared_chunk_files(dir, prefix, &suffix),
         Err(error) if error == "cancelled" => Err(error),
         Err(error) if timestamp_mux_error(&error) => {
@@ -1780,6 +1797,14 @@ fn segment_video_for_gemini(
         }
         Err(error) => Err(error),
     }
+}
+
+fn gemini_audio_header_mux_error(error: &str) -> bool {
+    let lower = error.to_ascii_lowercase();
+    if ["cancelled", "canceled", "permission denied", "operation not permitted", "no space left", "read-only file system"].iter().any(|marker| lower.contains(marker)) {
+        return false;
+    }
+    lower.contains("could not write header") || lower.contains("failed to write header")
 }
 
 fn normalize_audio_description_source_duration(
@@ -2046,8 +2071,17 @@ fn prepare_gemini_compatibility_chunks(
     };
 
     let mut measured_chunks = Vec::with_capacity(paths.len());
+    let mut raw_chunk_timings = Vec::with_capacity(paths.len());
     for path in paths {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        let size = fs::metadata(&path).map_err(|error| error.to_string())?.len();
+        if size == 0 || size >= GEMINI_MAX_CHUNK_BYTES {
+            return Err(format!("Il segmento Gemini ha una dimensione non supportata: {}", path.display()));
+        }
         let probe = probe_media(&path)?;
+        raw_chunk_timings.push((path.clone(), probe.duration_sec, probe.format_start_sec));
         let measured = normalize_prepared_chunk_duration(
             probe.duration_sec,
             probe.format_start_sec,
@@ -2060,6 +2094,11 @@ fn prepare_gemini_compatibility_chunks(
         return Ok(chunks);
     }
     if let Some(chunks) = build_prepared_chunk_timeline(&measured_chunks, duration_sec, true) {
+        return Ok(chunks);
+    }
+    if let Some(chunks) = recover_prepared_chunk_timeline(
+        &raw_chunk_timings, &measured_chunks, duration_sec, segment_seconds,
+    ) {
         return Ok(chunks);
     }
     Err("Timeline dei segmenti di compatibilità Gemini non valida.".to_string())
@@ -2196,6 +2235,7 @@ fn prepare_chunks(
 
     let path_count = paths.len();
     let mut measured_chunks = Vec::with_capacity(path_count);
+    let mut raw_chunk_timings = Vec::with_capacity(path_count);
     for path in paths {
         if cancel.load(Ordering::Relaxed) {
             return Err("cancelled".to_string());
@@ -2212,6 +2252,7 @@ fn prepare_chunks(
             format_start_sec: 0.0,
             has_audio: false,
         });
+        raw_chunk_timings.push((path.clone(), probe.duration_sec, probe.format_start_sec));
         let measured = normalize_prepared_chunk_duration(
             probe.duration_sec,
             probe.format_start_sec,
@@ -2245,7 +2286,59 @@ fn prepare_chunks(
             return Ok(chunks);
         }
     }
+    if let Some(chunks) = recover_prepared_chunk_timeline(
+        &raw_chunk_timings, &measured_chunks, duration, segment_seconds,
+    ) {
+        return Ok(chunks);
+    }
     Err("Timeline dei chunk Gemini non valida.".to_string())
+}
+
+// Both the historical timeline and its <=2% drift recovery have already failed
+// when this function is reached. Keep the Windows guards local to the fallback.
+fn recover_prepared_chunk_timeline(
+    raw: &[(PathBuf, f64, f64)],
+    measured: &[(PathBuf, f64)],
+    duration: f64,
+    segment_seconds: f64,
+) -> Option<Vec<AudioDescriptionPreparedChunk>> {
+    let measured_total = measured.iter().map(|(_, value)| *value).sum::<f64>();
+    if let Some(recovered) = timeline_fallback::repeated_small_start_offset(
+        raw, duration, segment_seconds, build_prepared_chunk_timeline,
+    ) {
+        append_podcast_log(&format!(
+            "audio_description.chunk_timeline_repeated_start start_time={:.3} adjusted_chunks={}/{} source_duration={:.3} measured_total={:.3}",
+            recovered.median_start_sec, recovered.adjusted_count, raw.len(), duration, measured_total
+        ));
+        return Some(recovered.timeline);
+    }
+    let excess_ratio = (measured_total - duration) / duration;
+    if measured_total.is_finite()
+        && measured_total > duration
+        && excess_ratio.is_finite()
+        && excess_ratio > 0.02
+        && excess_ratio <= 0.10
+        && let Some(recovered) = timeline_fallback::segment_schedule_fallback(
+            raw, duration, segment_seconds,
+            |path, start_sec, end_sec| AudioDescriptionPreparedChunk {
+                path: path.to_string_lossy().to_string(), start_sec, end_sec,
+            },
+        )
+    {
+        append_podcast_log(&format!(
+            "audio_description.chunk_timeline_segment_schedule replaced_chunks={}/{} plausible_non_last={} segment_seconds={:.3} source_duration={:.3} measured_total={:.3} repaired_total={:.3}",
+            recovered.replaced_count, raw.len(), recovered.plausible_non_last, segment_seconds,
+            duration, measured_total, recovered.repaired_total_sec
+        ));
+        return Some(recovered.timeline);
+    }
+    let preview = raw.iter().take(8).map(|(path, duration, start)| {
+        format!("{}:duration={duration:.3},start={start:.3}", path.display())
+    }).collect::<Vec<_>>().join(" | ");
+    append_podcast_log(&format!(
+        "audio_description.chunk_timeline_invalid source_duration={duration:.3} measured_total={measured_total:.3} chunks={} details={preview}", raw.len()
+    ));
+    None
 }
 
 fn convert_mp3_bytes_to_pcm(
@@ -2265,6 +2358,7 @@ fn convert_mp3_bytes_to_pcm(
         let _ = fs::remove_file(&wav);
     };
 
+    cleanup();
     fs::write(&mp3, bytes).map_err(|e| format!("Scrittura TTS temporaneo fallita: {e}"))?;
     let args = vec![
         "-hide_banner".into(),
@@ -2434,30 +2528,7 @@ struct TtsParameters<'a> {
 }
 
 fn audio_description_pcm_has_signal(samples: &[i16]) -> bool {
-    samples.iter().any(|sample| i32::from(*sample).abs() > 0)
-}
-
-fn audio_description_tts_error_is_empty_output(error: &str) -> bool {
-    let normalized = error.to_ascii_lowercase();
-    normalized.contains("tts audio vuoto")
-        || normalized.contains("tts wav vuoto")
-        || normalized.contains("audio vuoto")
-        || normalized.contains("nessun campione pcm")
-}
-
-fn wait_for_empty_tts_retry(cancel: &AtomicBool) -> Result<(), String> {
-    const POLL_DELAY_MS: u64 = 75;
-    let mut waited_ms = 0_u64;
-    while waited_ms < EMPTY_TTS_RETRY_DELAY_MS {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-        let remaining_ms = EMPTY_TTS_RETRY_DELAY_MS.saturating_sub(waited_ms);
-        let sleep_ms = remaining_ms.min(POLL_DELAY_MS);
-        thread::sleep(Duration::from_millis(sleep_ms));
-        waited_ms = waited_ms.saturating_add(sleep_ms);
-    }
-    Ok(())
+    tts_retry::has_audible_signal(samples)
 }
 
 fn synthesize_text_pcm(
@@ -2468,7 +2539,35 @@ fn synthesize_text_pcm(
     index: usize,
     cancel: &Arc<AtomicBool>,
 ) -> Result<Arc<[i16]>, String> {
-    if cancel.load(Ordering::Relaxed) {
+    // This entry point is also used by the synchronous editor duration check,
+    // which has no Stop control. Its attempts must remain bounded. Background
+    // creation/re-export calls the active-session variant directly instead.
+    synthesize_text_pcm_while_active(text, tts, rt, dir, index, cancel, || true, Some(6))
+        .map_err(|error| {
+            if error == TTS_EMPTY_AFTER_DICTIONARY {
+                "TTS: la descrizione non contiene lettere o numeri da leggere.".to_string()
+            } else {
+                error
+            }
+        })
+}
+
+#[allow(clippy::too_many_arguments)]
+fn synthesize_text_pcm_while_active<A>(
+    text: &str,
+    tts: TtsParameters<'_>,
+    rt: &Runtime,
+    dir: &Path,
+    index: usize,
+    cancel: &Arc<AtomicBool>,
+    session_is_active: A,
+    max_attempts: Option<usize>,
+) -> Result<Arc<[i16]>, String>
+where
+    A: Fn() -> bool,
+{
+    let is_active = || !cancel.load(Ordering::Relaxed) && session_is_active();
+    if !is_active() {
         return Err("cancelled".to_string());
     }
     let spoken_text = crate::apply_voice_dictionary_to_text(text);
@@ -2481,85 +2580,142 @@ fn synthesize_text_pcm(
         ));
     }
 
-    let mut empty_attempt = 0_u64;
-    loop {
-        if cancel.load(Ordering::Relaxed) {
-            return Err("cancelled".to_string());
-        }
-
-        let mp3 = match crate::synthesize_voice_chunk_blocking(
-            tts.engine,
-            &spoken_text,
-            tts.voice,
-            tts.rate,
-            tts.pitch,
-            tts.volume,
-            rt,
-        ) {
-            Ok(audio) => audio,
-            Err(error) => {
-                if cancel.load(Ordering::Relaxed) {
-                    return Err("cancelled".to_string());
-                }
-                if audio_description_tts_error_is_empty_output(&error) {
-                    empty_attempt = empty_attempt.saturating_add(1);
-                    append_podcast_log(&format!(
-                        "audio_description.tts_empty_retry cue={} attempt={} stage=renderer error={}",
-                        index, empty_attempt, error
-                    ));
-                    wait_for_empty_tts_retry(cancel.as_ref())?;
-                    continue;
-                }
-                return Err(error);
-            }
-        };
-
-        if mp3.is_empty() {
-            empty_attempt = empty_attempt.saturating_add(1);
-            append_podcast_log(&format!(
-                "audio_description.tts_empty_retry cue={} attempt={} stage=mp3_payload",
-                index, empty_attempt
-            ));
-            wait_for_empty_tts_retry(cancel.as_ref())?;
-            continue;
-        }
-
-        let mut pcm = match convert_mp3_bytes_to_pcm(&mp3, dir, index, cancel) {
-            Ok(pcm) => pcm,
-            Err(error) if audio_description_tts_error_is_empty_output(&error) => {
-                empty_attempt = empty_attempt.saturating_add(1);
-                append_podcast_log(&format!(
-                    "audio_description.tts_empty_retry cue={} attempt={} stage=wav_decode error={}",
-                    index, empty_attempt, error
-                ));
-                wait_for_empty_tts_retry(cancel.as_ref())?;
-                continue;
-            }
-            Err(error) => return Err(error),
-        };
-
-        if !crate::is_system_voice_engine(tts.engine) {
-            let removed = trim_edge_trailing_silence(&mut pcm);
-            if removed > 0 {
-                append_podcast_log(&format!(
-                    "audio_description.edge_trim cue={} removed_samples={}",
-                    index, removed
-                ));
-            }
-        }
-
-        if pcm.is_empty() || !audio_description_pcm_has_signal(&pcm) {
-            empty_attempt = empty_attempt.saturating_add(1);
-            append_podcast_log(&format!(
-                "audio_description.tts_empty_retry cue={} attempt={} stage=pcm_signal",
-                index, empty_attempt
-            ));
-            wait_for_empty_tts_retry(cancel.as_ref())?;
-            continue;
-        }
-
-        return Ok(Arc::from(pcm));
+    if !crate::edge_tts::is_edge_text_usable(&spoken_text) {
+        return Err(TTS_EMPTY_AFTER_DICTIONARY.to_string());
     }
+
+    let is_edge = !crate::is_system_voice_engine(tts.engine);
+    let retry_count = Cell::new(0_usize);
+    let result = tts_retry::run(
+        || {
+            let mp3 = if is_edge {
+                // One cancellable transport attempt per outer iteration avoids
+                // hidden nested retries. The mobile AD policy retries this cue
+                // after five seconds, honoring a longer server Retry-After.
+                match rt.block_on(crate::edge_tts::synthesize_text_with_retry_cancellable(
+                    &spoken_text,
+                    tts.voice,
+                    tts.rate,
+                    tts.pitch,
+                    tts.volume,
+                    Some(1),
+                    &is_active,
+                )) {
+                    Ok(Some(audio)) => audio,
+                    Ok(None) => {
+                        return Err(tts_retry::AttemptError::Permanent("cancelled".to_string()));
+                    }
+                    Err(error) => {
+                        if crate::edge_tts::is_transient_edge_error(&error) {
+                            let delay = crate::edge_tts::edge_retry_delay(
+                                &error,
+                                retry_count.get().saturating_add(1),
+                            );
+                            return Err(tts_retry::AttemptError::Retryable {
+                                stage: "renderer",
+                                error: error.to_string(),
+                                delay,
+                            });
+                        }
+                        return Err(tts_retry::AttemptError::Permanent(error.to_string()));
+                    }
+                }
+            } else {
+                crate::synthesize_voice_chunk_blocking(
+                    tts.engine,
+                    &spoken_text,
+                    tts.voice,
+                    tts.rate,
+                    tts.pitch,
+                    tts.volume,
+                    rt,
+                )
+                .map_err(|error| {
+                    if tts_retry::is_invalid_output(&error) {
+                        tts_retry::AttemptError::Retryable {
+                            stage: "renderer",
+                            error,
+                            delay: Duration::ZERO,
+                        }
+                    } else {
+                        tts_retry::AttemptError::Permanent(error)
+                    }
+                })?
+            };
+            if !is_active() {
+                return Err(tts_retry::AttemptError::Permanent("cancelled".to_string()));
+            }
+            if mp3.len() <= 512 {
+                return Err(tts_retry::AttemptError::Retryable {
+                    stage: "mp3_payload",
+                    error: format!("TTS_EMPTY_OUTPUT: {} bytes", mp3.len()),
+                    delay: Duration::ZERO,
+                });
+            }
+            let mut pcm = convert_mp3_bytes_to_pcm(&mp3, dir, index, cancel).map_err(|error| {
+                if tts_retry::is_invalid_output(&error) {
+                    tts_retry::AttemptError::Retryable {
+                        stage: "wav_decode",
+                        error,
+                        delay: Duration::ZERO,
+                    }
+                } else {
+                    tts_retry::AttemptError::Permanent(error)
+                }
+            })?;
+            if is_edge {
+                let removed = trim_edge_trailing_silence(&mut pcm);
+                if removed > 0 {
+                    append_podcast_log(&format!(
+                        "audio_description.edge_trim cue={} removed_samples={}",
+                        index, removed
+                    ));
+                }
+            }
+            if pcm.is_empty() || !audio_description_pcm_has_signal(&pcm) {
+                return Err(tts_retry::AttemptError::Retryable {
+                    stage: "pcm_signal",
+                    error: "TTS_SILENT_OUTPUT".to_string(),
+                    delay: Duration::ZERO,
+                });
+            }
+            Ok(Arc::from(pcm))
+        },
+        is_active,
+        |attempt, stage, error, delay| {
+            retry_count.set(attempt);
+            append_podcast_log(&format!(
+                "audio_description.tts_retry cue={} attempt={} engine={} stage={} delay_ms={} error={}",
+                index,
+                attempt,
+                tts.engine,
+                stage,
+                delay.as_millis(),
+                error
+            ));
+        },
+        max_attempts,
+    );
+    if retry_count.get() > 0 && result.is_ok() {
+        append_podcast_log(&format!(
+            "audio_description.tts_recovered cue={} retries={} engine={}",
+            index,
+            retry_count.get(),
+            tts.engine
+        ));
+    }
+    if let Err(error) = &result
+        && error != "cancelled"
+    {
+        append_podcast_log(&format!(
+            "audio_description.tts_failed cue={} engine={} retries={} error={}",
+            index,
+            tts.engine,
+            retry_count.get(),
+            error
+        ));
+    }
+    result
 }
 
 fn audio_description_tts_parallelism(engine: &str, task_count: usize) -> usize {
@@ -2603,35 +2759,61 @@ where
         }
         let batch_end = (batch_start + parallelism).min(tasks.len());
         let batch = &tasks[batch_start..batch_end];
+        let batch_failed = Arc::new(AtomicBool::new(false));
 
         let batch_results = thread::scope(|scope| {
             let mut handles = Vec::with_capacity(batch.len());
             for task in batch {
                 let cancel = cancel.clone();
+                let batch_failed = batch_failed.clone();
                 handles.push(scope.spawn(move || {
-                    let pcm = synthesize_text_pcm(
-                        &task.text,
-                        tts,
-                        rt,
-                        dir,
-                        task.synthesis_index,
-                        &cancel,
-                    )?;
-                    let duration_sec =
-                        pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
-                    Ok::<SynthesizedDescription, String>(SynthesizedDescription {
-                        original_index: task.original_index,
-                        text: task.text.clone(),
-                        desired_start_sec: task.desired_start_sec,
-                        visual_start_sec: task.visual_start_sec,
-                        visual_evidence_time_sec: task.visual_evidence_time_sec,
-                        mandatory: task.mandatory,
-                        slot_id: task.slot_id.clone(),
-                        slot_start_sec: task.slot_start_sec,
-                        slot_end_sec: task.slot_end_sec,
-                        pcm,
-                        duration_sec,
-                    })
+                    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                        let pcm = match synthesize_text_pcm_while_active(
+                            &task.text,
+                            tts,
+                            rt,
+                            dir,
+                            task.synthesis_index,
+                            &cancel,
+                            || !batch_failed.load(Ordering::Relaxed),
+                            None,
+                        ) {
+                            Ok(pcm) => pcm,
+                            Err(error) if error == TTS_EMPTY_AFTER_DICTIONARY => {
+                                append_podcast_log(&format!(
+                                    "audio_description.tts_empty_after_dictionary_skipped cue={}",
+                                    task.original_index
+                                ));
+                                return Ok(None);
+                            }
+                            Err(error) => return Err(error),
+                        };
+                        let duration_sec =
+                            pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
+                        Ok::<Option<SynthesizedDescription>, String>(Some(SynthesizedDescription {
+                            original_index: task.original_index,
+                            text: task.text.clone(),
+                            desired_start_sec: task.desired_start_sec,
+                            visual_start_sec: task.visual_start_sec,
+                            visual_evidence_time_sec: task.visual_evidence_time_sec,
+                            mandatory: task.mandatory,
+                            slot_id: task.slot_id.clone(),
+                            slot_start_sec: task.slot_start_sec,
+                            slot_end_sec: task.slot_end_sec,
+                            pcm,
+                            duration_sec,
+                        }))
+                    }))
+                    .unwrap_or_else(|_| {
+                        Err("Audio description: parallel TTS worker panicked".to_string())
+                    });
+                    if result.is_err() {
+                        // A permanent error must also release siblings waiting
+                        // indefinitely on Edge. Keep this separate from Stop so
+                        // the original error is not replaced with cancellation.
+                        batch_failed.store(true, Ordering::Relaxed);
+                    }
+                    result
                 }));
             }
 
@@ -2645,11 +2827,24 @@ where
                 .collect::<Vec<_>>()
         });
 
+        if cancel.load(Ordering::Relaxed) {
+            return Err("cancelled".to_string());
+        }
+        if let Some(error) = batch_results.iter().find_map(|result| {
+            result
+                .as_ref()
+                .err()
+                .filter(|error| error.as_str() != "cancelled")
+        }) {
+            return Err(error.clone());
+        }
         for result in batch_results {
             if cancel.load(Ordering::Relaxed) {
                 return Err("cancelled".to_string());
             }
-            synthesized.push(result?);
+            if let Some(description) = result? {
+                synthesized.push(description);
+            }
             completed = completed.saturating_add(1);
             on_completed(completed, tasks.len());
         }
@@ -3212,6 +3407,11 @@ fn load_partial_checkpoint(path: &Path) -> Result<AudioDescriptionPartialCheckpo
     if source_metadata.len() != checkpoint.source_file_size {
         return Err("Il video non corrisponde più al lavoro interrotto.".to_string());
     }
+    if checkpoint.source_modified_ns.is_some()
+        && checkpoint.source_modified_ns != fallbacks::source_modified_ns(&checkpoint.source_path)
+    {
+        return Err("Il video è stato modificato dopo il salvataggio del lavoro interrotto.".to_string());
+    }
     Ok(checkpoint)
 }
 
@@ -3235,6 +3435,7 @@ fn save_partial_checkpoint(
         source_path: job.input_path.clone(),
         output_mp3_path: job.output_path.clone(),
         source_file_size,
+        source_modified_ns: fallbacks::source_modified_ns(&job.input_path),
         source_duration_sec,
         language_code: job.language_code.clone(),
         verbosity: job.verbosity.as_bridge().to_string(),
@@ -3622,6 +3823,15 @@ fn create_audio_description(
     cancel: Arc<AtomicBool>,
     state: Arc<Mutex<ProgressState>>,
 ) -> Result<JobOutcome, String> {
+    fallbacks::create_with_timestamp_recovery(job, rt, cancel, state)
+}
+
+fn create_audio_description_attempt(
+    job: &CreateJob,
+    rt: &Runtime,
+    cancel: Arc<AtomicBool>,
+    state: Arc<Mutex<ProgressState>>,
+) -> Result<JobOutcome, String> {
     if !job.input_path.is_file() {
         return Err(tr("audio_description.error.input"));
     }
@@ -3693,7 +3903,9 @@ fn create_audio_description(
         let resume = if job.resume_checkpoint_path.is_some() {
             match load_partial_checkpoint(&checkpoint_path) {
                 Ok(checkpoint)
-                    if checkpoint.total_chunks == chunks.len()
+                    if checkpoint.source_path == job.input_path
+                        && checkpoint.audio_stream_index == job.audio_stream_index
+                        && checkpoint.total_chunks == chunks.len()
                         && (checkpoint.source_duration_sec - duration).abs() <= 0.5 =>
                 {
                     Some(AudioDescriptionBridgeResume {
@@ -4651,6 +4863,45 @@ fn run_with_progress(
     job: CreateJob,
     rt: Arc<Runtime>,
 ) -> Result<JobOutcome, String> {
+    let normal = run_with_progress_once(parent, job.clone(), rt.clone(), false);
+    if !matches!(&normal, Err(error) if fallbacks::no_usable_descriptions(error))
+        || !job.fixed_reanalysis_slots.is_empty()
+    {
+        return normal;
+    }
+    let mut recovery_job = job;
+    let mut retried_brief = false;
+    if recovery_job.verbosity != Verbosity::Brief {
+        if !crate::ask_yes_no_dialog(parent, &tr("audio_description.short_silence_retry_title"), &tr("audio_description.short_silence_retry_prompt")) {
+            return Err(fallbacks::RECOVERY_DECLINED.into());
+        }
+        recovery_job.verbosity = Verbosity::Brief;
+        recovery_job.resume_checkpoint_path = None;
+        append_podcast_log("audio_description.brief_retry explicit_consent=true");
+        let brief = run_with_progress_once(parent, recovery_job.clone(), rt.clone(), false);
+        if !matches!(&brief, Err(error) if fallbacks::no_usable_descriptions(error)) {
+            return brief;
+        }
+        retried_brief = true;
+    }
+    // The final path needs a completed Brief checkpoint belonging to this exact
+    // source/track. Never start another Gemini request or relax the normal scheduler.
+    fallbacks::load_overlap_checkpoint(&recovery_job)?;
+    let prompt = if retried_brief { "audio_description.dialogue_overlap_retry_prompt" }
+        else { "audio_description.dialogue_overlap_direct_prompt" };
+    if !crate::ask_yes_no_dialog(parent, &tr("audio_description.dialogue_overlap_retry_title"), &tr(prompt)) {
+        return Err(fallbacks::RECOVERY_DECLINED.into());
+    }
+    append_podcast_log("audio_description.dialogue_overlap_start explicit_consent=true");
+    run_with_progress_once(parent, recovery_job, rt, true)
+}
+
+fn run_with_progress_once(
+    parent: &Frame,
+    job: CreateJob,
+    rt: Arc<Runtime>,
+    dialogue_overlap: bool,
+) -> Result<JobOutcome, String> {
     let progress_dialog = Dialog::builder(parent, &tr("audio_description.title"))
         .with_style(
             DialogStyle::Caption
@@ -4705,7 +4956,11 @@ fn run_with_progress(
     let c = cancel.clone();
     let job_thread = job.clone();
     thread::spawn(move || {
-        let r = create_audio_description(&job_thread, &rt, c, st.clone());
+        let r = if dialogue_overlap {
+            fallbacks::create_dialogue_overlap(&job_thread, &rt, c, st.clone())
+        } else {
+            create_audio_description(&job_thread, &rt, c, st.clone())
+        };
         st.lock().unwrap().done = Some(r);
     });
 
@@ -4998,6 +5253,10 @@ fn execute_audio_description_job(
             false
         }
         Err(error) => {
+            if error == fallbacks::RECOVERY_DECLINED {
+                append_podcast_log("audio_description.recovery_declined");
+                return false;
+            }
             if error == "cancelled" {
                 append_podcast_log("audio_description.create.closed_after_cancel");
                 true

@@ -223,5 +223,16 @@
   "audio_description.voice_settings.volume.a_bit_high": "Um pouco alto",
   "audio_description.voice_settings.volume.high": "Alto",
   "audio_description.voice_settings.volume.very_high": "Muito alto",
-  "audio_description.voice_settings.volume.maximum": "Máximo"
+  "audio_description.voice_settings.volume.maximum": "Máximo",
+  "audio_description.progress.timestamp_recode_start": "O vídeo de origem contém marcas temporais inválidas. O Sonarpad está a criar uma cópia normalizada permanente antes de continuar...",
+  "audio_description.progress.timestamp_recode_done": "A normalização das marcas temporais foi concluída. O Sonarpad está a reiniciar o processo normal de audiodescrição usando o ficheiro recodificado...",
+  "audio_description.short_silence_retry_title": "Nenhuma descrição pode ser inserida",
+  "audio_description.short_silence_retry_prompt": "A análise normal não encontrou nenhuma descrição que caiba nos espaços disponíveis sem se sobrepor à fala. Deseja repetir a análise usando descrições muito curtas? As restrições de silêncio continuarão ativas.",
+  "audio_description.short_silence_retrying": "Repetindo a análise com descrições muito curtas...",
+  "audio_description.no_silence_result": "Não foi possível inserir nenhuma descrição nos espaços disponíveis sem se sobrepor à fala.",
+  "audio_description.dialogue_overlap_retry_title": "Fallback final",
+  "audio_description.dialogue_overlap_retry_prompt": "A tentativa com descrições muito curtas também não conseguiu inseri-las sem sobrepor a fala. Deseja fazer uma última tentativa permitindo breves sobreposições com os diálogos? Este é um fallback isolado e não altera a análise normal de audiodescrição.",
+  "audio_description.dialogue_overlap_retrying": "A criar o fallback final com sobreposição ao diálogo...",
+  "audio_description.dialogue_overlap_unavailable": "O fallback final não pode ser usado porque não existem descrições geradas disponíveis para reutilizar.",
+  "audio_description.dialogue_overlap_direct_prompt": "A análise já foi executada com descrições Breves, mas nenhuma pôde ser inserida sem se sobrepor à fala. Pretende criar a audiodescrição mesmo assim, permitindo breves sobreposições com o diálogo? Este é um fallback isolado e não altera o fluxo normal de audiodescrição."
 }

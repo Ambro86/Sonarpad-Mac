@@ -223,5 +223,16 @@
   "audio_description.voice_settings.volume.a_bit_high": "Trochę wysoka",
   "audio_description.voice_settings.volume.high": "Wysoka",
   "audio_description.voice_settings.volume.very_high": "Bardzo wysoka",
-  "audio_description.voice_settings.volume.maximum": "Maksymalna"
+  "audio_description.voice_settings.volume.maximum": "Maksymalna",
+  "audio_description.progress.timestamp_recode_start": "Film źródłowy zawiera nieprawidłowe znaczniki czasu. Sonarpad tworzy trwałą znormalizowaną kopię przed kontynuowaniem...",
+  "audio_description.progress.timestamp_recode_done": "Normalizacja znaczników czasu została zakończona. Sonarpad ponownie uruchamia standardowy proces audiodeskrypcji z użyciem przekodowanego pliku...",
+  "audio_description.short_silence_retry_title": "Nie można wstawić żadnego opisu",
+  "audio_description.short_silence_retry_prompt": "Zwykła analiza nie znalazła opisu, który zmieściłby się w dostępnych przerwach bez nakładania się na mowę. Czy chcesz powtórzyć analizę, używając bardzo krótkich opisów? Ograniczenia dotyczące ciszy pozostaną aktywne.",
+  "audio_description.short_silence_retrying": "Powtarzanie analizy z bardzo krótkimi opisami...",
+  "audio_description.no_silence_result": "Nie udało się wstawić żadnego opisu w dostępnych przerwach bez nakładania się na mowę.",
+  "audio_description.dialogue_overlap_retry_title": "Ostateczny tryb awaryjny",
+  "audio_description.dialogue_overlap_retry_prompt": "Próba z bardzo krótkimi opisami również nie pozwoliła wstawić ich bez nakładania na mowę. Czy chcesz wykonać ostatnią próbę, zezwalając na krótkie nakładanie się na dialogi? To odizolowany tryb awaryjny i nie zmienia normalnej analizy audiodeskrypcji.",
+  "audio_description.dialogue_overlap_retrying": "Tworzenie końcowego trybu awaryjnego z nakładaniem na dialog...",
+  "audio_description.dialogue_overlap_unavailable": "Nie można użyć ostatecznego trybu awaryjnego, ponieważ nie ma wygenerowanych opisów do ponownego użycia.",
+  "audio_description.dialogue_overlap_direct_prompt": "Analiza została już wykonana z krótkimi opisami, ale żadnego z nich nie udało się wstawić bez nakładania się na mowę. Czy mimo to utworzyć audiodeskrypcję, zezwalając na krótkie nakładanie się z dialogiem? Jest to odizolowany tryb awaryjny i nie zmienia normalnego procesu audiodeskrypcji."
 }
