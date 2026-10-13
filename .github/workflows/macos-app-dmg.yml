@@ -747,7 +747,9 @@ jobs:
           echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
           echo "P12 password length: ${#P12_PASSWORD}"
           shasum -a 256 "$CERTIFICATE_PATH"
-          openssl pkcs12 -in "$CERTIFICATE_PATH" -nokeys -passin "pass:$P12_PASSWORD" >/dev/null
+          # Validate PKCS#12 with the native macOS security import below.
+          # Homebrew OpenSSL can reject legacy RC2-40-CBC containers.
+          test -s "$CERTIFICATE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
