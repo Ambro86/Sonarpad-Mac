@@ -857,7 +857,9 @@ jobs:
           echo "$BUILD_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATE_PATH"
           echo "P12 password length: ${#P12_PASSWORD}"
           shasum -a 256 "$CERTIFICATE_PATH"
-          openssl pkcs12 -in "$CERTIFICATE_PATH" -nokeys -passin "pass:$P12_PASSWORD" >/dev/null
+          # Validate PKCS#12 with the native macOS security import below.
+          # Homebrew OpenSSL can reject legacy RC2-40-CBC containers.
+          test -s "$CERTIFICATE_PATH"
 
           security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
           security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
@@ -1080,7 +1082,26 @@ jobs:
           set -euxo pipefail
           APP_NAME="Sonarpad"
           APP_DIR="dist/stage/${APP_NAME}.app"
-          xcrun stapler staple "${APP_DIR}"
+          attempt=1
+          while true; do
+            echo "Stapling notarization ticket, attempt ${attempt}"
+            if xcrun stapler staple "${APP_DIR}"; then
+              break
+            else
+              staple_status=$?
+            fi
+            # Error 68: CloudKit ticket retrieval failed (including lost connections).
+            if [ "${staple_status}" -ne 68 ]; then
+              exit "${staple_status}"
+            fi
+            sleep_seconds=$(( attempt * 15 ))
+            if [ "${sleep_seconds}" -gt 300 ]; then
+              sleep_seconds=300
+            fi
+            echo "Apple ticket retrieval failed (error 68); retrying in ${sleep_seconds}s"
+            sleep "${sleep_seconds}"
+            attempt=$(( attempt + 1 ))
+          done
           xcrun stapler validate "${APP_DIR}"
 
       - name: Verify Gatekeeper
