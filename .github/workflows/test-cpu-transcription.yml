@@ -1,0 +1,32 @@
+name: Test bundled CPU transcription
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/cpu-transcription]
+permissions:
+  contents: read
+jobs:
+  transcription:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Build production transcription bundle
+        run: PYTHON_BIN=python bash bridge/build_faster_whisper_bridge_macos.sh "$PWD/dist/faster-whisper-worker"
+      - name: Test backend selection and failure recovery
+        run: PYTHONPATH=bridge python -m unittest discover -s bridge/tests -p test_whisper_cpp_backend.py -v
+      - name: Test real bundled transcription and cancellation
+        run: python scripts/test_bundled_cpu_transcription.py dist/faster-whisper-worker/faster_whisper_bridge/faster_whisper_bridge
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bundled-transcription-${{ matrix.runner }}
+          path: transcription-test-results/
+          retention-days: 14

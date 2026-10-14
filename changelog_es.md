@@ -1,5 +1,9 @@
 Registro de cambios
 
+Versión 0.5.3 - 14 de octubre de 2026
+
+1. Transcripción de audio y vídeo más rápida en los Mac compatibles gracias a un nuevo motor optimizado para la CPU. La aceleración por GPU permanece desactivada. Se conservan la selección del idioma y del modelo, las marcas de tiempo, el progreso y la cancelación. Catalina y los sistemas anteriores a macOS 13.3 siguen utilizando el motor anterior, que también sirve como alternativa automática si se produce un problema. El nuevo motor descarga su propio modelo la primera vez y lo reutiliza en las siguientes transcripciones.
+
 Versión 0.5.2 - 12 de octubre de 2026
 
 Voces Edge, audiodescripciones y estabilidad

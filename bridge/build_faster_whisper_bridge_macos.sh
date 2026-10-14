@@ -37,6 +37,12 @@ mkdir -p "$OUT_ROOT"
 cp -R dist/faster_whisper_bridge "$OUT_ROOT/faster_whisper_bridge"
 chmod +x "$OUT_ROOT/faster_whisper_bridge/faster_whisper_bridge"
 
+# Catalina intentionally retains the existing CPU runtime. Its bundle must not
+# contain an executable requiring newer Accelerate APIs.
+if [ "${SONARPAD_MACOS_BUILD_FLAVOR:-}" != "intel-catalina" ]; then
+  bash "$SCRIPT_DIR/build_whisper_cpp_macos.sh" "$OUT_ROOT/faster_whisper_bridge"
+fi
+
 "$OUT_ROOT/faster_whisper_bridge/faster_whisper_bridge" --self-test
 
 echo "Built $OUT_ROOT/faster_whisper_bridge/faster_whisper_bridge"

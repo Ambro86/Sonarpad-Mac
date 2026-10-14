@@ -1,5 +1,9 @@
 Journal des nouveautés
 
+Version 0.5.3 - 14 octobre 2026
+
+1. Transcription audio et vidéo plus rapide sur les Mac compatibles grâce à un nouveau moteur optimisé pour le processeur. L’accélération GPU reste désactivée. Le choix de la langue et du modèle, les repères temporels, la progression et l’annulation sont conservés. Catalina et les systèmes antérieurs à macOS 13.3 continuent d’utiliser le moteur précédent, également disponible comme solution de repli automatique en cas de problème. Le nouveau moteur télécharge son propre modèle à la première utilisation et le réutilise ensuite.
+
 Version 0.5.2 - 12 octobre 2026
 
 Voix Edge, audiodescriptions et fiabilité

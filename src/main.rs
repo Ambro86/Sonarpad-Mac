@@ -10898,7 +10898,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
 const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.2 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.3 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {

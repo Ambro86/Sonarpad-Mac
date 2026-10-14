@@ -1,5 +1,9 @@
 Lista zmian
 
+Wersja 0.5.3 - 14 października 2026
+
+1. Szybsza transkrypcja dźwięku i wideo na zgodnych komputerach Mac dzięki nowemu silnikowi zoptymalizowanemu pod kątem CPU. Akceleracja GPU pozostaje wyłączona. Zachowano wybór języka i modelu, znaczniki czasu, postęp oraz anulowanie. Catalina i systemy starsze niż macOS 13.3 nadal korzystają z poprzedniego silnika, który jest też automatycznie używany w razie problemów. Nowy silnik pobiera własny model przy pierwszym użyciu i wykorzystuje go ponownie podczas kolejnych transkrypcji.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

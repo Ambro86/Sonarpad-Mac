@@ -116,15 +116,31 @@ def audio_duration_seconds(path):
 
 
 def create_transcription_model(model_name, download_root):
-    """Use the same stable faster-whisper CPU backend on every macOS architecture."""
-    from faster_whisper import WhisperModel  # type: ignore
+    """Prefer bundled whisper.cpp CPU; retain the compatible backend as fallback."""
+    from whisper_cpp_backend import prefer_cpp_model
 
-    model_kwargs = {"device": "cpu", "compute_type": "int8"}
-    if download_root:
-        model_kwargs["download_root"] = download_root
-    return WhisperModel(model_name, **model_kwargs)
+    def fallback_factory():
+        from faster_whisper import WhisperModel  # type: ignore
+        model_kwargs = {"device": "cpu", "compute_type": "int8"}
+        if download_root:
+            model_kwargs["download_root"] = download_root
+        return WhisperModel(model_name, **model_kwargs)
+
+    return prefer_cpp_model(model_name, download_root, fallback_factory)
 
 
+def install_chunk_progress(model, previous, offset, duration, total):
+    state = [previous]
+    if hasattr(model, "progress_callback"):
+        def report(percent):
+            if total <= 0:
+                return
+            value = max(0, min(99, int((offset + duration * percent / 100.0) * 100 / total)))
+            if value > state[0]:
+                state[0] = value
+                print(f"PROGRESS:{value}", flush=True)
+        model.progress_callback = report
+    return state
 
 
 def active_backend(model):
@@ -289,6 +305,7 @@ def transcribe_long_input(model, input_path, language, timestamps, total_duratio
 
     for audio_chunk, offset_seconds in iter_resampled_audio_chunks(input_path):
         chunk_duration = float(audio_chunk.shape[0]) / WHISPER_SAMPLE_RATE
+        chunk_progress = install_chunk_progress(model, last_progress, offset_seconds, chunk_duration, total_duration)
         segments, _info = model.transcribe(
             audio_chunk,
             language=selected_language,
@@ -303,7 +320,7 @@ def transcribe_long_input(model, input_path, language, timestamps, total_duratio
             timestamps,
             offset_seconds,
             total_duration,
-            last_progress,
+            chunk_progress[0],
         )
         if total_duration > 0:
             chunk_end = offset_seconds + chunk_duration
@@ -338,6 +355,7 @@ def transcribe_input(model, input_path, language, timestamps):
     audio = decode_audio_mono_16k(input_path)
     if total_duration <= 0:
         total_duration = float(audio.shape[0]) / WHISPER_SAMPLE_RATE
+    chunk_progress = install_chunk_progress(model, last_progress, 0.0, float(audio.shape[0]) / WHISPER_SAMPLE_RATE, total_duration)
     segments, _info = model.transcribe(
         audio,
         language=requested_language,
@@ -354,7 +372,7 @@ def transcribe_input(model, input_path, language, timestamps):
         timestamps,
         0.0,
         total_duration,
-        last_progress,
+        chunk_progress[0],
     )
 
     transcript = ("\n".join(parts) if timestamps else " ".join(parts)).strip()
@@ -432,7 +450,12 @@ def main():
                     f"bundled faster-whisper VAD model missing: {silero_vad_model}"
                 )
 
+            from whisper_cpp_backend import bundled_cpp_binary, supports_cpp_runtime, validate_cpp_binary
+            cpp_binary = bundled_cpp_binary()
+            if cpp_binary is not None and supports_cpp_runtime():
+                validate_cpp_binary(cpp_binary)
             payload = {
+                "whisper_cpp_bundled": cpp_binary is not None,
                 "ok": True,
                 "bridge_version": BRIDGE_PROTOCOL_VERSION,
                 "backend": "cpu",

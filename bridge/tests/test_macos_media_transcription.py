@@ -30,7 +30,7 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn('print("STAGE:model", flush=True)', source)
         self.assertIn('print("STAGE:transcribing", flush=True)', source)
 
-    def test_macos_bridge_uses_same_stable_cpu_backend_on_all_architectures(self):
+    def test_macos_bridge_retains_stable_cpu_fallback_without_gpu_backends(self):
         source = text(BRIDGE)
         self.assertIn('{"device": "cpu", "compute_type": "int8"}', source)
         self.assertNotIn("mlx_whisper", source)

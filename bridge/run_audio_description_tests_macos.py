@@ -27,6 +27,7 @@ MODULES = (
     "test_macos_audio_description_transport",
     "test_macos_windows_fallback_port",
     "test_macos_media_transcription",
+    "test_whisper_cpp_backend",
     "test_macos_la7_play",
     "test_macos_log_retention",
 )

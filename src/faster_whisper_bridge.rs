@@ -151,6 +151,11 @@ fn read_stderr(stderr: impl Read + Send + 'static) -> mpsc::Receiver<String> {
             Ok(_) => String::from_utf8_lossy(&raw).trim().to_string(),
             Err(error) => format!("read bridge stderr failed: {error}"),
         };
+        for line in text.lines() {
+            if line.starts_with("BACKEND_FALLBACK:") {
+                crate::append_podcast_log(&format!("transcription.worker {line}"));
+            }
+        }
         let _ = tx.send(text);
     });
     rx
