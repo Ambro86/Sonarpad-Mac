@@ -1,0 +1,49 @@
+name: Short transcription benchmark (no app changes)
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/transcription-benchmark]
+    paths:
+      - .github/workflows/transcription-benchmark.yml
+      - scripts/transcription_benchmark.py
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install the same transcription dependencies as the app
+        run: >-
+          python -m pip install
+          'numpy>=1.24.2,<2' ctranslate2==4.3.1 onnxruntime==1.15.0
+          av==12.3.0 tokenizers==0.22.1 faster-whisper==1.2.1
+      - name: Build pinned whisper.cpp comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --depth 1 --branch v1.8.3 https://github.com/ggml-org/whisper.cpp.git bench-whisper
+          test "$(git -C bench-whisper rev-parse HEAD)" = '2eeeba56e9edd762b4b38467bab96c2517163158'
+          cmake -S bench-whisper -B bench-whisper/build -DCMAKE_BUILD_TYPE=Release -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DWHISPER_BUILD_TESTS=OFF
+          cmake --build bench-whisper/build --config Release --target whisper-cli -j 3
+          bash bench-whisper/models/download-ggml-model.sh small
+      - name: Measure CPU variants and detect actual Metal availability
+        run: python scripts/transcription_benchmark.py
+      - name: Upload measurements and transcripts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: transcription-benchmark-${{ matrix.runner }}
+          path: benchmark-results/
+          retention-days: 14
