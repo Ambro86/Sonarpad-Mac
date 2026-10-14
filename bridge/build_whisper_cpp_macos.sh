@@ -31,7 +31,7 @@ chmod +x "$OUT_DIR/whisper-cli"
 cp "$SOURCE_DIR/LICENSE" "$OUT_DIR/whisper-cpp-LICENSE.txt"
 "$OUT_DIR/whisper-cli" --help
 otool -L "$OUT_DIR/whisper-cli"
-if otool -L "$OUT_DIR/whisper-cli" | grep -E '/(opt/homebrew|usr/local|Users)/|lib(ggml|whisper|omp).*dylib'; then
+if otool -L "$OUT_DIR/whisper-cli" | tail -n +2 | grep -E '/(opt/homebrew|usr/local|Users)/|lib(ggml|whisper|omp).*dylib|/(Metal|MetalPerformanceShaders|CoreML)\.framework/'; then
   echo 'Unexpected external dependency in whisper.cpp CPU executable' >&2
   exit 1
 fi

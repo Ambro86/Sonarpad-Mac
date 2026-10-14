@@ -117,6 +117,7 @@ class WhisperCppBackendTests(unittest.TestCase):
         build = (root / "build_whisper_cpp_macos.sh").read_text(encoding="utf-8")
         for flag in ("-DGGML_METAL=OFF", "-DWHISPER_COREML=OFF", "-DGGML_NATIVE=OFF", "-DBUILD_SHARED_LIBS=OFF", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"):
             self.assertIn(flag, build)
+        self.assertIn("tail -n +2", build)
         self.assertIn('!= "intel-catalina"', (root / "build_faster_whisper_bridge_macos.sh").read_text(encoding="utf-8"))
 
 
