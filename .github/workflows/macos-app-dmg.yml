@@ -77,25 +77,36 @@ jobs:
           echo "DEVELOPER_DIR=${DEVELOPER_DIR}" >> "${GITHUB_ENV}"
           echo "SDKROOT=$(xcrun --sdk macosx --show-sdk-path)" >> "${GITHUB_ENV}"
 
-      - name: Ensure build tools (cmake + ninja + nasm)
+      - name: Ensure build tools (cmake + ninja + nasm + pkg-config)
         shell: bash
         run: |
           set -euxo pipefail
-          for attempt in 1 2 3; do
-            if brew update; then
-              break
+          # Keep the runner's working tools; upgrading CMake can build it from source.
+          export HOMEBREW_NO_AUTO_UPDATE=1
+          export HOMEBREW_NO_INSTALL_UPGRADE=1
+          export HOMEBREW_NO_INSTALL_CLEANUP=1
+          missing_tools=()
+          for tool in cmake ninja nasm pkg-config; do
+            if ! command -v "${tool}" >/dev/null 2>&1; then
+              missing_tools+=("${tool}")
             fi
-            if [ "${attempt}" -eq 3 ]; then
-              echo "brew update failed after 3 attempts" >&2
-              exit 1
-            fi
-            echo "brew update failed (attempt ${attempt}/3); retrying in 15 seconds..." >&2
-            sleep 15
           done
-          brew install cmake ninja nasm
+          if [ "${#missing_tools[@]}" -gt 0 ]; then
+            for attempt in 1 2 3; do
+              if brew install "${missing_tools[@]}"; then
+                break
+              fi
+              if [ "${attempt}" -eq 3 ]; then
+                echo "Installing missing build tools failed after 3 attempts" >&2
+                exit 1
+              fi
+              sleep 15
+            done
+          fi
           cmake --version
           ninja --version
           nasm -v
+          pkg-config --version
 
       - name: Install Rust
         uses: dtolnay/rust-toolchain@stable
@@ -317,7 +328,7 @@ jobs:
           else
             FFMPEG_ARCH="x86_64"
           fi
-          brew install pkg-config
+          pkg-config --version
           LAME_PREFIX="$(pwd)/../../lame-install"
           export PKG_CONFIG_PATH="${LAME_PREFIX}/lib/pkgconfig:$(pwd)/../../x264-install/lib/pkgconfig"
           export PKG_CONFIG_ALL_STATIC=1
