@@ -1,0 +1,54 @@
+name: Test bundled macOS media cutter
+on:
+  workflow_dispatch:
+  push:
+    branches: [test/media-cutter-macos]
+permissions:
+  contents: read
+jobs:
+  cutter:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            target: aarch64-apple-darwin
+            minimum: "11.0"
+          - runner: macos-15-intel
+            target: x86_64-apple-darwin
+            minimum: "10.15"
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minimum }}
+      CFLAGS: -mmacosx-version-min=${{ matrix.minimum }}
+      CXXFLAGS: -mmacosx-version-min=${{ matrix.minimum }}
+      LDFLAGS: -mmacosx-version-min=${{ matrix.minimum }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install assembler
+        run: command -v nasm || brew install nasm
+      - uses: actions/cache@v4
+        with:
+          path: |
+            dist/ffmpeg-src
+            dist/ffmpeg-install
+          key: ${{ runner.os }}-${{ matrix.target }}-ffmpeg-8.0.1-v18-mpegps-input
+      - name: Build the exact release FFmpeg configuration
+        run: |
+          python scripts/test_media_cutter_macos.py --prepare-build
+          bash build-test-ffmpeg.sh
+      - name: Exercise production cutter export functions
+        run: python scripts/test_media_cutter_macos.py dist/ffmpeg-install/bin/ffmpeg
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: media-cutter-${{ matrix.target }}
+          path: |
+            media-cutter-test-results/*.log
+            media-cutter-test-results/summary.json
+          retention-days: 7
