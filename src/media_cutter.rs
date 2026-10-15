@@ -56,6 +56,7 @@ struct PreviewState {
     base_position: f64,
     started_at: Option<Instant>,
     stop_at: Option<f64>,
+    playback_ranges: Vec<MediaPart>,
 }
 
 impl PreviewState {
@@ -66,6 +67,7 @@ impl PreviewState {
             base_position: 0.0,
             started_at: None,
             stop_at: None,
+            playback_ranges: Vec::new(),
         }
     }
 
@@ -73,6 +75,9 @@ impl PreviewState {
         let mut position = self.base_position;
         if self.playing {
             if let Some(started_at) = self.started_at {
+                if !self.playback_ranges.is_empty() {
+                    return kept_position(&self.playback_ranges, started_at.elapsed().as_secs_f64());
+                }
                 position += started_at.elapsed().as_secs_f64();
             }
         }
@@ -87,6 +92,7 @@ impl PreviewState {
         self.playing = false;
         self.started_at = None;
         self.stop_at = None;
+        self.playback_ranges.clear();
     }
 
     fn pause(&mut self, duration: f64) {
@@ -157,6 +163,9 @@ struct Labels {
     no_file: &'static str,
     invalid_media: &'static str,
     file_loaded: &'static str,
+    guide_start: &'static str,
+    guide_end: &'static str,
+    guide_review: &'static str,
     start_set: &'static str,
     end_set: &'static str,
     cut_applied: &'static str,
@@ -243,6 +252,9 @@ fn labels() -> Labels {
         no_file: t(l, "Apri prima un file media.", "Open a media file first.", "Ouvrez d’abord un fichier multimédia.", "Abre primero un archivo multimedia.", "Abra primeiro um ficheiro multimédia.", "Nejprve otevřete multimediální soubor.", "Najpierw otwórz plik multimedialny."),
         invalid_media: t(l, "Il file non contiene audio o video utilizzabile.", "The file contains no usable audio or video.", "Le fichier ne contient aucun audio ou vidéo utilisable.", "El archivo no contiene audio o vídeo utilizable.", "O ficheiro não contém áudio ou vídeo utilizável.", "Soubor neobsahuje použitelný zvuk ani video.", "Plik nie zawiera użytecznego audio ani wideo."),
         file_loaded: t(l, "File caricato", "File loaded", "Fichier chargé", "Archivo cargado", "Ficheiro carregado", "Soubor načten", "Plik wczytany"),
+        guide_start: t(l, "Vai all'inizio della parte da eliminare, poi premi Inizio taglio.", "Go to the beginning of the part to remove, then press Set cut start.", "Allez au début de la partie à supprimer, puis appuyez sur Début de coupe.", "Ve al inicio de la parte que quieres eliminar y pulsa Inicio del corte.", "Vá ao início da parte a eliminar e prima Início do corte.", "Přejděte na začátek části k odstranění a stiskněte Začátek střihu.", "Przejdź do początku fragmentu do usunięcia i naciśnij Początek cięcia."),
+        guide_end: t(l, "Ora vai alla fine della parte da eliminare, poi premi Fine taglio.", "Now go to the end of the part to remove, then press Set cut end.", "Allez maintenant à la fin de la partie à supprimer, puis appuyez sur Fin de coupe.", "Ahora ve al final de la parte que quieres eliminar y pulsa Fin del corte.", "Agora vá ao fim da parte a eliminar e prima Fim do corte.", "Nyní přejděte na konec části k odstranění a stiskněte Konec střihu.", "Teraz przejdź do końca fragmentu do usunięcia i naciśnij Koniec cięcia."),
+        guide_review: t(l, "Usa Ascolta taglio per sentire la parte che verrà eliminata, oppure Applica taglio per eliminarla.", "Use Listen to cut to hear the part that will be removed, or Apply cut to remove it.", "Utilisez Écouter la coupe pour écouter la partie à supprimer, ou Appliquer la coupe pour la supprimer.", "Usa Escuchar corte para oír la parte que se eliminará, o Aplicar corte para eliminarla.", "Use Ouvir corte para ouvir a parte a eliminar, ou Aplicar corte para a eliminar.", "Použijte Poslechnout střih k poslechu odstraňované části nebo Použít střih k jejímu odstranění.", "Użyj Odsłuchaj cięcie, aby usłyszeć usuwany fragment, lub Zastosuj cięcie, aby go usunąć."),
         start_set: t(l, "Inizio taglio impostato", "Cut start set", "Début de coupe défini", "Inicio del corte establecido", "Início do corte definido", "Začátek střihu nastaven", "Ustawiono początek cięcia"),
         end_set: t(l, "Fine taglio impostata", "Cut end set", "Fin de coupe définie", "Fin del corte establecido", "Fim do corte definido", "Konec střihu nastaven", "Ustawiono koniec cięcia"),
         cut_applied: t(l, "Taglio applicato", "Cut applied", "Coupe appliquée", "Corte aplicado", "Corte aplicado", "Střih použit", "Cięcie zastosowane"),
@@ -506,6 +518,62 @@ fn start_preview(preview: &Rc<RefCell<PreviewState>>, path: &Path, duration: f64
     Ok(())
 }
 
+// Main playback uses only retained ranges. Cut audition still uses start_preview.
+fn remaining_kept_ranges(parts: &[MediaPart], position: f64) -> Vec<MediaPart> {
+    parts.iter().filter(|p| p.keep && p.duration() >= MIN_PART_SECONDS && p.end > position)
+        .map(|p| MediaPart { start: p.start.max(position), end: p.end, keep: true })
+        .collect()
+}
+
+fn kept_position(parts: &[MediaPart], elapsed: f64) -> f64 {
+    let mut remaining = elapsed.max(0.0);
+    let mut end = 0.0;
+    for part in parts.iter().filter(|p| p.keep && p.duration() > 0.0) {
+        end = part.end;
+        if remaining < part.duration() { return part.start + remaining; }
+        remaining -= part.duration();
+    }
+    end
+}
+
+fn kept_seek_position(parts: &[MediaPart], position: f64, delta: f64) -> f64 {
+    let offset: f64 = parts.iter().filter(|p| p.keep && p.duration() >= MIN_PART_SECONDS)
+        .map(|p| (position - p.start).clamp(0.0, p.duration())).sum();
+    kept_position(parts, offset + delta)
+}
+
+fn playback_edl(path: &Path, ranges: &[MediaPart]) -> String {
+    let name = path.to_string_lossy();
+    let segments: Vec<String> = ranges.iter().map(|p|
+        format!("%{}%{},{:.6},{:.6}", name.len(), name, p.start, p.duration())
+    ).collect();
+    format!("edl://{}", segments.join(";"))
+}
+
+fn start_playback(preview: &Rc<RefCell<PreviewState>>, path: &Path, duration: f64,
+    position: f64, parts: &[MediaPart], show_video: bool) -> Result<(), String> {
+    if !parts.is_empty() && parts.iter().all(|p| p.keep) {
+        return start_preview(preview, path, duration, position, None, show_video);
+    }
+    let ranges = remaining_kept_ranges(parts, position);
+    let mut state = preview.borrow_mut();
+    state.stop_child();
+    if ranges.is_empty() {
+        state.base_position = duration;
+        return Ok(());
+    }
+    // MPV clips and joins the ranges itself, so no deleted audio leaks between
+    // UI timer ticks. Positions exposed to the editor remain source positions.
+    let edl = playback_edl(path, &ranges);
+    let child = spawn_preview(Path::new(&edl), 0.0, None, show_video)?;
+    state.child = Some(child);
+    state.playing = true;
+    state.base_position = ranges[0].start;
+    state.started_at = Some(Instant::now());
+    state.playback_ranges = ranges;
+    Ok(())
+}
+
 fn movement_seconds(choice: Choice) -> f64 {
     match choice.get_selection().unwrap_or(1) {
         0 => 1.0,
@@ -527,6 +595,7 @@ fn seek_preview(
     probe: &Rc<RefCell<Option<ProbeInfo>>>,
     preview: &Rc<RefCell<PreviewState>>,
     show_video: &Rc<Cell<bool>>,
+    parts: &Rc<RefCell<Vec<MediaPart>>>,
     dialog: &Dialog,
     labels: Labels,
 ) {
@@ -539,17 +608,16 @@ fn seek_preview(
     };
     let step = movement_seconds(movement_choice);
     let was_playing = preview.borrow().playing;
-    let new_position = (preview.borrow().position(info.duration) + direction * step)
-        .clamp(0.0, info.duration);
+    let new_position = kept_seek_position(&parts.borrow(), preview.borrow().position(info.duration), direction * step);
     preview.borrow_mut().pause(info.duration);
     preview.borrow_mut().base_position = new_position;
     if was_playing {
-        let _ = start_preview(
+        let _ = start_playback(
             preview,
             &path,
             info.duration,
             new_position,
-            None,
+            &parts.borrow(),
             show_video.get(),
         );
     }
@@ -1215,6 +1283,8 @@ pub fn open_dialog(parent: &Frame) {
         .with_size(860, 650)
         .build();
     let panel = Panel::builder(&dialog).build();
+    let progress_panel = Panel::builder(&dialog).build();
+    progress_panel.show(false);
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let input = Rc::new(RefCell::new(None::<PathBuf>));
@@ -1330,8 +1400,6 @@ pub fn open_dialog(parent: &Frame) {
     root.add(&status_text, 0, SizerFlag::Expand | SizerFlag::All, 8);
     let bottom = BoxSizer::builder(Orientation::Horizontal).build();
     let save_button = Button::builder(&panel).with_label(labels.save).build();
-    let cancel_button = Button::builder(&panel).with_label(labels.cancel_processing).build();
-    cancel_button.enable(false);
     save_button.enable(false);
     back.enable(false);
     play_pause.enable(false);
@@ -1339,10 +1407,21 @@ pub fn open_dialog(parent: &Frame) {
     guided_primary.enable(false);
     split_here.enable(false);
     bottom.add(&save_button, 1, SizerFlag::All, 6);
-    bottom.add(&cancel_button, 1, SizerFlag::All, 6);
     root.add_sizer(&bottom, 0, SizerFlag::Expand, 0);
 
     panel.set_sizer(root, true);
+    let progress_root = BoxSizer::builder(Orientation::Vertical).build();
+    let progress_gauge = Gauge::builder(&progress_panel).with_range(100).build();
+    progress_gauge.set_accessibility_label(labels.processing);
+    let cancel_button = Button::builder(&progress_panel).with_label(labels.cancel_processing).build();
+    cancel_button.enable(false);
+    progress_root.add(&progress_gauge, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    progress_root.add(&cancel_button, 0, SizerFlag::All, 12);
+    progress_panel.set_sizer(progress_root, true);
+    let dialog_root = BoxSizer::builder(Orientation::Vertical).build();
+    dialog_root.add(&panel, 1, SizerFlag::Expand, 0);
+    dialog_root.add(&progress_panel, 1, SizerFlag::Expand, 0);
+    dialog.set_sizer(dialog_root, true);
     dialog.set_escape_id(ID_CANCEL);
 
     let export_job = Rc::new(RefCell::new(None::<Arc<Mutex<ExportProgress>>>));
@@ -1385,6 +1464,9 @@ pub fn open_dialog(parent: &Frame) {
                 *probe_open.borrow_mut() = Some(info.clone());
                 *parts_open.borrow_mut() = vec![MediaPart { start: 0.0, end: info.duration, keep: true }];
                 deleted_open.borrow_mut().clear();
+                guided_primary.set_label(labels.set_start);
+                guided_listen.enable(false);
+                guided_modify.enable(false);
                 guided_start_open.set(None);
                 guided_end_open.set(None);
                 edited_open.set(false);
@@ -1415,7 +1497,11 @@ pub fn open_dialog(parent: &Frame) {
                 guided_primary.enable(true);
                 split_here.enable(true);
                 mode_choice.set_focus();
-                announce_voiceover_message(&format!("{}: {name}, {}", labels.file_loaded, format_duration_natural(info.duration)));
+                let instruction = if mode_choice.get_selection().unwrap_or(0) == 0 { labels.guide_start } else { labels.ready };
+                status_text.set_label(instruction);
+                status_text.wrap(780);
+                panel.layout();
+                announce_voiceover_message(&format!("{}: {name}, {}. {}", labels.file_loaded, format_duration_natural(info.duration), instruction));
             }
             _ => show_error(&dialog_open, labels.title, labels.invalid_media),
         }
@@ -1449,6 +1535,13 @@ pub fn open_dialog(parent: &Frame) {
         delete_part.show(advanced);
         restore_part.show(advanced);
         parts_choice.show(advanced);
+        if !advanced {
+            let instruction = if guided_end_mode.get().is_some() { labels.guide_review }
+                else if guided_start_mode.get().is_some() { labels.guide_end }
+                else { labels.guide_start };
+            status_text.set_label(instruction);
+            status_text.wrap(780);
+        }
         panel_mode.layout();
         dialog_mode.layout();
     });
@@ -1458,6 +1551,7 @@ pub fn open_dialog(parent: &Frame) {
     let probe_play = Rc::clone(&probe);
     let preview_play = Rc::clone(&preview);
     let show_video_play = Rc::clone(&show_video);
+    let parts_play = Rc::clone(&parts);
     let dialog_play = dialog;
     play_pause.on_click(move |_| {
         let Some(path) = input_play.borrow().clone() else { show_info(&dialog_play, labels.title, labels.no_file); return; };
@@ -1467,8 +1561,8 @@ pub fn open_dialog(parent: &Frame) {
             play_pause.set_label(labels.play);
         } else {
             let position = preview_play.borrow().position(info.duration);
-            match start_preview(&preview_play, &path, info.duration, position, None, show_video_play.get()) {
-                Ok(()) => play_pause.set_label(labels.pause),
+            match start_playback(&preview_play, &path, info.duration, position, &parts_play.borrow(), show_video_play.get()) {
+                Ok(()) => play_pause.set_label(if preview_play.borrow().playing { labels.pause } else { labels.play }),
                 Err(err) => show_error(&dialog_play, labels.title, &err),
             }
         }
@@ -1478,17 +1572,19 @@ pub fn open_dialog(parent: &Frame) {
     let probe_back = Rc::clone(&probe);
     let preview_back = Rc::clone(&preview);
     let show_back = Rc::clone(&show_video);
+    let parts_back = Rc::clone(&parts);
     let d_back = dialog;
     back.on_click(move |_| {
-        seek_preview(-1.0, movement_choice, &input_back, &probe_back, &preview_back, &show_back, &d_back, labels);
+        seek_preview(-1.0, movement_choice, &input_back, &probe_back, &preview_back, &show_back, &parts_back, &d_back, labels);
     });
     let input_forward = Rc::clone(&input);
     let probe_forward = Rc::clone(&probe);
     let preview_forward = Rc::clone(&preview);
     let show_forward = Rc::clone(&show_video);
+    let parts_forward = Rc::clone(&parts);
     let d_forward = dialog;
     forward.on_click(move |_| {
-        seek_preview(1.0, movement_choice, &input_forward, &probe_forward, &preview_forward, &show_forward, &d_forward, labels);
+        seek_preview(1.0, movement_choice, &input_forward, &probe_forward, &preview_forward, &show_forward, &parts_forward, &d_forward, labels);
     });
 
     // Guided cut.
@@ -1508,8 +1604,11 @@ pub fn open_dialog(parent: &Frame) {
             guided_primary.set_label(labels.set_end);
             guided_listen.enable(false);
             guided_modify.enable(false);
-            status_text.set_label(&format!("{}: {}", labels.start_set, format_time(current)));
-            announce_voiceover_message(&format!("{}: {}", labels.start_set, format_time(current)));
+            let message = format!("{}: {}. {}", labels.start_set, format_time(current), labels.guide_end);
+            status_text.set_label(&message);
+            status_text.wrap(780);
+            panel.layout();
+            announce_voiceover_message(&message);
         } else if end_guided.get().is_none() {
             let first = start_guided.get().unwrap_or(current);
             let (start, end) = if first <= current { (first, current) } else { (current, first) };
@@ -1522,11 +1621,19 @@ pub fn open_dialog(parent: &Frame) {
             guided_primary.set_label(labels.apply_cut);
             guided_listen.enable(true);
             guided_modify.enable(true);
-            status_text.set_label(&format!("{}: {} – {}", labels.end_set, format_time(start), format_time(end)));
-            announce_voiceover_message(&format!("{}: {} – {}", labels.end_set, format_time(start), format_time(end)));
+            preview_guided.borrow_mut().pause(info.duration);
+            play_pause.set_label(labels.play);
+            let message = format!("{}: {} – {}. {}", labels.end_set, format_time(start), format_time(end), labels.guide_review);
+            status_text.set_label(&message);
+            status_text.wrap(780);
+            panel.layout();
+            announce_voiceover_message(&message);
         } else {
             let start = start_guided.get().unwrap();
             let end = end_guided.get().unwrap();
+            preview_guided.borrow_mut().pause(info.duration);
+            preview_guided.borrow_mut().base_position = start;
+            play_pause.set_label(labels.play);
             let newly_deleted = delete_range(
                 &mut parts_guided.borrow_mut(),
                 start,
@@ -1537,8 +1644,11 @@ pub fn open_dialog(parent: &Frame) {
                 deleted_guided.borrow_mut().extend(newly_deleted);
                 edited_guided.set(true);
                 refresh_parts_choice(parts_choice, &parts_guided.borrow(), &labels, None);
-                status_text.set_label(labels.cut_applied);
-                announce_voiceover_message(labels.cut_applied);
+                let message = format!("{}. {}", labels.cut_applied, labels.guide_start);
+                status_text.set_label(&message);
+                status_text.wrap(780);
+                panel.layout();
+                announce_voiceover_message(&message);
             }
             start_guided.set(None);
             end_guided.set(None);
@@ -1593,11 +1703,14 @@ pub fn open_dialog(parent: &Frame) {
     });
 
     let parts_delete = Rc::clone(&parts); let deleted_delete = Rc::clone(&deleted_history); let edited_delete = Rc::clone(&edited);
+    let preview_delete = Rc::clone(&preview); let probe_delete = Rc::clone(&probe);
     delete_part.on_click(move |_| {
         let index = parts_choice.get_selection().unwrap_or(0) as usize;
         let mut parts = parts_delete.borrow_mut();
         let Some(part) = parts.get_mut(index) else { return; };
         if part.keep {
+            if let Some(info) = probe_delete.borrow().as_ref() { preview_delete.borrow_mut().pause(info.duration); }
+            play_pause.set_label(labels.play);
             part.keep = false;
             deleted_delete.borrow_mut().push((part.start, part.end));
             edited_delete.set(true);
@@ -1608,6 +1721,7 @@ pub fn open_dialog(parent: &Frame) {
     });
 
     let parts_restore = Rc::clone(&parts); let deleted_restore = Rc::clone(&deleted_history); let edited_restore = Rc::clone(&edited);
+    let preview_restore = Rc::clone(&preview); let probe_restore = Rc::clone(&probe);
     restore_part.on_click(move |_| {
         let mut history = deleted_restore.borrow_mut();
         while let Some((start, end)) = history.pop() {
@@ -1617,6 +1731,8 @@ pub fn open_dialog(parent: &Frame) {
                 .enumerate()
                 .find(|(_, part)| !part.keep && (part.start - start).abs() < 0.001 && (part.end - end).abs() < 0.001)
             {
+                if let Some(info) = probe_restore.borrow().as_ref() { preview_restore.borrow_mut().pause(info.duration); }
+                play_pause.set_label(labels.play);
                 part.keep = true;
                 edited_restore.set(true);
                 refresh_parts_choice(parts_choice, &parts, &labels, Some(index));
@@ -1686,6 +1802,7 @@ pub fn open_dialog(parent: &Frame) {
     });
 
     let show_video_toggle = Rc::clone(&show_video); let preview_toggle = Rc::clone(&preview); let input_toggle = Rc::clone(&input); let probe_toggle = Rc::clone(&probe);
+    let parts_toggle = Rc::clone(&parts);
     video_preview_button.on_click(move |_| {
         let new_value = !show_video_toggle.get();
         show_video_toggle.set(new_value);
@@ -1694,7 +1811,12 @@ pub fn open_dialog(parent: &Frame) {
             let was_playing = preview_toggle.borrow().playing;
             let position = preview_toggle.borrow().position(info.duration);
             if new_value || was_playing {
-                let _ = start_preview(&preview_toggle, &path, info.duration, position, None, new_value);
+                let stop_at = preview_toggle.borrow().stop_at;
+                if let Some(end) = stop_at {
+                    let _ = start_preview(&preview_toggle, &path, info.duration, position, Some(end), new_value);
+                } else {
+                    let _ = start_playback(&preview_toggle, &path, info.duration, position, &parts_toggle.borrow(), new_value);
+                }
             }
         }
     });
@@ -1764,11 +1886,15 @@ pub fn open_dialog(parent: &Frame) {
             (p.percent, p.message.clone(), p.finished, p.result.clone())
         };
         if !snapshot.2 {
-            status_text.set_label(&format!("{} {}%", snapshot.1, snapshot.0.clamp(0, 99)));
+            progress_gauge.set_value(snapshot.0.clamp(0, 99));
             return;
         }
         *export_job_tick.borrow_mut() = None;
         export_busy_tick.store(false, Ordering::SeqCst);
+        progress_gauge.set_value(if snapshot.3.as_ref().is_some_and(|r| r.is_ok()) { 100 } else { snapshot.0.clamp(0, 99) });
+        progress_panel.show(false);
+        panel.show(true);
+        dialog_tick.layout();
         open_button.enable(true);
         mode_choice.enable(true);
         movement_choice.enable(true);
@@ -1791,6 +1917,7 @@ pub fn open_dialog(parent: &Frame) {
         save_button.enable(true);
         cancel_button.enable(false);
         close_button.enable(true);
+        save_button.set_focus();
         match snapshot.3.unwrap_or_else(|| Err("errore sconosciuto".to_string())) {
             Ok(path) => {
                 edited_tick.set(false);
@@ -1856,7 +1983,11 @@ pub fn open_dialog(parent: &Frame) {
         save_button.enable(false);
         cancel_button.enable(true);
         close_button.enable(false);
-        status_text.set_label(&format!("{} 0%", labels.processing));
+        progress_gauge.set_value(0);
+        panel.show(false);
+        progress_panel.show(true);
+        dialog.layout();
+        progress_gauge.set_focus();
         announce_voiceover_message(labels.processing_started);
         let snapshot = ExportSnapshot { input: input_path, output, parts: parts_save.borrow().clone(), probe: probe_info, rotation: rotation_save.get(), added_track: added_save.borrow().clone() };
         let cancel = Arc::clone(&export_cancel_save);
