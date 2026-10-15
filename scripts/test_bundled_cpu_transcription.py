@@ -1,6 +1,7 @@
 """Run short integration checks against the actual PyInstaller macOS worker."""
 import json
 import os
+import platform
 from pathlib import Path
 import re
 import signal
@@ -25,7 +26,7 @@ def command(path, language):
             '--download-root', str(CACHE), '--timestamps']
 
 
-def transcribe(path, language, label):
+def transcribe(path, language, label, expected_backend=None):
     start = time.perf_counter()
     process = subprocess.run(command(path, language), capture_output=True, text=True, timeout=240)
     elapsed = time.perf_counter() - start
@@ -33,7 +34,8 @@ def transcribe(path, language, label):
     assert process.returncode == 0, process.stderr + process.stdout
     results = [json.loads(line) for line in process.stdout.splitlines() if line.startswith('{')]
     result = results[-1]
-    assert result['ok'] and result['backend'] == 'whisper.cpp-cpu', result
+    expected_backend = expected_backend or ('whisper.cpp-metal' if platform.machine() == 'arm64' else 'whisper.cpp-cpu')
+    assert result['ok'] and result['backend'] == expected_backend, result
     assert result['language'] == language and result['text'].strip(), result
     assert re.search(r'\[\d+:\d+\]', result['text']), result
     progress = [int(line.split(':')[1]) for line in process.stdout.splitlines() if line.startswith('PROGRESS:')]
@@ -107,3 +109,21 @@ finally:
     process.stdout.close()
 (OUT / 'cancellation.json').write_text(json.dumps({'ok': True, 'no_surviving_processes': True, 'temporary_audio_cleaned': True}))
 print('All bundled CPU transcription checks passed.', flush=True)
+
+if platform.machine() == 'arm64':
+    # A real child-process failure must recover through the independent CPU
+    # executable using the already downloaded model, without duplicate text.
+    metal = WORKER.with_name('whisper-metal')
+    saved = metal.with_name('whisper-metal.saved')
+    metal.rename(saved)
+    try:
+        metal.write_text('#!/bin/sh\necho "simulated Metal failure" >&2\nexit 42\n', encoding='utf-8')
+        metal.chmod(0o755)
+        recovered = transcribe(OUT / 'sample.mkv', 'en', 'metal-failure-cpu-recovery', 'whisper.cpp-cpu')
+        assert recovered['text'] == english['text'], recovered
+        log = (OUT / 'metal-failure-cpu-recovery.log').read_text(encoding='utf-8')
+        assert 'BACKEND_FALLBACK:whisper.cpp-metal->whisper.cpp-cpu:' in log
+    finally:
+        metal.unlink(missing_ok=True)
+        saved.rename(metal)
+print('All bundled Metal/CPU transcription and recovery checks passed.', flush=True)

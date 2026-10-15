@@ -1,4 +1,4 @@
-"""CPU-only whisper.cpp adapter for the existing transcription bridge protocol."""
+"""Whisper.cpp with native Apple Silicon Metal and independent CPU fallbacks."""
 import contextlib
 import json
 import os
@@ -51,6 +51,14 @@ def bundled_cpp_binary():
     return binary if binary.is_file() else None
 
 
+def bundled_metal_binary(cpu_binary):
+    # An Intel process under Rosetta follows the Intel CPU path too.
+    if sys.platform != "darwin" or platform.machine().lower() not in ("arm64", "aarch64"):
+        return None
+    binary = Path(cpu_binary).with_name("whisper-metal")
+    return binary if binary.is_file() else None
+
+
 def validate_cpp_binary(binary):
     result = subprocess.run([str(binary), "--help"], capture_output=True, text=True, timeout=15)
     if result.returncode != 0 or "--no-gpu" not in result.stdout + result.stderr:
@@ -89,8 +97,12 @@ def parse_segments(payload, language, duration):
 
 
 class CppThenCpuModel:
-    def __init__(self, binary, model_path, fallback_factory):
+    def __init__(self, binary, model_path, fallback_factory, metal_binary=None):
         self.binary = Path(binary)
+        self.cpu_binary = self.binary
+        self.use_metal = metal_binary is not None
+        if self.use_metal:
+            self.binary = Path(metal_binary)
         self.model_path = Path(model_path)
         self.fallback_factory = fallback_factory
         self.fallback = None
@@ -98,7 +110,9 @@ class CppThenCpuModel:
 
     @property
     def backend(self):
-        return "cpu" if self.fallback is not None else "whisper.cpp-cpu"
+        if self.fallback is not None:
+            return "cpu"
+        return "whisper.cpp-metal" if self.use_metal else "whisper.cpp-cpu"
 
     @property
     def compute_type(self):
@@ -107,6 +121,14 @@ class CppThenCpuModel:
     def transcribe(self, audio, **options):
         if self.fallback is not None:
             return self.fallback.transcribe(audio, **options)
+        if self.use_metal:
+            try:
+                segments = self._transcribe_cpp(audio, options)
+                return iter(segments), SimpleNamespace(language=options["language"])
+            except Exception as error:
+                print(f"BACKEND_FALLBACK:whisper.cpp-metal->whisper.cpp-cpu:{type(error).__name__}: {error}", file=sys.stderr, flush=True)
+                self.use_metal = False
+                self.binary = self.cpu_binary
         try:
             segments = self._transcribe_cpp(audio, options)
             return iter(segments), SimpleNamespace(language=options["language"])
@@ -136,16 +158,21 @@ class CppThenCpuModel:
                 wav.setframerate(16000)
                 wav.writeframes(pcm.tobytes())
             command = [str(self.binary), "-m", str(self.model_path), "-f", str(wav_path),
-                       "-l", language, "-ng", "-t", str(min(4, os.cpu_count() or 1)),
+                       "-l", language, "-t", str(min(4, os.cpu_count() or 1)),
                        "-bs", str(options.get("beam_size", 5)), "-bo", "5", "-mc", "0",
                        "-pp", "-oj", "-of", str(output)]
+            if not self.use_metal:
+                command.append("-ng")
             # Inherit the worker's process group: the Rust host cancels the
             # worker and this child together. Never create a detached session.
             process = subprocess.Popen(command, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE,
                                        text=True, encoding="utf-8", errors="replace")
             tail = []
+            metal_used = False
             try:
                 for line in process.stderr:
+                    if "whisper_backend_init_gpu: using Metal backend" in line:
+                        metal_used = True
                     tail.append(line.rstrip())
                     tail = tail[-30:]
                     match = re.search(r"progress\s*=\s*(\d+)%", line)
@@ -153,6 +180,8 @@ class CppThenCpuModel:
                         self.progress_callback(min(100, int(match[1])))
                 if process.wait() != 0:
                     raise RuntimeError("whisper.cpp failed: " + " | ".join(tail))
+                if self.use_metal and not metal_used:
+                    raise RuntimeError("Metal was not activated; retry with the independent CPU executable")
             finally:
                 if process.poll() is None:
                     process.terminate()
@@ -176,7 +205,7 @@ def prefer_cpp_model(model_name, download_root, fallback_factory):
     try:
         validate_cpp_binary(binary)
         model_path = download_cpp_model(model_name, download_root)
-        return CppThenCpuModel(binary, model_path, fallback_factory)
+        return CppThenCpuModel(binary, model_path, fallback_factory, bundled_metal_binary(binary))
     except Exception as error:
         print(f"BACKEND_FALLBACK:whisper.cpp-cpu:{type(error).__name__}: {error}", file=sys.stderr, flush=True)
         return fallback_factory()

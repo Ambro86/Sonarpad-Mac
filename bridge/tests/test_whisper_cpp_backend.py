@@ -13,6 +13,75 @@ import whisper_cpp_backend as backend
 
 
 class WhisperCppBackendTests(unittest.TestCase):
+    def test_metal_selection_requires_native_apple_silicon_and_binary(self):
+        with tempfile.TemporaryDirectory() as folder:
+            cpu = Path(folder) / 'whisper-cli'
+            metal = Path(folder) / 'whisper-metal'
+            metal.touch()
+            for system, arch, expected in [('darwin', 'arm64', metal), ('darwin', 'x86_64', None), ('win32', 'arm64', None)]:
+                with patch.object(backend.sys, 'platform', system), patch.object(backend.platform, 'machine', return_value=arch):
+                    self.assertEqual(backend.bundled_metal_binary(cpu), expected)
+            metal.unlink()
+            with patch.object(backend.sys, 'platform', 'darwin'), patch.object(backend.platform, 'machine', return_value='arm64'):
+                self.assertIsNone(backend.bundled_metal_binary(cpu))
+
+    def test_metal_failure_retries_cpu_once_and_stays_on_cpu(self):
+        factory = Mock()
+        model = backend.CppThenCpuModel('cpu-cli', 'model.bin', factory, 'metal-cli')
+        calls = []
+        def run(audio, options):
+            calls.append((model.binary.name, model.use_metal))
+            if model.use_metal:
+                raise RuntimeError('GPU failed')
+            return [SimpleNamespace(text='Recovered')]
+        with patch.object(model, '_transcribe_cpp', side_effect=run), contextlib.redirect_stderr(io.StringIO()):
+            for _ in range(2):
+                segments, _ = model.transcribe(np.zeros(16), language='it', task='transcribe')
+                self.assertEqual([s.text for s in segments], ['Recovered'])
+        self.assertEqual(calls, [('metal-cli', True), ('cpu-cli', False), ('cpu-cli', False)])
+        self.assertEqual(model.backend, 'whisper.cpp-cpu')
+        factory.assert_not_called()
+
+    def test_metal_and_cpp_failures_reach_existing_backend(self):
+        existing = Mock()
+        existing.transcribe.return_value = (iter([]), None)
+        factory = Mock(return_value=existing)
+        model = backend.CppThenCpuModel('cpu-cli', 'model.bin', factory, 'metal-cli')
+        with patch.object(model, '_transcribe_cpp', side_effect=RuntimeError('failed')) as cpp, contextlib.redirect_stderr(io.StringIO()):
+            model.transcribe(np.zeros(16), language='it', task='transcribe')
+            self.assertEqual(cpp.call_count, 2)
+        self.assertEqual(model.backend, 'cpu')
+        factory.assert_called_once_with()
+
+    def test_metal_cancellation_never_falls_back(self):
+        for error in (KeyboardInterrupt, SystemExit):
+            factory = Mock()
+            model = backend.CppThenCpuModel('cpu-cli', 'model.bin', factory, 'metal-cli')
+            with patch.object(model, '_transcribe_cpp', side_effect=error) as cpp:
+                with self.assertRaises(error):
+                    model.transcribe(np.zeros(16), language='it', task='transcribe')
+                cpp.assert_called_once()
+            factory.assert_not_called()
+            self.assertTrue(model.use_metal)
+
+    def test_metal_requires_backend_confirmation_and_omits_no_gpu(self):
+        for confirmed in (True, False):
+            model = backend.CppThenCpuModel('cpu-cli', 'model.bin', Mock(), 'metal-cli')
+            def start(command, **kwargs):
+                self.assertEqual(Path(command[0]).name, 'metal-cli')
+                self.assertNotIn('-ng', command)
+                output = Path(command[command.index('-of') + 1]).with_suffix('.json')
+                output.write_text(json.dumps({'result': {'language': 'it'}, 'transcription': []}))
+                log = 'whisper_backend_init_gpu: using Metal backend\n' if confirmed else 'CPU only\n'
+                return Mock(stderr=io.StringIO(log), wait=Mock(return_value=0), poll=Mock(return_value=0))
+            with patch.object(backend.subprocess, 'Popen', side_effect=start):
+                if confirmed:
+                    self.assertEqual(model._transcribe_cpp(np.zeros(16), {'language': 'it', 'task': 'transcribe'}), [])
+                    self.assertEqual(model.backend, 'whisper.cpp-metal')
+                else:
+                    with self.assertRaisesRegex(RuntimeError, 'Metal was not activated'):
+                        model._transcribe_cpp(np.zeros(16), {'language': 'it', 'task': 'transcribe'})
+
     def test_old_macos_keeps_existing_backend(self):
         with patch.object(backend.sys, "platform", "darwin"):
             for version, supported in [("10.15.7", False), ("12.7.6", False), ("13.2", False), ("13.3", True), ("14.0", True), ("", False)]:
@@ -112,12 +181,16 @@ class WhisperCppBackendTests(unittest.TestCase):
         self.assertEqual(output.getvalue().splitlines(), ["PROGRESS:50", "PROGRESS:75", "PROGRESS:99"])
         self.assertEqual(state[0], 99)
 
-    def test_build_is_cpu_only_and_catalina_bundle_keeps_fallback(self):
+    def test_build_keeps_independent_cpu_and_arm_only_metal_with_catalina_fallback(self):
         root = Path(__file__).resolve().parents[1]
         build = (root / "build_whisper_cpp_macos.sh").read_text(encoding="utf-8")
         for flag in ("-DGGML_METAL=OFF", "-DWHISPER_COREML=OFF", "-DGGML_NATIVE=OFF", "-DBUILD_SHARED_LIBS=OFF", "-DCMAKE_OSX_DEPLOYMENT_TARGET=13.3"):
             self.assertIn(flag, build)
         self.assertIn("tail -n +2", build)
+        self.assertIn('if [ "$(uname -m)" = "arm64" ]; then', build)
+        self.assertIn('-DGGML_METAL=ON', build)
+        self.assertIn('-DGGML_METAL_EMBED_LIBRARY=ON', build)
+        self.assertIn('$OUT_DIR/whisper-metal', build)
         self.assertIn('!= "intel-catalina"', (root / "build_faster_whisper_bridge_macos.sh").read_text(encoding="utf-8"))
 
 

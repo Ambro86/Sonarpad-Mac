@@ -2,7 +2,7 @@ Seznam změn
 
 Verze 0.5.3 - 14. října 2026
 
-1. Rychlejší přepis zvuku a videa na kompatibilních počítačích Mac díky novému enginu optimalizovanému pro CPU. Akcelerace GPU zůstává vypnutá. Zachován je výběr jazyka a modelu, časové značky, průběh i zrušení. Catalina a systémy starší než macOS 13.3 nadále používají původní engine, který slouží také jako automatická záloha při potížích. Nový engine při prvním použití stáhne vlastní model a při dalších přepisech jej znovu použije.
+1. Rychlejší přepis zvuku a videa na kompatibilních počítačích Mac díky novému enginu optimalizovanému pro CPU. Při nativním spuštění na počítačích Mac s Apple Silicon se používá akcelerace Metal s automatickým návratem k CPU při potížích. Počítače Mac s Intelem a spuštění přes Rosettu používají CPU. Zachován je výběr jazyka a modelu, časové značky, průběh i zrušení. Catalina a systémy starší než macOS 13.3 nadále používají původní engine, který slouží také jako automatická záloha při potížích. Nový engine při prvním použití stáhne vlastní model a při dalších přepisech jej znovu použije.
 
 Verze 0.5.2 - 12. října 2026
 

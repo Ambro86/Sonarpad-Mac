@@ -1,8 +1,8 @@
-name: Test bundled CPU transcription
+name: Test bundled Metal and CPU transcription
 on:
   workflow_dispatch:
   push:
-    branches: [feature/cpu-transcription]
+    branches: [feature/cpu-transcription, feature/metal-transcription]
 permissions:
   contents: read
 jobs:

@@ -2,7 +2,7 @@ Changelog
 
 Version 0.5.3 - October 14, 2026
 
-1. Faster audio and video transcription on compatible Macs with a new CPU-optimized engine. GPU acceleration remains disabled. Language and model selection, timestamps, progress and cancellation are preserved. Catalina and systems older than macOS 13.3 continue to use the previous engine, which also provides an automatic fallback if problems occur. The new engine downloads its own model on first use and reuses it for subsequent transcriptions.
+1. Faster audio and video transcription on compatible Macs with a new CPU-optimized engine. Native Apple Silicon Macs use Metal acceleration, with automatic CPU recovery if problems occur. Intel Macs and execution under Rosetta use the CPU. Language and model selection, timestamps, progress and cancellation are preserved. Catalina and systems older than macOS 13.3 continue to use the previous engine, which also provides an automatic fallback if problems occur. The new engine downloads its own model on first use and reuses it for subsequent transcriptions.
 
 Version 0.5.2 - October 12, 2026
 

@@ -13,8 +13,29 @@ mkdir -p "$SCRIPT_DIR/build"
 if [ ! -d "$SOURCE_DIR/.git" ]; then
   git clone --depth 1 --branch v1.8.3 https://github.com/ggml-org/whisper.cpp.git "$SOURCE_DIR"
 fi
+
 test "$(git -C "$SOURCE_DIR" rev-parse HEAD)" = "$COMMIT"
 
+# Keep the CPU executable independent of Metal, including its initialization.
+# Native ARM bundles additionally carry a statically linked Metal executable.
+if [ "$(uname -m)" = "arm64" ]; then
+  METAL_BUILD_DIR="$SCRIPT_DIR/build/whisper-cpp-metal"
+  cmake -S "$SOURCE_DIR" -B "$METAL_BUILD_DIR" \
+    -DCMAKE_BUILD_TYPE=Release -DCMAKE_OSX_DEPLOYMENT_TARGET=13.3 \
+    -DBUILD_SHARED_LIBS=OFF -DGGML_BACKEND_DL=OFF -DGGML_NATIVE=OFF \
+    -DGGML_METAL=ON -DGGML_METAL_EMBED_LIBRARY=ON -DWHISPER_COREML=OFF \
+    -DGGML_OPENMP=OFF -DGGML_BLAS=ON -DGGML_BLAS_VENDOR=Apple \
+    -DGGML_ACCELERATE=ON -DWHISPER_BUILD_TESTS=OFF
+  cmake --build "$METAL_BUILD_DIR" --config Release --target whisper-cli -j 3
+  cp "$METAL_BUILD_DIR/bin/whisper-cli" "$OUT_DIR/whisper-metal"
+  chmod +x "$OUT_DIR/whisper-metal"
+  "$OUT_DIR/whisper-metal" --help
+  otool -L "$OUT_DIR/whisper-metal"
+  if otool -L "$OUT_DIR/whisper-metal" | tail -n +2 | grep -E '/(opt/homebrew|usr/local|Users)/|lib(ggml|whisper|omp).*dylib'; then
+    echo 'Unexpected external dependency in whisper.cpp Metal executable' >&2
+    exit 1
+  fi
+fi
 # Static CPU backend: no Metal/CoreML, OpenMP or Homebrew dylibs in the app.
 # AVX2/FMA/F16C are disabled to keep older Intel CPUs supported. Accelerate
 # selects appropriate BLAS kernels at runtime. Never use -march=native.
