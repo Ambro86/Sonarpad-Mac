@@ -998,27 +998,28 @@ jobs:
           set -euxo pipefail
           APP_NAME="Sonarpad"
           APP_DIR="dist/stage/${APP_NAME}.app"
-          attempt=1
-          while true; do
-            echo "Stapling notarization ticket, attempt ${attempt}"
-            if xcrun stapler staple "${APP_DIR}"; then
-              break
-            else
-              staple_status=$?
-            fi
-            # Error 68: CloudKit ticket retrieval failed (including lost connections).
-            if [ "${staple_status}" -ne 68 ]; then
-              exit "${staple_status}"
-            fi
-            sleep_seconds=$(( attempt * 15 ))
-            if [ "${sleep_seconds}" -gt 300 ]; then
-              sleep_seconds=300
-            fi
-            echo "Apple ticket retrieval failed (error 68); retrying in ${sleep_seconds}s"
-            sleep "${sleep_seconds}"
-            attempt=$(( attempt + 1 ))
+          # Both operations contact CloudKit and can lose the connection (error 68).
+          for operation in staple validate; do
+            attempt=1
+            while true; do
+              echo "Notarization ticket ${operation}, attempt ${attempt}"
+              if xcrun stapler "${operation}" "${APP_DIR}"; then
+                break
+              else
+                staple_status=$?
+              fi
+              if [ "${staple_status}" -ne 68 ]; then
+                exit "${staple_status}"
+              fi
+              sleep_seconds=$(( attempt * 15 ))
+              if [ "${sleep_seconds}" -gt 300 ]; then
+                sleep_seconds=300
+              fi
+              echo "Apple ticket ${operation} failed (error 68); retrying in ${sleep_seconds}s"
+              sleep "${sleep_seconds}"
+              attempt=$(( attempt + 1 ))
+            done
           done
-          xcrun stapler validate "${APP_DIR}"
 
       - name: Verify Gatekeeper
         shell: bash
