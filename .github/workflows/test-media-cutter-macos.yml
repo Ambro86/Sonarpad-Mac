@@ -38,7 +38,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.target }}-ffmpeg-8.0.1-v19-media-cutter
+          key: ${{ runner.os }}-${{ matrix.target }}-ffmpeg-8.0.1-v20-media-cutter
       - name: Build the exact release FFmpeg configuration
         run: |
           python scripts/test_media_cutter_macos.py --prepare-build

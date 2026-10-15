@@ -117,7 +117,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v19-media-cutter
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v20-media-cutter
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -234,6 +234,7 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]aac[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]libx264[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]concat[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -bsfs | grep -Fx h264_mp4toannexb >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]transpose[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]hflip[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]vflip[[:space:]]' >/dev/null
@@ -378,6 +379,7 @@ jobs:
             --enable-libx264 \
             --enable-encoder=libx264 \
             --enable-demuxer=concat \
+            --enable-bsf=h264_mp4toannexb \
             --enable-encoder=libmp3lame \
             --enable-parser=aac \
             --enable-parser=h264 \
