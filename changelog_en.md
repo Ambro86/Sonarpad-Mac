@@ -10,6 +10,8 @@ Version 0.5.3 - October 14, 2026
 
 4. Audio descriptions now include recent Windows improvements: an optional setting, off by default, allows descriptions during nonverbal vocalizations only after AI verification, while keeping dialogue protected. Added voice pitch and movie volume, saved in projects, with a mixed preview when adjusting the original volume. Improved interrupted-job recovery, including compatibility chunks: completed analysis, verified vocalizations and visual timestamps are retained. If the prepared video is incompatible, the checkpoint is preserved instead of restarting from scratch.
 
+5. Added Send diagnostics to the Help menu: email the log and a report to the developer, with your name and an optional email address for a reply. There is no need to find the log manually in Application Support.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability

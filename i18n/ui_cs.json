@@ -429,5 +429,16 @@
   "audio_description.allow_nonverbal_vocals": "Povolit popisy během neřečových hlasových projevů",
   "audio_description.source_volume": "Hlasitost filmu",
   "tts_tuning.label_pitch": "Výška:",
-  "audio_description.error.resume_layout": "Připravené video neodpovídá přerušené úloze. Bod obnovení byl zachován."
+  "audio_description.error.resume_layout": "Připravené video neodpovídá přerušené úloze. Bod obnovení byl zachován.",
+  "report_title": "Odeslat diagnostiku",
+  "report_name": "Jméno (nepovinné)",
+  "report_email": "E-mail (nepovinný, pro zaslání odpovědi)",
+  "report_text": "Text hlášení",
+  "report_notice": "Protokol a hlášení budou odeslány e-mailem vývojáři.",
+  "report_send": "Odeslat hlášení",
+  "report_sending": "Odesílání hlášení…",
+  "report_success": "Hlášení bylo odesláno vývojáři. Děkujeme!",
+  "report_failure": "Hlášení se nepodařilo odeslat. Zkuste to později.",
+  "report_invalid_email": "Zadejte platný e-mail nebo nechte pole prázdné.",
+  "report_invalid_text": "Zadejte hlášení (nejvýše 8 000 znaků) a jméno do 200 znaků."
 }

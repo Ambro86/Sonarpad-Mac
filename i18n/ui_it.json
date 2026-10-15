@@ -429,5 +429,16 @@
   "audio_description.allow_nonverbal_vocals": "Consenti descrizioni su suoni vocali non verbali",
   "audio_description.source_volume": "Volume del film",
   "tts_tuning.label_pitch": "Tono:",
-  "audio_description.error.resume_layout": "Il video preparato non corrisponde al lavoro interrotto. Il checkpoint è stato conservato."
+  "audio_description.error.resume_layout": "Il video preparato non corrisponde al lavoro interrotto. Il checkpoint è stato conservato.",
+  "report_title": "Invia diagnostica",
+  "report_name": "Nome (facoltativo)",
+  "report_email": "Email (facoltativa, per essere ricontattati)",
+  "report_text": "Testo della segnalazione",
+  "report_notice": "Il log verrà inviato via email allo sviluppatore insieme alla segnalazione.",
+  "report_send": "Invia segnalazione",
+  "report_sending": "Invio della segnalazione in corso…",
+  "report_success": "Segnalazione inviata allo sviluppatore. Grazie!",
+  "report_failure": "Impossibile inviare la segnalazione. Riprova più tardi.",
+  "report_invalid_email": "Inserisci un indirizzo email valido oppure lascia il campo vuoto.",
+  "report_invalid_text": "Inserisci la segnalazione (massimo 8.000 caratteri) e un nome di massimo 200 caratteri."
 }

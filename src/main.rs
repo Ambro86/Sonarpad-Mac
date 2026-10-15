@@ -6,6 +6,8 @@ mod audio_description_bridge;
 mod bdciechi;
 mod calendar;
 mod curl_client;
+mod developer_report;
+mod developer_report_dialog;
 mod directories;
 mod edge_tts;
 mod edge_tts_support;
@@ -74,6 +76,7 @@ const ID_ABOUT: i32 = 103;
 const ID_DONATIONS: i32 = 104;
 const ID_CHECK_UPDATES: i32 = 105;
 const ID_CHANGELOG: i32 = 106;
+const ID_SEND_DIAGNOSTICS: i32 = 107;
 const ID_START_PLAYBACK: i32 = 2000;
 const ID_PLAY_PAUSE: i32 = 2001;
 const ID_STOP: i32 = 2003;
@@ -1035,6 +1038,17 @@ struct UiStrings {
     youtube_add_favorite: String,
     youtube_no_results: String,
     menu_help: String,
+    report_title: String,
+    report_name: String,
+    report_email: String,
+    report_text: String,
+    report_notice: String,
+    report_send: String,
+    report_sending: String,
+    report_success: String,
+    report_failure: String,
+    report_invalid_email: String,
+    report_invalid_text: String,
     menu_open: String,
     menu_open_help: String,
     menu_save_text: String,
@@ -29740,6 +29754,12 @@ fn main() {
         file_menu.append(ID_EXIT, &ui.menu_exit, &ui.menu_exit_help, ItemKind::Normal);
         let help_menu = Menu::builder().build();
         help_menu.append(
+            ID_SEND_DIAGNOSTICS,
+            &ui.report_title,
+            &ui.report_notice,
+            ItemKind::Normal,
+        );
+        help_menu.append(
             ID_ABOUT,
             &ui.menu_about,
             &ui.menu_about_help,
@@ -30528,6 +30548,8 @@ fn main() {
                     f_menu.raise();
                     tc_menu.set_focus();
                 }
+            } else if event.get_id() == ID_SEND_DIAGNOSTICS {
+                developer_report_dialog::open(&f_menu);
             } else if event.get_id() == ID_ABOUT {
                 let dialog = MessageDialog::builder(&f_menu, &about_message(), about_title())
                     .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)

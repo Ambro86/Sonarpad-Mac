@@ -429,5 +429,16 @@
   "audio_description.allow_nonverbal_vocals": "Permitir descrições sobre vocalizações não verbais",
   "audio_description.source_volume": "Volume do filme",
   "tts_tuning.label_pitch": "Tom:",
-  "audio_description.error.resume_layout": "O vídeo preparado não corresponde ao trabalho interrompido. O ponto de recuperação foi preservado."
+  "audio_description.error.resume_layout": "O vídeo preparado não corresponde ao trabalho interrompido. O ponto de recuperação foi preservado.",
+  "report_title": "Enviar diagnóstico",
+  "report_name": "Nome (opcional)",
+  "report_email": "Email (opcional, para receber resposta)",
+  "report_text": "Texto do relatório",
+  "report_notice": "O registo e o relatório serão enviados por email ao programador.",
+  "report_send": "Enviar relatório",
+  "report_sending": "A enviar relatório…",
+  "report_success": "Relatório enviado ao programador. Obrigado!",
+  "report_failure": "Não foi possível enviar o relatório. Tente novamente mais tarde.",
+  "report_invalid_email": "Introduza um email válido ou deixe o campo vazio.",
+  "report_invalid_text": "Introduza um relatório (até 8.000 caracteres) e um nome com até 200 caracteres."
 }

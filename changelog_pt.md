@@ -10,6 +10,8 @@ Versão 0.5.3 - 14 de outubro de 2026
 
 4. Audiodescrições atualizadas com as melhorias recentes do Windows: uma opção desativada por predefinição permite descrições durante vocalizações não verbais apenas após verificação pela IA, mantendo os diálogos protegidos. Adicionados o tom da voz e o volume do filme, guardados nos projetos, com prévia da mistura ao ajustar o volume original. Melhorada a retoma de trabalhos interrompidos, incluindo segmentos de compatibilidade: preservam-se a análise concluída, as vocalizações verificadas e os tempos visuais. Se o vídeo preparado for incompatível, o ponto de recuperação é preservado sem recomeçar do zero.
 
+5. Adicionada a opção Enviar diagnóstico ao menu Ajuda: envie o registo e um relatório por email ao programador, com o seu nome e um email opcional para receber resposta. Já não é necessário procurar o registo em Application Support.
+
 Versão 0.5.2 - 12 de outubro de 2026
 
 Vozes Edge, audiodescrições e fiabilidade

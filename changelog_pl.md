@@ -10,6 +10,8 @@ Wersja 0.5.3 - 14 października 2026
 
 4. Audiodeskrypcja otrzymała najnowsze ulepszenia z Windows: opcja domyślnie wyłączona pozwala na opis podczas wokalizacji niewerbalnych wyłącznie po weryfikacji przez SI, z zachowaniem ochrony dialogów. Dodano wysokość głosu i głośność filmu, zapisywane w projektach, oraz odsłuch miksu przy regulacji oryginalnej głośności. Ulepszono wznawianie przerwanych zadań, także z segmentami zgodności: zachowywane są przeanalizowane części, zweryfikowane wokalizacje i znaczniki czasu obrazu. Gdy przygotowany film jest niezgodny, punkt wznowienia zostaje zachowany zamiast rozpoczynania od początku.
 
+5. Dodano opcję Wyślij diagnostykę w menu Pomoc: wysyła dziennik i zgłoszenie e-mailem do programisty, wraz z imieniem i opcjonalnym adresem e-mail do odpowiedzi. Nie trzeba już szukać dziennika w folderze Application Support.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

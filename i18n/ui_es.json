@@ -429,5 +429,16 @@
   "audio_description.allow_nonverbal_vocals": "Permitir descripciones durante vocalizaciones no verbales",
   "audio_description.source_volume": "Volumen de la película",
   "tts_tuning.label_pitch": "Tono:",
-  "audio_description.error.resume_layout": "El vídeo preparado no coincide con el trabajo interrumpido. Se ha conservado el punto de control."
+  "audio_description.error.resume_layout": "El vídeo preparado no coincide con el trabajo interrumpido. Se ha conservado el punto de control.",
+  "report_title": "Enviar diagnóstico",
+  "report_name": "Nombre (opcional)",
+  "report_email": "Correo electrónico (opcional, para recibir respuesta)",
+  "report_text": "Texto del informe",
+  "report_notice": "El registro y el informe se enviarán por correo al desarrollador.",
+  "report_send": "Enviar informe",
+  "report_sending": "Enviando informe…",
+  "report_success": "Informe enviado al desarrollador. ¡Gracias!",
+  "report_failure": "No se pudo enviar el informe. Inténtalo más tarde.",
+  "report_invalid_email": "Introduce un correo electrónico válido o deja el campo vacío.",
+  "report_invalid_text": "Escribe un informe (máximo 8.000 caracteres) y un nombre de hasta 200 caracteres."
 }

@@ -429,5 +429,16 @@
   "audio_description.allow_nonverbal_vocals": "Allow descriptions over non-verbal vocal sounds",
   "audio_description.source_volume": "Movie volume",
   "tts_tuning.label_pitch": "Pitch:",
-  "audio_description.error.resume_layout": "The prepared video does not match the interrupted job. The checkpoint has been preserved."
+  "audio_description.error.resume_layout": "The prepared video does not match the interrupted job. The checkpoint has been preserved.",
+  "report_title": "Send diagnostics",
+  "report_name": "Name (optional)",
+  "report_email": "Email (optional, to receive a reply)",
+  "report_text": "Report text",
+  "report_notice": "The log and your report will be emailed to the developer.",
+  "report_send": "Send report",
+  "report_sending": "Sending report…",
+  "report_success": "Report sent to the developer. Thank you!",
+  "report_failure": "Unable to send the report. Please try again later.",
+  "report_invalid_email": "Enter a valid email address or leave the field empty.",
+  "report_invalid_text": "Enter a report (up to 8,000 characters) and a name of up to 200 characters."
 }
