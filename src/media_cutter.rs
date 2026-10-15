@@ -1,4 +1,7 @@
-use crate::{append_podcast_log, ffmpeg_executable_path, announce_voiceover_message};
+use crate::{append_podcast_log, ffmpeg_executable_path};
+#[path = "media_cutter_accessibility.rs"]
+mod accessibility;
+use accessibility::announce_voiceover_message;
 use std::cell::{Cell, RefCell};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Write};
@@ -1301,12 +1304,7 @@ pub fn open_dialog(parent: &Frame) {
 
     let top_buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(labels.open_file).build();
-    let close_button = Button::builder(&panel)
-        .with_id(ID_CANCEL)
-        .with_label(labels.close)
-        .build();
     top_buttons.add(&open_button, 1, SizerFlag::All, 8);
-    top_buttons.add(&close_button, 1, SizerFlag::All, 8);
     root.add_sizer(&top_buttons, 0, SizerFlag::Expand, 0);
     let file_status = StaticText::builder(&panel).with_label("").build();
     file_status.show(false);
@@ -1413,6 +1411,9 @@ pub fn open_dialog(parent: &Frame) {
     let progress_root = BoxSizer::builder(Orientation::Vertical).build();
     let progress_gauge = Gauge::builder(&progress_panel).with_range(100).build();
     progress_gauge.set_accessibility_label(labels.processing);
+    let progress_text = StaticText::builder(&progress_panel).with_label(&format!("{}: 0%", labels.processing)).build();
+    progress_root.add(&progress_text, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    let last_progress = Rc::new(Cell::new(-1));
     let cancel_button = Button::builder(&progress_panel).with_label(labels.cancel_processing).build();
     cancel_button.enable(false);
     progress_root.add(&progress_gauge, 0, SizerFlag::Expand | SizerFlag::All, 12);
@@ -1427,7 +1428,6 @@ pub fn open_dialog(parent: &Frame) {
     let export_job = Rc::new(RefCell::new(None::<Arc<Mutex<ExportProgress>>>));
     let export_busy = Arc::new(AtomicBool::new(false));
     let export_cancel = Arc::new(AtomicBool::new(false));
-    let close_approved = Rc::new(Cell::new(false));
     let timer = Rc::new(Timer::new(&dialog));
 
     // Open media.
@@ -1498,7 +1498,7 @@ pub fn open_dialog(parent: &Frame) {
                 split_here.enable(true);
                 mode_choice.set_focus();
                 let instruction = if mode_choice.get_selection().unwrap_or(0) == 0 { labels.guide_start } else { labels.ready };
-                status_text.set_label(instruction);
+                status_text.set_label(labels.ready);
                 status_text.wrap(780);
                 panel.layout();
                 announce_voiceover_message(&format!("{}: {name}, {}. {}", labels.file_loaded, format_duration_natural(info.duration), instruction));
@@ -1539,8 +1539,7 @@ pub fn open_dialog(parent: &Frame) {
             let instruction = if guided_end_mode.get().is_some() { labels.guide_review }
                 else if guided_start_mode.get().is_some() { labels.guide_end }
                 else { labels.guide_start };
-            status_text.set_label(instruction);
-            status_text.wrap(780);
+            announce_voiceover_message(instruction);
         }
         panel_mode.layout();
         dialog_mode.layout();
@@ -1605,9 +1604,7 @@ pub fn open_dialog(parent: &Frame) {
             guided_listen.enable(false);
             guided_modify.enable(false);
             let message = format!("{}: {}. {}", labels.start_set, format_time(current), labels.guide_end);
-            status_text.set_label(&message);
-            status_text.wrap(780);
-            panel.layout();
+            status_text.set_label(&format!("{}: {}", labels.start_set, format_time(current)));
             announce_voiceover_message(&message);
         } else if end_guided.get().is_none() {
             let first = start_guided.get().unwrap_or(current);
@@ -1624,9 +1621,7 @@ pub fn open_dialog(parent: &Frame) {
             preview_guided.borrow_mut().pause(info.duration);
             play_pause.set_label(labels.play);
             let message = format!("{}: {} – {}. {}", labels.end_set, format_time(start), format_time(end), labels.guide_review);
-            status_text.set_label(&message);
-            status_text.wrap(780);
-            panel.layout();
+            status_text.set_label(&format!("{}: {} – {}", labels.end_set, format_time(start), format_time(end)));
             announce_voiceover_message(&message);
         } else {
             let start = start_guided.get().unwrap();
@@ -1645,9 +1640,7 @@ pub fn open_dialog(parent: &Frame) {
                 edited_guided.set(true);
                 refresh_parts_choice(parts_choice, &parts_guided.borrow(), &labels, None);
                 let message = format!("{}. {}", labels.cut_applied, labels.guide_start);
-                status_text.set_label(&message);
-                status_text.wrap(780);
-                panel.layout();
+                status_text.set_label(labels.cut_applied);
                 announce_voiceover_message(&message);
             }
             start_guided.set(None);
@@ -1851,6 +1844,7 @@ pub fn open_dialog(parent: &Frame) {
     // wxdragon 0.9.18 binds timer callbacks to the owner, not the timer ID.
     // Use one timer and focus only on its first tick; a second focus timer
     // would share the playback events and could pull VoiceOver back repeatedly.
+    let last_progress_tick = Rc::clone(&last_progress);
     let initial_focus_pending = Cell::new(true);
     timer_tick.on_tick(move |_| {
         if initial_focus_pending.replace(false) {
@@ -1886,7 +1880,14 @@ pub fn open_dialog(parent: &Frame) {
             (p.percent, p.message.clone(), p.finished, p.result.clone())
         };
         if !snapshot.2 {
-            progress_gauge.set_value(snapshot.0.clamp(0, 99));
+            let percent = snapshot.0.clamp(0, 99);
+            if last_progress_tick.replace(percent) != percent {
+                progress_gauge.set_value(percent);
+                let label = format!("{}: {percent}%", labels.processing);
+                progress_text.set_label(&label);
+                progress_gauge.set_accessibility_label(&label);
+                progress_panel.layout();
+            }
             return;
         }
         *export_job_tick.borrow_mut() = None;
@@ -1916,7 +1917,6 @@ pub fn open_dialog(parent: &Frame) {
         add_track_button.enable(true);
         save_button.enable(true);
         cancel_button.enable(false);
-        close_button.enable(true);
         save_button.set_focus();
         match snapshot.3.unwrap_or_else(|| Err("errore sconosciuto".to_string())) {
             Ok(path) => {
@@ -1982,8 +1982,11 @@ pub fn open_dialog(parent: &Frame) {
         add_track_button.enable(false);
         save_button.enable(false);
         cancel_button.enable(true);
-        close_button.enable(false);
         progress_gauge.set_value(0);
+        last_progress.set(-1);
+        let label = format!("{}: 0%", labels.processing);
+        progress_text.set_label(&label);
+        progress_gauge.set_accessibility_label(&label);
         panel.show(false);
         progress_panel.show(true);
         dialog.layout();
@@ -2004,16 +2007,10 @@ pub fn open_dialog(parent: &Frame) {
     let export_busy_close = Arc::clone(&export_busy);
     let edited_close = Rc::clone(&edited);
     let guided_start_close = Rc::clone(&guided_start);
-    let close_approved_event = Rc::clone(&close_approved);
     let preview_close = Rc::clone(&preview);
     dialog.on_close(move |event| {
         if export_busy_close.load(Ordering::SeqCst) {
             event.skip(false);
-            return;
-        }
-        if close_approved_event.get() {
-            preview_close.borrow_mut().stop_child();
-            event.skip(true);
             return;
         }
         let pending = edited_close.get() || guided_start_close.get().is_some();
@@ -2023,25 +2020,6 @@ pub fn open_dialog(parent: &Frame) {
         }
         preview_close.borrow_mut().stop_child();
         event.skip(true);
-    });
-
-    let export_busy_button = Arc::clone(&export_busy);
-    let edited_button = Rc::clone(&edited);
-    let guided_start_button = Rc::clone(&guided_start);
-    let close_approved_button = Rc::clone(&close_approved);
-    let preview_button = Rc::clone(&preview);
-    let dialog_close = dialog;
-    close_button.on_click(move |_| {
-        if export_busy_button.load(Ordering::SeqCst) {
-            return;
-        }
-        let pending = edited_button.get() || guided_start_button.get().is_some();
-        if pending && !ask_yes_no(&dialog_close, labels.unsaved_title, labels.unsaved_message) {
-            return;
-        }
-        preview_button.borrow_mut().stop_child();
-        close_approved_button.set(true);
-        dialog_close.end_modal(ID_CANCEL);
     });
 
     append_podcast_log("media_cutter.dialog.open");
