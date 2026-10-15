@@ -109,6 +109,7 @@ struct CreateJob {
     language_code: String,
     verbosity: Verbosity,
     allow_extended_pauses: bool,
+    allow_nonverbal_vocals: bool,
     recognize_characters: bool,
     recognize_screen_text: bool,
     save_project: bool,
@@ -121,6 +122,7 @@ struct CreateJob {
     rate: i32,
     pitch: i32,
     volume: i32,
+    source_volume: f32,
     audio_stream_index: Option<i32>,
     gemini_api_key: String,
     sonarpad_ai_service_url: String,
@@ -157,6 +159,83 @@ struct AudioDescriptionPartialCatalog {
     characters: Vec<BridgeCharacter>,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+enum AudioDescriptionChunkMode {
+    #[default]
+    Normal,
+    SmallMkv,
+    Mp4,
+}
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+struct AudioDescriptionChunkLayout {
+    mode: AudioDescriptionChunkMode,
+    timeline: Vec<[f64; 2]>,
+}
+
+impl AudioDescriptionChunkLayout {
+    fn from_chunks(
+        mode: AudioDescriptionChunkMode,
+        chunks: &[AudioDescriptionPreparedChunk],
+    ) -> Self {
+        Self {
+            mode,
+            timeline: chunks
+                .iter()
+                .map(|chunk| [chunk.start_sec, chunk.end_sec])
+                .collect(),
+        }
+    }
+
+    fn matches(&self, chunks: &[AudioDescriptionPreparedChunk]) -> bool {
+        self.timeline.len() == chunks.len()
+            && self.timeline.iter().zip(chunks).all(|(saved, chunk)| {
+                (saved[0] - chunk.start_sec).abs() <= 0.05
+                    && (saved[1] - chunk.end_sec).abs() <= 0.05
+            })
+    }
+}
+
+#[derive(Clone)]
+struct AudioDescriptionAnalysisProgress {
+    layout: AudioDescriptionChunkLayout,
+    resume: AudioDescriptionBridgeResume,
+}
+
+impl AudioDescriptionAnalysisProgress {
+    fn resume_on(
+        &self,
+        chunks: &[AudioDescriptionPreparedChunk],
+    ) -> Result<AudioDescriptionBridgeResume, String> {
+        let mut resume = self.resume.clone();
+        if resume.completed_chunks == 0 {
+            return Ok(resume);
+        }
+        let boundary = self
+            .layout
+            .timeline
+            .get(resume.completed_chunks - 1)
+            .ok_or("Audio description: invalid saved progress boundary")?[1];
+        // An index is only meaningful within its original layout. A container
+        // fallback may split the same covered interval into more chunks; reuse
+        // it only when the new layout has the exact same completed boundary.
+        let starts_match = self
+            .layout
+            .timeline
+            .first()
+            .zip(chunks.first())
+            .is_some_and(|(saved, chunk)| (saved[0] - chunk.start_sec).abs() <= 0.05);
+        let completed = chunks
+            .iter()
+            .position(|chunk| (chunk.end_sec - boundary).abs() <= 0.05);
+        let Some(completed) = completed.filter(|_| starts_match) else {
+            return Err("Audio description: compatibility chunks cannot preserve the completed boundary; saved progress was preserved".to_string());
+        };
+        resume.completed_chunks = completed + 1;
+        Ok(resume)
+    }
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 struct AudioDescriptionPartialCheckpoint {
     format: String,
@@ -170,6 +249,8 @@ struct AudioDescriptionPartialCheckpoint {
     language_code: String,
     verbosity: String,
     allow_extended_pauses: bool,
+    #[serde(default)]
+    allow_nonverbal_vocals: bool,
     recognize_characters: bool,
     #[serde(default = "default_true")]
     recognize_screen_text: bool,
@@ -184,6 +265,8 @@ struct AudioDescriptionPartialCheckpoint {
     rate: i32,
     pitch: i32,
     volume: i32,
+    #[serde(default = "default_source_volume")]
+    source_volume: f32,
     #[serde(default)]
     audio_stream_index: Option<i32>,
     gemini_model: String,
@@ -194,7 +277,45 @@ struct AudioDescriptionPartialCheckpoint {
     descriptions: Vec<BridgeDescription>,
     #[serde(default)]
     character_glossary: Vec<BridgeCharacter>,
+    #[serde(default)]
+    verified_nonverbal_ids: Vec<String>,
+    #[serde(default)]
+    chunk_layout: Option<AudioDescriptionChunkLayout>,
 }
+
+impl AudioDescriptionPartialCheckpoint {
+    fn resume_for_chunks(
+        &self,
+        chunks: &[AudioDescriptionPreparedChunk],
+    ) -> Result<AudioDescriptionBridgeResume, String> {
+        if self.completed_chunks > self.total_chunks
+            || self
+                .chunk_layout
+                .as_ref()
+                .is_some_and(|layout| layout.timeline.len() != self.total_chunks)
+            || (self.chunk_layout.is_none() && self.total_chunks != chunks.len())
+        {
+            return Err("Audio description: cannot reproduce the saved chunk layout; saved progress was preserved".to_string());
+        }
+        let resume = AudioDescriptionBridgeResume {
+            completed_chunks: self.completed_chunks,
+            descriptions: self.descriptions.clone(),
+            character_glossary: self.character_glossary.clone(),
+            verified_nonverbal_ids: self.verified_nonverbal_ids.clone(),
+        };
+        if let Some(layout) = self.chunk_layout.as_ref()
+            && !layout.matches(chunks)
+        {
+            return AudioDescriptionAnalysisProgress {
+                layout: layout.clone(),
+                resume,
+            }
+            .resume_on(chunks);
+        }
+        Ok(resume)
+    }
+}
+
 
 #[derive(Clone, Debug)]
 struct AudioDescriptionResumeSettings {
@@ -338,6 +459,8 @@ pub struct AudioDescriptionProject {
     pub language_code: String,
     pub verbosity: String,
     pub allow_extended_pauses: bool,
+    #[serde(default)]
+    pub allow_nonverbal_vocals: bool,
     #[serde(default = "default_true")]
     pub recognize_characters: bool,
     #[serde(default = "default_true")]
@@ -348,6 +471,8 @@ pub struct AudioDescriptionProject {
     pub tts_rate: i32,
     pub tts_pitch: i32,
     pub tts_volume: i32,
+    #[serde(default = "default_source_volume")]
+    pub source_volume: f32,
     pub bitrate_kbps: u32,
     pub ducking_db: f32,
     pub fade_ms: u32,
@@ -3061,6 +3186,13 @@ fn schedule_descriptions(
     (scheduled, dropped)
 }
 
+pub(crate) fn default_source_volume() -> f32 {
+    1.0
+}
+fn normalize_source_volume(value: f32) -> f32 {
+    if value.is_finite() { value.clamp(0.0, 2.0) } else { 1.0 }
+}
+
 fn mix_sample(source: i16, narration: i16, duck_gain: f32) -> i16 {
     let value = source as f32 * duck_gain + narration as f32;
     value.round().clamp(i16::MIN as f32, i16::MAX as f32) as i16
@@ -3132,8 +3264,10 @@ fn render_mix(
     source_wav: &Path,
     output_wav: &Path,
     scheduled: &[ScheduledDescription],
+    source_volume: f32,
     cancel: &Arc<AtomicBool>,
 ) -> Result<f64, String> {
+    let source_volume = normalize_source_volume(source_volume);
     let mut source =
         WavReader::open(source_wav).map_err(|e| format!("Apertura audio sorgente fallita: {e}"))?;
     let spec = source.spec();
@@ -3220,10 +3354,10 @@ fn render_mix(
             }
         }
         writer
-            .write_sample(mix_sample(left, narration[0], gain))
+            .write_sample(mix_sample(left, narration[0], gain * source_volume))
             .map_err(|e| e.to_string())?;
         writer
-            .write_sample(mix_sample(right, narration[1], gain))
+            .write_sample(mix_sample(right, narration[1], gain * source_volume))
             .map_err(|e| e.to_string())?;
         source_frame += 1;
         output_frames += 1;
@@ -3420,6 +3554,7 @@ fn save_partial_checkpoint(
     job: &CreateJob,
     source_duration_sec: f64,
     checkpoint: &AudioDescriptionBridgeCheckpoint,
+    layout: &AudioDescriptionChunkLayout,
 ) -> Result<(), String> {
     let source_file_size = fs::metadata(&job.input_path)
         .map_err(|error| format!("Lettura dati del video fallita: {error}"))?
@@ -3440,6 +3575,8 @@ fn save_partial_checkpoint(
         language_code: job.language_code.clone(),
         verbosity: job.verbosity.as_bridge().to_string(),
         allow_extended_pauses: job.allow_extended_pauses,
+        allow_nonverbal_vocals: job.allow_nonverbal_vocals,
+        source_volume: job.source_volume,
         recognize_characters: job.recognize_characters,
         recognize_screen_text: job.recognize_screen_text,
         save_project: job.save_project,
@@ -3462,6 +3599,8 @@ fn save_partial_checkpoint(
         total_chunks: checkpoint.total_chunks,
         descriptions: checkpoint.descriptions.clone(),
         character_glossary: checkpoint.character_glossary.clone(),
+        verified_nonverbal_ids: checkpoint.verified_nonverbal_ids.clone(),
+        chunk_layout: Some(layout.clone()),
     };
     let raw = serde_json::to_vec_pretty(&value)
         .map_err(|error| format!("Serializzazione checkpoint fallita: {error}"))?;
@@ -3505,6 +3644,8 @@ fn job_from_checkpoint(
         language_code: checkpoint.language_code,
         verbosity: Verbosity::from_settings(&checkpoint.verbosity),
         allow_extended_pauses: checkpoint.allow_extended_pauses,
+        allow_nonverbal_vocals: checkpoint.allow_nonverbal_vocals,
+        source_volume: checkpoint.source_volume,
         recognize_characters: checkpoint.recognize_characters,
         recognize_screen_text: checkpoint.recognize_screen_text,
         save_project: checkpoint.save_project,
@@ -3615,6 +3756,8 @@ fn build_project(
         language_code: job.language_code.clone(),
         verbosity: job.verbosity.as_bridge().into(),
         allow_extended_pauses: job.allow_extended_pauses,
+        allow_nonverbal_vocals: job.allow_nonverbal_vocals,
+        source_volume: job.source_volume,
         recognize_characters: job.recognize_characters,
         recognize_screen_text: job.recognize_screen_text,
         gemini_model: analysis.gemini_model.clone(),
@@ -3868,6 +4011,11 @@ fn create_audio_description_attempt(
             s.progress = 2;
             s.status = tr("audio_description.progress.analysis_prepare");
         }
+        let saved_checkpoint = if job.resume_checkpoint_path.is_some() {
+            Some(load_partial_checkpoint(&checkpoint_path)?)
+        } else { None };
+        let mut chunk_mode = saved_checkpoint.as_ref()
+            .and_then(|c| c.chunk_layout.as_ref()).map(|l| l.mode).unwrap_or_default();
         let source_wav = work.join("source.wav");
         let probe = decode_source_audio(
             &job.input_path,
@@ -3893,50 +4041,33 @@ fn create_audio_description_attempt(
             s.progress = 7;
             s.status = tr("audio_description.progress.chunk_prepare");
         }
-        let chunks = prepare_chunks(
-            &job.input_path,
-            duration,
-            &work,
-            job.audio_stream_index,
-            &cancel,
-        )?;
-        let resume = if job.resume_checkpoint_path.is_some() {
-            match load_partial_checkpoint(&checkpoint_path) {
-                Ok(checkpoint)
-                    if checkpoint.source_path == job.input_path
-                        && checkpoint.audio_stream_index == job.audio_stream_index
-                        && checkpoint.total_chunks == chunks.len()
-                        && (checkpoint.source_duration_sec - duration).abs() <= 0.5 =>
-                {
-                    Some(AudioDescriptionBridgeResume {
-                        completed_chunks: checkpoint.completed_chunks,
-                        descriptions: checkpoint.descriptions,
-                        character_glossary: checkpoint.character_glossary,
-                    })
-                }
-                Ok(checkpoint) => {
-                    append_podcast_log(&format!(
-                        "audio_description.resume_checkpoint_ignored reason=chunk_layout_changed old_chunks={} new_chunks={} old_duration={:.3} new_duration={:.3} path={}",
-                        checkpoint.total_chunks,
-                        chunks.len(),
-                        checkpoint.source_duration_sec,
-                        duration,
-                        checkpoint_path.display()
-                    ));
-                    None
-                }
-                Err(error) => {
-                    append_podcast_log(&format!(
-                        "audio_description.resume_checkpoint_ignored reason=invalid error={} path={}",
-                        error,
-                        checkpoint_path.display()
-                    ));
-                    None
-                }
-            }
-        } else {
-            None
+        let prepare_layout = |mode| match mode {
+            AudioDescriptionChunkMode::Normal => prepare_chunks(
+                &job.input_path, duration, &work, job.audio_stream_index, &cancel),
+            mode => prepare_gemini_compatibility_chunks(
+                &job.input_path, duration, &work.join("gemini_resume"),
+                job.audio_stream_index, &cancel,
+                if mode == AudioDescriptionChunkMode::Mp4 { "mp4" } else { "mkv" },
+                mode == AudioDescriptionChunkMode::Mp4),
         };
+        let mut chunks = prepare_layout(chunk_mode)?;
+        let resume = if let Some(checkpoint) = &saved_checkpoint {
+            if checkpoint.source_path != job.input_path
+                || checkpoint.audio_stream_index != job.audio_stream_index
+                || (checkpoint.source_duration_sec - duration).abs() > 0.5 {
+                return Err(tr("audio_description.error.resume_layout"));
+            }
+            // Legacy checkpoints did not save their compatibility mode. Recreate
+            // the small layout only when the normal chunk count cannot match.
+            if checkpoint.chunk_layout.is_none() && checkpoint.total_chunks != chunks.len() {
+                chunk_mode = AudioDescriptionChunkMode::SmallMkv;
+                chunks = prepare_layout(chunk_mode)?;
+            }
+            Some(checkpoint.resume_for_chunks(&chunks).map_err(|error| {
+                append_podcast_log(&format!("audio_description.resume_layout_rejected error={error}"));
+                tr("audio_description.error.resume_layout")
+            })?)
+        } else { None };
         let request = AudioDescriptionBridgeRequest {
             input_path: job.input_path.to_string_lossy().to_string(),
             audio_wav_path,
@@ -3945,6 +4076,7 @@ fn create_audio_description_attempt(
             language: job.language_code.clone(),
             verbosity: job.verbosity.as_bridge().into(),
             allow_extended_pauses: job.allow_extended_pauses,
+            allow_nonverbal_vocals: job.allow_nonverbal_vocals,
             recognize_characters: job.recognize_characters,
             recognize_screen_text: job.recognize_screen_text,
             initial_character_glossary: job
@@ -3965,7 +4097,21 @@ fn create_audio_description_attempt(
             fixed_reanalysis_slots: job.fixed_reanalysis_slots.clone(),
             resume,
         };
-        let run_bridge_once = |bridge_request: &AudioDescriptionBridgeRequest| {
+        let latest_progress = Arc::new(Mutex::new(request.resume.clone().map(|resume|
+            AudioDescriptionAnalysisProgress {
+                layout: AudioDescriptionChunkLayout::from_chunks(chunk_mode, &request.chunks),
+                resume,
+            })));
+        let run_bridge_once = |bridge_request: &AudioDescriptionBridgeRequest, mode| {
+            let mut bridge_request = bridge_request.clone();
+            bridge_request.resume = latest_progress.lock().unwrap().as_ref()
+                .map(|progress| progress.resume_on(&bridge_request.chunks)).transpose()
+                .map_err(|error| {
+                    append_podcast_log(&format!("audio_description.resume_layout_rejected error={error}"));
+                    tr("audio_description.error.resume_layout")
+                })?;
+            let checkpoint_layout = AudioDescriptionChunkLayout::from_chunks(mode, &bridge_request.chunks);
+            let checkpoint_progress = latest_progress.clone();
             let status_state = state.clone();
             let progress_state = state.clone();
             let quota_state = state.clone();
@@ -3973,7 +4119,7 @@ fn create_audio_description_attempt(
             let checkpoint_job = job.clone();
             let checkpoint_target = checkpoint_path.clone();
             run_audio_description_bridge(
-                bridge_request,
+                &bridge_request,
                 cancel.clone(),
                 AudioDescriptionBridgeCallbacks {
                     download: None,
@@ -4003,11 +4149,21 @@ fn create_audio_description_attempt(
                         rx.recv().unwrap_or(AudioDescriptionOverloadDecision::Stop)
                     })),
                     checkpoint: Some(Box::new(move |checkpoint| {
+                        *checkpoint_progress.lock().unwrap() = Some(AudioDescriptionAnalysisProgress {
+                            layout: checkpoint_layout.clone(),
+                            resume: AudioDescriptionBridgeResume {
+                                completed_chunks: checkpoint.completed_chunks,
+                                descriptions: checkpoint.descriptions.clone(),
+                                character_glossary: checkpoint.character_glossary.clone(),
+                                verified_nonverbal_ids: checkpoint.verified_nonverbal_ids.clone(),
+                            },
+                        });
                         if let Err(error) = save_partial_checkpoint(
                             &checkpoint_target,
                             &checkpoint_job,
                             duration,
                             checkpoint,
+                            &checkpoint_layout,
                         ) {
                             append_podcast_log(&format!(
                                 "audio_description.checkpoint_save_failed error={error}"
@@ -4028,7 +4184,7 @@ fn create_audio_description_attempt(
         // Preserve the normal path for files that already work. Compatibility
         // segmentation is activated only after Gemini rejects or fails to process
         // the original prepared media, matching the current Windows bridge policy.
-        let mut analysis_result = run_bridge_once(&request);
+        let mut analysis_result = run_bridge_once(&request, chunk_mode);
         let mut try_mp4_fallback = false;
 
         if let Err(primary_error) = &analysis_result
@@ -4063,8 +4219,7 @@ fn create_audio_description_attempt(
                 Ok(fallback_chunks) => {
                     let mut fallback_request = request.clone();
                     fallback_request.chunks = fallback_chunks;
-                    fallback_request.resume = None;
-                    analysis_result = run_bridge_once(&fallback_request);
+                    analysis_result = run_bridge_once(&fallback_request, AudioDescriptionChunkMode::SmallMkv);
                     if let Err(fallback_error) = &analysis_result
                         && (gemini_media_invalid_argument(fallback_error)
                             || gemini_media_processing_failed(fallback_error))
@@ -4100,8 +4255,7 @@ fn create_audio_description_attempt(
                 Ok(fallback_chunks) => {
                     let mut fallback_request = request.clone();
                     fallback_request.chunks = fallback_chunks;
-                    fallback_request.resume = None;
-                    analysis_result = run_bridge_once(&fallback_request);
+                    analysis_result = run_bridge_once(&fallback_request, AudioDescriptionChunkMode::Mp4);
                 }
                 Err(mp4_error) => {
                     let combined_error = match &analysis_result {
@@ -4176,7 +4330,7 @@ fn create_audio_description_attempt(
             return Err("Nessuna descrizione può essere inserita in sicurezza.".into());
         }
         let mix_wav = work.join("mix.wav");
-        let output_duration = render_mix(&source_wav, &mix_wav, &scheduled, &cancel)?;
+        let output_duration = render_mix(&source_wav, &mix_wav, &scheduled, job.source_volume, &cancel)?;
         {
             let mut s = state.lock().unwrap();
             s.status = tr("audio_description.progress.export");
@@ -5138,8 +5292,11 @@ fn execute_audio_description_job(
         st.audio_description_tts_voice = job.tts_voice.clone();
         st.audio_description_tts_rate = Some(job.rate);
         st.audio_description_tts_volume = Some(job.volume);
+        st.audio_description_tts_pitch = Some(job.pitch);
+        st.audio_description_source_volume = normalize_source_volume(job.source_volume);
         st.audio_description_verbosity = job.verbosity.as_bridge().to_string();
         st.audio_description_extended_pauses = job.allow_extended_pauses;
+        st.audio_description_allow_nonverbal_vocals = job.allow_nonverbal_vocals;
         st.audio_description_recognize_characters = job.recognize_characters;
         st.audio_description_recognize_screen_text = job.recognize_screen_text;
         st.audio_description_save_project = job.save_project;
@@ -5275,7 +5432,159 @@ struct AudioDescriptionVoiceSettings {
     engine: String,
     voice: String,
     rate: i32,
+    pitch: i32,
     volume: i32,
+}
+
+// Each dialog owns its previews. Changing a setting or closing cancels both
+// rendering and playback, so old previews cannot start after newer ones.
+#[derive(Default)]
+struct MixPreview {
+    cancel: Mutex<Option<Arc<AtomicBool>>>,
+}
+impl MixPreview {
+    fn stop(&self) {
+        if let Some(cancel) = self.cancel.lock().unwrap().take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+    }
+    fn start(
+        &self,
+        input: PathBuf,
+        stream: Option<i32>,
+        start: f64,
+        voice: AudioDescriptionVoiceSettings,
+        volume: f32,
+        text: String,
+    ) {
+        self.stop();
+        if !input.is_file() || voice.voice.is_empty() {
+            return;
+        }
+        let cancel = Arc::new(AtomicBool::new(false));
+        *self.cancel.lock().unwrap() = Some(cancel.clone());
+        thread::spawn(move || {
+            // Debounce keyboard changes before launching synthesis/decoding.
+            thread::sleep(Duration::from_millis(250));
+            if cancel.load(Ordering::Relaxed) {
+                return;
+            }
+            let Ok(work) = cache_dir("mix-preview") else {
+                return;
+            };
+            let result = (|| -> Result<(), String> {
+                let rt = Runtime::new().map_err(|e| e.to_string())?;
+                let pcm = synthesize_text_pcm(
+                    &text,
+                    TtsParameters {
+                        engine: &voice.engine,
+                        voice: &voice.voice,
+                        rate: voice.rate,
+                        pitch: voice.pitch,
+                        volume: voice.volume,
+                    },
+                    &rt,
+                    &work,
+                    0,
+                    &cancel,
+                )?;
+                let duration = pcm.len() as f64 / (MIX_SAMPLE_RATE as f64 * MIX_CHANNELS as f64);
+                let source = work.join("source.wav");
+                let mut args = vec![
+                    "-y".into(),
+                    "-ss".into(),
+                    start.max(0.0).to_string(),
+                    "-i".into(),
+                    input.to_string_lossy().into_owned(),
+                    "-t".into(),
+                    (duration + 3.0).to_string(),
+                ];
+                args.extend([
+                    "-map".into(),
+                    stream
+                        .map(|i| format!("0:{i}"))
+                        .unwrap_or_else(|| "0:a:0".into()),
+                    "-vn".into(),
+                    "-ac".into(),
+                    MIX_CHANNELS.to_string(),
+                    "-ar".into(),
+                    MIX_SAMPLE_RATE.to_string(),
+                    "-c:a".into(),
+                    "pcm_s16le".into(),
+                    source.to_string_lossy().into_owned(),
+                ]);
+                run_ffmpeg(&args, &cancel)?;
+                let cue = ScheduledDescription {
+                    original_index: 0,
+                    text,
+                    desired_start_sec: 1.0,
+                    visual_evidence_time_sec: None,
+                    mandatory: false,
+                    slot_id: String::new(),
+                    slot_start_sec: None,
+                    slot_end_sec: None,
+                    start_sec: 1.0,
+                    pcm,
+                    duration_sec: duration,
+                    extended_pause: false,
+                };
+                let output = work.join("preview.wav");
+                render_mix(&source, &output, &[cue], volume, &cancel)?;
+                if cancel.load(Ordering::Relaxed) {
+                    return Ok(());
+                }
+                let mut child = std::process::Command::new("/usr/bin/afplay")
+                    .arg(output)
+                    .spawn()
+                    .map_err(|e| e.to_string())?;
+                loop {
+                    if cancel.load(Ordering::Relaxed) {
+                        let _ = child.kill();
+                        let _ = child.wait();
+                        break;
+                    }
+                    if child.try_wait().map_err(|e| e.to_string())?.is_some() {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(40));
+                }
+                Ok(())
+            })();
+            if let Err(error) = result
+                && !cancel.load(Ordering::Relaxed)
+            {
+                append_podcast_log(&format!(
+                    "audio_description.mix_preview_failed error={error}"
+                ));
+            }
+            let _ = fs::remove_dir_all(&work);
+        });
+    }
+}
+impl Drop for MixPreview {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+fn source_volume_choice(panel: &Panel, root: &BoxSizer, value: f32) -> Choice {
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    row.add(
+        &StaticText::builder(panel)
+            .with_label(&tr("audio_description.source_volume"))
+            .build(),
+        0,
+        SizerFlag::AlignCenterVertical | SizerFlag::All,
+        5,
+    );
+    let choice = Choice::builder(panel).build();
+    for percent in (0..=200).step_by(5) {
+        choice.append(&format!("{percent}%"));
+    }
+    choice.set_selection((normalize_source_volume(value) * 20.0).round() as u32);
+    row.add(&choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+    choice
 }
 
 fn audio_description_voice_rate_items() -> Vec<(String, i32)> {
@@ -5325,7 +5634,6 @@ fn open_audio_description_voice_settings(
     current: AudioDescriptionVoiceSettings,
     description_language: &str,
     voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
-    preview_pitch: i32,
 ) -> Option<AudioDescriptionVoiceSettings> {
     let d = Dialog::builder(parent, &tr("audio_description.voice_settings.title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -5398,6 +5706,15 @@ fn open_audio_description_voice_settings(
     rate.set_selection(nearest_audio_description_voice_value(&rate_items, current.rate) as u32);
     rate_row.add(&rate, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&rate_row, 0, SizerFlag::Expand, 0);
+
+    let pitch_row = BoxSizer::builder(Orientation::Horizontal).build();
+    pitch_row.add(&StaticText::builder(&p).with_label(&tr("tts_tuning.label_pitch")).build(),
+        0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let pitch = Choice::builder(&p).build();
+    for value in (-100..=100).step_by(10) { pitch.append(&format!("{value:+}%")); }
+    pitch.set_selection(((current.pitch.clamp(-100, 100) + 100) / 10) as u32);
+    pitch_row.add(&pitch, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add_sizer(&pitch_row, 0, SizerFlag::Expand, 0);
 
     let volume_items = Rc::new(audio_description_voice_volume_items());
     let volume_row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -5542,7 +5859,7 @@ fn open_audio_description_voice_settings(
             engine_value,
             selected_voice.short_name,
             rate_value,
-            preview_pitch,
+            pitch.get_selection().unwrap_or(10) as i32 * 10 - 100,
             volume_value,
             Arc::clone(&voice_preview_generation_click),
         );
@@ -5578,6 +5895,7 @@ fn open_audio_description_voice_settings(
             engine: engine_value,
             voice: selected_voice.short_name,
             rate: rate_value,
+            pitch: pitch.get_selection().unwrap_or(10) as i32 * 10 - 100,
             volume: volume_value,
         });
         d_ok.end_modal(ID_OK);
@@ -5725,6 +6043,12 @@ fn open_create_dialog_impl(
         .build();
     extended.set_value(saved.audio_description_extended_pauses);
     root.add(&extended, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let source_volume = source_volume_choice(&p, &root, saved.audio_description_source_volume);
+    let nonverbal = CheckBox::builder(&p)
+        .with_label(&tr("audio_description.allow_nonverbal_vocals"))
+        .build();
+    nonverbal.set_value(saved.audio_description_allow_nonverbal_vocals);
+    root.add(&nonverbal, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let recognize = CheckBox::builder(&p)
         .with_label(&tr("audio_description.recognize_characters"))
         .build();
@@ -6197,8 +6521,17 @@ fn open_create_dialog_impl(
         engine: initial_voice_engine,
         voice: initial_voice,
         rate: saved.audio_description_tts_rate.unwrap_or(saved.rate),
+        pitch: saved.audio_description_tts_pitch.unwrap_or(saved.pitch),
         volume: saved.audio_description_tts_volume.unwrap_or(saved.volume),
     }));
+    let mix_preview = Rc::new(MixPreview::default());
+    let volume_preview = mix_preview.clone();
+    let preview_voice = voice_settings.clone();
+    source_volume.on_selection_changed(move |_| {
+        volume_preview.start(PathBuf::from(input.get_value()), None, 0.0,
+            preview_voice.borrow().clone(), source_volume.get_selection().unwrap_or(20) as f32 / 20.0,
+            tr("audio_description.voice_settings.test_text"));
+    });
     let actions = BoxSizer::builder(Orientation::Horizontal).build();
     let modify = Button::builder(&p)
         .with_label(&tr("audio_description.modify_project"))
@@ -6466,7 +6799,9 @@ fn open_create_dialog_impl(
     let voices_voice = voices_data.clone();
     let langs_voice = langs.clone();
     let d_voice = d;
+    let preview_voice_dialog = mix_preview.clone();
     voice_settings_button.on_click(move |_| {
+        preview_voice_dialog.stop();
         let description_language = langs_voice
             .get(language.get_selection().unwrap_or(0) as usize)
             .map(|item| item.1)
@@ -6477,7 +6812,6 @@ fn open_create_dialog_impl(
             current,
             description_language,
             &voices_voice,
-            saved.pitch,
         ) {
             *voice_settings_dialog.borrow_mut() = selected.clone();
             let mut st = settings_voice.lock().unwrap();
@@ -6485,6 +6819,7 @@ fn open_create_dialog_impl(
             st.audio_description_tts_voice = selected.voice;
             st.audio_description_tts_rate = Some(selected.rate);
             st.audio_description_tts_volume = Some(selected.volume);
+            st.audio_description_tts_pitch = Some(selected.pitch);
             st.save();
         }
         voice_settings_button.set_focus();
@@ -6623,7 +6958,9 @@ fn open_create_dialog_impl(
     let saved_start = saved.clone();
     let api_value_start = Rc::clone(&api_value);
     let sonarpad_code_value_start = Rc::clone(&sonarpad_code_value);
+    let preview_start = mix_preview.clone();
     start.on_click(move |_| {
+        preview_start.stop();
         let model_value = model
             .get_string_selection()
             .unwrap_or_else(|| saved_start.audio_description_gemini_model.clone());
@@ -6712,6 +7049,8 @@ fn open_create_dialog_impl(
             language_code,
             verbosity: verbosity_value,
             allow_extended_pauses: extended.get_value() && !create_video_output.get_value(),
+            allow_nonverbal_vocals: nonverbal.get_value(),
+            source_volume: source_volume.get_selection().unwrap_or(20) as f32 / 20.0,
             recognize_characters: recognize.get_value(),
             recognize_screen_text: recognize_screen_text.get_value(),
             save_project: save_project_box.get_value(),
@@ -6722,7 +7061,7 @@ fn open_create_dialog_impl(
             tts_engine: engine_value,
             tts_voice: voice_value,
             rate: selected_voice_settings.rate,
-            pitch: saved_start.pitch,
+            pitch: selected_voice_settings.pitch,
             volume: selected_voice_settings.volume,
             audio_stream_index,
             gemini_api_key: if use_sonarpad_ai { String::new() } else { personal_api_key_value },
@@ -6761,6 +7100,7 @@ fn open_create_dialog_impl(
         request_sonarpad_balance();
     }
     d.show_modal();
+    mix_preview.stop();
     balance_timer.stop();
     d.destroy();
     if quit_requested.get() {
@@ -6989,7 +7329,7 @@ fn change_project_voice(
         state.lock().unwrap().progress = 85;
 
         let mix = work.join("voice-change-mix.wav");
-        let output_duration = render_mix(&source, &mix, &scheduled, &cancel)?;
+        let output_duration = render_mix(&source, &mix, &scheduled, project.source_volume, &cancel)?;
         state.lock().unwrap().progress = 92;
 
         if let Some(parent) = project.output_mp3_path.parent() {
@@ -7333,6 +7673,8 @@ fn audio_description_job_from_project(
         language_code: project.language_code.clone(),
         verbosity: Verbosity::from_settings(&project.verbosity),
         allow_extended_pauses: project.allow_extended_pauses,
+        allow_nonverbal_vocals: project.allow_nonverbal_vocals,
+        source_volume: project.source_volume,
         recognize_characters: project.recognize_characters,
         recognize_screen_text: project.recognize_screen_text,
         save_project: true,
@@ -8050,7 +8392,7 @@ fn rebuild_project(
         }
         state.lock().unwrap().progress = 85;
         let mix = work.join("mix.wav");
-        let output_duration = render_mix(&source, &mix, &scheduled, &cancel)?;
+        let output_duration = render_mix(&source, &mix, &scheduled, project.source_volume, &cancel)?;
         state.lock().unwrap().progress = 92;
         let temporary_audio = work.join("project-rebuilt.mp3");
         encode_mp3(&mix, &temporary_audio, &cancel)?;
@@ -8603,6 +8945,23 @@ pub fn open_project_editor(
         row.add(button, 0, SizerFlag::All, 4);
     }
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
+    let source_volume = source_volume_choice(&panel, &root, project.borrow().source_volume);
+    let mix_preview = Rc::new(MixPreview::default());
+    let volume_preview = mix_preview.clone();
+    let volume_project = Rc::clone(&project);
+    let volume_path = path.clone();
+    source_volume.on_selection_changed(move |_| {
+        volume_project.borrow_mut().source_volume = source_volume.get_selection().unwrap_or(20) as f32 / 20.0;
+        let snapshot = volume_project.borrow();
+        volume_preview.start(snapshot.source_path.clone(), snapshot.audio_stream_index, 0.0,
+            AudioDescriptionVoiceSettings {
+                engine: snapshot.tts_engine.clone(), voice: snapshot.tts_voice.clone(),
+                rate: snapshot.tts_rate, pitch: snapshot.tts_pitch, volume: snapshot.tts_volume,
+            }, snapshot.source_volume, tr("audio_description.voice_settings.test_text"));
+        if let Err(error) = save_project(&volume_path, &volume_project.borrow()) {
+            show_error(&dialog, &error);
+        }
+    });
     panel.set_sizer(root, true);
 
     let project_selection = Rc::clone(&project);
@@ -9598,6 +9957,7 @@ pub fn open_project_editor(
         }
     });
     dialog.show_modal();
+    mix_preview.stop();
     dialog.destroy();
     if quit_requested.get() {
         append_podcast_log("audio_description.project.quit_forwarded_to_main");

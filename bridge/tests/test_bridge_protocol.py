@@ -138,6 +138,12 @@ class BridgeProtocolTests(unittest.TestCase):
         self.assertAlmostEqual(normalized[0]["start_sec"], 15.0)
         self.assertAlmostEqual(normalized[0]["visual_start_sec"], 10.0)
 
+    def test_checkpoint_preserves_visual_evidence_for_resume(self):
+        with mock.patch.object(bridge.audio_describer, "get_visual_evidence_time", return_value=11.25):
+            rows = bridge._checkpoint_descriptions([(10.0, 12.0, "A door opens.")])
+        self.assertEqual(rows, [{"start_sec": 10.0, "end_sec": 12.0,
+                                "text": "A door opens.", "visual_evidence_time_sec": 11.25}])
+
     def test_normalise_descriptions_keeps_visual_evidence_as_passive_metadata(self):
         with mock.patch.object(
             bridge.audio_describer, "get_visual_evidence_time", return_value=11.25

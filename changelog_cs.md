@@ -8,6 +8,8 @@ Verze 0.5.3 - 14. října 2026
 
 3. Přidána funkce střihu mediálních souborů: umožňuje oříznout zvukové a video soubory, poslechnout si náhled střihů, rozdělit soubor na více částí, odstranit nebo obnovit úseky a spojit ponechané části. Video lze také otáčet a přidat zvukovou stopu se samostatným ovládáním hlasitosti původního zvuku a nové stopy a s volitelným opakováním.
 
+4. Audiopopis nyní zahrnuje nejnovější vylepšení z Windows: volitelná funkce, ve výchozím stavu vypnutá, umožňuje popis během neverbálních hlasových projevů pouze po ověření umělou inteligencí a nadále chrání dialogy. Přidána výška hlasu a hlasitost filmu, ukládané do projektů, s náhledem mixu při úpravě původní hlasitosti. Vylepšeno pokračování přerušených úloh včetně kompatibilních segmentů: zachovávají se již analyzované části, ověřené hlasové projevy a časové údaje obrazu. Pokud připravené video není kompatibilní, bod obnovení se zachová bez opětovného spuštění od začátku.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost

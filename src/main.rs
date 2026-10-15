@@ -438,10 +438,16 @@ struct Settings {
     audio_description_tts_rate: Option<i32>,
     #[serde(default)]
     audio_description_tts_volume: Option<i32>,
+    #[serde(default)]
+    audio_description_tts_pitch: Option<i32>,
+    #[serde(default = "audio_description::default_source_volume")]
+    audio_description_source_volume: f32,
     #[serde(default = "default_audio_description_verbosity")]
     audio_description_verbosity: String,
     #[serde(default = "default_true")]
     audio_description_extended_pauses: bool,
+    #[serde(default)]
+    audio_description_allow_nonverbal_vocals: bool,
     #[serde(default = "default_true")]
     audio_description_recognize_characters: bool,
     #[serde(default = "default_true")]
@@ -541,8 +547,11 @@ impl Settings {
             audio_description_tts_voice: String::new(),
             audio_description_tts_rate: None,
             audio_description_tts_volume: None,
+            audio_description_tts_pitch: None,
+            audio_description_source_volume: 1.0,
             audio_description_verbosity: default_audio_description_verbosity(),
             audio_description_extended_pauses: false,
+            audio_description_allow_nonverbal_vocals: false,
             audio_description_recognize_characters: true,
             audio_description_recognize_screen_text: true,
             audio_description_save_project: false,

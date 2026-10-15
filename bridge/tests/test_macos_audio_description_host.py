@@ -233,11 +233,12 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('"aac".into()', AUDIO)
         self.assertIn("scale=trunc(iw/2)*2:trunc(ih/2)*2,format=yuv420p", AUDIO)
 
-    def test_changed_resume_chunk_layout_restarts_cleanly_instead_of_failing(self):
-        self.assertIn("audio_description.resume_checkpoint_ignored", AUDIO)
-        self.assertNotIn(
-            "Il checkpoint interrotto non corrisponde più al video preparato.", AUDIO
-        )
+    def test_changed_resume_layout_preserves_progress_instead_of_restarting(self):
+        self.assertNotIn("audio_description.resume_checkpoint_ignored", AUDIO)
+        self.assertNotIn("fallback_request.resume = None", AUDIO)
+        self.assertIn("checkpoint.resume_for_chunks(&chunks).map_err", AUDIO)
+        self.assertIn("progress.resume_on(&bridge_request.chunks)", AUDIO)
+        self.assertIn("chunk_layout: Some(layout.clone())", AUDIO)
 
     def test_audio_description_job_failures_are_logged_before_the_ui_error(self):
         self.assertIn("audio_description.create.failed error={error}", AUDIO)
@@ -283,8 +284,8 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
                     self.assertIn(required_component, workflow)
 
     def test_ffmpeg_cache_is_invalidated_for_mpegps_input_fix(self):
-        self.assertIn("ffmpeg-8.0.1-v18-mpegps-input", WORKFLOW)
-        self.assertIn("ffmpeg-${{ env.FFMPEG_VERSION }}-v20-mpegps-input", CATALINA)
+        self.assertIn("ffmpeg-8.0.1-v20-media-cutter", WORKFLOW)
+        self.assertIn("ffmpeg-${{ env.FFMPEG_VERSION }}-v22-media-cutter", CATALINA)
 
     def test_avi_upload_uses_gemini_documented_mime_type(self):
         self.assertIn('".avi": "video/avi"', AUDIO_DESCRIBER)
@@ -621,7 +622,7 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
         self.assertIn('voice: tts_voice', voice_change)
         self.assertIn('schedule_descriptions(', voice_change)
         self.assertIn('project.allow_extended_pauses', voice_change)
-        self.assertIn('render_mix(&source, &mix, &scheduled, &cancel)', voice_change)
+        self.assertIn('render_mix(&source, &mix, &scheduled, project.source_volume, &cancel)', voice_change)
         self.assertIn('encode_mp3(&mix, &temporary_mp3, &cancel)', voice_change)
         self.assertIn('updated.tts_engine = tts_engine.to_string()', voice_change)
         self.assertIn('updated.tts_voice = tts_voice.to_string()', voice_change)

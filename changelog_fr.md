@@ -8,6 +8,8 @@ Version 0.5.3 - 14 octobre 2026
 
 3. Ajout de la fonction de découpe des fichiers multimédias : découper des fichiers audio et vidéo, écouter les découpes en aperçu, diviser un fichier en plusieurs parties, supprimer ou rétablir des segments et assembler ceux conservés. Il est également possible de faire pivoter la vidéo et d’ajouter une piste audio, avec des volumes séparés pour le son original et la nouvelle piste, ainsi qu’une répétition facultative.
 
+4. Les audiodescriptions bénéficient des améliorations récentes de Windows : une option désactivée par défaut autorise les descriptions pendant les vocalisations non verbales uniquement après vérification par l’IA, tout en protégeant les dialogues. Ajout de la hauteur de voix et du volume du film, enregistrés dans les projets, avec un aperçu du mixage lors du réglage du volume original. La reprise des travaux interrompus conserve les parties déjà analysées, les vocalisations vérifiées et les repères visuels, y compris avec les segments de compatibilité. Si la vidéo préparée est incompatible, le point de reprise est conservé sans recommencer à zéro.
+
 Version 0.5.2 - 12 octobre 2026
 
 Voix Edge, audiodescriptions et fiabilité

@@ -49,6 +49,7 @@ pub struct AudioDescriptionBridgeRequest {
     pub language: String,
     pub verbosity: String,
     pub allow_extended_pauses: bool,
+    pub allow_nonverbal_vocals: bool,
     pub recognize_characters: bool,
     pub recognize_screen_text: bool,
     pub initial_character_glossary: Vec<BridgeCharacter>,
@@ -73,6 +74,8 @@ pub struct AudioDescriptionBridgeResume {
     pub completed_chunks: usize,
     pub descriptions: Vec<BridgeDescription>,
     pub character_glossary: Vec<BridgeCharacter>,
+    #[serde(default)]
+    pub verified_nonverbal_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -163,6 +166,8 @@ pub struct AudioDescriptionBridgeCheckpoint {
     pub character_glossary: Vec<BridgeCharacter>,
     #[serde(default)]
     pub gemini_model: String,
+    #[serde(default)]
+    pub verified_nonverbal_ids: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

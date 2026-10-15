@@ -8,6 +8,8 @@ Versione 0.5.3 - 14 ottobre 2026
 
 3. Aggiunta la funzione Taglia file media: permette di ritagliare file audio e video, ascoltare in anteprima i tagli, dividere il file in più parti, eliminare o ripristinare segmenti e unire quelli mantenuti. È possibile anche ruotare il video e aggiungere una traccia audio, regolando separatamente il volume originale e quello della nuova traccia, con ripetizione opzionale.
 
+4. Audiodescrizioni allineate alle recenti migliorie di Windows: aggiunta l’opzione, disattivata per impostazione predefinita, per descrivere durante vocalizzazioni non verbali solo dopo verifica dell’IA, mantenendo protetti i dialoghi. Aggiunti tono della voce e volume del film, memorizzati nei progetti, con anteprima del mix quando si regola il volume originale. Migliorata la ripresa dei lavori interrotti, anche con segmenti di compatibilità: vengono conservate le parti già analizzate, le verifiche delle vocalizzazioni e i riferimenti temporali visivi. Se il video preparato non è compatibile, il checkpoint viene conservato senza ricominciare da zero.
+
 Versione 0.5.2 - 12 ottobre 2026
 
 Voci Edge, audiodescrizioni e affidabilità

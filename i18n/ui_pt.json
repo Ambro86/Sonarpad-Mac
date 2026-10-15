@@ -425,5 +425,9 @@
   "youtube_duration_label": "Duração",
   "convert_folder_cancel_button": "Interromper conversão",
   "convert_folder_cancelling": "A interromper a conversão…",
-  "convert_folder_cancelled": "Conversão interrompida: {success} ficheiros convertidos."
+  "convert_folder_cancelled": "Conversão interrompida: {success} ficheiros convertidos.",
+  "audio_description.allow_nonverbal_vocals": "Permitir descrições sobre vocalizações não verbais",
+  "audio_description.source_volume": "Volume do filme",
+  "tts_tuning.label_pitch": "Tom:",
+  "audio_description.error.resume_layout": "O vídeo preparado não corresponde ao trabalho interrompido. O ponto de recuperação foi preservado."
 }

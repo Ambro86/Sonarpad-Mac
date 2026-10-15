@@ -8,6 +8,8 @@ Versão 0.5.3 - 14 de outubro de 2026
 
 3. Adicionada a função de cortar ficheiros multimédia: permite cortar áudio e vídeo, ouvir uma prévia dos cortes, dividir o ficheiro em várias partes, eliminar ou restaurar segmentos e unir os que forem mantidos. Também permite rodar o vídeo e adicionar uma faixa de áudio, com controlos de volume separados para o áudio original e a nova faixa, e repetição opcional.
 
+4. Audiodescrições atualizadas com as melhorias recentes do Windows: uma opção desativada por predefinição permite descrições durante vocalizações não verbais apenas após verificação pela IA, mantendo os diálogos protegidos. Adicionados o tom da voz e o volume do filme, guardados nos projetos, com prévia da mistura ao ajustar o volume original. Melhorada a retoma de trabalhos interrompidos, incluindo segmentos de compatibilidade: preservam-se a análise concluída, as vocalizações verificadas e os tempos visuais. Se o vídeo preparado for incompatível, o ponto de recuperação é preservado sem recomeçar do zero.
+
 Versão 0.5.2 - 12 de outubro de 2026
 
 Vozes Edge, audiodescrições e fiabilidade

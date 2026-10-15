@@ -447,7 +447,7 @@ pub(super) fn create_dialogue_overlap(
             return Err(tr("audio_description.dialogue_overlap_unavailable"));
         }
         let mixed_wav = work.join("mix.wav");
-        let output_duration = render_mix(&source_wav, &mixed_wav, &scheduled, &cancel)?;
+        let output_duration = render_mix(&source_wav, &mixed_wav, &scheduled, job.source_volume, &cancel)?;
         let mixed_mp3 = work.join("final.mp3");
         state.lock().unwrap().status = tr("audio_description.progress.export");
         encode_mp3(&mixed_wav, &mixed_mp3, &cancel)?;

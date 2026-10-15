@@ -425,5 +425,9 @@
   "youtube_duration_label": "Délka",
   "convert_folder_cancel_button": "Přerušit převod",
   "convert_folder_cancelling": "Přerušování převodu…",
-  "convert_folder_cancelled": "Převod přerušen: převedeno {success} souborů."
+  "convert_folder_cancelled": "Převod přerušen: převedeno {success} souborů.",
+  "audio_description.allow_nonverbal_vocals": "Povolit popisy během neřečových hlasových projevů",
+  "audio_description.source_volume": "Hlasitost filmu",
+  "tts_tuning.label_pitch": "Výška:",
+  "audio_description.error.resume_layout": "Připravené video neodpovídá přerušené úloze. Bod obnovení byl zachován."
 }

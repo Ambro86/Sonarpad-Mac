@@ -425,5 +425,9 @@
   "youtube_duration_label": "Durata",
   "convert_folder_cancel_button": "Interrompi conversione",
   "convert_folder_cancelling": "Interruzione conversione in corso…",
-  "convert_folder_cancelled": "Conversione interrotta: {success} file convertiti."
+  "convert_folder_cancelled": "Conversione interrotta: {success} file convertiti.",
+  "audio_description.allow_nonverbal_vocals": "Consenti descrizioni su suoni vocali non verbali",
+  "audio_description.source_volume": "Volume del film",
+  "tts_tuning.label_pitch": "Tono:",
+  "audio_description.error.resume_layout": "Il video preparato non corrisponde al lavoro interrotto. Il checkpoint è stato conservato."
 }

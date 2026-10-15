@@ -116,6 +116,9 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Test audio-description resume and audio mixing
+        run: python scripts/test_audio_description_parity.py
+
       - name: Build Catalina-compatible bundled audio-description worker
         shell: bash
         env:

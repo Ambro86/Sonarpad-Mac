@@ -8,6 +8,8 @@ Version 0.5.3 - October 14, 2026
 
 3. Added Cut media files: trim audio and video files, preview cuts, split files into parts, remove or restore segments and join the parts you keep. You can also rotate video and add an audio track, with separate volume controls for the original audio and the new track, plus optional looping.
 
+4. Audio descriptions now include recent Windows improvements: an optional setting, off by default, allows descriptions during nonverbal vocalizations only after AI verification, while keeping dialogue protected. Added voice pitch and movie volume, saved in projects, with a mixed preview when adjusting the original volume. Improved interrupted-job recovery, including compatibility chunks: completed analysis, verified vocalizations and visual timestamps are retained. If the prepared video is incompatible, the checkpoint is preserved instead of restarting from scratch.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability

@@ -425,5 +425,9 @@
   "youtube_duration_label": "Czas trwania",
   "convert_folder_cancel_button": "Przerwij konwersję",
   "convert_folder_cancelling": "Przerywanie konwersji…",
-  "convert_folder_cancelled": "Konwersja przerwana: przekonwertowano {success} plików."
+  "convert_folder_cancelled": "Konwersja przerwana: przekonwertowano {success} plików.",
+  "audio_description.allow_nonverbal_vocals": "Zezwól na opisy podczas niewerbalnych odgłosów głosowych",
+  "audio_description.source_volume": "Głośność filmu",
+  "tts_tuning.label_pitch": "Wysokość:",
+  "audio_description.error.resume_layout": "Przygotowany film nie odpowiada przerwanemu zadaniu. Punkt wznowienia został zachowany."
 }
