@@ -19,6 +19,7 @@ mod podcasts;
 mod rai_audiodescrizioni;
 mod raiplay;
 mod raiplaysound;
+mod radio_catalog;
 mod reader;
 mod routes;
 mod scheduled_radio;
@@ -140,9 +141,6 @@ const ID_LA7_PLAY: i32 = 2378;
 const ID_TOOLS_CONVERT_FOLDER: i32 = 2379;
 const ID_TOOLS_MEDIA_CUTTER: i32 = 2380;
 const ID_SONARPAD_AUDIO_DESCRIPTIONS: i32 = 2381;
-#[cfg(target_os = "macos")]
-const SHOW_MEDIA_CUTTER_IN_MENUS: bool = false;
-#[cfg(not(target_os = "macos"))]
 const SHOW_MEDIA_CUTTER_IN_MENUS: bool = true;
 // wxWidgets only accepts custom menu IDs below 32767. Keep the three
 // favorite-action ranges contiguous and below the podcast ranges at 27000.
@@ -4839,27 +4837,32 @@ fn open_radio_country_city_dialog(
         let Some((country_code, _, _)) = countries_search.get(sel as usize) else {
             return;
         };
-        match fetch_radio_browser_country_city_stations(
+        let stations = fetch_radio_browser_country_city_stations(
             country_code,
             &city_ctrl_search.get_value(),
             &query_ctrl_search.get_value(),
-        ) {
-            Ok(stations) => {
-                let results = stations
-                    .into_iter()
-                    .map(|station| {
-                        favorite_from_station(&format!("country:{}", country_code), &station)
-                    })
-                    .collect::<Vec<_>>();
-                open_radio_results_dialog(
-                    &dialog_search,
-                    &settings_search,
-                    &radio_menu_state_search,
-                    &results,
-                );
-            }
-            Err(err) => show_message_subdialog(&dialog_search, "Radio", &err),
-        }
+        )
+        .unwrap_or_else(|error| {
+            append_podcast_log(&format!("Radio country search: {error}"));
+            Vec::new()
+        });
+        let results = stations
+            .into_iter()
+            .map(|station| favorite_from_station(&format!("country:{country_code}"), &station))
+            .collect::<Vec<_>>();
+        let query = radio_catalog::Query {
+            country: countries_search[sel as usize].2.clone(),
+            city: city_ctrl_search.get_value(),
+            text: query_ctrl_search.get_value(),
+            language: format!("country:{country_code}"),
+        };
+        open_radio_results_dialog(
+            &dialog_search,
+            &settings_search,
+            &radio_menu_state_search,
+            &results,
+            query,
+        );
     });
     let run_search_button = Rc::clone(&run_search);
     search_button.on_click(move |_| run_search_button());
@@ -6399,7 +6402,20 @@ fn open_radio_search_dialog(
             results.dedup_by(|left, right| {
                 canonical_radio_name(&left.name) == canonical_radio_name(&right.name)
             });
-            results
+            let query = radio_catalog::Query {
+                language: language_code_opt.unwrap_or_default(),
+                country: country_items
+                    .get(country_selection)
+                    .map(|item| item.2.clone())
+                    .unwrap_or_default(),
+                city: String::new(),
+                text: if show_all {
+                    String::new()
+                } else {
+                    keyword.to_string()
+                },
+            };
+            (results, query)
         }
     });
 
@@ -6414,7 +6430,7 @@ fn open_radio_search_dialog(
         append_podcast_log("radio_search_dialog.show_all_clicked");
         let selection = choice_language_all.get_selection().unwrap_or(0) as usize;
         let country_selection = country_choice_all.get_selection().unwrap_or(0) as usize;
-        let results = gather_results_show_all(
+        let (results, query) = gather_results_show_all(
             selection,
             country_selection,
             &keyword_ctrl_all.get_value(),
@@ -6425,6 +6441,7 @@ fn open_radio_search_dialog(
             &settings_show_all,
             &radio_menu_state_show_all,
             &results,
+            query,
         );
     });
 
@@ -6457,12 +6474,13 @@ fn open_radio_search_dialog(
             );
             return;
         }
-        let results = gather_results_search(selection, country_selection, &keyword, false);
+        let (results, query) = gather_results_search(selection, country_selection, &keyword, false);
         open_radio_results_dialog(
             &dialog_search,
             &settings_search,
             &radio_menu_state_search,
             &results,
+            query,
         );
     });
 
@@ -6541,11 +6559,81 @@ fn open_radio_search_dialog(
     }
 }
 
+fn load_radio_catalog_page(
+    parent: &Dialog,
+    catalog: &mut radio_catalog::Session,
+    page: usize,
+) -> bool {
+    if !catalog.needs_page(page) {
+        return true;
+    }
+    let language = Settings::load().ui_language;
+    let label = match language.as_str() {
+        "it" => "Ricerca radio in corso…",
+        "fr" => "Recherche de radios en cours…",
+        "es" => "Buscando radios…",
+        "pt" => "A pesquisar rádios…",
+        "cs" => "Vyhledávání rádií…",
+        "pl" => "Wyszukiwanie stacji radiowych…",
+        _ => "Searching for radio stations…",
+    };
+    let dialog = Dialog::builder(parent, label).with_size(380, 150).build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    root.add(
+        &StaticText::builder(&panel).with_label(label).build(),
+        1,
+        SizerFlag::All,
+        12,
+    );
+    let cancel = Button::builder(&panel)
+        .with_id(ID_CANCEL)
+        .with_label(&current_ui_strings().cancel)
+        .build();
+    root.add(&cancel, 0, SizerFlag::All, 12);
+    panel.set_sizer(root, true);
+    dialog.set_escape_id(ID_CANCEL);
+    let cancelled = Arc::new(AtomicBool::new(false));
+    let worker_cancelled = Arc::clone(&cancelled);
+    let mut worker_catalog = catalog.clone();
+    let (sender, receiver) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        worker_catalog.load_page(page, &worker_cancelled);
+        let _ = sender.send(worker_catalog);
+    });
+    let result = Rc::new(RefCell::new(None));
+    let result_tick = Rc::clone(&result);
+    let timer = Timer::new(&dialog);
+    timer.on_tick(move |_| match receiver.try_recv() {
+        Ok(catalog) => {
+            *result_tick.borrow_mut() = Some(catalog);
+            dialog.end_modal(ID_OK);
+        }
+        Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+            dialog.end_modal(ID_CANCEL);
+        }
+        Err(std::sync::mpsc::TryRecvError::Empty) => {}
+    });
+    cancel.on_click(move |_| dialog.end_modal(ID_CANCEL));
+    timer.start(100, false);
+    dialog.centre();
+    let accepted = dialog.show_modal() == ID_OK;
+    cancelled.store(true, Ordering::SeqCst);
+    timer.stop();
+    dialog.destroy();
+    if accepted && let Some(loaded) = result.borrow_mut().take() {
+        *catalog = loaded;
+        return true;
+    }
+    false
+}
+
 fn open_radio_results_dialog(
     parent: &Dialog,
     settings: &Arc<Mutex<Settings>>,
     radio_menu_state: &Arc<Mutex<RadioMenuState>>,
     results: &[RadioFavorite],
+    query: radio_catalog::Query,
 ) {
     let ui_language = Settings::load().ui_language;
     let mut results = results.to_vec();
@@ -6559,6 +6647,12 @@ fn open_radio_results_dialog(
         canonical_radio_name(&left.name) == canonical_radio_name(&right.name)
             || left.stream_url == right.stream_url
     });
+
+    let mut catalog = radio_catalog::Session::new(query, results);
+    if !load_radio_catalog_page(parent, &mut catalog, 0) {
+        return;
+    }
+    let results = &catalog.results;
 
     append_podcast_log(&format!("radio_results_dialog count={}", results.len()));
     for (index, result) in results.iter().take(20).enumerate() {
@@ -6717,16 +6811,21 @@ fn open_radio_results_dialog(
     root.add_sizer(&secondary_buttons, 0, SizerFlag::Expand, 0);
     panel.set_sizer(root, true);
 
-    let all_results = Rc::new(results);
+    let all_results = Rc::new(RefCell::new(catalog));
     let current_page = Rc::new(RefCell::new(0usize));
     let visible_results = Rc::new(RefCell::new(Vec::<RadioFavorite>::new()));
     let update_results_page = Rc::new({
         let all_results = Rc::clone(&all_results);
         let visible_results = Rc::clone(&visible_results);
         let ui_language = ui_language.clone();
+        let current_page = Rc::clone(&current_page);
         move |page: usize| {
+            let mut catalog = all_results.borrow_mut();
+            load_radio_catalog_page(&dialog, &mut catalog, page);
+            let all_results = &catalog.results;
             let total_pages = all_results.len().div_ceil(RADIO_RESULTS_PAGE_SIZE);
             let current = page.min(total_pages.saturating_sub(1));
+            *current_page.borrow_mut() = current;
             let start = current * RADIO_RESULTS_PAGE_SIZE;
             let end = (start + RADIO_RESULTS_PAGE_SIZE).min(all_results.len());
             let page_results = all_results[start..end].to_vec();
@@ -6740,18 +6839,28 @@ fn open_radio_results_dialog(
                 choice_result.set_selection(0);
             }
 
-            page_label.set_label(&if ui_language == "it" {
-                format!("Pagina {} di {}", current + 1, total_pages.max(1))
-            } else {
-                format!("Page {} of {}", current + 1, total_pages.max(1))
-            });
+            let more = if catalog.has_more { "+" } else { "" };
+            let (page_word, of_word) = match ui_language.as_str() {
+                "it" => ("Pagina", "di"),
+                "fr" => ("Page", "sur"),
+                "es" => ("Página", "de"),
+                "pt" => ("Página", "de"),
+                "cs" => ("Stránka", "z"),
+                "pl" => ("Strona", "z"),
+                _ => ("Page", "of"),
+            };
+            page_label.set_label(&format!(
+                "{page_word} {} {of_word} {}{more}",
+                current + 1,
+                total_pages.max(1)
+            ));
             page_choice.clear();
             for index in 0..total_pages.max(1) {
                 page_choice.append(&format!("{}", index + 1));
             }
             page_choice.set_selection(current as u32);
             previous_button.enable(current > 0);
-            next_button.enable(current + 1 < total_pages);
+            next_button.enable(current + 1 < total_pages || catalog.has_more);
         }
     });
     update_results_page(0);
@@ -6766,10 +6875,8 @@ fn open_radio_results_dialog(
 
     let current_page_next = Rc::clone(&current_page);
     let update_results_page_next = Rc::clone(&update_results_page);
-    let all_results_next = Rc::clone(&all_results);
     next_button.on_click(move |_| {
-        let total_pages = all_results_next.len().div_ceil(RADIO_RESULTS_PAGE_SIZE);
-        let next_page = (*current_page_next.borrow() + 1).min(total_pages.saturating_sub(1));
+        let next_page = *current_page_next.borrow() + 1;
         *current_page_next.borrow_mut() = next_page;
         update_results_page_next(next_page);
     });

@@ -4,6 +4,10 @@ Versión 0.5.3 - 14 de octubre de 2026
 
 1. Transcripción de audio y vídeo más rápida en los Mac compatibles gracias a un nuevo motor optimizado para la CPU. Los Mac Apple Silicon en ejecución nativa utilizan la aceleración Metal, con retorno automático a la CPU si hay problemas. Los Mac Intel y la ejecución mediante Rosetta utilizan la CPU. Se conservan la selección del idioma y del modelo, las marcas de tiempo, el progreso y la cancelación. Catalina y los sistemas anteriores a macOS 13.3 siguen utilizando el motor anterior, que también sirve como alternativa automática si se produce un problema. El nuevo motor descarga su propio modelo la primera vez y lo reutiliza en las siguientes transcripciones.
 
+2. Ampliado el catálogo de radios para hacerlo más rico y completo, con resultados paginados y gestión de duplicados.
+
+3. Añadida la función de recortar archivos multimedia: permite recortar audio y vídeo, escuchar una vista previa de los cortes, dividir el archivo en varias partes, eliminar o restaurar segmentos y unir los que se conservan. También permite girar el vídeo y añadir una pista de audio, con controles de volumen separados para el audio original y la nueva pista, y repetición opcional.
+
 Versión 0.5.2 - 12 de octubre de 2026
 
 Voces Edge, audiodescripciones y estabilidad

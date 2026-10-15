@@ -4,6 +4,10 @@ Wersja 0.5.3 - 14 października 2026
 
 1. Szybsza transkrypcja dźwięku i wideo na zgodnych komputerach Mac dzięki nowemu silnikowi zoptymalizowanemu pod kątem CPU. Przy natywnym uruchomieniu na komputerach Mac z Apple Silicon używana jest akceleracja Metal z automatycznym powrotem do CPU w razie problemów. Komputery Mac z Intelem oraz uruchomienie przez Rosettę korzystają z CPU. Zachowano wybór języka i modelu, znaczniki czasu, postęp oraz anulowanie. Catalina i systemy starsze niż macOS 13.3 nadal korzystają z poprzedniego silnika, który jest też automatycznie używany w razie problemów. Nowy silnik pobiera własny model przy pierwszym użyciu i wykorzystuje go ponownie podczas kolejnych transkrypcji.
 
+2. Rozszerzono katalog stacji radiowych, dzięki czemu jest bogatszy i pełniejszy, ze stronicowaniem wyników i obsługą duplikatów.
+
+3. Dodano funkcję przycinania plików multimedialnych: pozwala przycinać audio i wideo, odsłuchiwać podgląd cięć, dzielić plik na części, usuwać lub przywracać fragmenty i łączyć zachowane części. Można również obracać obraz i dodawać ścieżkę audio, z osobną regulacją głośności oryginalnego dźwięku i nowej ścieżki oraz opcjonalnym zapętlaniem.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

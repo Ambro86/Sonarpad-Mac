@@ -1,8 +1,6 @@
 name: Test bundled macOS media cutter
 on:
   workflow_dispatch:
-  push:
-    branches: [test/media-cutter-macos]
 permissions:
   contents: read
 jobs:
