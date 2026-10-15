@@ -21,6 +21,7 @@ jobs:
     timeout-minutes: 30
     env:
       MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minimum }}
+      TEST_RUST_TARGET: ${{ matrix.target }}
       CFLAGS: -mmacosx-version-min=${{ matrix.minimum }}
       CXXFLAGS: -mmacosx-version-min=${{ matrix.minimum }}
       LDFLAGS: -mmacosx-version-min=${{ matrix.minimum }}

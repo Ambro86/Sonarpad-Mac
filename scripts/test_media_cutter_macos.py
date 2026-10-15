@@ -20,6 +20,7 @@ def production_build_script():
     block = workflow[start:end].split("        run: |\n", 1)[1]
     script = "\n".join(line[10:] if line.startswith("          ") else line for line in block.splitlines())
     script = script.replace("${{ matrix.ffmpeg_macos_min }}", os.environ["MACOSX_DEPLOYMENT_TARGET"])
+    script = script.replace("${{ matrix.rust_target }}", os.environ["TEST_RUST_TARGET"])
     assert "${{" not in script, "unresolved workflow expression"
     Path("build-test-ffmpeg.sh").write_text(script + "\n")
 
