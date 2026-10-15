@@ -117,7 +117,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v18-mpegps-input
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v19-media-cutter
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -232,6 +232,14 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -muxers | grep -E '[[:space:]]aiff[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]mpeg4[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]aac[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]libx264[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]concat[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]transpose[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]hflip[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]vflip[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]amix[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]alimiter[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -filters | grep -E '[[:space:]]aformat[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]flac[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]libmp3lame[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]pcm_s16le[[:space:]]' >/dev/null
@@ -292,6 +300,7 @@ jobs:
           make -j"$(sysctl -n hw.ncpu)"
           make install
           popd
+          bash scripts/build_cutter_x264_macos.sh
           if [ ! -f "dist/ffmpeg-src/ffmpeg-8.0.1.tar.xz" ]; then
             curl -L --fail \
               "https://ffmpeg.org/releases/ffmpeg-8.0.1.tar.xz" \
@@ -306,7 +315,7 @@ jobs:
           fi
           brew install pkg-config
           LAME_PREFIX="$(pwd)/../../lame-install"
-          export PKG_CONFIG_PATH="${LAME_PREFIX}/lib/pkgconfig"
+          export PKG_CONFIG_PATH="${LAME_PREFIX}/lib/pkgconfig:$(pwd)/../../x264-install/lib/pkgconfig"
           export PKG_CONFIG_ALL_STATIC=1
           ./configure \
             --prefix="$(pwd)/../../ffmpeg-install" \
@@ -366,6 +375,9 @@ jobs:
             --enable-muxer=null \
             --enable-gpl \
             --enable-libmp3lame \
+            --enable-libx264 \
+            --enable-encoder=libx264 \
+            --enable-demuxer=concat \
             --enable-encoder=libmp3lame \
             --enable-parser=aac \
             --enable-parser=h264 \
@@ -406,6 +418,12 @@ jobs:
             --enable-filter=volume \
             --enable-filter=scale \
             --enable-filter=format \
+            --enable-filter=transpose \
+            --enable-filter=hflip \
+            --enable-filter=vflip \
+            --enable-filter=amix \
+            --enable-filter=alimiter \
+            --enable-filter=aformat \
             --enable-filter=anull
           make -j"$(sysctl -n hw.ncpu)"
           make install
