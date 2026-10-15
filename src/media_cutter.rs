@@ -1345,11 +1345,6 @@ pub fn open_dialog(parent: &Frame) {
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
 
-    let focus_timer = Rc::new(Timer::new(&dialog));
-    let open_focus = open_button;
-    focus_timer.on_tick(move |_| open_focus.set_focus());
-    focus_timer.start(80, true);
-
     let export_job = Rc::new(RefCell::new(None::<Arc<Mutex<ExportProgress>>>));
     let export_busy = Arc::new(AtomicBool::new(false));
     let export_cancel = Arc::new(AtomicBool::new(false));
@@ -1731,7 +1726,15 @@ pub fn open_dialog(parent: &Frame) {
     let guided_start_tick = Rc::clone(&guided_start);
     let guided_end_tick = Rc::clone(&guided_end);
     let dialog_tick = dialog;
+    // wxdragon 0.9.18 binds timer callbacks to the owner, not the timer ID.
+    // Use one timer and focus only on its first tick; a second focus timer
+    // would share the playback events and could pull VoiceOver back repeatedly.
+    let initial_focus_pending = Cell::new(true);
     timer_tick.on_tick(move |_| {
+        if initial_focus_pending.replace(false) {
+            open_button.set_focus();
+            append_podcast_log("media_cutter.initial_focus");
+        }
         if let Some(info) = probe_tick.borrow().clone() {
             let mut state = preview_tick.borrow_mut();
             let position = state.position(info.duration);
@@ -1910,8 +1913,8 @@ pub fn open_dialog(parent: &Frame) {
         dialog_close.end_modal(ID_CANCEL);
     });
 
+    append_podcast_log("media_cutter.dialog.open");
     dialog.show_modal();
-    focus_timer.stop();
     timer.stop();
     preview.borrow_mut().stop_child();
     dialog.destroy();
