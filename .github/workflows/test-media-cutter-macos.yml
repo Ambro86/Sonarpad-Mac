@@ -29,6 +29,12 @@ jobs:
         with:
           python-version: '3.11'
       - uses: dtolnay/rust-toolchain@stable
+      - name: Verify cutter keyboard, focus and playback rules
+        run: |
+          rustc --edition=2024 --test src/media_cutter_keyboard.rs -o /tmp/cutter-keyboard-tests
+          /tmp/cutter-keyboard-tests
+          python scripts/test_media_cutter_focus.py
+          python scripts/test_media_cutter_playback.py
       - name: Install assembler
         run: command -v nasm || brew install nasm
       - uses: actions/cache@v4

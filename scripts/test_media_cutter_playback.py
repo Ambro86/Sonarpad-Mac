@@ -26,7 +26,7 @@ args = parser.parse_args()
 code = "use std::path::Path;\nconst MIN_PART_SECONDS: f64 = 0.1;\n"
 code += "#[derive(Clone, Debug)]\n" + extract("struct MediaPart {")
 code += extract("impl MediaPart {")
-for name in ["remaining_kept_ranges", "kept_position", "kept_seek_position", "playback_edl"]:
+for name in ["remaining_kept_ranges", "kept_position", "kept_seek_position", "playback_edl", "audition_ranges", "clamp_parts", "split_part_at", "delete_range", "restore_part_index", "adjust_part_boundary"]:
     code += extract(f"fn {name}(")
 code += r'''
 fn main() {
@@ -60,6 +60,25 @@ fn main() {
         MediaPart { start: 7.0, end: 8.0, keep: true },
     ];
     assert_eq!(kept_position(&multiple, 2.0), 7.0);
+    assert!(audition_ranges(&parts, 2.0, 4.0).is_empty());
+    let audition = audition_ranges(&parts, 1.0, 5.0);
+    assert_eq!(audition.len(), 2);
+    assert_eq!((audition[0].start, audition[0].end), (1.0, 2.0));
+    assert_eq!((audition[1].start, audition[1].end), (4.0, 5.0));
+    let mut edited = vec![MediaPart { start: 0.0, end: 6.0, keep: true }];
+    let selected = split_part_at(&mut edited, 2.0).unwrap();
+    assert_eq!(selected, 1);
+    assert_eq!(edited[selected].start, 2.0);
+    delete_range(&mut edited, 2.0, 4.0, 6.0);
+    assert!(audition_ranges(&edited, 2.0, 4.0).is_empty());
+    assert_eq!(kept_seek_position(&edited, 3.0, -1.0), 1.0);
+    assert_eq!(remaining_kept_ranges(&edited, 3.0)[0].start, 4.0);
+    let history = vec![(2.0,4.0)];
+    assert!(adjust_part_boundary(&mut edited, 2, true, 0.5, 6.0));
+    assert_eq!(restore_part_index(&edited, 1, &history), Some(1));
+    assert_eq!(restore_part_index(&edited, 2, &history), Some(1));
+    edited[1].keep = true;
+    assert_eq!(restore_part_index(&edited, 1, &history), None);
     let path = std::env::args().nth(1).unwrap();
     let edl = playback_edl(Path::new(&path), &ranges);
     assert!(edl.starts_with(&format!("edl://%{}%", path.len())));

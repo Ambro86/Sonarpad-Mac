@@ -30598,6 +30598,8 @@ fn main() {
                 open_convert_media_folder_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_MEDIA_CUTTER {
                 media_cutter::open_dialog(&f_menu);
+                tc_menu.set_focus();
+                wxdragon::call_after(Box::new(move || tc_menu.set_focus()));
             } else if event.get_id() == ID_TOOLS_ROUTES {
                 routes::open_routes_dialog(&f_menu, tc_menu);
             } else if event.get_id() == ID_TOOLS_VOICE_DICTIONARY {

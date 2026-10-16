@@ -52,3 +52,11 @@ fn post_announcement(message: &str) {
 
 #[cfg(not(target_os = "macos"))]
 pub(super) fn announce_voiceover_message(_message: &str) {}
+
+// wx ControlDown is Command on macOS; read the physical Control modifier
+// from AppKit so VoiceOver shortcuts are always left untouched.
+#[cfg(target_os = "macos")]
+pub(super) fn physical_control_down() -> bool {
+    use objc2_app_kit::{NSEvent, NSEventModifierFlags};
+    NSEvent::modifierFlags_class().contains(NSEventModifierFlags::Control)
+}

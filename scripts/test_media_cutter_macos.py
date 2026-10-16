@@ -10,7 +10,7 @@ import urllib.request
 import wave
 
 ROOT = Path(__file__).resolve().parents[1]
-OUT = ROOT / "media-cutter-test-results"
+OUT = Path(os.environ.get("CUTTER_TEST_OUT", str(ROOT / "media-cutter-test-results")))
 
 
 def production_build_script():
@@ -71,7 +71,9 @@ fn main() {
     let added_track = case.contains("mix").then(|| AddedTrackSettings { path: dir.join("added.wav"), original_volume: 60, new_volume: 40, loop_track: true });
     let progress = Arc::new(Mutex::new(ExportProgress { percent: 0, message: String::new(), finished: false, result: None }));
     let cancel = Arc::new(AtomicBool::new(case == "cancel"));
-    let output = dir.join(format!("{case}.{}", if video { "mp4" } else { "m4a" }));
+    let output_ext = case.split("-to-").nth(1).unwrap_or(if video { "mp4" } else { "m4a" });
+    let output_video = matches!(output_ext, "mp4" | "mkv" | "avi" | "mov");
+    let output = dir.join(format!("{case}.{output_ext}"));
     export_media(ExportSnapshot { input, output: output.clone(), parts, probe, rotation, added_track }, progress.clone(), cancel);
     let progress = progress.lock().unwrap();
     let result = progress.result.as_ref().unwrap();
@@ -86,7 +88,7 @@ fn main() {
             assert!((probe.duration - 2.0).abs() < 0.6, "duration {}", probe.duration);
             assert_eq!(progress.percent, 100);
             assert!(progress.finished);
-            assert_eq!(probe.has_video, video);
+            assert_eq!(probe.has_video, output_video);
             assert!(probe.has_audio || case == "silent-single");
             println!("PASS {case}: duration={:.3}", probe.duration);
         }
@@ -107,11 +109,11 @@ uuid = { version = "1.19", features = ["v4"] }
 serde_json = "1.0"
 ''')
     subprocess.run(["cargo", "build", "--manifest-path", str(work / "Cargo.toml")], check=True)
-    return work / "target/debug/media-cutter-test"
+    return work / ("target/debug/media-cutter-test.exe" if os.name == "nt" else "target/debug/media-cutter-test")
 
 
 def run():
-    OUT.mkdir(exist_ok=True)
+    OUT.mkdir(parents=True, exist_ok=True)
     fixtures = OUT / "media files with spaces"
     fixtures.mkdir(exist_ok=True)
     for name, duration, frequency in [("source.wav", 6, 440), ("added.wav", 0.5, 220)]:
@@ -121,16 +123,17 @@ def run():
             audio.setframerate(48000)
             audio.writeframes(b"".join(struct.pack("<h", int(2000 * math.sin(2 * math.pi * frequency * i / 48000))) for i in range(int(48000 * duration))))
     video = fixtures / "source.mp4"
-    if not video.exists():
-        urllib.request.urlretrieve("https://media.w3.org/2010/05/sintel/trailer.mp4", video)
     ffmpeg = Path(sys.argv[1]).resolve()
+    if not video.exists():
+        subprocess.run([str(ffmpeg), "-y", "-f", "lavfi", "-i", "testsrc2=size=128x96:rate=25:duration=6",
+                        "-i", str(fixtures / "source.wav"), "-c:v", "libx264", "-c:a", "aac", "-shortest", str(video)], check=True, capture_output=True)
     subprocess.run([str(ffmpeg), "-y", "-i", str(video), "-t", "6", "-an", "-c:v", "copy", str(fixtures / "silent.mp4")], check=True, capture_output=True)
     executable = build_harness()
     env = os.environ.copy()
     env["TEST_FFMPEG"] = str(ffmpeg)
-    env["PATH"] = "/usr/bin:/bin"  # No Homebrew ffprobe: test the actual bundle fallback.
+    if os.name != "nt": env["PATH"] = "/usr/bin:/bin"  # No Homebrew ffprobe: test the actual bundle fallback.
     results = []
-    for case in ["audio-single", "audio-multi", "audio-mix", "video-single", "video-multi", "video-right", "video-left", "video-half", "video-mix", "silent-single", "silent-mix", "cancel"]:
+    for case in ["audio-single", "audio-multi", "audio-mix", "video-single", "video-multi", "video-right", "video-left", "video-half", "video-mix", "silent-single", "silent-mix", "cancel", "audio-multi-to-mp3", "audio-multi-to-wav", "audio-multi-to-flac", "audio-multi-to-aiff", "video-multi-to-mkv", "video-multi-to-avi", "video-multi-to-mov", "video-multi-to-m4a", "video-multi-to-mp3", "video-multi-to-wav", "video-mix-to-flac"]:
         result = subprocess.run([str(executable), case, str(fixtures)], env=env, text=True, capture_output=True, timeout=90)
         (OUT / f"{case}.log").write_text(result.stdout + result.stderr)
         print(case, "PASS" if result.returncode == 0 else "FAIL", flush=True)

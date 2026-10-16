@@ -15,6 +15,10 @@ use uuid::Uuid;
 use wxdragon::prelude::*;
 use wxdragon::timer::Timer;
 
+#[path = "media_cutter_keyboard.rs"]
+mod keyboard;
+use keyboard::{CutterKey, CutterAction, cutter_shortcut};
+
 const MIN_PART_SECONDS: f64 = 0.10;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -58,7 +62,6 @@ struct PreviewState {
     playing: bool,
     base_position: f64,
     started_at: Option<Instant>,
-    stop_at: Option<f64>,
     playback_ranges: Vec<MediaPart>,
 }
 
@@ -69,7 +72,6 @@ impl PreviewState {
             playing: false,
             base_position: 0.0,
             started_at: None,
-            stop_at: None,
             playback_ranges: Vec::new(),
         }
     }
@@ -94,7 +96,6 @@ impl PreviewState {
         }
         self.playing = false;
         self.started_at = None;
-        self.stop_at = None;
         self.playback_ranges.clear();
     }
 
@@ -144,11 +145,9 @@ struct Labels {
     set_end: &'static str,
     apply_cut: &'static str,
     listen_cut: &'static str,
-    modify_cut: &'static str,
     split_here: &'static str,
     part_singular: &'static str,
     listen: &'static str,
-    modify: &'static str,
     delete: &'static str,
     restore: &'static str,
     rotation: &'static str,
@@ -199,6 +198,15 @@ struct Labels {
     nothing_to_save: &'static str,
     unsaved_title: &'static str,
     unsaved_message: &'static str,
+    command_area: &'static str,
+    keys_common: &'static str,
+    keys_guided: &'static str,
+    keys_advanced: &'static str,
+    close_export: &'static str,
+    output_suffix: &'static str,
+    parts_label: &'static str,
+    remove_track: &'static str,
+    track_removed: &'static str,
     part_deleted_marker: &'static str,
 }
 
@@ -225,21 +233,19 @@ fn labels() -> Labels {
         guided: t(l, "Taglio guidato", "Guided cut", "Découpe guidée", "Corte guiado", "Corte guiado", "Řízený střih", "Cięcie prowadzone"),
         advanced: t(l, "Taglio avanzato", "Advanced cut", "Découpe avancée", "Corte avanzado", "Corte avançado", "Pokročilý střih", "Cięcie zaawansowane"),
         movement: t(l, "Spostamento", "Movement", "Déplacement", "Desplazamiento", "Deslocamento", "Posun", "Przesunięcie"),
-        back: t(l, "Indietro", "Back", "Reculer", "Atrás", "Recuar", "Zpět", "Wstecz"),
-        play: t(l, "Riproduci", "Play", "Lire", "Reproducir", "Reproduzir", "Přehrát", "Odtwórz"),
-        pause: t(l, "Pausa", "Pause", "Pause", "Pausa", "Pausa", "Pauza", "Pauza"),
-        forward: t(l, "Avanti", "Forward", "Avancer", "Adelante", "Avançar", "Vpřed", "Dalej"),
-        set_start: t(l, "Inizio taglio", "Set cut start", "Début de coupe", "Inicio del corte", "Início do corte", "Začátek střihu", "Początek cięcia"),
-        set_end: t(l, "Fine taglio", "Set cut end", "Fin de coupe", "Fin del corte", "Fim do corte", "Konec střihu", "Koniec cięcia"),
-        apply_cut: t(l, "Applica taglio", "Apply cut", "Appliquer la coupe", "Aplicar corte", "Aplicar corte", "Použít střih", "Zastosuj cięcie"),
-        listen_cut: t(l, "Ascolta taglio", "Listen to cut", "Écouter la coupe", "Escuchar corte", "Ouvir corte", "Poslechnout střih", "Odsłuchaj cięcie"),
-        modify_cut: t(l, "Modifica taglio…", "Adjust cut…", "Modifier la coupe…", "Modificar corte…", "Modificar corte…", "Upravit střih…", "Modyfikuj cięcie…"),
-        split_here: t(l, "Dividi qui", "Split here", "Diviser ici", "Dividir aquí", "Dividir aqui", "Rozdělit zde", "Podziel tutaj"),
+        back: t(l, "Indietro (Option+←)", "Back (Option+←)", "Reculer (Option+←)", "Atrás (Option+←)", "Recuar (Option+←)", "Zpět (Option+←)", "Wstecz (Option+←)"),
+        play: t(l, "Riproduci (Option+Spazio)", "Play (Option+Space)", "Lire (Option+Espace)", "Reproducir (Option+Espacio)", "Reproduzir (Option+Espaço)", "Přehrát (Option+Mezerník)", "Odtwórz (Option+Spacja)"),
+        pause: t(l, "Pausa (Option+Spazio)", "Pause (Option+Space)", "Pause (Option+Espace)", "Pausa (Option+Espacio)", "Pausa (Option+Espaço)", "Pauza (Option+Mezerník)", "Pauza (Option+Spacja)"),
+        forward: t(l, "Avanti (Option+→)", "Forward (Option+→)", "Avancer (Option+→)", "Adelante (Option+→)", "Avançar (Option+→)", "Vpřed (Option+→)", "Dalej (Option+→)"),
+        set_start: t(l, "Inizio taglio (Option+1)", "Set cut start (Option+1)", "Début de coupe (Option+1)", "Inicio del corte (Option+1)", "Início do corte (Option+1)", "Začátek střihu (Option+1)", "Początek cięcia (Option+1)"),
+        set_end: t(l, "Fine taglio (Option+2)", "Set cut end (Option+2)", "Fin de coupe (Option+2)", "Fin del corte (Option+2)", "Fim do corte (Option+2)", "Konec střihu (Option+2)", "Koniec cięcia (Option+2)"),
+        apply_cut: t(l, "Applica taglio (Option+4)", "Apply cut (Option+4)", "Appliquer la coupe (Option+4)", "Aplicar corte (Option+4)", "Aplicar corte (Option+4)", "Použít střih (Option+4)", "Zastosuj cięcie (Option+4)"),
+        listen_cut: t(l, "Ascolta taglio (Option+3)", "Listen to cut (Option+3)", "Écouter la coupe (Option+3)", "Escuchar corte (Option+3)", "Ouvir corte (Option+3)", "Poslechnout střih (Option+3)", "Odsłuchaj cięcie (Option+3)"),
+        split_here: t(l, "Dividi qui (Option+S)", "Split here (Option+S)", "Diviser ici (Option+S)", "Dividir aquí (Option+S)", "Dividir aqui (Option+S)", "Rozdělit zde (Option+S)", "Podziel tutaj (Option+S)"),
         part_singular: t(l, "Parte", "Part", "Partie", "Parte", "Parte", "Část", "Część"),
-        listen: t(l, "Ascolta", "Listen", "Écouter", "Escuchar", "Ouvir", "Poslechnout", "Odsłuchaj"),
-        modify: t(l, "Modifica…", "Adjust…", "Modifier…", "Modificar…", "Modificar…", "Upravit…", "Modyfikuj…"),
-        delete: t(l, "Elimina", "Delete", "Supprimer", "Eliminar", "Eliminar", "Odstranit", "Usuń"),
-        restore: t(l, "Ripristina parte eliminata", "Restore deleted part", "Restaurer la partie supprimée", "Restaurar parte eliminada", "Restaurar parte eliminada", "Obnovit odstraněnou část", "Przywróć usuniętą część"),
+        listen: t(l, "Ascolta (Option+3)", "Listen (Option+3)", "Écouter (Option+3)", "Escuchar (Option+3)", "Ouvir (Option+3)", "Poslechnout (Option+3)", "Odsłuchaj (Option+3)"),
+        delete: t(l, "Elimina (Option+D)", "Delete (Option+D)", "Supprimer (Option+D)", "Eliminar (Option+D)", "Eliminar (Option+D)", "Odstranit (Option+D)", "Usuń (Option+D)"),
+        restore: t(l, "Ripristina parte eliminata (Option+R)", "Restore deleted part (Option+R)", "Restaurer la partie supprimée (Option+R)", "Restaurar parte eliminada (Option+R)", "Restaurar parte eliminada (Option+R)", "Obnovit odstraněnou část (Option+R)", "Przywróć usuniętą część (Option+R)"),
         rotation: t(l, "Rotazione video", "Video rotation", "Rotation vidéo", "Rotación de vídeo", "Rotação do vídeo", "Otočení videa", "Obrót wideo"),
         rotation_none: t(l, "Nessuna", "None", "Aucune", "Ninguna", "Nenhuma", "Žádné", "Brak"),
         rotation_right: t(l, "Destra", "Right", "Droite", "Derecha", "Direita", "Doprava", "W prawo"),
@@ -269,13 +275,13 @@ fn labels() -> Labels {
         part_deleted: t(l, "Parte eliminata", "Part deleted", "Partie supprimée", "Parte eliminada", "Parte eliminada", "Část odstraněna", "Część usunięta"),
         part_restored: t(l, "Parte ripristinata", "Part restored", "Partie restaurée", "Parte restaurada", "Parte restaurada", "Část obnovena", "Część przywrócona"),
         no_deleted_part: t(l, "Non ci sono parti eliminate da ripristinare.", "There are no deleted parts to restore.", "Aucune partie supprimée à restaurer.", "No hay partes eliminadas para restaurar.", "Não existem partes eliminadas para restaurar.", "Nejsou žádné odstraněné části k obnovení.", "Brak usuniętych części do przywrócenia."),
-        precision: t(l, "Precisione", "Precision", "Précision", "Precisión", "Precisão", "Přesnost", "Precyzja"),
-        start_back: t(l, "Inizio indietro", "Start back", "Début en arrière", "Inicio atrás", "Início para trás", "Začátek zpět", "Początek wstecz"),
-        start_forward: t(l, "Inizio avanti", "Start forward", "Début en avant", "Inicio adelante", "Início para a frente", "Začátek vpřed", "Początek dalej"),
-        end_back: t(l, "Fine indietro", "End back", "Fin en arrière", "Fin atrás", "Fim para trás", "Konec zpět", "Koniec wstecz"),
-        end_forward: t(l, "Fine avanti", "End forward", "Fin en avant", "Fin adelante", "Fim para a frente", "Konec vpřed", "Koniec dalej"),
+        precision: t(l, "Regolazione spostamento taglio", "Cut boundary adjustment step", "Pas de déplacement de la coupe", "Paso de ajuste del corte", "Passo de ajuste do corte", "Krok posunu hranic střihu", "Krok przesunięcia granic cięcia"),
+        start_back: t(l, "Sposta inizio taglio indietro", "Move cut start backward", "Reculer le début de coupe", "Mover inicio del corte atrás", "Recuar início do corte", "Posunout začátek střihu zpět", "Przesuń początek cięcia wstecz"),
+        start_forward: t(l, "Sposta inizio taglio avanti", "Move cut start forward", "Avancer le début de coupe", "Mover inicio del corte adelante", "Avançar início do corte", "Posunout začátek střihu vpřed", "Przesuń początek cięcia dalej"),
+        end_back: t(l, "Sposta fine taglio indietro", "Move cut end backward", "Reculer la fin de coupe", "Mover fin del corte atrás", "Recuar fim do corte", "Posunout konec střihu zpět", "Przesuń koniec cięcia wstecz"),
+        end_forward: t(l, "Sposta fine taglio avanti", "Move cut end forward", "Avancer la fin de coupe", "Mover fin del corte adelante", "Avançar fim do corte", "Posunout konec střihu vpřed", "Przesuń koniec cięcia dalej"),
         adjusted: t(l, "Taglio aggiornato", "Cut updated", "Coupe mise à jour", "Corte actualizado", "Corte atualizado", "Střih upraven", "Cięcie zaktualizowane"),
-        choose_track: t(l, "Scegli traccia audio…", "Choose audio track…", "Choisir une piste audio…", "Elegir pista de audio…", "Escolher faixa de áudio…", "Vybrat zvukovou stopu…", "Wybierz ścieżkę audio…"),
+        choose_track: t(l, "Aggiungi nuova traccia…", "Add new track…", "Ajouter une nouvelle piste…", "Añadir nueva pista…", "Adicionar nova faixa…", "Přidat novou stopu…", "Dodaj nową ścieżkę…"),
         original_volume: t(l, "Volume originale", "Original volume", "Volume original", "Volumen original", "Volume original", "Původní hlasitost", "Głośność oryginalna"),
         new_volume: t(l, "Volume nuova traccia", "New track volume", "Volume de la nouvelle piste", "Volumen de la nueva pista", "Volume da nova faixa", "Hlasitost nové stopy", "Głośność nowej ścieżki"),
         loop_track: t(l, "Ripeti la nuova traccia se termina prima", "Loop the new track if it ends first", "Répéter la nouvelle piste si elle se termine avant", "Repetir la nueva pista si termina antes", "Repetir a nova faixa se terminar antes", "Opakovat novou stopu, pokud skončí dříve", "Zapętl nową ścieżkę, jeśli skończy się wcześniej"),
@@ -288,6 +294,15 @@ fn labels() -> Labels {
         nothing_to_save: t(l, "Non ci sono parti da salvare.", "There are no parts to save.", "Aucune partie à enregistrer.", "No hay partes para guardar.", "Não existem partes para guardar.", "Nejsou žádné části k uložení.", "Brak części do zapisania."),
         unsaved_title: t(l, "Modifiche non salvate", "Unsaved changes", "Modifications non enregistrées", "Cambios sin guardar", "Alterações não guardadas", "Neuložené změny", "Niezapisane zmiany"),
         unsaved_message: t(l, "Ci sono tagli non salvati. Vuoi chiudere comunque?", "There are unsaved cuts. Close anyway?", "Des coupes ne sont pas enregistrées. Fermer quand même ?", "Hay cortes sin guardar. ¿Cerrar de todos modos?", "Existem cortes não guardados. Fechar mesmo assim?", "Existují neuložené střihy. Přesto zavřít?", "Istnieją niezapisane cięcia. Zamknąć mimo to?"),
+        command_area: t(l, "Area comandi: usa i comandi di taglio senza Option o Command. F1: elenco tasti. Tab: esci dall’area.", "Command area: use cut commands without Option or Command. F1: key list. Tab: leave the area.", "Zone de commandes : utilisez les commandes de découpe sans Option ni Command. F1 : liste des touches. Tab : quitter la zone.", "Área de comandos: usa los comandos de corte sin Option ni Command. F1: lista de teclas. Tab: salir del área.", "Área de comandos: use os comandos de corte sem Option ou Command. F1: lista de teclas. Tab: sair da área.", "Oblast příkazů: používejte příkazy střihu bez Option nebo Command. F1: seznam kláves. Tab: opustit oblast.", "Obszar poleceń: używaj poleceń cięcia bez Option lub Command. F1: lista klawiszy. Tab: wyjdź z obszaru."),
+        keys_common: t(l, "Spazio: riproduci/pausa. Frecce sinistra/destra: spostamento scelto. Shift+frecce: 5 secondi. Command+frecce: 10 secondi. 3 o Invio: ascolta la parte selezionata. Command+S: salva. Tab: esci dall’area.", "Space: play/pause. Left/right arrows: selected seek step. Shift+arrows: 5 seconds. Command+arrows: 10 seconds. 3 or Return: listen to the selected part. Command+S: save. Tab: leave the area.", "Espace : lecture/pause. Flèches gauche/droite : déplacement choisi. Shift+flèches : 5 secondes. Command+flèches : 10 secondes. 3 ou Entrée : écouter la partie sélectionnée. Command+S : enregistrer. Tab : quitter la zone.", "Espacio: reproducir/pausa. Flechas izquierda/derecha: desplazamiento elegido. Shift+flechas: 5 segundos. Command+flechas: 10 segundos. 3 o Intro: escuchar la parte seleccionada. Command+S: guardar. Tab: salir del área.", "Espaço: reproduzir/pausa. Setas esquerda/direita: deslocamento escolhido. Shift+setas: 5 segundos. Command+setas: 10 segundos. 3 ou Enter: ouvir a parte selecionada. Command+S: guardar. Tab: sair da área.", "Mezerník: přehrát/pozastavit. Šipky vlevo/vpravo: zvolený posun. Shift+šipky: 5 sekund. Command+šipky: 10 sekund. 3 nebo Enter: poslech vybrané části. Command+S: uložit. Tab: opustit oblast.", "Spacja: odtwarzanie/pauza. Strzałki w lewo/prawo: wybrany krok. Shift+strzałki: 5 sekund. Command+strzałki: 10 sekund. 3 lub Enter: odsłuchaj wybraną część. Command+S: zapisz. Tab: wyjdź z obszaru."),
+        keys_guided: t(l, "1: inizio taglio. 2: fine taglio. 4: applica taglio.", "1: cut start. 2: cut end. 4: apply cut.", "1 : début de coupe. 2 : fin de coupe. 4 : appliquer la coupe.", "1: inicio del corte. 2: fin del corte. 4: aplicar corte.", "1: início do corte. 2: fim do corte. 4: aplicar corte.", "1: začátek střihu. 2: konec střihu. 4: použít střih.", "1: początek cięcia. 2: koniec cięcia. 4: zastosuj cięcie."),
+        keys_advanced: t(l, "S: dividi qui. D: elimina parte. R: ripristina parte eliminata. Frecce su/giù: parte precedente/successiva.", "S: split here. D: delete part. R: restore deleted part. Up/down arrows: previous/next part.", "S : diviser ici. D : supprimer la partie. R : restaurer la partie supprimée. Flèches haut/bas : partie précédente/suivante.", "S: dividir aquí. D: eliminar parte. R: restaurar parte eliminada. Flechas arriba/abajo: parte anterior/siguiente.", "S: dividir aqui. D: eliminar parte. R: restaurar parte eliminada. Setas cima/baixo: parte anterior/seguinte.", "S: rozdělit zde. D: odstranit část. R: obnovit odstraněnou část. Šipky nahoru/dolů: předchozí/další část.", "S: podziel tutaj. D: usuń część. R: przywróć usuniętą część. Strzałki w górę/dół: poprzednia/następna część."),
+        close_export: t(l, "È in corso un’esportazione. Vuoi interromperla e chiudere? Il lavoro non salvato andrà perso.", "An export is in progress. Stop it and close? Unsaved work will be lost.", "Une exportation est en cours. L’arrêter et fermer ? Les modifications non enregistrées seront perdues.", "Hay una exportación en curso. ¿Interrumpirla y cerrar? Se perderá el trabajo sin guardar.", "Está em curso uma exportação. Interromper e fechar? O trabalho não guardado será perdido.", "Probíhá export. Přerušit jej a zavřít? Neuložené změny budou ztraceny.", "Trwa eksport. Przerwać go i zamknąć? Niezapisana praca zostanie utracona."),
+        output_suffix: t(l, "tagliato", "trimmed", "découpé", "recortado", "cortado", "oříznutý", "przycięty"),
+        parts_label: t(l, "Parti (Option+↑ / Option+↓)", "Parts (Option+↑ / Option+↓)", "Parties (Option+↑ / Option+↓)", "Partes (Option+↑ / Option+↓)", "Partes (Option+↑ / Option+↓)", "Části (Option+↑ / Option+↓)", "Części (Option+↑ / Option+↓)"),
+        remove_track: t(l, "Rimuovi traccia aggiunta", "Remove added track", "Retirer la piste ajoutée", "Quitar pista añadida", "Remover faixa adicionada", "Odebrat přidanou stopu", "Usuń dodaną ścieżkę"),
+        track_removed: t(l, "Traccia aggiunta rimossa", "Added track removed", "Piste ajoutée retirée", "Pista añadida eliminada", "Faixa adicionada removida", "Přidaná stopa odebrána", "Dodana ścieżka usunięta"),
         part_deleted_marker: t(l, "eliminata", "deleted", "supprimée", "eliminada", "eliminada", "odstraněna", "usunięta"),
     }
 }
@@ -309,18 +324,32 @@ fn format_time(seconds: f64) -> String {
     }
 }
 
+thread_local! {
+    static CUTTER_LANGUAGE: RefCell<String> = RefCell::new(String::from("it"));
+}
+
 fn format_duration_natural(seconds: f64) -> String {
-    let total = seconds.max(0.0).round() as u64;
-    let hours = total / 3600;
-    let minutes = (total % 3600) / 60;
-    let secs = total % 60;
-    if hours > 0 {
-        format!("{hours} h {minutes} min {secs} s")
-    } else if minutes > 0 {
-        format!("{minutes} min {secs} s")
-    } else {
-        format!("{secs} s")
+    let lang = CUTTER_LANGUAGE.with(|lang| lang.borrow().clone());
+    let units = match lang.as_str() {
+        "en" => ["hour", "hours", "minute", "minutes", "second", "seconds"],
+        "fr" => ["heure", "heures", "minute", "minutes", "seconde", "secondes"],
+        "es" => ["hora", "horas", "minuto", "minutos", "segundo", "segundos"],
+        "pt" => ["hora", "horas", "minuto", "minutos", "segundo", "segundos"],
+        "cs" => ["hodina", "hodin", "minuta", "minut", "sekunda", "sekund"],
+        "pl" => ["godzina", "godzin", "minuta", "minut", "sekunda", "sekund"],
+        _ => ["ora", "ore", "minuto", "minuti", "secondo", "secondi"],
+    };
+    let total = seconds.max(0.0).floor() as u64;
+    let mut words = Vec::new();
+    for (i, n) in [total / 3600, total % 3600 / 60, total % 60].into_iter().enumerate() {
+        if n > 0 || (i == 2 && words.is_empty()) {
+            let unit = if (lang == "cs" && (2..=4).contains(&n)) || (lang == "pl" && (2..=4).contains(&(n % 10)) && !(12..=14).contains(&(n % 100))) {
+                if lang == "cs" { ["hodiny", "minuty", "sekundy"][i] } else { ["godziny", "minuty", "sekundy"][i] }
+            } else { units[i * 2 + usize::from(n != 1)] };
+            words.push(format!("{n} {unit}"));
+        }
     }
+    words.join(", ")
 }
 
 fn ffprobe_path() -> Option<PathBuf> {
@@ -508,20 +537,7 @@ fn spawn_preview(path: &Path, position: f64, stop_at: Option<f64>, show_video: b
     command.spawn().map_err(|err| format!("MPV: {err}"))
 }
 
-fn start_preview(preview: &Rc<RefCell<PreviewState>>, path: &Path, duration: f64, position: f64, stop_at: Option<f64>, show_video: bool) -> Result<(), String> {
-    let mut state = preview.borrow_mut();
-    state.stop_child();
-    let pos = position.clamp(0.0, duration.max(0.0));
-    let child = spawn_preview(path, pos, stop_at, show_video)?;
-    state.child = Some(child);
-    state.playing = true;
-    state.base_position = pos;
-    state.started_at = Some(Instant::now());
-    state.stop_at = stop_at;
-    Ok(())
-}
-
-// Main playback uses only retained ranges. Cut audition still uses start_preview.
+// Both normal playback and auditions use retained ranges.
 fn remaining_kept_ranges(parts: &[MediaPart], position: f64) -> Vec<MediaPart> {
     parts.iter().filter(|p| p.keep && p.duration() >= MIN_PART_SECONDS && p.end > position)
         .map(|p| MediaPart { start: p.start.max(position), end: p.end, keep: true })
@@ -555,9 +571,6 @@ fn playback_edl(path: &Path, ranges: &[MediaPart]) -> String {
 
 fn start_playback(preview: &Rc<RefCell<PreviewState>>, path: &Path, duration: f64,
     position: f64, parts: &[MediaPart], show_video: bool) -> Result<(), String> {
-    if !parts.is_empty() && parts.iter().all(|p| p.keep) {
-        return start_preview(preview, path, duration, position, None, show_video);
-    }
     let ranges = remaining_kept_ranges(parts, position);
     let mut state = preview.borrow_mut();
     state.stop_child();
@@ -624,7 +637,7 @@ fn seek_preview(
             show_video.get(),
         );
     }
-    announce_voiceover_message(&format_time(new_position));
+    announce_voiceover_message(&format_duration_natural(new_position));
 }
 
 fn cut_precision_seconds(choice: Choice) -> f64 {
@@ -634,40 +647,6 @@ fn cut_precision_seconds(choice: Choice) -> f64 {
         3 => 0.10,
         _ => 1.0,
     }
-}
-
-fn adjust_cut_cells(
-    start: &Rc<Cell<f64>>,
-    end: &Rc<Cell<f64>>,
-    move_start: bool,
-    direction: f64,
-    precision: Choice,
-    summary: StaticText,
-    min_start: f64,
-    max_end: f64,
-    labels: Labels,
-) {
-    let step = cut_precision_seconds(precision);
-    if move_start {
-        let candidate = (start.get() + direction * step)
-            .clamp(min_start, end.get() - MIN_PART_SECONDS);
-        start.set(candidate);
-    } else {
-        let candidate = (end.get() + direction * step)
-            .clamp(start.get() + MIN_PART_SECONDS, max_end);
-        end.set(candidate);
-    }
-    summary.set_label(&format!(
-        "{} – {}",
-        format_time(start.get()),
-        format_time(end.get())
-    ));
-    announce_voiceover_message(&format!(
-        "{}: {} – {}",
-        labels.adjusted,
-        format_time(start.get()),
-        format_time(end.get())
-    ));
 }
 
 fn clamp_parts(parts: &mut Vec<MediaPart>, duration: f64) {
@@ -755,11 +734,26 @@ fn adjust_part_boundary(parts: &mut [MediaPart], index: usize, move_start: bool,
     }
 }
 
+fn restore_part_index(parts: &[MediaPart], selected: usize, history: &[(f64, f64)]) -> Option<usize> {
+    if parts.get(selected).is_some_and(|p| !p.keep) { return Some(selected); }
+    history.iter().rev().find_map(|(start,end)| parts.iter().position(|p|
+        !p.keep && (p.start-start).abs() < 0.001 && (p.end-end).abs() < 0.001))
+        .or_else(|| parts.iter().rposition(|p| !p.keep))
+}
+
+fn audition_ranges(parts: &[MediaPart], start: f64, end: f64) -> Vec<MediaPart> {
+    parts.iter().filter(|p| p.keep).filter_map(|p| {
+        let start = start.max(p.start);
+        let end = end.min(p.end);
+        (end - start >= MIN_PART_SECONDS).then_some(MediaPart { start, end, keep: true })
+    }).collect()
+}
+
 fn part_label(labels: &Labels, index: usize, part: &MediaPart) -> String {
     if part.keep {
-        format!("{} {}, {} – {}", labels.part_singular, index + 1, format_time(part.start), format_time(part.end))
+        format!("{} {}, {} – {}", labels.part_singular, index + 1, format_duration_natural(part.start), format_duration_natural(part.end))
     } else {
-        format!("{} {}, {}, {} – {}", labels.part_singular, index + 1, labels.part_deleted_marker, format_time(part.start), format_time(part.end))
+        format!("{} {}, {}, {} – {}", labels.part_singular, index + 1, labels.part_deleted_marker, format_duration_natural(part.start), format_duration_natural(part.end))
     }
 }
 
@@ -790,7 +784,7 @@ fn show_error(parent: &Dialog, title: &str, message: &str) {
 
 fn ask_yes_no(parent: &Dialog, title: &str, message: &str) -> bool {
     let dialog = MessageDialog::builder(parent, message, title)
-        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion)
+        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::from_bits_retain(128) /* wxNO_DEFAULT */ | MessageDialogStyle::IconQuestion)
         .build();
     dialog.show_modal() == ID_YES
 }
@@ -828,11 +822,12 @@ fn choose_audio_track(parent: &Dialog, labels: &Labels) -> Option<PathBuf> {
 fn choose_output(parent: &Dialog, input: &Path, has_video: bool, labels: &Labels) -> Option<PathBuf> {
     let stem = input.file_stem().and_then(|v| v.to_str()).unwrap_or("media");
     let ext = if has_video { "mp4" } else { "m4a" };
-    let default_name = format!("{stem}_tagliato.{ext}");
-    let wildcard = if has_video { "MP4|*.mp4" } else { "M4A|*.m4a" };
+    let default_name = format!("{stem}_{}.{ext}", labels.output_suffix);
+    let formats: &[&str] = if has_video { &["mp4", "mkv", "avi", "mov", "m4a", "mp3", "wav", "flac", "aiff"] } else { &["m4a", "mp3", "wav", "flac", "aiff"] };
+    let wildcard = formats.iter().map(|ext| format!("{}|*.{ext}", ext.to_uppercase())).collect::<Vec<_>>().join("|");
     let dialog = FileDialog::builder(parent)
         .with_message(labels.save)
-        .with_wildcard(wildcard)
+        .with_wildcard(&wildcard)
         .with_default_file(&default_name)
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
         .build();
@@ -843,9 +838,8 @@ fn choose_output(parent: &Dialog, input: &Path, has_video: bool, labels: &Labels
         return None;
     }
     let mut path = crate::resolve_file_dialog_path(&dialog, false)?;
-    if path.extension().and_then(|value| value.to_str()).is_none() {
-        path.set_extension(ext);
-    }
+    let selected = formats.get(dialog.get_filter_index().max(0) as usize).copied().unwrap_or(ext);
+    path.set_extension(selected);
     Some(path)
 }
 
@@ -970,7 +964,6 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
         }
         let ext = if snapshot.probe.has_video { "mp4" } else { "m4a" };
         let total_duration: f64 = kept.iter().map(MediaPart::duration).sum();
-        let segment_span = (82_i32 / kept.len().max(1) as i32).max(1);
         let mut segments = Vec::with_capacity(kept.len());
         for (index, part) in kept.iter().enumerate() {
             if cancel.load(Ordering::SeqCst) {
@@ -998,7 +991,8 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
                 args.extend(["-vn", "-map", "0:a:0", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"].into_iter().map(str::to_string));
             }
             args.push(segment.to_string_lossy().to_string());
-            let start = (index as i32 * segment_span).min(80);
+            let start = (index * 70 / kept.len()) as i32;
+            let segment_span = ((index + 1) * 70 / kept.len()) as i32 - start;
             run_ffmpeg_step(&args, start, segment_span, part.duration(), &progress, &cancel)?;
             segments.push(segment);
         }
@@ -1014,7 +1008,7 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
                 "-i".to_string(), list_path.to_string_lossy().to_string(), "-c".to_string(), "copy".to_string(),
                 "-avoid_negative_ts".to_string(), "make_zero".to_string(), assembled.to_string_lossy().to_string(),
             ];
-            run_ffmpeg_step(&args, 83, 7, total_duration, &progress, &cancel)?;
+            run_ffmpeg_step(&args, 71, 7, total_duration, &progress, &cancel)?;
         }
 
         let final_temp = work_dir.join(format!("final.{ext}"));
@@ -1042,14 +1036,37 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
             }
             args.extend(["-t".to_string(), ffmpeg_time(total_duration)]);
             args.push(final_temp.to_string_lossy().to_string());
-            run_ffmpeg_step(&args, 91, 8, total_duration, &progress, &cancel)?;
+            run_ffmpeg_step(&args, 79, 12, total_duration, &progress, &cancel)?;
         } else {
             copy_file(&assembled, &final_temp)?;
-            progress.lock().unwrap().percent = 98;
+            progress.lock().unwrap().percent = 91;
         }
         if cancel.load(Ordering::SeqCst) {
             return Err("__CANCELLED__".to_string());
         }
+        let output_ext = snapshot.output.extension().and_then(|v| v.to_str()).unwrap_or(ext).to_ascii_lowercase();
+        let wants_video = matches!(output_ext.as_str(), "mp4" | "mkv" | "avi" | "mov");
+        if wants_video && !snapshot.probe.has_video { return Err("video source required".into()); }
+        let final_temp = if output_ext == ext {
+            final_temp
+        } else {
+            let converted = work_dir.join(format!("converted.{output_ext}"));
+            let mut args = vec!["-y".into(), "-i".into(), final_temp.to_string_lossy().into_owned()];
+            let options: &[&str] = match output_ext.as_str() {
+                "mp3" => &["-vn", "-c:a", "libmp3lame", "-b:a", "192k"],
+                "wav" => &["-vn", "-c:a", "pcm_s16le"],
+                "aiff" => &["-vn", "-c:a", "pcm_s16be"],
+                "flac" => &["-vn", "-c:a", "flac"],
+                "m4a" => &["-vn", "-c:a", "copy"],
+                "mkv" | "mov" => &["-c", "copy"],
+                "avi" => &["-c:v", "mpeg4", "-q:v", "4", "-bf", "0", "-c:a", "libmp3lame", "-b:a", "192k"],
+                _ => return Err(format!("unsupported output format: {output_ext}")),
+            };
+            args.extend(options.iter().map(|v| v.to_string()));
+            args.push(converted.to_string_lossy().into_owned());
+            run_ffmpeg_step(&args, 92, 7, total_duration, &progress, &cancel)?;
+            converted
+        };
         let final_probe = probe_media(&final_temp)?;
         let duration_tolerance = (total_duration * 0.02).max(2.0);
         if (final_probe.duration - total_duration).abs() > duration_tolerance {
@@ -1058,7 +1075,7 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
                 final_probe.duration, total_duration
             ));
         }
-        if snapshot.probe.has_video && !final_probe.has_video {
+        if wants_video && !final_probe.has_video {
             return Err("il file finale non contiene il video".to_string());
         }
         if (snapshot.probe.has_audio || snapshot.added_track.is_some()) && !final_probe.has_audio {
@@ -1094,89 +1111,6 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
     let mut state = progress.lock().unwrap();
     state.finished = true;
     state.result = Some(result);
-}
-
-fn show_cut_adjust_dialog(
-    parent: &Dialog,
-    labels: Labels,
-    start: Rc<Cell<f64>>,
-    end: Rc<Cell<f64>>,
-    min_start: f64,
-    max_end: f64,
-    preview_path: PathBuf,
-    preview: Rc<RefCell<PreviewState>>,
-    duration: f64,
-    show_video: Rc<Cell<bool>>,
-) {
-    let dialog = Dialog::builder(parent, labels.modify_cut)
-        .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, 340)
-        .build();
-    let panel = Panel::builder(&dialog).build();
-    let root = BoxSizer::builder(Orientation::Vertical).build();
-    let summary = StaticText::builder(&panel)
-        .with_label(&format!("{} – {}", format_time(start.get()), format_time(end.get())))
-        .build();
-    root.add(&summary, 0, SizerFlag::Expand | SizerFlag::All, 8);
-    let precision = Choice::builder(&panel).build();
-    for value in ["1 s", "0,5 s", "0,25 s", "0,10 s"] {
-        precision.append(value);
-    }
-    precision.set_selection(0);
-    root.add(&StaticText::builder(&panel).with_label(labels.precision).build(), 0, SizerFlag::All, 6);
-    root.add(&precision, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
-    let buttons = BoxSizer::builder(Orientation::Horizontal).build();
-    let start_back = Button::builder(&panel).with_label(labels.start_back).build();
-    let start_forward = Button::builder(&panel).with_label(labels.start_forward).build();
-    let end_back = Button::builder(&panel).with_label(labels.end_back).build();
-    let end_forward = Button::builder(&panel).with_label(labels.end_forward).build();
-    buttons.add(&start_back, 1, SizerFlag::All, 4);
-    buttons.add(&start_forward, 1, SizerFlag::All, 4);
-    buttons.add(&end_back, 1, SizerFlag::All, 4);
-    buttons.add(&end_forward, 1, SizerFlag::All, 4);
-    root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
-    let bottom = BoxSizer::builder(Orientation::Horizontal).build();
-    let listen = Button::builder(&panel).with_label(labels.listen_cut).build();
-    let close = Button::builder(&panel).with_label(labels.close).build();
-    bottom.add(&listen, 1, SizerFlag::All, 6);
-    bottom.add(&close, 1, SizerFlag::All, 6);
-    root.add_sizer(&bottom, 0, SizerFlag::Expand, 0);
-    panel.set_sizer(root, true);
-    dialog.set_escape_id(ID_CANCEL);
-
-    let start_back_start = Rc::clone(&start);
-    let start_back_end = Rc::clone(&end);
-    start_back.on_click(move |_| {
-        adjust_cut_cells(&start_back_start, &start_back_end, true, -1.0, precision, summary, min_start, max_end, labels);
-    });
-    let start_forward_start = Rc::clone(&start);
-    let start_forward_end = Rc::clone(&end);
-    start_forward.on_click(move |_| {
-        adjust_cut_cells(&start_forward_start, &start_forward_end, true, 1.0, precision, summary, min_start, max_end, labels);
-    });
-    let end_back_start = Rc::clone(&start);
-    let end_back_end = Rc::clone(&end);
-    end_back.on_click(move |_| {
-        adjust_cut_cells(&end_back_start, &end_back_end, false, -1.0, precision, summary, min_start, max_end, labels);
-    });
-    let end_forward_start = Rc::clone(&start);
-    let end_forward_end = Rc::clone(&end);
-    end_forward.on_click(move |_| {
-        adjust_cut_cells(&end_forward_start, &end_forward_end, false, 1.0, precision, summary, min_start, max_end, labels);
-    });
-
-    let preview_listen = Rc::clone(&preview);
-    let path_listen = preview_path.clone();
-    let show_video_listen = Rc::clone(&show_video);
-    listen.on_click(move |_| {
-        if let Err(err) = start_preview(&preview_listen, &path_listen, duration, start.get(), Some(end.get()), show_video_listen.get()) {
-            show_error(&dialog, labels.title, &err);
-        }
-    });
-    let dialog_close = dialog;
-    close.on_click(move |_| dialog_close.end_modal(ID_OK));
-    dialog.show_modal();
-    dialog.destroy();
 }
 
 fn show_add_track_dialog(parent: &Dialog, initial: Option<AddedTrackSettings>, labels: Labels) -> Option<AddedTrackSettings> {
@@ -1215,9 +1149,11 @@ fn show_add_track_dialog(parent: &Dialog, initial: Option<AddedTrackSettings>, l
     };
     original.set_selection(closest(orig_initial));
     added.set_selection(closest(add_initial));
-    root.add(&StaticText::builder(&panel).with_label(labels.original_volume).build(), 0, SizerFlag::All, 6);
+    let original_label = StaticText::builder(&panel).with_label(labels.original_volume).build();
+    root.add(&original_label, 0, SizerFlag::All, 6);
     root.add(&original, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
-    root.add(&StaticText::builder(&panel).with_label(labels.new_volume).build(), 0, SizerFlag::All, 6);
+    let added_label = StaticText::builder(&panel).with_label(labels.new_volume).build();
+    root.add(&added_label, 0, SizerFlag::All, 6);
     root.add(&added, 0, SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right, 8);
     let loop_box = CheckBox::builder(&panel).with_label(labels.loop_track).build();
     loop_box.set_value(initial.as_ref().is_some_and(|v| v.loop_track));
@@ -1231,6 +1167,12 @@ fn show_add_track_dialog(parent: &Dialog, initial: Option<AddedTrackSettings>, l
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
 
+    original_label.show(initial.is_some());
+    added_label.show(initial.is_some());
+    original.show(initial.is_some());
+    added.show(initial.is_some());
+    loop_box.show(initial.is_some());
+    ok.enable(initial.is_some());
     let selected_path_choose = Rc::clone(&selected_path);
     let selected_label = selected;
     choose.on_click(move |_| {
@@ -1243,6 +1185,9 @@ fn show_add_track_dialog(parent: &Dialog, initial: Option<AddedTrackSettings>, l
                         .unwrap_or_else(|| path.to_string_lossy().into_owned());
                     selected_label.set_label(&name);
                     selected_label.show(true);
+                    original_label.show(true); added_label.show(true);
+                    original.show(true); added.show(true); loop_box.show(true); ok.enable(true);
+                    panel.layout();
                     dialog.layout();
                     *selected_path_choose.borrow_mut() = Some(path);
                 }
@@ -1280,6 +1225,7 @@ fn show_add_track_dialog(parent: &Dialog, initial: Option<AddedTrackSettings>, l
 }
 
 pub fn open_dialog(parent: &Frame) {
+    CUTTER_LANGUAGE.with(|lang| *lang.borrow_mut() = crate::normalize_ui_language(&crate::Settings::load().ui_language));
     let labels = labels();
     let dialog = Dialog::builder(parent, labels.title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -1344,34 +1290,54 @@ pub fn open_dialog(parent: &Frame) {
     let guided_row = BoxSizer::builder(Orientation::Horizontal).build();
     let guided_primary = Button::builder(&panel).with_label(labels.set_start).build();
     let guided_listen = Button::builder(&panel).with_label(labels.listen_cut).build();
-    let guided_modify = Button::builder(&panel).with_label(labels.modify_cut).build();
     guided_row.add(&guided_primary, 1, SizerFlag::All, 5);
     guided_row.add(&guided_listen, 1, SizerFlag::All, 5);
-    guided_row.add(&guided_modify, 1, SizerFlag::All, 5);
     root.add_sizer(&guided_row, 0, SizerFlag::Expand, 0);
     guided_listen.enable(false);
-    guided_modify.enable(false);
 
     let advanced_row = BoxSizer::builder(Orientation::Horizontal).build();
     let split_here = Button::builder(&panel).with_label(labels.split_here).build();
     let listen_part = Button::builder(&panel).with_label(labels.listen).build();
-    let modify_part = Button::builder(&panel).with_label(labels.modify).build();
     let delete_part = Button::builder(&panel).with_label(labels.delete).build();
     let restore_part = Button::builder(&panel).with_label(labels.restore).build();
     advanced_row.add(&split_here, 1, SizerFlag::All, 4);
     advanced_row.add(&listen_part, 1, SizerFlag::All, 4);
-    advanced_row.add(&modify_part, 1, SizerFlag::All, 4);
     advanced_row.add(&delete_part, 1, SizerFlag::All, 4);
     advanced_row.add(&restore_part, 1, SizerFlag::All, 4);
     split_here.show(false);
     listen_part.show(false);
-    modify_part.show(false);
     delete_part.show(false);
     restore_part.show(false);
     root.add_sizer(&advanced_row, 0, SizerFlag::Expand, 0);
+    let parts_label = StaticText::builder(&panel).with_label(labels.parts_label).build();
+    parts_label.show(false);
+    root.add(&parts_label, 0, SizerFlag::All, 5);
     let parts_choice = Choice::builder(&panel).build();
+    parts_choice.set_accessibility_label(labels.parts_label);
     parts_choice.show(false);
     root.add(&parts_choice, 0, SizerFlag::Expand | SizerFlag::All, 7);
+
+    let adjustment_panel = Panel::builder(&panel).build();
+    let adjustment_root = BoxSizer::builder(Orientation::Vertical).build();
+    let boundary_summary = StaticText::builder(&adjustment_panel).with_label("").build();
+    adjustment_root.add(&boundary_summary, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let precision_label = StaticText::builder(&adjustment_panel).with_label(labels.precision).build();
+    let precision = Choice::builder(&adjustment_panel).build();
+    precision.set_accessibility_label(labels.precision);
+    for value in ["1 s", "0.5 s", "0.25 s", "0.10 s"] { precision.append(value); }
+    precision.set_selection(0);
+    adjustment_root.add(&precision_label, 0, SizerFlag::All, 5);
+    adjustment_root.add(&precision, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let boundary_buttons = BoxSizer::builder(Orientation::Horizontal).build();
+    let start_back = Button::builder(&adjustment_panel).with_label(labels.start_back).build();
+    let start_forward = Button::builder(&adjustment_panel).with_label(labels.start_forward).build();
+    let end_back = Button::builder(&adjustment_panel).with_label(labels.end_back).build();
+    let end_forward = Button::builder(&adjustment_panel).with_label(labels.end_forward).build();
+    for button in [start_back, start_forward, end_back, end_forward] { boundary_buttons.add(&button, 1, SizerFlag::All, 4); }
+    adjustment_root.add_sizer(&boundary_buttons, 0, SizerFlag::Expand, 0);
+    adjustment_panel.set_sizer(adjustment_root, true);
+    adjustment_panel.show(false);
+    root.add(&adjustment_panel, 0, SizerFlag::Expand, 0);
 
     let secondary_row = BoxSizer::builder(Orientation::Horizontal).build();
     let rotation_choice = Choice::builder(&panel).build();
@@ -1386,6 +1352,9 @@ pub fn open_dialog(parent: &Frame) {
     let add_track_button = Button::builder(&panel).with_label(labels.add_track).build();
     secondary_row.add(&video_preview_button, 1, SizerFlag::All, 5);
     secondary_row.add(&add_track_button, 1, SizerFlag::All, 5);
+    let remove_track = Button::builder(&panel).with_label(labels.remove_track).build();
+    remove_track.show(false);
+    secondary_row.add(&remove_track, 1, SizerFlag::All, 5);
     root.add_sizer(&secondary_row, 0, SizerFlag::Expand, 0);
     rotation_choice.enable(false);
     rotation_label.show(false);
@@ -1394,10 +1363,12 @@ pub fn open_dialog(parent: &Frame) {
     video_preview_button.show(false);
     add_track_button.enable(false);
 
+    let command_area = Button::builder(&panel).with_label(labels.command_area).build();
+    root.add(&command_area, 0, SizerFlag::Expand | SizerFlag::All, 8);
     let status_text = StaticText::builder(&panel).with_label(labels.ready).build();
     root.add(&status_text, 0, SizerFlag::Expand | SizerFlag::All, 8);
     let bottom = BoxSizer::builder(Orientation::Horizontal).build();
-    let save_button = Button::builder(&panel).with_label(labels.save).build();
+    let save_button = Button::builder(&panel).with_label(&format!("{} (Command+S)", labels.save)).build();
     save_button.enable(false);
     back.enable(false);
     play_pause.enable(false);
@@ -1423,11 +1394,13 @@ pub fn open_dialog(parent: &Frame) {
     dialog_root.add(&panel, 1, SizerFlag::Expand, 0);
     dialog_root.add(&progress_panel, 1, SizerFlag::Expand, 0);
     dialog.set_sizer(dialog_root, true);
-    dialog.set_escape_id(ID_CANCEL);
+    // Route Escape through the same unsaved/export guard as the native close button.
+    dialog.set_escape_id(wxdragon::id::ID_NONE);
 
     let export_job = Rc::new(RefCell::new(None::<Arc<Mutex<ExportProgress>>>));
     let export_busy = Arc::new(AtomicBool::new(false));
     let export_cancel = Arc::new(AtomicBool::new(false));
+    let close_after_export = Rc::new(Cell::new(false));
     let timer = Rc::new(Timer::new(&dialog));
 
     // Open media.
@@ -1466,12 +1439,12 @@ pub fn open_dialog(parent: &Frame) {
                 deleted_open.borrow_mut().clear();
                 guided_primary.set_label(labels.set_start);
                 guided_listen.enable(false);
-                guided_modify.enable(false);
                 guided_start_open.set(None);
                 guided_end_open.set(None);
                 edited_open.set(false);
                 show_video_open.set(false);
                 *added_track_open.borrow_mut() = None;
+                remove_track.show(false);
                 rotation_open.set(VideoRotation::None);
                 refresh_parts_choice(parts_choice_open, &parts_open.borrow(), &labels, Some(0));
                 let name = path
@@ -1523,18 +1496,16 @@ pub fn open_dialog(parent: &Frame) {
                 guided_end_mode.set(None);
                 guided_primary.set_label(labels.set_start);
                 guided_listen.enable(false);
-                guided_modify.enable(false);
             }
         }
         guided_primary.show(!advanced);
         guided_listen.show(!advanced);
-        guided_modify.show(!advanced);
         split_here.show(advanced);
         listen_part.show(advanced);
-        modify_part.show(advanced);
         delete_part.show(advanced);
         restore_part.show(advanced);
         parts_choice.show(advanced);
+        parts_label.show(advanced);
         if !advanced {
             let instruction = if guided_end_mode.get().is_some() { labels.guide_review }
                 else if guided_start_mode.get().is_some() { labels.guide_end }
@@ -1552,7 +1523,7 @@ pub fn open_dialog(parent: &Frame) {
     let show_video_play = Rc::clone(&show_video);
     let parts_play = Rc::clone(&parts);
     let dialog_play = dialog;
-    play_pause.on_click(move |_| {
+    let play_pause_action: Rc<dyn Fn()> = Rc::new(move || {
         let Some(path) = input_play.borrow().clone() else { show_info(&dialog_play, labels.title, labels.no_file); return; };
         let Some(info) = probe_play.borrow().clone() else { return; };
         if preview_play.borrow().playing {
@@ -1566,6 +1537,8 @@ pub fn open_dialog(parent: &Frame) {
             }
         }
     });
+    let click_action = Rc::clone(&play_pause_action);
+    play_pause.on_click(move |_| click_action());
 
     let input_back = Rc::clone(&input);
     let probe_back = Rc::clone(&probe);
@@ -1594,7 +1567,7 @@ pub fn open_dialog(parent: &Frame) {
     let end_guided = Rc::clone(&guided_end);
     let edited_guided = Rc::clone(&edited);
     let deleted_guided = Rc::clone(&deleted_history);
-    guided_primary.on_click(move |_| {
+    let guided_primary_action: Rc<dyn Fn()> = Rc::new(move || {
         let Some(info) = probe_guided.borrow().clone() else { show_info(&dialog, labels.title, labels.no_file); return; };
         let current = preview_guided.borrow().position(info.duration);
         if start_guided.get().is_none() {
@@ -1602,9 +1575,8 @@ pub fn open_dialog(parent: &Frame) {
             end_guided.set(None);
             guided_primary.set_label(labels.set_end);
             guided_listen.enable(false);
-            guided_modify.enable(false);
-            let message = format!("{}: {}. {}", labels.start_set, format_time(current), labels.guide_end);
-            status_text.set_label(&format!("{}: {}", labels.start_set, format_time(current)));
+            let message = format!("{}: {}. {}", labels.start_set, format_duration_natural(current), labels.guide_end);
+            status_text.set_label(&format!("{}: {}", labels.start_set, format_duration_natural(current)));
             announce_voiceover_message(&message);
         } else if end_guided.get().is_none() {
             let first = start_guided.get().unwrap_or(current);
@@ -1617,10 +1589,9 @@ pub fn open_dialog(parent: &Frame) {
             end_guided.set(Some(end));
             guided_primary.set_label(labels.apply_cut);
             guided_listen.enable(true);
-            guided_modify.enable(true);
             preview_guided.borrow_mut().pause(info.duration);
             play_pause.set_label(labels.play);
-            let message = format!("{}: {} – {}. {}", labels.end_set, format_time(start), format_time(end), labels.guide_review);
+            let message = format!("{}: {} – {}. {}", labels.end_set, format_duration_natural(start), format_duration_natural(end), labels.guide_review);
             status_text.set_label(&format!("{}: {} – {}", labels.end_set, format_time(start), format_time(end)));
             announce_voiceover_message(&message);
         } else {
@@ -1647,57 +1618,62 @@ pub fn open_dialog(parent: &Frame) {
             end_guided.set(None);
             guided_primary.set_label(labels.set_start);
             guided_listen.enable(false);
-            guided_modify.enable(false);
         }
     });
+    let click_action = Rc::clone(&guided_primary_action);
+    guided_primary.on_click(move |_| click_action());
 
     let input_guided_listen = Rc::clone(&input); let probe_guided_listen = Rc::clone(&probe); let preview_guided_listen = Rc::clone(&preview); let start_guided_listen = Rc::clone(&guided_start); let end_guided_listen = Rc::clone(&guided_end); let show_guided_listen = Rc::clone(&show_video);
-    guided_listen.on_click(move |_| {
+    let parts_guided_listen = Rc::clone(&parts);
+    let guided_listen_action: Rc<dyn Fn()> = Rc::new(move || {
         let (Some(path), Some(info), Some(start), Some(end)) = (input_guided_listen.borrow().clone(), probe_guided_listen.borrow().clone(), start_guided_listen.get(), end_guided_listen.get()) else { return; };
-        if let Err(err) = start_preview(&preview_guided_listen, &path, info.duration, start, Some(end), show_guided_listen.get()) {
+        let ranges = audition_ranges(&parts_guided_listen.borrow(), start, end);
+        if ranges.is_empty() { announce_voiceover_message(labels.part_deleted); return; }
+        if let Err(err) = start_playback(&preview_guided_listen, &path, info.duration, start, &ranges, show_guided_listen.get()) {
             show_error(&dialog, labels.title, &err);
         }
     });
-
-    let input_guided_modify = Rc::clone(&input); let probe_guided_modify = Rc::clone(&probe); let preview_guided_modify = Rc::clone(&preview); let start_guided_modify = Rc::clone(&guided_start); let end_guided_modify = Rc::clone(&guided_end); let show_guided_modify = Rc::clone(&show_video);
-    guided_modify.on_click(move |_| {
-        let (Some(path), Some(info), Some(start), Some(end)) = (input_guided_modify.borrow().clone(), probe_guided_modify.borrow().clone(), start_guided_modify.get(), end_guided_modify.get()) else { return; };
-        let start_cell = Rc::new(Cell::new(start));
-        let end_cell = Rc::new(Cell::new(end));
-        show_cut_adjust_dialog(&dialog, labels, Rc::clone(&start_cell), Rc::clone(&end_cell), 0.0, info.duration, path, Rc::clone(&preview_guided_modify), info.duration, Rc::clone(&show_guided_modify));
-        start_guided_modify.set(Some(start_cell.get()));
-        end_guided_modify.set(Some(end_cell.get()));
-        status_text.set_label(&format!("{}: {} – {}", labels.adjusted, format_time(start_cell.get()), format_time(end_cell.get())));
-    });
+    let click_action = Rc::clone(&guided_listen_action);
+    guided_listen.on_click(move |_| click_action());
 
     // Advanced mode actions.
     let parts_split = Rc::clone(&parts); let probe_split = Rc::clone(&probe); let preview_split = Rc::clone(&preview); let edited_split = Rc::clone(&edited);
-    split_here.on_click(move |_| {
+    let split_here_action: Rc<dyn Fn()> = Rc::new(move || {
         let Some(info) = probe_split.borrow().clone() else { show_info(&dialog, labels.title, labels.no_file); return; };
         let point = preview_split.borrow().position(info.duration);
-        if let Some(index) = split_part_at(&mut parts_split.borrow_mut(), point) {
+        let split_index = split_part_at(&mut parts_split.borrow_mut(), point);
+        if let Some(index) = split_index {
             edited_split.set(true);
             refresh_parts_choice(parts_choice, &parts_split.borrow(), &labels, Some(index));
-            status_text.set_label(&format!("{}: {}", labels.split_added, format_time(point)));
-            announce_voiceover_message(&format!("{}: {}", labels.split_added, format_time(point)));
+            status_text.set_label(&format!("{}: {}", labels.split_added, format_duration_natural(point)));
+            announce_voiceover_message(&format!("{}: {}", labels.split_added, format_duration_natural(point)));
         } else {
             show_error(&dialog, labels.title, labels.invalid_cut);
         }
     });
+    let click_action = Rc::clone(&split_here_action);
+    split_here.on_click(move |_| click_action());
 
     let parts_listen = Rc::clone(&parts); let input_listen = Rc::clone(&input); let probe_listen = Rc::clone(&probe); let preview_listen = Rc::clone(&preview); let show_listen = Rc::clone(&show_video);
-    listen_part.on_click(move |_| {
+    let listen_part_action: Rc<dyn Fn()> = Rc::new(move || {
         let index = parts_choice.get_selection().unwrap_or(0) as usize;
         let Some(part) = parts_listen.borrow().get(index).cloned() else { return; };
+        if !part.keep {
+            announce_voiceover_message(labels.part_deleted);
+            return;
+        }
         let (Some(path), Some(info)) = (input_listen.borrow().clone(), probe_listen.borrow().clone()) else { return; };
-        if let Err(err) = start_preview(&preview_listen, &path, info.duration, part.start, Some(part.end), show_listen.get()) {
+        let ranges = audition_ranges(&parts_listen.borrow(), part.start, part.end);
+        if let Err(err) = start_playback(&preview_listen, &path, info.duration, part.start, &ranges, show_listen.get()) {
             show_error(&dialog, labels.title, &err);
         }
     });
+    let click_action = Rc::clone(&listen_part_action);
+    listen_part.on_click(move |_| click_action());
 
     let parts_delete = Rc::clone(&parts); let deleted_delete = Rc::clone(&deleted_history); let edited_delete = Rc::clone(&edited);
     let preview_delete = Rc::clone(&preview); let probe_delete = Rc::clone(&probe);
-    delete_part.on_click(move |_| {
+    let delete_part_action: Rc<dyn Fn()> = Rc::new(move || {
         let index = parts_choice.get_selection().unwrap_or(0) as usize;
         let mut parts = parts_delete.borrow_mut();
         let Some(part) = parts.get_mut(index) else { return; };
@@ -1712,74 +1688,59 @@ pub fn open_dialog(parent: &Frame) {
             announce_voiceover_message(labels.part_deleted);
         }
     });
+    let click_action = Rc::clone(&delete_part_action);
+    delete_part.on_click(move |_| click_action());
 
     let parts_restore = Rc::clone(&parts); let deleted_restore = Rc::clone(&deleted_history); let edited_restore = Rc::clone(&edited);
     let preview_restore = Rc::clone(&preview); let probe_restore = Rc::clone(&probe);
-    restore_part.on_click(move |_| {
-        let mut history = deleted_restore.borrow_mut();
-        while let Some((start, end)) = history.pop() {
-            let mut parts = parts_restore.borrow_mut();
-            if let Some((index, part)) = parts
-                .iter_mut()
-                .enumerate()
-                .find(|(_, part)| !part.keep && (part.start - start).abs() < 0.001 && (part.end - end).abs() < 0.001)
-            {
-                if let Some(info) = probe_restore.borrow().as_ref() { preview_restore.borrow_mut().pause(info.duration); }
-                play_pause.set_label(labels.play);
-                part.keep = true;
-                edited_restore.set(true);
-                refresh_parts_choice(parts_choice, &parts, &labels, Some(index));
-                status_text.set_label(labels.part_restored);
-                announce_voiceover_message(labels.part_restored);
-                return;
-            }
-        }
-        show_info(&dialog, labels.title, labels.no_deleted_part);
+    let restore_part_action: Rc<dyn Fn()> = Rc::new(move || {
+        let selected = parts_choice.get_selection().unwrap_or(0) as usize;
+        let mut parts = parts_restore.borrow_mut();
+        let index = restore_part_index(&parts, selected, &deleted_restore.borrow());
+        let Some(index) = index else { show_info(&dialog, labels.title, labels.no_deleted_part); return; };
+        if let Some(info) = probe_restore.borrow().as_ref() { preview_restore.borrow_mut().pause(info.duration); }
+        let part = &mut parts[index];
+        part.keep = true;
+        deleted_restore.borrow_mut().retain(|(start,end)| (*start-part.start).abs() > 0.001 || (*end-part.end).abs() > 0.001);
+        edited_restore.set(true);
+        refresh_parts_choice(parts_choice, &parts, &labels, Some(index));
+        status_text.set_label(labels.part_restored);
+        announce_voiceover_message(&format!("{}. {}", labels.part_restored, part_label(&labels, index, &parts[index])));
     });
+    let click_action = Rc::clone(&restore_part_action);
+    restore_part.on_click(move |_| click_action());
 
-    let parts_modify = Rc::clone(&parts); let probe_modify = Rc::clone(&probe); let input_modify = Rc::clone(&input); let preview_modify = Rc::clone(&preview); let show_modify = Rc::clone(&show_video); let edited_modify = Rc::clone(&edited); let deleted_modify = Rc::clone(&deleted_history);
-    modify_part.on_click(move |_| {
-        let index = parts_choice.get_selection().unwrap_or(0) as usize;
-        let Some(current) = parts_modify.borrow().get(index).cloned() else { return; };
-        let (Some(info), Some(path)) = (probe_modify.borrow().clone(), input_modify.borrow().clone()) else { return; };
-        let min_start = if index == 0 { 0.0 } else { parts_modify.borrow()[index - 1].start + MIN_PART_SECONDS };
-        let max_end = if index + 1 >= parts_modify.borrow().len() { info.duration } else { parts_modify.borrow()[index + 1].end - MIN_PART_SECONDS };
-        let start_cell = Rc::new(Cell::new(current.start));
-        let end_cell = Rc::new(Cell::new(current.end));
-        show_cut_adjust_dialog(&dialog, labels, Rc::clone(&start_cell), Rc::clone(&end_cell), min_start, max_end, path, Rc::clone(&preview_modify), info.duration, Rc::clone(&show_modify));
-        let new_start = start_cell.get();
-        let new_end = end_cell.get();
-        let mut p = parts_modify.borrow_mut();
-        let start_delta = new_start - current.start;
-        let end_delta = new_end - current.end;
-        let mut changed = false;
-        if start_delta.abs() > 0.0001 {
-            changed |= adjust_part_boundary(&mut p, index, true, start_delta, info.duration);
-        }
-        if end_delta.abs() > 0.0001 {
-            changed |= adjust_part_boundary(&mut p, index, false, end_delta, info.duration);
-        }
-        if changed {
-            if !current.keep {
-                if let Some(updated) = p.get(index) {
-                    if let Some(entry) = deleted_modify
-                        .borrow_mut()
-                        .iter_mut()
-                        .rev()
-                        .find(|(start, end)| {
-                            (*start - current.start).abs() < 0.001
-                                && (*end - current.end).abs() < 0.001
-                        })
-                    {
-                        *entry = (updated.start, updated.end);
-                    }
+    for (button, move_start, direction) in [(start_back, true, -1.0), (start_forward, true, 1.0), (end_back, false, -1.0), (end_forward, false, 1.0)] {
+        let parts = Rc::clone(&parts);
+        let probe = Rc::clone(&probe);
+        let preview = Rc::clone(&preview);
+        let edited = Rc::clone(&edited);
+        let start = Rc::clone(&guided_start);
+        let end = Rc::clone(&guided_end);
+        button.on_click(move |_| {
+            let Some(info) = probe.borrow().clone() else { return; };
+            let delta = direction * cut_precision_seconds(precision);
+            preview.borrow_mut().pause(info.duration);
+            let bounds = if mode_choice.get_selection().unwrap_or(0) == 1 {
+                let index = parts_choice.get_selection().unwrap_or(0) as usize;
+                let mut parts = parts.borrow_mut();
+                if !parts.get(index).is_some_and(|p| p.keep) { announce_voiceover_message(labels.part_deleted); return; }
+                if adjust_part_boundary(&mut parts, index, move_start, delta, info.duration) {
+                    edited.set(true);
+                    refresh_parts_choice(parts_choice, &parts, &labels, Some(index));
                 }
-            }
-            edited_modify.set(true);
-            refresh_parts_choice(parts_choice, &p, &labels, Some(index));
-            status_text.set_label(labels.adjusted);
-        }
-    });
+                (parts[index].start, parts[index].end)
+            } else {
+                let (Some(a), Some(b)) = (start.get(), end.get()) else { return; };
+                let (a,b) = if move_start { ((a+delta).clamp(0.0,b-MIN_PART_SECONDS),b) } else { (a,(b+delta).clamp(a+MIN_PART_SECONDS,info.duration)) };
+                start.set(Some(a)); end.set(Some(b));
+                (a,b)
+            };
+            let message = format!("{}: {} – {}", labels.adjusted, format_duration_natural(bounds.0), format_duration_natural(bounds.1));
+            boundary_summary.set_label(&message);
+            announce_voiceover_message(&message);
+        });
+    }
 
     // Video rotation and preview.
     let rotation_select = Rc::clone(&rotation);
@@ -1804,9 +1765,9 @@ pub fn open_dialog(parent: &Frame) {
             let was_playing = preview_toggle.borrow().playing;
             let position = preview_toggle.borrow().position(info.duration);
             if new_value || was_playing {
-                let stop_at = preview_toggle.borrow().stop_at;
-                if let Some(end) = stop_at {
-                    let _ = start_preview(&preview_toggle, &path, info.duration, position, Some(end), new_value);
+                let ranges = preview_toggle.borrow().playback_ranges.clone();
+                if !ranges.is_empty() {
+                    let _ = start_playback(&preview_toggle, &path, info.duration, position, &ranges, new_value);
                 } else {
                     let _ = start_playback(&preview_toggle, &path, info.duration, position, &parts_toggle.borrow(), new_value);
                 }
@@ -1823,12 +1784,26 @@ pub fn open_dialog(parent: &Frame) {
             show_info(&dialog, labels.title, labels.no_file);
             return;
         }
-        if let Some(settings) = show_add_track_dialog(&dialog, added_track_button_state.borrow().clone(), labels) {
+        let initial = added_track_button_state.borrow().clone();
+        if let Some(settings) = show_add_track_dialog(&dialog, initial, labels) {
             *added_track_button_state.borrow_mut() = Some(settings);
             edited_track.set(true);
+            remove_track.show(true);
+            panel.layout(); dialog.layout();
             status_text.set_label(labels.track_added);
             announce_voiceover_message(labels.track_added);
         }
+    });
+
+    let track_remove = Rc::clone(&added_track);
+    let edited_remove = Rc::clone(&edited);
+    remove_track.on_click(move |_| {
+        *track_remove.borrow_mut() = None;
+        edited_remove.set(true);
+        remove_track.show(false);
+        panel.layout(); dialog.layout();
+        add_track_button.set_focus();
+        announce_voiceover_message(labels.track_removed);
     });
 
     // Timer: playback and export progress.
@@ -1844,6 +1819,9 @@ pub fn open_dialog(parent: &Frame) {
     // wxdragon 0.9.18 binds timer callbacks to the owner, not the timer ID.
     // Use one timer and focus only on its first tick; a second focus timer
     // would share the playback events and could pull VoiceOver back repeatedly.
+    let parts_tick = Rc::clone(&parts);
+    let adjustment_visible = Cell::new(false);
+    let close_after_export_tick = Rc::clone(&close_after_export);
     let last_progress_tick = Rc::clone(&last_progress);
     let initial_focus_pending = Cell::new(true);
     timer_tick.on_tick(move |_| {
@@ -1854,13 +1832,6 @@ pub fn open_dialog(parent: &Frame) {
         if let Some(info) = probe_tick.borrow().clone() {
             let mut state = preview_tick.borrow_mut();
             let position = state.position(info.duration);
-            if let Some(stop_at) = state.stop_at {
-                if position >= stop_at - 0.02 {
-                    state.base_position = stop_at.min(info.duration);
-                    state.stop_child();
-                    play_pause.set_label(labels.play);
-                }
-            }
             if let Some(child) = state.child.as_mut() {
                 if child.try_wait().ok().flatten().is_some() {
                     state.base_position = position.min(info.duration);
@@ -1870,8 +1841,22 @@ pub fn open_dialog(parent: &Frame) {
                     play_pause.set_label(labels.play);
                 }
             }
-            play_pause.set_label(if state.playing { labels.pause } else { labels.play });
+            let label = if state.playing { labels.pause } else { labels.play };
+            if play_pause.get_label() != label { play_pause.set_label(label); }
             position_text.set_label(&format!("{} / {}", format_time(state.position(info.duration)), format_time(info.duration)));
+        }
+        let bounds = if mode_choice.get_selection().unwrap_or(0) == 1 {
+            parts_tick.borrow().get(parts_choice.get_selection().unwrap_or(0) as usize)
+                .filter(|p| p.keep).map(|p| (p.start, p.end))
+        } else { guided_start_tick.get().zip(guided_end_tick.get()) };
+        if adjustment_visible.replace(bounds.is_some()) != bounds.is_some() {
+            if bounds.is_none() && [start_back.has_focus(), start_forward.has_focus(), end_back.has_focus(), end_forward.has_focus(), precision.has_focus()].into_iter().any(|v| v) { command_area.set_focus(); }
+            adjustment_panel.show(bounds.is_some());
+            panel.layout(); dialog_tick.layout();
+        }
+        if let Some((a,b)) = bounds {
+            let text = format!("{} – {}", format_time(a), format_time(b));
+            if boundary_summary.get_label() != text { boundary_summary.set_label(&text); }
         }
         let state = export_job_tick.borrow().as_ref().cloned();
         let Some(state) = state else { return; };
@@ -1892,6 +1877,11 @@ pub fn open_dialog(parent: &Frame) {
         }
         *export_job_tick.borrow_mut() = None;
         export_busy_tick.store(false, Ordering::SeqCst);
+        if close_after_export_tick.get() {
+            preview_tick.borrow_mut().stop_child();
+            dialog_tick.end_modal(ID_CANCEL);
+            return;
+        }
         progress_gauge.set_value(if snapshot.3.as_ref().is_some_and(|r| r.is_ok()) { 100 } else { snapshot.0.clamp(0, 99) });
         progress_panel.show(false);
         panel.show(true);
@@ -1905,10 +1895,8 @@ pub fn open_dialog(parent: &Frame) {
         guided_primary.enable(true);
         let pending_guided_ready = guided_start_tick.get().is_some() && guided_end_tick.get().is_some();
         guided_listen.enable(pending_guided_ready);
-        guided_modify.enable(pending_guided_ready);
         split_here.enable(true);
         listen_part.enable(true);
-        modify_part.enable(true);
         delete_part.enable(true);
         restore_part.enable(true);
         parts_choice.enable(true);
@@ -1940,7 +1928,7 @@ pub fn open_dialog(parent: &Frame) {
 
     // Export.
     let input_save = Rc::clone(&input); let probe_save = Rc::clone(&probe); let parts_save = Rc::clone(&parts); let rotation_save = Rc::clone(&rotation); let added_save = Rc::clone(&added_track); let export_job_save = Rc::clone(&export_job); let export_busy_save = Arc::clone(&export_busy); let export_cancel_save = Arc::clone(&export_cancel); let preview_save = Rc::clone(&preview); let guided_start_save = Rc::clone(&guided_start);
-    save_button.on_click(move |_| {
+    let save_button_action: Rc<dyn Fn()> = Rc::new(move || {
         if export_busy_save.load(Ordering::SeqCst) { return; }
         if guided_start_save.get().is_some() {
             show_info(&dialog, labels.title, labels.pending_cut_save);
@@ -1970,10 +1958,8 @@ pub fn open_dialog(parent: &Frame) {
         forward.enable(false);
         guided_primary.enable(false);
         guided_listen.enable(false);
-        guided_modify.enable(false);
         split_here.enable(false);
         listen_part.enable(false);
-        modify_part.enable(false);
         delete_part.enable(false);
         restore_part.enable(false);
         parts_choice.enable(false);
@@ -1996,6 +1982,106 @@ pub fn open_dialog(parent: &Frame) {
         let cancel = Arc::clone(&export_cancel_save);
         std::thread::spawn(move || export_media(snapshot, state, cancel));
     });
+    let click_action = Rc::clone(&save_button_action);
+    save_button.on_click(move |_| click_action());
+
+    // Every control uses the same actions as its button. Bare keys are confined
+    // to the command area, so native Choice navigation and Tab keep working.
+    let parts_selected = Rc::clone(&parts);
+    parts_choice.on_selection_changed(move |_| {
+        let index = parts_choice.get_selection().unwrap_or(0) as usize;
+        if let Some(part) = parts_selected.borrow().get(index) {
+            announce_voiceover_message(&part_label(&labels, index, part));
+        }
+    });
+    let input_keys = Rc::clone(&input);
+    let probe_keys = Rc::clone(&probe);
+    let preview_keys = Rc::clone(&preview);
+    let parts_keys = Rc::clone(&parts);
+    let show_keys = Rc::clone(&show_video);
+    let start_keys = Rc::clone(&guided_start);
+    let end_keys = Rc::clone(&guided_end);
+    let busy_keys = Arc::clone(&export_busy);
+    let held_key = Rc::new(Cell::new(None::<i32>));
+    let held_down = Rc::clone(&held_key);
+    let key_handler: Rc<dyn Fn(WindowEventData)> = Rc::new(move |event| {
+        let WindowEventData::Keyboard(key) = &event else { event.skip(true); return; };
+        let code = key.get_key_code().unwrap_or_default();
+        let key_kind = match code {
+            32 => CutterKey::Space, 314 => CutterKey::Left, 316 => CutterKey::Right,
+            315 => CutterKey::Up, 317 => CutterKey::Down, 13 | 370 => CutterKey::Enter,
+            340 => CutterKey::Help,
+            0..=127 => CutterKey::Letter((code as u8 as char).to_ascii_uppercase()),
+            _ => CutterKey::Other,
+        };
+        let advanced = mode_choice.get_selection().unwrap_or(0) == 1;
+        #[cfg(target_os = "macos")]
+        let control = accessibility::physical_control_down();
+        #[cfg(not(target_os = "macos"))]
+        let control = key.control_down();
+        if !control && !key.alt_down() && (code == 27 || (key.cmd_down() && code == 87)) {
+            event.skip(false);
+            dialog.close(false);
+            held_down.set(None);
+            return;
+        }
+        let action = cutter_shortcut(key_kind, command_area.has_focus(), key.alt_down(),
+            key.cmd_down(), control, key.shift_down(), advanced);
+        let Some(action) = action else { event.skip(true); return; };
+        event.skip(false);
+        if busy_keys.load(Ordering::SeqCst) { return; }
+        if held_down.replace(Some(code)) == Some(code)
+            && !matches!(action, CutterAction::Seek(..) | CutterAction::Select(..)) { return; }
+        match action {
+            CutterAction::Help => {
+                let help = format!("{}\n{}", labels.keys_common,
+                    if advanced { labels.keys_advanced } else { labels.keys_guided });
+                show_info(&dialog, labels.title, &help);
+                command_area.set_focus();
+                held_down.set(None);
+            }
+            CutterAction::Save => { save_button_action(); held_down.set(None); }
+            _ if input_keys.borrow().is_none() => announce_voiceover_message(labels.no_file),
+            CutterAction::Play => play_pause_action(),
+            CutterAction::Seek(direction, seconds) => {
+                let ratio = seconds.map(|n| n as f64 / movement_seconds(movement_choice)).unwrap_or(1.0);
+                seek_preview(direction as f64 * ratio, movement_choice, &input_keys, &probe_keys,
+                    &preview_keys, &show_keys, &parts_keys, &dialog, labels);
+            }
+            CutterAction::Select(direction) => {
+                let parts = parts_keys.borrow();
+                if !parts.is_empty() {
+                    let current = parts_choice.get_selection().unwrap_or(0) as i32;
+                    let index = (current + direction).clamp(0, parts.len() as i32 - 1) as usize;
+                    parts_choice.set_selection(index as u32);
+                    announce_voiceover_message(&part_label(&labels, index, &parts[index]));
+                }
+            }
+            CutterAction::Start if start_keys.get().is_none() => guided_primary_action(),
+            CutterAction::End if start_keys.get().is_some() && end_keys.get().is_none() => guided_primary_action(),
+            CutterAction::Apply if start_keys.get().is_some() && end_keys.get().is_some() => guided_primary_action(),
+            CutterAction::Listen => if advanced { listen_part_action(); } else { guided_listen_action(); },
+            CutterAction::Split => split_here_action(),
+            CutterAction::Delete => delete_part_action(),
+            CutterAction::Restore => restore_part_action(),
+            _ => {}
+        }
+    });
+    macro_rules! bind_cutter_keys {
+        ($($control:expr),+ $(,)?) => { $(
+            let handler = Rc::clone(&key_handler);
+            $control.on_key_down(move |event| handler(event));
+            let held = Rc::clone(&held_key);
+            $control.on_key_up(move |event| { held.set(None); event.skip(true); });
+            let held = Rc::clone(&held_key);
+            $control.on_kill_focus(move |event| { held.set(None); event.skip(true); });
+        )+ };
+    }
+    bind_cutter_keys!(dialog, panel, progress_panel, progress_gauge, cancel_button, open_button, mode_choice, movement_choice, back, play_pause,
+        forward, guided_primary, guided_listen, split_here, listen_part,
+        delete_part, restore_part, parts_choice, rotation_choice, video_preview_button,
+        add_track_button, remove_track, save_button, command_area, adjustment_panel, precision, start_back,
+        start_forward, end_back, end_forward);
 
     let export_cancel_click = Arc::clone(&export_cancel);
     cancel_button.on_click(move |_| {
@@ -2004,12 +2090,25 @@ pub fn open_dialog(parent: &Frame) {
         status_text.set_label(labels.processing_cancelled);
     });
 
+    let export_cancel_close = Arc::clone(&export_cancel);
     let export_busy_close = Arc::clone(&export_busy);
     let edited_close = Rc::clone(&edited);
     let guided_start_close = Rc::clone(&guided_start);
     let preview_close = Rc::clone(&preview);
     dialog.on_close(move |event| {
         if export_busy_close.load(Ordering::SeqCst) {
+            if !close_after_export.get() && ask_yes_no(&dialog, labels.title, labels.close_export) {
+                // The worker can finish while the confirmation's modal loop is open.
+                if !export_busy_close.load(Ordering::SeqCst) {
+                    preview_close.borrow_mut().stop_child();
+                    dialog.end_modal(ID_CANCEL);
+                    event.skip(false);
+                    return;
+                }
+                close_after_export.set(true);
+                export_cancel_close.store(true, Ordering::SeqCst);
+                cancel_button.enable(false);
+            }
             event.skip(false);
             return;
         }
