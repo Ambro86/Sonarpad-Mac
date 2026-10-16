@@ -7,6 +7,7 @@ pub enum CutterKey {
     Up,
     Down,
     Enter,
+    DeleteKey,
     Help,
     Letter(char),
     Other,
@@ -69,6 +70,7 @@ pub fn cutter_shortcut(
         K::Letter('4') if !advanced => Some(Apply),
         K::Letter('S') if advanced => Some(Split),
         K::Letter('D') if advanced => Some(Delete),
+        K::DeleteKey if area && advanced && !option => Some(Delete),
         K::Letter('R') if advanced => Some(Restore),
         K::Up if advanced => Some(Select(-1)),
         K::Down if advanced => Some(Select(1)),
@@ -79,6 +81,41 @@ pub fn cutter_shortcut(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn delete_key_is_only_active_in_the_advanced_command_area() {
+        assert_eq!(
+            cutter_shortcut(CutterKey::DeleteKey, true, false, false, false, false, true),
+            Some(CutterAction::Delete)
+        );
+        assert_eq!(
+            cutter_shortcut(
+                CutterKey::DeleteKey,
+                false,
+                false,
+                false,
+                false,
+                false,
+                true
+            ),
+            None
+        );
+        assert_eq!(
+            cutter_shortcut(
+                CutterKey::DeleteKey,
+                true,
+                false,
+                false,
+                false,
+                false,
+                false
+            ),
+            None
+        );
+        assert_eq!(
+            cutter_shortcut(CutterKey::DeleteKey, true, true, false, false, false, true),
+            None
+        );
+    }
     #[test]
     fn voiceover_and_system_commands_are_preserved() {
         for key in [
