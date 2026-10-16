@@ -8,6 +8,8 @@ pub enum CutterKey {
     Down,
     Enter,
     DeleteKey,
+    Home,
+    End,
     Help,
     Letter(char),
     Other,
@@ -16,6 +18,7 @@ pub enum CutterKey {
 pub enum CutterAction {
     Play,
     Seek(i32, Option<u32>),
+    FileBoundary(bool),
     Select(i32),
     Start,
     End,
@@ -26,6 +29,24 @@ pub enum CutterAction {
     Restore,
     Save,
     Help,
+}
+
+// wx key codes, decoded before shortcut matching so arrows cannot become letters.
+pub fn cutter_key_from_code(code: i32) -> CutterKey {
+    match code {
+        32 => CutterKey::Space,
+        314 => CutterKey::Left,
+        316 => CutterKey::Right,
+        315 => CutterKey::Up,
+        317 => CutterKey::Down,
+        13 | 370 => CutterKey::Enter,
+        340 => CutterKey::Help,
+        8 | 127 => CutterKey::DeleteKey,
+        313 => CutterKey::Home,
+        312 => CutterKey::End,
+        0..=127 => CutterKey::Letter((code as u8 as char).to_ascii_uppercase()),
+        _ => CutterKey::Other,
+    }
 }
 
 pub fn cutter_shortcut(
@@ -59,6 +80,8 @@ pub fn cutter_shortcut(
         return None;
     }
     match key {
+        K::Home if area && !option => Some(FileBoundary(false)),
+        K::End if area && !option => Some(FileBoundary(true)),
         K::Space => Some(Play),
         K::Left => Some(Seek(-1, None)),
         K::Right => Some(Seek(1, None)),
@@ -81,6 +104,103 @@ pub fn cutter_shortcut(
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[test]
+    fn raw_arrow_codes_only_select_parts_and_never_delete() {
+        for (code, expected) in [
+            (315, CutterAction::Select(-1)),
+            (317, CutterAction::Select(1)),
+        ] {
+            let key = cutter_key_from_code(code);
+            assert_eq!(
+                cutter_shortcut(key, true, false, false, false, false, true),
+                Some(expected)
+            );
+            assert_eq!(
+                cutter_shortcut(key, false, true, false, false, false, true),
+                Some(expected)
+            );
+            assert_eq!(
+                cutter_shortcut(key, false, false, false, false, false, true),
+                None
+            );
+            assert_eq!(
+                cutter_shortcut(key, true, true, false, true, false, true),
+                None
+            );
+        }
+        for code in [13, 370, 51] {
+            assert_eq!(
+                cutter_shortcut(
+                    cutter_key_from_code(code),
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true
+                ),
+                Some(CutterAction::Listen)
+            );
+        }
+        for code in [68, 100, 8, 127] {
+            assert_eq!(
+                cutter_shortcut(
+                    cutter_key_from_code(code),
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    true
+                ),
+                Some(CutterAction::Delete)
+            );
+        }
+    }
+    #[test]
+    fn home_end_only_seek_in_command_area() {
+        for advanced in [false, true] {
+            for (key, end) in [(CutterKey::Home, false), (CutterKey::End, true)] {
+                assert_eq!(
+                    cutter_shortcut(key, true, false, false, false, false, advanced),
+                    Some(CutterAction::FileBoundary(end))
+                );
+                for (area, option, command, control, shift) in [
+                    (false, false, false, false, false),
+                    (true, true, false, false, false),
+                    (true, false, true, false, false),
+                    (true, false, false, true, false),
+                    (true, false, false, false, true),
+                ] {
+                    assert_eq!(
+                        cutter_shortcut(key, area, option, command, control, shift, advanced),
+                        None
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn restore_preserves_native_letters_and_voiceover() {
+        for (area, option, control, advanced) in [
+            (false, false, false, true),
+            (true, false, false, false),
+            (true, true, true, true),
+        ] {
+            assert_eq!(
+                cutter_shortcut(
+                    CutterKey::Letter('R'),
+                    area,
+                    option,
+                    false,
+                    control,
+                    false,
+                    advanced
+                ),
+                None
+            );
+        }
+    }
     #[test]
     fn delete_key_is_only_active_in_the_advanced_command_area() {
         assert_eq!(
@@ -159,6 +279,7 @@ mod tests {
             (CutterKey::Space, CutterAction::Play),
             (CutterKey::Letter('3'), CutterAction::Listen),
             (CutterKey::Letter('D'), CutterAction::Delete),
+            (CutterKey::Letter('R'), CutterAction::Restore),
             (CutterKey::Down, CutterAction::Select(1)),
         ] {
             assert_eq!(

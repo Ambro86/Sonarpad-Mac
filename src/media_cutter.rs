@@ -17,7 +17,7 @@ use wxdragon::timer::Timer;
 
 #[path = "media_cutter_keyboard.rs"]
 mod keyboard;
-use keyboard::{CutterKey, CutterAction, cutter_shortcut};
+use keyboard::{CutterAction, cutter_shortcut, cutter_key_from_code};
 
 const MIN_PART_SECONDS: f64 = 0.10;
 
@@ -295,7 +295,7 @@ fn labels() -> Labels {
         unsaved_title: t(l, "Modifiche non salvate", "Unsaved changes", "Modifications non enregistrées", "Cambios sin guardar", "Alterações não guardadas", "Neuložené změny", "Niezapisane zmiany"),
         unsaved_message: t(l, "Ci sono tagli non salvati. Vuoi chiudere comunque?", "There are unsaved cuts. Close anyway?", "Des coupes ne sont pas enregistrées. Fermer quand même ?", "Hay cortes sin guardar. ¿Cerrar de todos modos?", "Existem cortes não guardados. Fechar mesmo assim?", "Existují neuložené střihy. Přesto zavřít?", "Istnieją niezapisane cięcia. Zamknąć mimo to?"),
         command_area: t(l, "Area comandi: usa i comandi di taglio senza Option o Command. F1: elenco tasti. Tab: esci dall’area.", "Command area: use cut commands without Option or Command. F1: key list. Tab: leave the area.", "Zone de commandes : utilisez les commandes de découpe sans Option ni Command. F1 : liste des touches. Tab : quitter la zone.", "Área de comandos: usa los comandos de corte sin Option ni Command. F1: lista de teclas. Tab: salir del área.", "Área de comandos: use os comandos de corte sem Option ou Command. F1: lista de teclas. Tab: sair da área.", "Oblast příkazů: používejte příkazy střihu bez Option nebo Command. F1: seznam kláves. Tab: opustit oblast.", "Obszar poleceń: używaj poleceń cięcia bez Option lub Command. F1: lista klawiszy. Tab: wyjdź z obszaru."),
-        keys_common: t(l, "Spazio: riproduci/pausa. Frecce sinistra/destra: spostamento scelto. Shift+frecce: 5 secondi. Command+frecce: 10 secondi. 3 o Invio: ascolta la parte selezionata. Command+S: salva. Tab: esci dall’area.", "Space: play/pause. Left/right arrows: selected seek step. Shift+arrows: 5 seconds. Command+arrows: 10 seconds. 3 or Return: listen to the selected part. Command+S: save. Tab: leave the area.", "Espace : lecture/pause. Flèches gauche/droite : déplacement choisi. Shift+flèches : 5 secondes. Command+flèches : 10 secondes. 3 ou Entrée : écouter la partie sélectionnée. Command+S : enregistrer. Tab : quitter la zone.", "Espacio: reproducir/pausa. Flechas izquierda/derecha: desplazamiento elegido. Shift+flechas: 5 segundos. Command+flechas: 10 segundos. 3 o Intro: escuchar la parte seleccionada. Command+S: guardar. Tab: salir del área.", "Espaço: reproduzir/pausa. Setas esquerda/direita: deslocamento escolhido. Shift+setas: 5 segundos. Command+setas: 10 segundos. 3 ou Enter: ouvir a parte selecionada. Command+S: guardar. Tab: sair da área.", "Mezerník: přehrát/pozastavit. Šipky vlevo/vpravo: zvolený posun. Shift+šipky: 5 sekund. Command+šipky: 10 sekund. 3 nebo Enter: poslech vybrané části. Command+S: uložit. Tab: opustit oblast.", "Spacja: odtwarzanie/pauza. Strzałki w lewo/prawo: wybrany krok. Shift+strzałki: 5 sekund. Command+strzałki: 10 sekund. 3 lub Enter: odsłuchaj wybraną część. Command+S: zapisz. Tab: wyjdź z obszaru."),
+        keys_common: t(l, "Spazio: riproduci/pausa. Frecce sinistra/destra: spostamento scelto. Shift+frecce: 5 secondi. Command+frecce: 10 secondi. 3 o Invio: ascolta la parte selezionata. Command+S: salva. Tab: esci dall’area. Home: inizio del file. End: fine del file.", "Space: play/pause. Left/right arrows: selected seek step. Shift+arrows: 5 seconds. Command+arrows: 10 seconds. 3 or Return: listen to the selected part. Command+S: save. Tab: leave the area. Home: beginning of the file. End: end of the file.", "Espace : lecture/pause. Flèches gauche/droite : déplacement choisi. Shift+flèches : 5 secondes. Command+flèches : 10 secondes. 3 ou Entrée : écouter la partie sélectionnée. Command+S : enregistrer. Tab : quitter la zone. Home : début du fichier. End : fin du fichier.", "Espacio: reproducir/pausa. Flechas izquierda/derecha: desplazamiento elegido. Shift+flechas: 5 segundos. Command+flechas: 10 segundos. 3 o Intro: escuchar la parte seleccionada. Command+S: guardar. Tab: salir del área. Home: inicio del archivo. End: final del archivo.", "Espaço: reproduzir/pausa. Setas esquerda/direita: deslocamento escolhido. Shift+setas: 5 segundos. Command+setas: 10 segundos. 3 ou Enter: ouvir a parte selecionada. Command+S: guardar. Tab: sair da área. Home: início do ficheiro. End: fim do ficheiro.", "Mezerník: přehrát/pozastavit. Šipky vlevo/vpravo: zvolený posun. Shift+šipky: 5 sekund. Command+šipky: 10 sekund. 3 nebo Enter: poslech vybrané části. Command+S: uložit. Tab: opustit oblast. Home: začátek souboru. End: konec souboru.", "Spacja: odtwarzanie/pauza. Strzałki w lewo/prawo: wybrany krok. Shift+strzałki: 5 sekund. Command+strzałki: 10 sekund. 3 lub Enter: odsłuchaj wybraną część. Command+S: zapisz. Tab: wyjdź z obszaru. Home: początek pliku. End: koniec pliku."),
         keys_guided: t(l, "1: inizio taglio. 2: fine taglio. 4: applica taglio.", "1: cut start. 2: cut end. 4: apply cut.", "1 : début de coupe. 2 : fin de coupe. 4 : appliquer la coupe.", "1: inicio del corte. 2: fin del corte. 4: aplicar corte.", "1: início do corte. 2: fim do corte. 4: aplicar corte.", "1: začátek střihu. 2: konec střihu. 4: použít střih.", "1: początek cięcia. 2: koniec cięcia. 4: zastosuj cięcie."),
         keys_advanced: t(l, "S: dividi qui. D o Canc (⌫/⌦): elimina parte. R: ripristina parte eliminata. Frecce su/giù: parte precedente/successiva.", "S: split here. D or Delete (⌫/⌦): delete part. R: restore deleted part. Up/down arrows: previous/next part.", "S : diviser ici. D ou Suppr (⌫/⌦) : supprimer la partie. R : restaurer la partie supprimée. Flèches haut/bas : partie précédente/suivante.", "S: dividir aquí. D o Supr (⌫/⌦): eliminar parte. R: restaurar parte eliminada. Flechas arriba/abajo: parte anterior/siguiente.", "S: dividir aqui. D ou Delete (⌫/⌦): eliminar parte. R: restaurar parte eliminada. Setas cima/baixo: parte anterior/seguinte.", "S: rozdělit zde. D nebo Delete (⌫/⌦): odstranit část. R: obnovit odstraněnou část. Šipky nahoru/dolů: předchozí/další část.", "S: podziel tutaj. D lub Delete (⌫/⌦): usuń część. R: przywróć usuniętą część. Strzałki w górę/dół: poprzednia/następna część."),
         close_export: t(l, "È in corso un’esportazione. Vuoi interromperla e chiudere? Il lavoro non salvato andrà perso.", "An export is in progress. Stop it and close? Unsaved work will be lost.", "Une exportation est en cours. L’arrêter et fermer ? Les modifications non enregistrées seront perdues.", "Hay una exportación en curso. ¿Interrumpirla y cerrar? Se perderá el trabajo sin guardar.", "Está em curso uma exportação. Interromper e fechar? O trabalho não guardado será perdido.", "Probíhá export. Přerušit jej a zavřít? Neuložené změny budou ztraceny.", "Trwa eksport. Przerwać go i zamknąć? Niezapisana praca zostanie utracona."),
@@ -783,10 +783,8 @@ fn show_error(parent: &Dialog, title: &str, message: &str) {
 }
 
 fn ask_yes_no(parent: &Dialog, title: &str, message: &str) -> bool {
-    let dialog = MessageDialog::builder(parent, message, title)
-        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::from_bits_retain(128) /* wxNO_DEFAULT */ | MessageDialogStyle::IconQuestion)
-        .build();
-    dialog.show_modal() == ID_YES
+    // The shared dialog supplies app-localized labels (wxDragon issue #156).
+    crate::ask_yes_no_dialog(parent, title, message)
 }
 
 fn choose_input(parent: &Dialog, labels: &Labels) -> Option<PathBuf> {
@@ -1363,7 +1361,14 @@ pub fn open_dialog(parent: &Frame) {
     video_preview_button.show(false);
     add_track_button.enable(false);
 
-    let command_area = Button::builder(&panel).with_label(labels.command_area).build();
+    // A read-only text field has no native button activation/default action.
+    // Do not use ProcessTab: Tab and Shift+Tab must leave this command area.
+    let command_area = TextCtrl::builder(&panel)
+        .with_value(labels.command_area)
+        .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly | TextCtrlStyle::ProcessEnter)
+        .with_size(Size::new(780, 65))
+        .build();
+    command_area.set_accessibility_label(labels.command_area.split(':').next().unwrap_or(labels.title));
     root.add(&command_area, 0, SizerFlag::Expand | SizerFlag::All, 8);
     let status_text = StaticText::builder(&panel).with_label(labels.ready).build();
     root.add(&status_text, 0, SizerFlag::Expand | SizerFlag::All, 8);
@@ -1658,6 +1663,7 @@ pub fn open_dialog(parent: &Frame) {
     let listen_part_action: Rc<dyn Fn()> = Rc::new(move || {
         let index = parts_choice.get_selection().unwrap_or(0) as usize;
         let Some(part) = parts_listen.borrow().get(index).cloned() else { return; };
+        append_podcast_log(&format!("media_cutter.listen index={index} keep={}", part.keep));
         if !part.keep {
             announce_voiceover_message(labels.part_deleted);
             return;
@@ -1680,6 +1686,7 @@ pub fn open_dialog(parent: &Frame) {
         if part.keep {
             if let Some(info) = probe_delete.borrow().as_ref() { preview_delete.borrow_mut().pause(info.duration); }
             play_pause.set_label(labels.play);
+            append_podcast_log(&format!("media_cutter.delete index={index} start={} end={}", part.start, part.end));
             part.keep = false;
             deleted_delete.borrow_mut().push((part.start, part.end));
             edited_delete.set(true);
@@ -1700,6 +1707,7 @@ pub fn open_dialog(parent: &Frame) {
         let Some(index) = index else { show_info(&dialog, labels.title, labels.no_deleted_part); return; };
         if let Some(info) = probe_restore.borrow().as_ref() { preview_restore.borrow_mut().pause(info.duration); }
         let part = &mut parts[index];
+        append_podcast_log(&format!("media_cutter.restore index={index} start={} end={}", part.start, part.end));
         part.keep = true;
         deleted_restore.borrow_mut().retain(|(start,end)| (*start-part.start).abs() > 0.001 || (*end-part.end).abs() > 0.001);
         edited_restore.set(true);
@@ -2007,14 +2015,7 @@ pub fn open_dialog(parent: &Frame) {
     let key_handler: Rc<dyn Fn(WindowEventData)> = Rc::new(move |event| {
         let WindowEventData::Keyboard(key) = &event else { event.skip(true); return; };
         let code = key.get_key_code().unwrap_or_default();
-        let key_kind = match code {
-            32 => CutterKey::Space, 314 => CutterKey::Left, 316 => CutterKey::Right,
-            315 => CutterKey::Up, 317 => CutterKey::Down, 13 | 370 => CutterKey::Enter,
-            340 => CutterKey::Help,
-            8 | 127 => CutterKey::DeleteKey,
-            0..=127 => CutterKey::Letter((code as u8 as char).to_ascii_uppercase()),
-            _ => CutterKey::Other,
-        };
+        let key_kind = cutter_key_from_code(code);
         let advanced = mode_choice.get_selection().unwrap_or(0) == 1;
         #[cfg(target_os = "macos")]
         let control = accessibility::physical_control_down();
@@ -2029,6 +2030,8 @@ pub fn open_dialog(parent: &Frame) {
         let action = cutter_shortcut(key_kind, command_area.has_focus(), key.alt_down(),
             key.cmd_down(), control, key.shift_down(), advanced);
         let Some(action) = action else { event.skip(true); return; };
+        append_podcast_log(&format!("media_cutter.key code={code} area={} option={} command={} control={control} shift={} advanced={advanced} action={action:?}",
+            command_area.has_focus(), key.alt_down(), key.cmd_down(), key.shift_down()));
         event.skip(false);
         if busy_keys.load(Ordering::SeqCst) { return; }
         if held_down.replace(Some(code)) == Some(code)
@@ -2049,11 +2052,25 @@ pub fn open_dialog(parent: &Frame) {
                 seek_preview(direction as f64 * ratio, movement_choice, &input_keys, &probe_keys,
                     &preview_keys, &show_keys, &parts_keys, &dialog, labels);
             }
+            CutterAction::FileBoundary(end) => {
+                let (Some(info), Some(path)) = (probe_keys.borrow().clone(), input_keys.borrow().clone()) else { return; };
+                let running = preview_keys.borrow().playing;
+                let position = if end { info.duration } else { 0.0 };
+                preview_keys.borrow_mut().pause(info.duration);
+                preview_keys.borrow_mut().base_position = position;
+                if running && !end {
+                    if let Err(err) = start_playback(&preview_keys, &path, info.duration, position, &parts_keys.borrow(), show_keys.get()) {
+                        show_error(&dialog, labels.title, &err);
+                    }
+                }
+                announce_voiceover_message(&format_duration_natural(position));
+            }
             CutterAction::Select(direction) => {
                 let parts = parts_keys.borrow();
                 if !parts.is_empty() {
                     let current = parts_choice.get_selection().unwrap_or(0) as i32;
                     let index = (current + direction).clamp(0, parts.len() as i32 - 1) as usize;
+                    append_podcast_log(&format!("media_cutter.select index={index} keep={}", parts[index].keep));
                     parts_choice.set_selection(index as u32);
                     announce_voiceover_message(&part_label(&labels, index, &parts[index]));
                 }

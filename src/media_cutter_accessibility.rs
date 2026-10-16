@@ -1,53 +1,34 @@
-//! Spoken cutter guidance without AppleScript or changes to keyboard focus.
+//! Cutter announcements use the same direct VoiceOver output as the player.
 #[cfg(target_os = "macos")]
 pub(super) fn announce_voiceover_message(message: &str) {
+    use std::sync::{Arc, Condvar, Mutex, OnceLock};
+    type Pending = Arc<(Mutex<Option<String>>, Condvar)>;
+    static PENDING: OnceLock<Pending> = OnceLock::new();
     let message = message.trim();
     if message.is_empty() {
         return;
     }
-    let message = message.to_owned();
-    // AppKit requires the main thread. Defer until the button handler has updated
-    // its label and focus, so those changes do not interrupt the announcement.
-    wxdragon::call_after(Box::new(move || post_announcement(&message)));
-}
-
-#[cfg(target_os = "macos")]
-fn post_announcement(message: &str) {
-    use objc2::{MainThreadMarker, runtime::AnyObject};
-    use objc2_app_kit::{
-        NSAccessibilityAnnouncementKey, NSAccessibilityAnnouncementRequestedNotification,
-        NSAccessibilityPostNotificationWithUserInfo, NSAccessibilityPriorityKey,
-        NSAccessibilityPriorityLevel, NSApplication,
-    };
-    use objc2_foundation::{NSDictionary, NSNumber, NSString};
-
-    let Some(mtm) = MainThreadMarker::new() else {
-        crate::append_podcast_log("media_cutter.announcement skipped: not on main thread");
-        return;
-    };
-    let app = NSApplication::sharedApplication(mtm);
-    // The cutter is modal: the key window is preferable to the main window.
-    let window = app.keyWindow();
-    let element: &AnyObject = match window.as_ref() {
-        Some(window) => window.as_ref(),
-        None => app.as_ref(),
-    };
-    let text = NSString::from_str(message);
-    let priority = NSNumber::numberWithInteger(NSAccessibilityPriorityLevel::High.0);
-    // These AppKit constants are immutable. Values match their documented types:
-    // NSString for the announcement and NSNumber for the priority.
-    unsafe {
-        let info = NSDictionary::from_slices(
-            &[NSAccessibilityAnnouncementKey, NSAccessibilityPriorityKey],
-            &[text.as_ref() as &AnyObject, priority.as_ref() as &AnyObject],
-        );
-        NSAccessibilityPostNotificationWithUserInfo(
-            element,
-            NSAccessibilityAnnouncementRequestedNotification,
-            Some(&info),
-        );
-    }
-    crate::append_podcast_log("media_cutter.announcement posted (AppKit)");
+    let queue = PENDING.get_or_init(|| {
+        let queue: Pending = Arc::new((Mutex::new(None), Condvar::new()));
+        let worker = Arc::clone(&queue);
+        std::thread::spawn(move || {
+            loop {
+                let (lock, wake) = &*worker;
+                let message = {
+                    let mut pending = lock.lock().unwrap_or_else(|e| e.into_inner());
+                    while pending.is_none() {
+                        pending = wake.wait(pending).unwrap_or_else(|e| e.into_inner());
+                    }
+                    pending.take().unwrap()
+                };
+                crate::deliver_voiceover_message(&message);
+            }
+        });
+        queue
+    });
+    let (lock, wake) = &**queue;
+    *lock.lock().unwrap_or_else(|e| e.into_inner()) = Some(message.to_owned());
+    wake.notify_one();
 }
 
 #[cfg(not(target_os = "macos"))]

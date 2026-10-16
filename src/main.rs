@@ -16047,37 +16047,34 @@ fn convert_media_build_args(args: ConvertMediaBuildArgs) -> Vec<String> {
 }
 
 #[cfg(target_os = "macos")]
-fn announce_voiceover_message(message: &str) {
-    let message = message.trim();
-    if message.is_empty() {
+fn deliver_voiceover_message(message: &str) {
+    let running = Command::new("/usr/bin/pgrep").args(["-x", "VoiceOver"])
+        .stdout(Stdio::null()).stderr(Stdio::null()).status()
+        .is_ok_and(|status| status.success());
+    if !running {
+        append_podcast_log("speech.voiceover skipped: VoiceOver is not running");
         return;
     }
-    let message = message.to_string();
-    std::thread::spawn(move || {
-        let voiceover_running = Command::new("/usr/bin/pgrep")
-            .args(["-x", "VoiceOver"])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status()
-            .is_ok_and(|status| status.success());
-        if !voiceover_running {
-            return;
-        }
+    let result = Command::new("/usr/bin/osascript").args([
+        "-e", "on run argv",
+        "-e", "tell application \"VoiceOver\" to output (item 1 of argv)",
+        "-e", "end run", message,
+    ]).output();
+    match result {
+        Ok(output) if output.status.success() => append_podcast_log("speech.voiceover output succeeded"),
+        Ok(output) => append_podcast_log(&format!("speech.voiceover failed status={} stderr={}",
+            output.status, String::from_utf8_lossy(&output.stderr).trim())),
+        Err(err) => append_podcast_log(&format!("speech.voiceover failed to start: {err}")),
+    }
+}
 
-        let _ = Command::new("/usr/bin/osascript")
-            .args([
-                "-e",
-                "on run argv",
-                "-e",
-                "tell application \"VoiceOver\" to output (item 1 of argv)",
-                "-e",
-                "end run",
-                &message,
-            ])
-            .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .status();
-    });
+#[cfg(target_os = "macos")]
+fn announce_voiceover_message(message: &str) {
+    let message = message.trim();
+    if !message.is_empty() {
+        let message = message.to_owned();
+        std::thread::spawn(move || deliver_voiceover_message(&message));
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
