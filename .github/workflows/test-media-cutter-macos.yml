@@ -43,13 +43,15 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.target }}-ffmpeg-8.0.1-v20-media-cutter
+          key: ${{ runner.os }}-${{ matrix.target }}-ffmpeg-8.0.1-v22-podcast-recording
       - name: Build the exact release FFmpeg configuration
         run: |
           python scripts/test_media_cutter_macos.py --prepare-build
           bash build-test-ffmpeg.sh
       - name: Exercise production cutter export functions
         run: python scripts/test_media_cutter_macos.py dist/ffmpeg-install/bin/ffmpeg
+      - name: Exercise production media joining in all output formats
+        run: python scripts/test_media_join.py dist/ffmpeg-install/bin/ffmpeg
       - uses: actions/upload-artifact@v4
         if: always()
         with:

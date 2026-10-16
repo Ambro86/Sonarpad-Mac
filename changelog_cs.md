@@ -12,6 +12,12 @@ Verze 0.5.3 - 14. října 2026
 
 5. Do nabídky Nápověda byla přidána volba Odeslat diagnostiku: odešle protokol a hlášení e-mailem vývojáři, včetně jména a nepovinného e-mailu pro odpověď. Protokol již nemusíte ručně hledat ve složce Application Support.
 
+6. Přidáno Spojit multimediální soubory v Nástroje → Multimédia (Option+Shift+Y): spojování zvukových nebo video souborů ve zvoleném pořadí, tlačítka pro přidání, odebrání a změnu pořadí, výběr výstupního formátu, skutečný průběh a zrušení. Videa lze také spojit do jednoho zvukového souboru. Popisky sjednoceny s převodem složky, pole Složka k převodu oddělené od tlačítka výběru a lokalizované potvrzovací dialogy.
+
+7. Přidány Hromadné audioknihy v Nástroje → Čtení a obsah: přidání dokumentů nebo složky, odebrání z fronty, výběr cílové složky a formátů MP3, M4B, M4A a WAV. Používá nastavený hlas a parametry řeči, vytvoří jednu audioknihu pro každý dokument a nabízí podsložky. Existující soubory chrání přidáním čísla k názvu. Skutečný průběh, zrušení, přehled výsledků a pokračování po chybě jednotlivého dokumentu. Využívá mezipaměť a opakované pokusy hlasů Microsoft.
+
+8. Přidána funkce Nahrát podcast v Nástroje → Multimédia: mikrofon, systémový zvuk nebo obojí, výběr mikrofonu, samostatné hlasitosti, pozastavení a pokračování bez vloženého ticha a výstup MP3, M4A nebo WAV. Zahrnuje dobu nahrávání, oznámení VoiceOver, průběh ukládání v procentech a lokalizovaná potvrzení před přerušením práce. Při selhání ukládání se stopy zachovají. Systémový zvuk vyžaduje macOS 13 nebo novější; mikrofon je dostupný i na starších podporovaných verzích včetně Cataliny.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost

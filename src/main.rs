@@ -16,7 +16,14 @@ mod faster_whisper_bridge;
 mod la7_play;
 mod media_transcription;
 mod media_cutter;
+mod media_join;
+mod media_join_engine;
+mod batch_audiobooks;
+mod batch_audiobooks_engine;
+mod batch_audiobooks_render;
 mod podcast_player;
+mod podcast_recording;
+mod podcast_recording_engine;
 mod podcasts;
 mod rai_audiodescrizioni;
 mod raiplay;
@@ -143,6 +150,9 @@ const ID_TOOLS_MEDIA_TRANSCRIPTION: i32 = 2377;
 const ID_LA7_PLAY: i32 = 2378;
 const ID_TOOLS_CONVERT_FOLDER: i32 = 2379;
 const ID_TOOLS_MEDIA_CUTTER: i32 = 2380;
+const ID_TOOLS_MEDIA_JOIN: i32 = 2384;
+const ID_TOOLS_RECORD_PODCAST: i32 = 2383;
+const ID_TOOLS_BATCH_AUDIOBOOKS: i32 = 2382;
 const ID_SONARPAD_AUDIO_DESCRIPTIONS: i32 = 2381;
 const SHOW_MEDIA_CUTTER_IN_MENUS: bool = true;
 // wxWidgets only accepts custom menu IDs below 32767. Keep the three
@@ -29233,6 +29243,7 @@ fn clear_menu(menu: &Menu) {
 }
 
 fn append_tools_reading_content(menu: &Menu, settings: &Settings, ui: &UiStrings) {
+    let _ = menu.append(ID_TOOLS_BATCH_AUDIOBOOKS, &batch_audiobooks::menu_label(), &batch_audiobooks::menu_label(), ItemKind::Normal);
     let _ = menu.append(
         ID_TOOLS_WIKIPEDIA,
         &ui.tools_wikipedia_label,
@@ -29302,6 +29313,8 @@ fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
         &ui.convert_folder_title,
         ItemKind::Normal,
     );
+    let _ = menu.append(ID_TOOLS_MEDIA_JOIN, &media_join::menu_label(), &media_join::menu_label(), ItemKind::Normal);
+    let _ = menu.append(ID_TOOLS_RECORD_PODCAST, &podcast_recording::menu_label(), &podcast_recording::menu_label(), ItemKind::Normal);
     if SHOW_MEDIA_CUTTER_IN_MENUS {
         let media_cutter_label = media_cutter::menu_label();
         let _ = menu.append(
@@ -29405,6 +29418,7 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
             &ui.tools_category_utilities,
         );
     } else {
+        let _ = tools_menu.append(ID_TOOLS_BATCH_AUDIOBOOKS, &batch_audiobooks::menu_label(), &batch_audiobooks::menu_label(), ItemKind::Normal);
         let _ = tools_menu.append(
             ID_TOOLS_WIKIPEDIA,
             &ui.tools_wikipedia_label,
@@ -29464,6 +29478,8 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
             &ui.convert_folder_title,
             ItemKind::Normal,
         );
+        let _ = tools_menu.append(ID_TOOLS_MEDIA_JOIN, &media_join::menu_label(), &media_join::menu_label(), ItemKind::Normal);
+        let _ = tools_menu.append(ID_TOOLS_RECORD_PODCAST, &podcast_recording::menu_label(), &podcast_recording::menu_label(), ItemKind::Normal);
         if SHOW_MEDIA_CUTTER_IN_MENUS {
             let media_cutter_label = media_cutter::menu_label();
             let _ = tools_menu.append(
@@ -30593,6 +30609,18 @@ fn main() {
                 open_convert_media_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CONVERT_FOLDER {
                 open_convert_media_folder_dialog(&f_menu);
+            } else if event.get_id() == ID_TOOLS_BATCH_AUDIOBOOKS {
+                batch_audiobooks::open_dialog(&f_menu, &settings_menu, &rt_audio_description_menu);
+                tc_menu.set_focus();
+                wxdragon::call_after(Box::new(move || tc_menu.set_focus()));
+            } else if event.get_id() == ID_TOOLS_RECORD_PODCAST {
+                podcast_recording::open_dialog(&f_menu);
+                tc_menu.set_focus();
+                wxdragon::call_after(Box::new(move || tc_menu.set_focus()));
+            } else if event.get_id() == ID_TOOLS_MEDIA_JOIN {
+                media_join::open_dialog(&f_menu);
+                tc_menu.set_focus();
+                wxdragon::call_after(Box::new(move || tc_menu.set_focus()));
             } else if event.get_id() == ID_TOOLS_MEDIA_CUTTER {
                 media_cutter::open_dialog(&f_menu);
                 tc_menu.set_focus();

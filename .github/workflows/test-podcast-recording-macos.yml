@@ -1,0 +1,40 @@
+name: Test Podcast Recording (macOS)
+on:
+  workflow_dispatch:
+jobs:
+  recording:
+    strategy:
+      matrix:
+        include:
+          - runner: macos-14
+            arch: arm64
+            minimum: '11.0'
+          - runner: macos-15-intel
+            arch: x86_64
+            minimum: '10.15'
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build native capture and test timeline and resampling
+        run: bash scripts/build_podcast_capture.sh '${{ matrix.arch }}' '${{ matrix.minimum }}'
+      - name: Verify optional ScreenCaptureKit dependency
+        run: |
+          otool -l dist/podcast-capture > dist/podcast-capture-load-commands.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          text = Path('dist/podcast-capture-load-commands.txt').read_text()
+          commands = text.split('Load command ')
+          matches = [c for c in commands if 'ScreenCaptureKit.framework' in c]
+          assert len(matches) == 1 and 'LC_LOAD_WEAK_DYLIB' in matches[0], matches
+          PY
+      - name: Install FFmpeg for export tests
+        run: brew install ffmpeg
+      - name: Test production export and simulated capture transport
+        run: python3 scripts/test_podcast_recording.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: podcast-recording-${{ matrix.arch }}
+          path: dist/podcast-capture-load-commands.txt

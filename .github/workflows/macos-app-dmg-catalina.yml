@@ -99,7 +99,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v22-media-cutter
+          key: ${{ runner.os }}-catalina-ffmpeg-${{ env.FFMPEG_VERSION }}-v23-podcast-recording
 
       - name: Validate Sonarpad tokens
         shell: bash
@@ -248,6 +248,7 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]flv[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]asf[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_f32le[[:space:]]' >/dev/null || return 1
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]mpeg4[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]mp2[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]adpcm_ms[[:space:]]' >/dev/null
@@ -435,6 +436,7 @@ jobs:
             --enable-decoder=pcm_s16be \
             --enable-decoder=pcm_s16le \
             --enable-decoder=pcm_s24le \
+            --enable-decoder=pcm_f32le \
             --enable-decoder=h264 \
             --enable-decoder=hevc \
             --enable-decoder=mpeg2video \
@@ -627,6 +629,10 @@ jobs:
           mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${AUDIO_DESCRIPTION_DIR}" "${TRANSCRIPTION_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
           cp "target/x86_64-apple-darwin/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
+          CAPTURE_ARCH=x86_64
+          bash scripts/build_podcast_capture.sh "$CAPTURE_ARCH" "10.15" dist/podcast-capture
+          cp dist/podcast-capture "${MACOS_DIR}/podcast-capture"
+          chmod +x "${MACOS_DIR}/podcast-capture"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
           chmod +x "${FRAMEWORKS_DIR}/libpdfium.dylib"
           find "dist/curl-cffi/extracted" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' dylib; do
@@ -710,6 +716,8 @@ jobs:
             </array>
             <key>CFBundleAllowMixedLocalizations</key>
             <true/>
+            <key>NSMicrophoneUsageDescription</key>
+            <string>Sonarpad records your microphone only when you start recording a podcast.</string>
             <key>CFBundleName</key>
             <string>Sonarpad</string>
             <key>CFBundleDisplayName</key>
@@ -961,6 +969,14 @@ jobs:
           </plist>
           PLIST
 
+          cat > dist/podcast-capture-entitlements.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <plist version="1.0"><dict><key>com.apple.security.device.audio-input</key><true/></dict></plist>
+          PLIST
+          codesign_with_retry --force --options runtime --timestamp \
+            --entitlements dist/podcast-capture-entitlements.plist \
+            --sign "Developer ID Application" "${APP_DIR}/Contents/MacOS/podcast-capture"
+
           if [ -f "${FFMPEG_BIN}" ]; then
             codesign_with_retry --force --options runtime --timestamp \
               --sign "Developer ID Application" \
@@ -1049,8 +1065,14 @@ jobs:
           fi
 
           codesign_with_retry --force --options runtime --timestamp \
+            --entitlements dist/podcast-capture-entitlements.plist \
+            --sign "Developer ID Application" "${APP_DIR}/Contents/MacOS/podcast-capture"
+          codesign_with_retry --force --options runtime --timestamp \
+            --entitlements dist/podcast-capture-entitlements.plist \
             --sign "Developer ID Application" \
             "${APP_DIR}"
+          codesign -d --entitlements :- "${APP_DIR}/Contents/MacOS/podcast-capture" 2>/dev/null \
+            | grep -q "com.apple.security.device.audio-input"
 
           if [ -f "${YTDLP_BIN}" ] && [ "${YTDLP_IS_MACHO}" = "true" ]; then
             codesign -d --entitlements :- "${YTDLP_BIN}" 2>/dev/null \

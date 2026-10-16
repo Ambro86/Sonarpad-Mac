@@ -12,6 +12,12 @@ Versión 0.5.3 - 14 de octubre de 2026
 
 5. Añadida la opción Enviar diagnóstico al menú Ayuda: envía el registro y un informe por correo al desarrollador, con tu nombre y un correo opcional para recibir respuesta. Ya no hace falta buscar el registro en Application Support.
 
+6. Añadido Unir archivos multimedia en Herramientas → Multimedia (Option+Shift+Y): une archivos de audio o vídeo en el orden elegido, con botones para añadir, quitar y reordenar archivos, selección del formato de destino, progreso real y cancelación. Los vídeos también pueden unirse en un archivo de audio. Etiquetas uniformes con Convertir carpeta, campo Carpeta para convertir separado del botón de selección y confirmaciones localizadas.
+
+7. Añadidos Audiolibros por lotes en Herramientas → Lectura y contenido: añade documentos o una carpeta, quita archivos de la cola y elige carpeta de destino y formato MP3, M4B, M4A o WAV. Usa la voz y los ajustes configurados, crea un audiolibro por documento y permite subcarpetas. Protege los archivos existentes añadiendo un número al nombre. Incluye progreso real, cancelación, resumen y continuación tras errores individuales. Reutiliza la caché y los reintentos de recuperación de las voces Microsoft.
+
+8. Añadida la función Grabar pódcast en Herramientas → Multimedia: micrófono, audio del sistema o ambos, selección de micrófono, volúmenes separados, pausa y reanudación sin silencios añadidos, y salida MP3, M4A o WAV. Incluye tiempo grabado, anuncios de VoiceOver, progreso del guardado con porcentaje y confirmaciones localizadas antes de interrumpir el trabajo. Las pistas se conservan si falla el guardado. El audio del sistema requiere macOS 13 o posterior; el micrófono sigue disponible en versiones anteriores compatibles, incluida Catalina.
+
 Versión 0.5.2 - 12 de octubre de 2026
 
 Voces Edge, audiodescripciones y estabilidad

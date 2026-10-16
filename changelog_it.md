@@ -12,6 +12,12 @@ Versione 0.5.3 - 14 ottobre 2026
 
 5. Aggiunta nel menu Aiuto la voce Invia diagnostica: consente di inviare via email allo sviluppatore il log e il testo della segnalazione, indicando il proprio nome e un’email facoltativa per essere ricontattati. Non è più necessario cercare manualmente il log nella cartella Application Support.
 
+6. Aggiunto Unisci file media in Strumenti → Multimedia (Option+Shift+Y): unisce più file audio o video nell’ordine scelto, con pulsanti per aggiungere, rimuovere e riordinare i file, scelta del formato di destinazione, avanzamento reale e annullamento. I video possono essere uniti anche in un unico file audio. Etichette uniformate a Converti cartella, campo Cartella da convertire separato dal pulsante di scelta e finestre di conferma localizzate.
+
+7. Aggiunti Audiolibri in batch in Strumenti → Lettura e contenuti: aggiunta di documenti o di una cartella, rimozione dei file dalla coda, scelta della cartella di destinazione e dei formati MP3, M4B, M4A e WAV. Usa la voce e le impostazioni vocali già configurate, crea un audiolibro per documento, può creare sottocartelle e protegge sempre i file esistenti aggiungendo un numero al nome. Include avanzamento reale, annullamento, riepilogo dei risultati e prosecuzione dopo gli errori dei singoli documenti. Riutilizza la cache e i tentativi di recupero delle voci Microsoft.
+
+8. Aggiunto Registra podcast in Strumenti → Multimedia: registra il microfono, l’audio di sistema o entrambi, con scelta del microfono, volumi separati, pausa e ripresa senza silenzi aggiunti e salvataggio in MP3, M4A o WAV. Include tempo registrato, annunci VoiceOver, avanzamento del salvataggio con percentuale e conferme localizzate prima di interrompere un lavoro. Le tracce vengono conservate se il salvataggio non riesce. L’audio di sistema richiede macOS 13 o successivo; il microfono resta disponibile anche sulle versioni precedenti supportate, compresa Catalina.
+
 Versione 0.5.2 - 12 ottobre 2026
 
 Voci Edge, audiodescrizioni e affidabilità

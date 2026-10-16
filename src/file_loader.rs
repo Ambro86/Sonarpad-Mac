@@ -111,7 +111,7 @@ fn decode_utf16_without_bom(bytes: &[u8]) -> Option<String> {
 
 fn decode_utf16_units(bytes: &[u8], little_endian: bool) -> String {
     let units = bytes
-        .chunks_exact(2)
+        .as_chunks::<2>().0.iter()
         .map(|chunk| {
             if little_endian {
                 u16::from_le_bytes([chunk[0], chunk[1]])
@@ -1117,7 +1117,7 @@ fn extract_doc_text_piece_table(word: &[u8], table: &[u8]) -> Option<String> {
                 continue;
             }
             let mut utf16 = Vec::with_capacity(byte_len / 2);
-            for chunk in word[piece.offset..end].chunks_exact(2) {
+            for chunk in word[piece.offset..end].as_chunks::<2>().0.iter() {
                 utf16.push(u16::from_le_bytes([chunk[0], chunk[1]]));
             }
             out.push_str(&String::from_utf16_lossy(&utf16));
@@ -1227,7 +1227,7 @@ fn clean_doc_text(text: String) -> String {
 fn extract_utf16_strings(buffer: &[u8]) -> String {
     let mut text = String::new();
     let mut current_seq = Vec::new();
-    for chunk in buffer.chunks_exact(2) {
+    for chunk in buffer.as_chunks::<2>().0.iter() {
         let unit = u16::from_le_bytes([chunk[0], chunk[1]]);
         if (unit >= 32 && unit != 0xFFFF) || unit == 10 || unit == 13 || unit == 9 {
             current_seq.push(unit);

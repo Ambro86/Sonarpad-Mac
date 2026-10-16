@@ -128,7 +128,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v20-media-cutter
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v22-podcast-recording
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -221,6 +221,7 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]flv[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]asf[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]pcm_f32le[[:space:]]' >/dev/null || return 1
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]mpeg4[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]mp2[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -decoders | grep -E '[[:space:]]adpcm_ms[[:space:]]' >/dev/null
@@ -259,6 +260,17 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]libmp3lame[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]pcm_s16le[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
+            for filter in pad setsar fps apad anullsrc color testsrc2; do
+              "${ffmpeg_bin}" -hide_banner -filters | grep -E "[[:space:]]${filter}[[:space:]]" >/dev/null
+            done
+            for encoder in vorbis opus rawvideo; do
+              "${ffmpeg_bin}" -hide_banner -encoders | grep -E "[[:space:]]${encoder}[[:space:]]" >/dev/null
+            done
+            for muxer in ogg opus rawvideo; do
+              "${ffmpeg_bin}" -hide_banner -muxers | grep -E "[[:space:]]${muxer}[[:space:]]" >/dev/null
+            done
+            "${ffmpeg_bin}" -hide_banner -devices | grep -E '[[:space:]]lavfi[[:space:]]' >/dev/null
+            "${ffmpeg_bin}" -hide_banner -protocols | grep -Fx pipe >/dev/null
           }
           if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
             "dist/ffmpeg-install/bin/ffmpeg" -version
@@ -344,7 +356,7 @@ jobs:
             --extra-libs="${LAME_PREFIX}/lib/libmp3lame.a" \
             --disable-everything \
             --disable-autodetect \
-            --disable-avdevice \
+            --enable-avdevice \
             --disable-iconv \
             --disable-bzlib \
             --disable-lzma \
@@ -355,6 +367,8 @@ jobs:
             --disable-doc \
             --disable-programs \
             --enable-ffmpeg \
+            --enable-ffprobe \
+            --enable-indev=lavfi \
             --disable-shared \
             --enable-static \
             --enable-securetransport \
@@ -412,6 +426,7 @@ jobs:
             --enable-decoder=pcm_s16be \
             --enable-decoder=pcm_s16le \
             --enable-decoder=pcm_s24le \
+            --enable-decoder=pcm_f32le \
             --enable-decoder=h264 \
             --enable-decoder=hevc \
             --enable-decoder=mpeg2video \
@@ -440,7 +455,21 @@ jobs:
             --enable-filter=amix \
             --enable-filter=alimiter \
             --enable-filter=aformat \
-            --enable-filter=anull
+            --enable-filter=anull \
+            --enable-filter=pad \
+            --enable-filter=setsar \
+            --enable-filter=fps \
+            --enable-filter=apad \
+            --enable-filter=anullsrc \
+            --enable-filter=color \
+            --enable-filter=testsrc2 \
+            --enable-encoder=vorbis \
+            --enable-encoder=opus \
+            --enable-encoder=rawvideo \
+            --enable-muxer=ogg \
+            --enable-muxer=opus \
+            --enable-muxer=rawvideo \
+            --enable-protocol=pipe
           make -j"$(sysctl -n hw.ncpu)"
           make install
           "../../ffmpeg-install/bin/ffmpeg" -version
@@ -577,6 +606,12 @@ jobs:
           mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${AUDIO_DESCRIPTION_DIR}" "${TRANSCRIPTION_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
+          CAPTURE_ARCH="${{ matrix.rust_target }}"
+          CAPTURE_ARCH="${CAPTURE_ARCH%%-*}"
+          if [ "$CAPTURE_ARCH" = "aarch64" ]; then CAPTURE_ARCH=arm64; fi
+          bash scripts/build_podcast_capture.sh "$CAPTURE_ARCH" "${{ matrix.ffmpeg_macos_min }}" dist/podcast-capture
+          cp dist/podcast-capture "${MACOS_DIR}/podcast-capture"
+          chmod +x "${MACOS_DIR}/podcast-capture"
           cp "${PDFIUM_DYLIB}" "${FRAMEWORKS_DIR}/libpdfium.dylib"
           chmod +x "${FRAMEWORKS_DIR}/libpdfium.dylib"
           find "dist/curl-cffi/extracted" -type f -name '*.dylib' -print0 | while IFS= read -r -d '' dylib; do
@@ -664,6 +699,8 @@ jobs:
             </array>
             <key>CFBundleAllowMixedLocalizations</key>
             <true/>
+            <key>NSMicrophoneUsageDescription</key>
+            <string>Sonarpad records your microphone only when you start recording a podcast.</string>
             <key>CFBundleName</key>
             <string>Sonarpad</string>
             <key>CFBundleDisplayName</key>
@@ -851,6 +888,14 @@ jobs:
           </plist>
           PLIST
 
+          cat > dist/podcast-capture-entitlements.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <plist version="1.0"><dict><key>com.apple.security.device.audio-input</key><true/></dict></plist>
+          PLIST
+          codesign_with_retry --force --options runtime --timestamp \
+            --entitlements dist/podcast-capture-entitlements.plist \
+            --sign "Developer ID Application" "${APP_DIR}/Contents/MacOS/podcast-capture"
+
           if [ -f "${FFMPEG_BIN}" ]; then
             codesign_with_retry --force --options runtime --timestamp \
               --sign "Developer ID Application" \
@@ -942,8 +987,14 @@ jobs:
           fi
 
           codesign_with_retry --force --options runtime --timestamp \
+            --entitlements dist/podcast-capture-entitlements.plist \
+            --sign "Developer ID Application" "${APP_DIR}/Contents/MacOS/podcast-capture"
+          codesign_with_retry --force --options runtime --timestamp \
+            --entitlements dist/podcast-capture-entitlements.plist \
             --sign "Developer ID Application" \
             "${APP_DIR}"
+          codesign -d --entitlements :- "${APP_DIR}/Contents/MacOS/podcast-capture" 2>/dev/null \
+            | grep -q "com.apple.security.device.audio-input"
 
           if [ -f "${YTDLP_BIN}" ] && [ "${YTDLP_IS_MACHO}" = "true" ]; then
             codesign -d --entitlements :- "${YTDLP_BIN}" 2>/dev/null \

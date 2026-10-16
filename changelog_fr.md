@@ -12,6 +12,12 @@ Version 0.5.3 - 14 octobre 2026
 
 5. Ajout de Envoyer un diagnostic au menu Aide : envoyez le journal et un signalement par e-mail au développeur, avec votre nom et une adresse e-mail facultative pour être recontacté. Plus besoin de chercher le journal dans Application Support.
 
+6. Ajout de Fusionner des fichiers multimédias dans Outils → Multimédia (Option+Shift+Y) : fusion de fichiers audio ou vidéo dans l’ordre choisi, boutons pour ajouter, retirer et réordonner les fichiers, choix du format de destination, progression réelle et annulation. Les vidéos peuvent aussi être réunies dans un fichier audio. Libellés harmonisés avec Convertir un dossier, champ Dossier à convertir distinct du bouton de sélection et confirmations localisées.
+
+7. Ajout des Livres audio par lots dans Outils → Lecture et contenu : ajout de documents ou d’un dossier, retrait de fichiers de la file, choix du dossier de destination et des formats MP3, M4B, M4A et WAV. Utilise la voix et les réglages vocaux configurés, crée un livre audio par document et propose des sous-dossiers. Les fichiers existants sont protégés par un suffixe numérique. Progression réelle, annulation, bilan et poursuite après une erreur sur un document. Réutilisation du cache et des tentatives de récupération des voix Microsoft.
+
+8. Ajout de Enregistrer un podcast dans Outils → Multimédia : microphone, audio du système ou les deux, choix du microphone, volumes séparés, pause et reprise sans silence ajouté, et sortie MP3, M4A ou WAV. Durée enregistrée, annonces VoiceOver, progression de sauvegarde en pourcentage et confirmations localisées avant interruption. Les pistes sont conservées en cas d’échec de la sauvegarde. L’audio du système nécessite macOS 13 ou ultérieur ; le microphone reste disponible sur les versions antérieures prises en charge, dont Catalina.
+
 Version 0.5.2 - 12 octobre 2026
 
 Voix Edge, audiodescriptions et fiabilité

@@ -12,6 +12,12 @@ Wersja 0.5.3 - 14 października 2026
 
 5. Dodano opcję Wyślij diagnostykę w menu Pomoc: wysyła dziennik i zgłoszenie e-mailem do programisty, wraz z imieniem i opcjonalnym adresem e-mail do odpowiedzi. Nie trzeba już szukać dziennika w folderze Application Support.
 
+6. Dodano Połącz pliki multimedialne w Narzędzia → Multimedia (Option+Shift+Y): łączenie plików audio lub wideo w wybranej kolejności, przyciski dodawania, usuwania i zmiany kolejności, wybór formatu wyjściowego, rzeczywisty postęp i anulowanie. Filmy można też połączyć w jeden plik audio. Etykiety ujednolicone z konwersją folderu, pole Folder do konwersji oddzielone od przycisku wyboru i zlokalizowane potwierdzenia.
+
+7. Dodano Wsadowe tworzenie audiobooków w Narzędzia → Czytanie i treści: dodawanie dokumentów lub folderu, usuwanie z kolejki, wybór folderu docelowego i formatów MP3, M4B, M4A i WAV. Używa ustawionego głosu i parametrów mowy, tworzy jeden audiobook na dokument oraz opcjonalne podfoldery. Chroni istniejące pliki, dodając numer do nazwy. Rzeczywisty postęp, anulowanie, podsumowanie i kontynuacja po błędach pojedynczych dokumentów. Wykorzystuje pamięć podręczną i ponowienia głosów Microsoft.
+
+8. Dodano Nagraj podcast w Narzędzia → Multimedia: mikrofon, dźwięk systemowy lub oba źródła, wybór mikrofonu, osobne głośności, wstrzymywanie i wznawianie bez dodawania ciszy oraz zapis MP3, M4A lub WAV. Dostępne są czas nagrania, komunikaty VoiceOver, procentowy postęp zapisywania i przetłumaczone potwierdzenia przerwania pracy. Ścieżki są zachowywane, jeśli zapis się nie powiedzie. Dźwięk systemowy wymaga macOS 13 lub nowszego; mikrofon działa także w starszych obsługiwanych wersjach, w tym Catalinie.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

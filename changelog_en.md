@@ -12,6 +12,12 @@ Version 0.5.3 - October 14, 2026
 
 5. Added Send diagnostics to the Help menu: email the log and a report to the developer, with your name and an optional email address for a reply. There is no need to find the log manually in Application Support.
 
+6. Added Join media files under Tools → Multimedia (Option+Shift+Y): join audio or video files in the chosen order, with buttons to add, remove and reorder files, output format selection, real progress and cancellation. Videos can also be joined into one audio file. Labels aligned with Convert folder, a Folder to convert field separate from its selection button, and localized confirmation dialogs.
+
+7. Added Batch audiobooks under Tools → Reading and content: add documents or a folder, remove queued files, choose the destination folder and MP3, M4B, M4A or WAV. Uses the configured voice and speech settings, creates one audiobook per document, supports per-book subfolders and always protects existing files by adding a number to the name. Includes real progress, cancellation, result summaries and continuation after individual document errors. Reuses Microsoft voice caching and recovery retries.
+
+8. Added Record podcast under Tools → Multimedia: record the microphone, system audio or both, with microphone selection, separate volumes, pause and resume without inserted silence, and MP3, M4A or WAV output. Includes recorded time, VoiceOver announcements, save progress with percentages and localized confirmations before interrupting work. Tracks are preserved if saving fails. System audio requires macOS 13 or later; microphone recording remains available on earlier supported versions, including Catalina.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability
