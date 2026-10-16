@@ -135,7 +135,7 @@ final class Recorder: NSObject, AVCaptureAudioDataOutputSampleBufferDelegate {
         output.setSampleBufferDelegate(self, queue: queue)
         guard session.canAddInput(input), session.canAddOutput(output) else { throw NSError(domain: "Microphone unavailable", code: 2) }
         session.addInput(input); session.addOutput(output)
-        for name in [AVCaptureSession.runtimeErrorNotification, AVCaptureSession.wasInterruptedNotification] {
+        for name in [NSNotification.Name.AVCaptureSessionRuntimeError, NSNotification.Name.AVCaptureSessionWasInterrupted] {
             observers.append(NotificationCenter.default.addObserver(forName: name, object: session, queue: nil) { notification in
                 self.queue.async {
                     if !self.stopping {

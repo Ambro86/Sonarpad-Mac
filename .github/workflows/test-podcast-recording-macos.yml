@@ -4,6 +4,7 @@ on:
 jobs:
   recording:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - runner: macos-14
