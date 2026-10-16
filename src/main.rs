@@ -1,5 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod document_deck;
+mod documents;
 mod articles;
 mod audio_description;
 mod audio_description_bridge;
@@ -337,6 +339,7 @@ enum PodcastDownloadAction {
 }
 
 struct ShortcutActions {
+    document: Rc<dyn Fn(i32)>,
     start: Rc<dyn Fn()>,
     play_pause: Rc<dyn Fn()>,
     stop: Rc<dyn Fn()>,
@@ -903,6 +906,11 @@ struct UiStrings {
     button_back_30: String,
     button_forward_30: String,
     menu_file: String,
+    document_new: String,
+    document_close: String,
+    document_next: String,
+    document_previous: String,
+    document_untitled: String,
     menu_recent_text_files: String,
     menu_recent_text_files_empty: String,
     menu_view: String,
@@ -2006,6 +2014,20 @@ fn handle_shortcut_event(
             let key_code = key_event.get_key_code().unwrap_or_default();
             let unicode_key = key_event.get_unicode_key().unwrap_or_default();
 
+            if command_shortcut_down(key_event)
+                && !key_event.alt_down()
+                && let Some(backwards) = document_deck::shortcut_direction(key_code, unicode_key)
+            {
+                let id = if backwards {
+                    documents::ID_PREVIOUS_DOCUMENT
+                } else {
+                    documents::ID_NEXT_DOCUMENT
+                };
+                (actions.document)(id);
+                event.skip(false);
+                return;
+            }
+
             let is_standard_edit_shortcut = command_shortcut_down(key_event)
                 && !key_event.alt_down()
                 && ((matches_ascii_key(key_code, unicode_key, 'c')
@@ -2459,7 +2481,9 @@ fn ask_unsaved_changes_dialog(parent: &Frame) -> i32 {
     let root = BoxSizer::builder(Orientation::Vertical).build();
 
     let message = StaticText::builder(&panel)
-        .with_label(&ui.unsaved_changes_message)
+        .with_label(&format!(
+            "{}\n\n{}", parent.get_title(), ui.unsaved_changes_message
+        ))
         .build();
     root.add(&message, 1, SizerFlag::Expand | SizerFlag::All, 12);
 
@@ -3643,6 +3667,7 @@ fn set_current_document_state_with_toc(
 }
 
 struct TextDocumentOpenRequest<'a> {
+    playback: &'a Arc<Mutex<GlobalPlayback>>,
     path: &'a Path,
     log_prefix: &'a str,
 }
@@ -3656,8 +3681,18 @@ fn open_text_document_for_display(
     cursor_moved: &Rc<Cell<bool>>,
     request: TextDocumentOpenRequest<'_>,
 ) -> Result<(), String> {
-    let TextDocumentOpenRequest { path, log_prefix } = request;
+    let TextDocumentOpenRequest { path, log_prefix, playback } = request;
+    if documents::activate_existing(parent, text_ctrl, document_state, path) {
+        stop_tts_playback(playback);
+        stop_podcast_playback(podcast_playback);
+        podcast_playback.borrow_mut().selected_episode = None;
+        cursor_moved.set(true);
+        return Ok(());
+    }
     let document = load_file_for_display(parent, path)?;
+    documents::begin_new(text_ctrl, document_state);
+    stop_tts_playback(playback);
+    stop_podcast_playback(podcast_playback);
     let text_len = document.text.len();
     podcast_playback.borrow_mut().selected_episode = None;
     text_ctrl.set_value(&document.text);
@@ -3669,6 +3704,8 @@ fn open_text_document_for_display(
         Some(path.to_path_buf()),
         document.epub_toc,
     );
+    documents::update_title(parent, document_state);
+    text_ctrl.set_focus();
     remember_recent_text_file(settings, path);
     append_podcast_log(&format!(
         "{log_prefix}.loaded path={} length={}",
@@ -3684,10 +3721,6 @@ fn save_current_document(
     text_ctrl: &TextCtrl,
     document_state: &Arc<Mutex<CurrentDocumentState>>,
 ) -> bool {
-    if text_ctrl.get_value().trim().is_empty() {
-        return true;
-    }
-
     let current_text = text_ctrl.get_value();
     let state_snapshot = document_state.lock().unwrap().clone();
     let path_buf = if let Some(path) = state_snapshot.direct_save_path {
@@ -3746,10 +3779,6 @@ fn save_current_document_as(
     text_ctrl: &TextCtrl,
     document_state: &Arc<Mutex<CurrentDocumentState>>,
 ) -> bool {
-    if text_ctrl.get_value().trim().is_empty() {
-        return true;
-    }
-
     let state_snapshot = document_state.lock().unwrap().clone();
     let preferred_extension = state_snapshot.opened_path.as_ref().map(|_| "txt");
 
@@ -29696,6 +29725,18 @@ fn main() {
             .build();
 
         let file_menu = Menu::builder().build();
+        file_menu.append(
+            documents::ID_NEW_DOCUMENT,
+            &format!("{}\tCtrl+N", ui.document_new),
+            &ui.document_new,
+            ItemKind::Normal,
+        );
+        file_menu.append(
+            documents::ID_CLOSE_DOCUMENT,
+            &format!("{}\tCtrl+W", ui.document_close),
+            &ui.document_close,
+            ItemKind::Normal,
+        );
         file_menu.append(ID_OPEN, &ui.menu_open, &ui.menu_open_help, ItemKind::Normal);
         let recent_text_files_menu_owned = Menu::builder().build();
         rebuild_recent_text_files_menu(&recent_text_files_menu_owned, &settings, ui);
@@ -29846,8 +29887,22 @@ fn main() {
             .append(view_menu, &ui.menu_view)
             .append(tools_menu, &ui.menu_tools);
         #[cfg(target_os = "macos")]
-        let menubar_builder =
-            menubar_builder.append(Menu::builder().build(), &ui.menu_window);
+        let menubar_builder = {
+            let window_menu = Menu::builder().build();
+            window_menu.append(
+                documents::ID_NEXT_DOCUMENT,
+                &format!("{}\tCtrl+<", ui.document_next),
+                &ui.document_next,
+                ItemKind::Normal,
+            );
+            window_menu.append(
+                documents::ID_PREVIOUS_DOCUMENT,
+                &format!("{}\tCtrl+>", ui.document_previous),
+                &ui.document_previous,
+                ItemKind::Normal,
+            );
+            menubar_builder.append(window_menu, &ui.menu_window)
+        };
         let menubar = menubar_builder.append(help_menu, &ui.menu_help).build();
         frame.set_menu_bar(menubar);
 
@@ -29876,6 +29931,16 @@ fn main() {
         text_ctrl.set_editable(!settings.lock().unwrap().read_only_mode);
         let cursor_moved_by_user = Rc::new(Cell::new(false));
         main_sizer.add(&text_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
+
+        let document_action: Rc<dyn Fn(i32)> = {
+            let state = Arc::clone(&current_document);
+            let settings = Arc::clone(&settings);
+            let playback = Arc::clone(&playback);
+            let podcast = Rc::clone(&podcast_playback);
+            let cursor = Rc::clone(&cursor_moved_by_user);
+            let article = Rc::clone(&current_article_state);
+            Rc::new(move |id| documents::command(id, &frame, &settings, &text_ctrl, &state, &playback, &podcast, &cursor, &article))
+        };
 
         let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
         let btn_start = Button::builder(&panel)
@@ -29999,6 +30064,7 @@ fn main() {
             Rc::clone(&tv_audio_description_dialog_open);
 
         timer_tick.on_tick(move |_| {
+            documents::update_title(&frame_timer, &current_document_timer);
             let tts_status = pb_timer.lock().unwrap().status;
             let (podcast_status, podcast_mode) = {
                 let podcast_state = podcast_playback_timer.borrow();
@@ -30277,10 +30343,6 @@ fn main() {
                     match open_local_media_with_mpv(&path) {
                         Ok(()) => {
                             podcast_playback_timer.borrow_mut().selected_episode = None;
-                            tc_articles_timer.set_value("");
-                            cursor_moved_timer.set(false);
-                            tc_articles_timer.set_modified(false);
-                            set_current_document_state(&current_document_timer, None);
                             append_podcast_log(&format!(
                                 "app.open_files_event.media_opened path={}",
                                 path.display()
@@ -30308,6 +30370,7 @@ fn main() {
                     TextDocumentOpenRequest {
                         path: &path,
                         log_prefix: "app.open_files_event",
+                        playback: &pb_timer,
                     },
                 ) {
                     Ok(()) => {}
@@ -30376,7 +30439,7 @@ fn main() {
             let confirmation_already_done = close_already_confirmed_close.replace(false);
             if confirmation_already_done {
                 append_podcast_log("window_close.unsaved_confirmation_already_done");
-            } else if !confirm_unsaved_changes_before_close(
+            } else if !documents::confirm_all(
                 &frame_close,
                 &settings_close,
                 &tc_close,
@@ -30431,8 +30494,14 @@ fn main() {
         let btn_recent_articles_menu = btn_recent_articles;
         let panel_menu = panel;
         let close_already_confirmed_menu = Rc::clone(&close_already_confirmed);
+        let document_action_menu = Rc::clone(&document_action);
+        let playback_menu_documents = Arc::clone(&playback);
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
+            if matches!(event.get_id(), documents::ID_NEW_DOCUMENT | documents::ID_CLOSE_DOCUMENT | documents::ID_NEXT_DOCUMENT | documents::ID_PREVIOUS_DOCUMENT) {
+                document_action_menu(event.get_id());
+                return;
+            }
             if let Some(recent_index) = recent_text_file_index(event.get_id()) {
                 let recent_files = recent_text_files_snapshot(&settings_menu);
                 if let Some(path) = recent_files.get(recent_index).map(PathBuf::from) {
@@ -30453,6 +30522,7 @@ fn main() {
                         TextDocumentOpenRequest {
                             path: &path,
                             log_prefix: "recent_text_files",
+                            playback: &playback_menu_documents,
                         },
                     ) {
                         Ok(()) => {}
@@ -30467,50 +30537,47 @@ fn main() {
                     }
                 }
             } else if event.get_id() == ID_OPEN {
-                let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.webp;*.heic;*.mp3;*.m4a;*.m4b;*.aac;*.ogg;*.opus;*.flac;*.wav;*.mp4;*.m4v;*.mov;*.mkv;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*").build();
+                let dialog = FileDialog::builder(&f_menu).with_message(&ui.open).with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist | FileDialogStyle::Multiple).with_wildcard("Supportati|*.txt;*.doc;*.docx;*.pdf;*.epub;*.rtf;*.xlsx;*.xls;*.ods;*.html;*.htm;*.png;*.jpg;*.jpeg;*.gif;*.bmp;*.tif;*.tiff;*.webp;*.heic;*.mp3;*.m4a;*.m4b;*.aac;*.ogg;*.opus;*.flac;*.wav;*.mp4;*.m4v;*.mov;*.mkv;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*").build();
                 #[cfg(target_os = "macos")]
                 set_mac_native_file_dialog_open(true);
                 let dialog_result = dialog.show_modal();
                 #[cfg(target_os = "macos")]
                 set_mac_native_file_dialog_open(false);
-                if dialog_result == ID_OK
-                    && let Some(path) = dialog.get_path()
-                {
-                    let path = Path::new(&path);
-                    remember_text_bookmark(&settings_menu, &tc_menu, &current_document_menu);
-                    *current_article_state_menu.borrow_mut() = None;
-                    if is_media_path(path) {
-                        if let Err(err) = open_local_media_with_mpv(path) {
-                            show_message_dialog(&f_menu, &ui.open_document_title, &err);
-                        } else {
-                            podcast_selection_menu.borrow_mut().selected_episode = None;
-                            tc_menu.set_value("");
-                            cursor_moved_menu.set(false);
-                            tc_menu.set_modified(false);
-                            set_current_document_state(&current_document_menu, None);
+                if dialog_result == ID_OK {
+                    for path in dialog.get_paths() {
+                        let path = Path::new(&path);
+                        remember_text_bookmark(&settings_menu, &tc_menu, &current_document_menu);
+                        *current_article_state_menu.borrow_mut() = None;
+                        if is_media_path(path) {
+                            if let Err(err) = open_local_media_with_mpv(path) {
+                                show_message_dialog(&f_menu, &ui.open_document_title, &err);
+                            } else {
+                                podcast_selection_menu.borrow_mut().selected_episode = None;
+                            }
+                            continue;
                         }
-                        return;
-                    }
-                    match open_text_document_for_display(
-                        &f_menu,
-                        &settings_menu,
-                        &tc_menu,
-                        &current_document_menu,
-                        &podcast_selection_menu,
-                        &cursor_moved_menu,
-                        TextDocumentOpenRequest {
-                            path,
-                            log_prefix: "file_menu.open",
-                        },
-                    ) {
-                        Ok(()) => {}
-                        Err(err) => {
-                            append_podcast_log(&format!(
-                                "file_menu.open.failed path={} err={}",
-                                path.display(),
-                                err
-                            ));
-                            show_message_dialog(&f_menu, &ui.open_document_title, &err);
+                        match open_text_document_for_display(
+                            &f_menu,
+                            &settings_menu,
+                            &tc_menu,
+                            &current_document_menu,
+                            &podcast_selection_menu,
+                            &cursor_moved_menu,
+                            TextDocumentOpenRequest {
+                                path,
+                                log_prefix: "file_menu.open",
+                                playback: &playback_menu_documents,
+                            },
+                        ) {
+                            Ok(()) => {}
+                            Err(err) => {
+                                append_podcast_log(&format!(
+                                    "file_menu.open.failed path={} err={}",
+                                    path.display(),
+                                    err
+                                ));
+                                show_message_dialog(&f_menu, &ui.open_document_title, &err);
+                            }
                         }
                     }
                 }
@@ -30544,7 +30611,7 @@ fn main() {
             } else if event.get_id() == ID_EXIT {
                 event.skip(false);
                 append_podcast_log("file_menu.exit.request");
-                if confirm_unsaved_changes_before_close(
+                if documents::confirm_all(
                     &f_menu,
                     &settings_menu,
                     &tc_menu,
@@ -32721,6 +32788,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32743,6 +32811,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32765,6 +32834,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32787,6 +32857,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32809,6 +32880,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32831,6 +32903,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32853,6 +32926,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32875,6 +32949,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32897,6 +32972,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32919,6 +32995,7 @@ fn main() {
         #[cfg(not(target_os = "macos"))]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32945,6 +33022,7 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             let shortcut_actions = ShortcutActions {
+                document: Rc::clone(&document_action),
                 start: Rc::clone(&start_action),
                 play_pause: Rc::clone(&play_action),
                 stop: Rc::clone(&stop_action),
@@ -32980,6 +33058,7 @@ fn main() {
                 TextDocumentOpenRequest {
                     path,
                     log_prefix: "app.initial_open",
+                    playback: &playback,
                 },
             ) {
                 Ok(()) => {}

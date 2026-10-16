@@ -18,6 +18,8 @@ Wersja 0.5.3 - 14 października 2026
 
 8. Dodano Nagraj podcast w Narzędzia → Multimedia: mikrofon, dźwięk systemowy lub oba źródła, wybór mikrofonu, osobne głośności, wstrzymywanie i wznawianie bez dodawania ciszy oraz zapis MP3, M4A lub WAV. Dostępne są czas nagrania, komunikaty VoiceOver, procentowy postęp zapisywania i przetłumaczone potwierdzenia przerwania pracy. Ścieżki są zachowywane, jeśli zapis się nie powiedzie. Dźwięk systemowy wymaga macOS 13 lub nowszego; mikrofon działa także w starszych obsługiwanych wersjach, w tym Catalinie.
 
+9. Dodano otwieranie wielu dokumentów i przełączanie między nimi przez Command+< (Command+> wstecz) lub menu Okno. Menu Plik zawiera Nowy dokument i Zamknij dokument. Każdy dokument zachowuje tekst, zmiany i pozycję czytania; przy zamykaniu sprawdzane są niezapisane zmiany wszystkich dokumentów.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

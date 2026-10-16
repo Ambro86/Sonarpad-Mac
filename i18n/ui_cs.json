@@ -1,4 +1,9 @@
 {
+  "document_new": "Nový dokument",
+  "document_close": "Zavřít dokument",
+  "document_next": "Další dokument",
+  "document_previous": "Předchozí dokument",
+  "document_untitled": "Bez názvu",
   "settings_title": "Nastavení",
   "about_title": "O aplikaci",
   "donations_title": "Dary",

@@ -18,6 +18,8 @@ Versión 0.5.3 - 14 de octubre de 2026
 
 8. Añadida la función Grabar pódcast en Herramientas → Multimedia: micrófono, audio del sistema o ambos, selección de micrófono, volúmenes separados, pausa y reanudación sin silencios añadidos, y salida MP3, M4A o WAV. Incluye tiempo grabado, anuncios de VoiceOver, progreso del guardado con porcentaje y confirmaciones localizadas antes de interrumpir el trabajo. Las pistas se conservan si falla el guardado. El audio del sistema requiere macOS 13 o posterior; el micrófono sigue disponible en versiones anteriores compatibles, incluida Catalina.
 
+9. Añadida la apertura de varios documentos y el cambio entre ellos con Command+< (Command+> para retroceder), o desde el menú Ventana. Archivo incluye Nuevo documento y Cerrar documento. Cada documento conserva su texto, cambios y posición de lectura; al salir se comprueban los cambios sin guardar de todos los documentos.
+
 Versión 0.5.2 - 12 de octubre de 2026
 
 Voces Edge, audiodescripciones y estabilidad

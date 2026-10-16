@@ -1,4 +1,9 @@
 {
+  "document_new": "Nowy dokument",
+  "document_close": "Zamknij dokument",
+  "document_next": "Następny dokument",
+  "document_previous": "Poprzedni dokument",
+  "document_untitled": "Bez tytułu",
   "settings_title": "Ustawienia",
   "about_title": "Informacje o programie",
   "donations_title": "Darowizny",

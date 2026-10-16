@@ -18,6 +18,8 @@ Version 0.5.3 - 14 octobre 2026
 
 8. Ajout de Enregistrer un podcast dans Outils → Multimédia : microphone, audio du système ou les deux, choix du microphone, volumes séparés, pause et reprise sans silence ajouté, et sortie MP3, M4A ou WAV. Durée enregistrée, annonces VoiceOver, progression de sauvegarde en pourcentage et confirmations localisées avant interruption. Les pistes sont conservées en cas d’échec de la sauvegarde. L’audio du système nécessite macOS 13 ou ultérieur ; le microphone reste disponible sur les versions antérieures prises en charge, dont Catalina.
 
+9. Ajout de l’ouverture de plusieurs documents et du passage de l’un à l’autre avec Command+< (Command+> pour revenir), ou depuis le menu Fenêtre. Fichier propose Nouveau document et Fermer le document. Chaque document conserve son texte, ses modifications et sa position de lecture ; les modifications non enregistrées de tous les documents sont vérifiées à la fermeture.
+
 Version 0.5.2 - 12 octobre 2026
 
 Voix Edge, audiodescriptions et fiabilité

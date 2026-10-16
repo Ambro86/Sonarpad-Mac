@@ -18,6 +18,8 @@ Versão 0.5.3 - 14 de outubro de 2026
 
 8. Adicionada a função Gravar podcast em Ferramentas → Multimédia: microfone, áudio do sistema ou ambos, escolha do microfone, volumes separados, pausa e retoma sem silêncios adicionais e saída MP3, M4A ou WAV. Inclui tempo gravado, anúncios VoiceOver, progresso ao guardar com percentagem e confirmações localizadas antes de interromper o trabalho. As pistas são conservadas se a gravação do ficheiro falhar. O áudio do sistema requer macOS 13 ou posterior; o microfone continua disponível nas versões anteriores suportadas, incluindo Catalina.
 
+9. Adicionado suporte para abrir vários documentos e alternar com Command+< (Command+> para voltar), ou pelo menu Janela. Ficheiro inclui Novo documento e Fechar documento. Cada documento mantém o texto, as alterações e a posição de leitura; ao sair são verificadas as alterações não guardadas de todos os documentos.
+
 Versão 0.5.2 - 12 de outubro de 2026
 
 Vozes Edge, audiodescrições e fiabilidade

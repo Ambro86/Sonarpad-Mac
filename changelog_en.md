@@ -18,6 +18,8 @@ Version 0.5.3 - October 14, 2026
 
 8. Added Record podcast under Tools → Multimedia: record the microphone, system audio or both, with microphone selection, separate volumes, pause and resume without inserted silence, and MP3, M4A or WAV output. Includes recorded time, VoiceOver announcements, save progress with percentages and localized confirmations before interrupting work. Tracks are preserved if saving fails. System audio requires macOS 13 or later; microphone recording remains available on earlier supported versions, including Catalina.
 
+9. Added support for opening multiple documents and switching with Command+< (Command+> to go back), or from the Window menu. File includes New document and Close document. Each document retains its text, changes and reading position; quitting checks all documents for unsaved changes.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability

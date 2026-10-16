@@ -1,4 +1,9 @@
 {
+  "document_new": "New document",
+  "document_close": "Close document",
+  "document_next": "Next document",
+  "document_previous": "Previous document",
+  "document_untitled": "Untitled",
   "settings_title": "Settings",
   "about_title": "About",
   "donations_title": "Donations",

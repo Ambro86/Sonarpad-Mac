@@ -18,6 +18,8 @@ Verze 0.5.3 - 14. října 2026
 
 8. Přidána funkce Nahrát podcast v Nástroje → Multimédia: mikrofon, systémový zvuk nebo obojí, výběr mikrofonu, samostatné hlasitosti, pozastavení a pokračování bez vloženého ticha a výstup MP3, M4A nebo WAV. Zahrnuje dobu nahrávání, oznámení VoiceOver, průběh ukládání v procentech a lokalizovaná potvrzení před přerušením práce. Při selhání ukládání se stopy zachovají. Systémový zvuk vyžaduje macOS 13 nebo novější; mikrofon je dostupný i na starších podporovaných verzích včetně Cataliny.
 
+9. Přidána možnost otevřít více dokumentů a přepínat mezi nimi pomocí Command+< (Command+> pro návrat) nebo nabídky Okno. Nabídka Soubor obsahuje Nový dokument a Zavřít dokument. Každý dokument zachovává text, změny a pozici čtení; při ukončení se kontrolují neuložené změny všech dokumentů.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost

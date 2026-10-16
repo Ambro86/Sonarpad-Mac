@@ -1,4 +1,9 @@
 {
+  "document_new": "Nouveau document",
+  "document_close": "Fermer le document",
+  "document_next": "Document suivant",
+  "document_previous": "Document précédent",
+  "document_untitled": "Sans titre",
   "settings_title": "Paramètres",
   "about_title": "À propos",
   "donations_title": "Dons",

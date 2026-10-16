@@ -18,6 +18,8 @@ Versione 0.5.3 - 14 ottobre 2026
 
 8. Aggiunto Registra podcast in Strumenti → Multimedia: registra il microfono, l’audio di sistema o entrambi, con scelta del microfono, volumi separati, pausa e ripresa senza silenzi aggiunti e salvataggio in MP3, M4A o WAV. Include tempo registrato, annunci VoiceOver, avanzamento del salvataggio con percentuale e conferme localizzate prima di interrompere un lavoro. Le tracce vengono conservate se il salvataggio non riesce. L’audio di sistema richiede macOS 13 o successivo; il microfono resta disponibile anche sulle versioni precedenti supportate, compresa Catalina.
 
+9. Aggiunta la possibilità di aprire più documenti e passare da uno all’altro con Command+< (Command+> per tornare indietro), oppure dal menu Finestra. File include Nuovo documento e Chiudi documento. Ogni documento conserva testo, modifiche e posizione di lettura; all’uscita vengono controllate le modifiche non salvate di tutti i documenti.
+
 Versione 0.5.2 - 12 ottobre 2026
 
 Voci Edge, audiodescrizioni e affidabilità
