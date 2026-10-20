@@ -40,6 +40,33 @@ class BuildToolTests(unittest.TestCase):
         '''
         return subprocess.run([BASH, '--noprofile', '--norc'], input=textwrap.dedent(stub)+textwrap.dedent(block), text=True, capture_output=True, timeout=10)
 
+    def test_pipe_protocol_check_accepts_indentation_but_requires_pipe(self):
+        source = (ROOT / '.github/workflows/macos-app-dmg.yml').read_text(encoding='utf-8')
+        line = next(line.strip() for line in source.splitlines()
+                    if '-protocols |' in line and 'pipe' in line)
+        script = ('set -euo pipefail\n'
+                  'ffmpeg_bin=fake_ffmpeg\n'
+                  'fake_ffmpeg() { printf "%s\\n" "$PROTOCOL_LIST"; return "$FFMPEG_EXIT"; }\n'
+                  + line + '\n')
+        for listing, success in [
+            ('Supported file protocols:\nInput:\n  file\n  pipe\nOutput:\n  pipe', True),
+            ('pipe', True),
+            ('\tpipe\t', True),
+            ('  file\n  https', False),
+            ('  pipeline', False),
+            ('', False),
+        ]:
+            with self.subTest(listing=listing):
+                env = {**os.environ, 'PROTOCOL_LIST': listing, 'FFMPEG_EXIT': '0'}
+                result = subprocess.run([BASH, '--noprofile', '--norc'],
+                    input=script, text=True, capture_output=True, env=env, timeout=10)
+                self.assertEqual(result.returncode == 0, success, result.stderr)
+        # A failing FFmpeg must not pass even if it printed the protocol.
+        env = {**os.environ, 'PROTOCOL_LIST': '  pipe', 'FFMPEG_EXIT': '1'}
+        result = subprocess.run([BASH, '--noprofile', '--norc'], input=script,
+            text=True, capture_output=True, env=env, timeout=10)
+        self.assertNotEqual(result.returncode, 0)
+
     def test_both_workflows(self):
         for name in ['macos-app-dmg.yml', 'macos-app-dmg-catalina.yml']:
             for missing in ['', 'nasm', 'cmake ninja nasm pkg-config']:

@@ -270,7 +270,7 @@ jobs:
               "${ffmpeg_bin}" -hide_banner -muxers | grep -E "[[:space:]]${muxer}[[:space:]]" >/dev/null
             done
             "${ffmpeg_bin}" -hide_banner -devices | grep -E '[[:space:]]lavfi[[:space:]]' >/dev/null
-            "${ffmpeg_bin}" -hide_banner -protocols | grep -Fx pipe >/dev/null
+            "${ffmpeg_bin}" -hide_banner -protocols | grep -E '^[[:space:]]*pipe[[:space:]]*$' >/dev/null
           }
           if [ -x "dist/ffmpeg-install/bin/ffmpeg" ]; then
             "dist/ffmpeg-install/bin/ffmpeg" -version
