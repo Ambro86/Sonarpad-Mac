@@ -81,7 +81,25 @@ struct SpreakerShowItem {
     #[serde(default)]
     title: String,
     #[serde(default)]
-    author_name: String,
+    author_name: Option<String>,
+    #[serde(default)]
+    author: Option<SpreakerAuthor>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SpreakerAuthor {
+    #[serde(default)]
+    fullname: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct SpreakerShowResponse {
+    response: SpreakerShowPayload,
+}
+
+#[derive(Debug, Deserialize)]
+struct SpreakerShowPayload {
+    show: SpreakerShowItem,
 }
 
 pub fn normalize_url(input: &str) -> String {
@@ -458,10 +476,59 @@ pub async fn search_podcasts(keyword: &str) -> Result<Vec<PodcastSearchResult>, 
         search_spreaker_podcasts(trimmed)
     );
 
-    let mut combined = itunes_results?;
-    combined.extend(spreaker_results?);
+    crate::append_podcast_log(&format!(
+        "podcast.search.catalogs: apple={:?}, spreaker={:?}",
+        itunes_results.as_ref().map(Vec::len),
+        spreaker_results.as_ref().map(Vec::len)
+    ));
+    let mut combined = merge_catalog_results(itunes_results, spreaker_results)?;
+    let exact = podcast_title_key(trimmed);
+    combined.sort_by_key(|item| podcast_title_key(&item.title) != exact);
+    Ok(combined)
+}
+
+fn merge_catalog_results(
+    first: Result<Vec<PodcastSearchResult>, String>,
+    second: Result<Vec<PodcastSearchResult>, String>,
+) -> Result<Vec<PodcastSearchResult>, String> {
+    let mut combined = match (first, second) {
+        (Ok(mut first), Ok(second)) => {
+            first.extend(second);
+            first
+        }
+        (Ok(results), Err(error)) | (Err(error), Ok(results)) => {
+            crate::append_podcast_log(&format!("podcast.search.partial_failure: {error}"));
+            results
+        }
+        (Err(first), Err(second)) => return Err(format!("{first}; {second}")),
+    };
     dedup_search_results(&mut combined);
     Ok(combined)
+}
+
+fn podcast_title_key(title: &str) -> String {
+    title
+        .to_lowercase()
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
+fn spreaker_result(item: SpreakerShowItem) -> PodcastSearchResult {
+    PodcastSearchResult {
+        title: item.title,
+        artist: item
+            .author_name
+            .filter(|name| !name.trim().is_empty())
+            .or_else(|| item.author.and_then(|author| author.fullname))
+            .unwrap_or_default(),
+        feed_url: format!(
+            "https://www.spreaker.com/show/{}/episodes/feed",
+            item.show_id
+        ),
+        collection_id: None,
+    }
 }
 
 async fn search_spreaker_podcasts(keyword: &str) -> Result<Vec<PodcastSearchResult>, String> {
@@ -479,35 +546,76 @@ async fn search_spreaker_podcasts(keyword: &str) -> Result<Vec<PodcastSearchResu
         .build()
         .map_err(|err| err.to_string())?;
 
-    let bytes = client
-        .get(&url)
+    let (search, exact) = tokio::join!(
+        fetch_spreaker_search(&client, &url),
+        fetch_spreaker_exact(&client, keyword)
+    );
+    crate::append_podcast_log(&format!(
+        "podcast.search.spreaker: catalog={:?}, exact={:?}",
+        search.as_ref().map(Vec::len),
+        exact.as_ref().map(Vec::len)
+    ));
+    // Prefer the direct result: it also includes the author's display name.
+    merge_catalog_results(exact, search)
+}
+
+async fn fetch_spreaker_search(
+    client: &reqwest::Client,
+    url: &str,
+) -> Result<Vec<PodcastSearchResult>, String> {
+    let parsed: SpreakerSearchResponse = client
+        .get(url)
         .send()
         .await
         .map_err(|err| err.to_string())?
         .error_for_status()
         .map_err(|err| err.to_string())?
-        .bytes()
+        .json()
         .await
         .map_err(|err| err.to_string())?;
-
-    let parsed: SpreakerSearchResponse =
-        serde_json::from_slice(&bytes).map_err(|err| err.to_string())?;
-
     Ok(parsed
         .response
         .items
         .into_iter()
         .filter(|item| !item.title.trim().is_empty())
-        .map(|item| PodcastSearchResult {
-            title: item.title,
-            artist: item.author_name,
-            feed_url: format!(
-                "https://www.spreaker.com/show/{}/episodes/feed",
-                item.show_id
-            ),
-            collection_id: None,
-        })
+        .map(spreaker_result)
         .collect())
+}
+
+async fn fetch_spreaker_exact(
+    client: &reqwest::Client,
+    keyword: &str,
+) -> Result<Vec<PodcastSearchResult>, String> {
+    // Public shows can disappear from Spreaker's search index while their
+    // permalink still resolves. Do not special-case any title or show ID.
+    let key = podcast_title_key(keyword);
+    if key.is_empty() {
+        return Ok(Vec::new());
+    }
+    let encoded: String = url::form_urlencoded::byte_serialize(key.as_bytes()).collect();
+    let response = client
+        .get(format!("https://api.spreaker.com/v2/shows/{encoded}"))
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+    if response.status() == reqwest::StatusCode::NOT_FOUND {
+        return Ok(Vec::new());
+    }
+    let parsed: SpreakerShowResponse = response
+        .error_for_status()
+        .map_err(|err| err.to_string())?
+        .json()
+        .await
+        .map_err(|err| err.to_string())?;
+    Ok(exact_spreaker_result(parsed.response.show, &key))
+}
+
+fn exact_spreaker_result(item: SpreakerShowItem, key: &str) -> Vec<PodcastSearchResult> {
+    // A historical permalink may now identify a renamed, unrelated show.
+    if podcast_title_key(&item.title) != key {
+        return Vec::new();
+    }
+    vec![spreaker_result(item)]
 }
 
 pub async fn search_itunes_category(category_id: u32) -> Result<Vec<PodcastSearchResult>, String> {
@@ -901,19 +1009,156 @@ fn itunes_item_matches_genre(item: &ItunesSearchItem, genre_id: u32) -> bool {
 
 fn dedup_search_results(results: &mut Vec<PodcastSearchResult>) {
     let mut seen_feed_urls = HashSet::new();
-    let mut seen_titles = HashSet::new();
     results.retain(|result| {
         let feed_key = normalize_url(&result.feed_url).to_lowercase();
-        let title_key = format!(
-            "{}|{}",
-            result.title.trim().to_lowercase(),
-            result.artist.trim().to_lowercase()
-        );
 
         if !feed_key.is_empty() && !seen_feed_urls.insert(feed_key) {
             return false;
         }
 
-        seen_titles.insert(title_key)
+        true
     });
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+
+    fn result(title: &str, feed: &str) -> PodcastSearchResult {
+        PodcastSearchResult {
+            title: title.into(),
+            artist: String::new(),
+            feed_url: feed.into(),
+            collection_id: None,
+        }
+    }
+
+    #[test]
+    fn one_failed_catalog_keeps_the_other_results() {
+        for reverse in [false, true] {
+            let success = Ok(vec![result("A", "https://example.org/a")]);
+            let failure = Err("HTTP 503".into());
+            let merged = if reverse {
+                merge_catalog_results(failure, success)
+            } else {
+                merge_catalog_results(success, failure)
+            }
+            .unwrap();
+            assert_eq!(merged.len(), 1);
+        }
+    }
+
+    #[test]
+    fn both_failed_catalogs_remain_an_error() {
+        let error = merge_catalog_results(
+            Err("Apple unavailable".into()),
+            Err("Spreaker unavailable".into()),
+        )
+        .unwrap_err();
+        assert!(error.contains("Apple unavailable") && error.contains("Spreaker unavailable"));
+    }
+
+    #[test]
+    fn empty_success_is_not_an_error() {
+        assert!(
+            merge_catalog_results(Ok(Vec::new()), Err("offline".into()))
+                .unwrap()
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn different_feeds_with_the_same_title_are_not_discarded() {
+        let merged = merge_catalog_results(
+            Ok(vec![result("Almanacco", "https://example.org/a")]),
+            Ok(vec![result("Almanacco", "https://example.org/b")]),
+        )
+        .unwrap();
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn duplicate_feed_is_shown_once() {
+        let merged = merge_catalog_results(
+            Ok(vec![result("Almanacco", "https://example.org/a")]),
+            Ok(vec![result("Almanacco renamed", "https://example.org/a")]),
+        )
+        .unwrap();
+        assert_eq!(merged.len(), 1);
+    }
+
+    #[test]
+    fn title_keys_handle_spaces_punctuation_and_case() {
+        assert_eq!(podcast_title_key("  Almanacco  "), "almanacco");
+        assert_eq!(
+            podcast_title_key("L'Almanacco del GIORNO"),
+            "l-almanacco-del-giorno"
+        );
+        assert!(podcast_title_key("?! ").is_empty());
+    }
+
+    #[test]
+    fn spreaker_missing_or_null_author_is_supported() {
+        for json in [
+            r#"{"show_id":1,"title":"A"}"#,
+            r#"{"show_id":1,"title":"A","author_name":null}"#,
+        ] {
+            let item = spreaker_result(serde_json::from_str(json).unwrap());
+            assert!(item.artist.is_empty());
+        }
+        let item = spreaker_result(
+            serde_json::from_str(
+                r#"{
+            "show_id":5587296,"title":"Almanacco","author_name":null,
+            "author":{"fullname":"Radio Taormina"}}
+        "#,
+            )
+            .unwrap(),
+        );
+        assert_eq!(item.artist, "Radio Taormina");
+        assert_eq!(
+            item.feed_url,
+            "https://www.spreaker.com/show/5587296/episodes/feed"
+        );
+    }
+
+    #[test]
+    fn exact_lookup_rejects_a_renamed_or_unrelated_show() {
+        let item = serde_json::from_str(r#"{"show_id":1,"title":"Another show"}"#).unwrap();
+        assert!(exact_spreaker_result(item, "almanacco").is_empty());
+        let item = serde_json::from_str(r#"{"show_id":1,"title":"ALMANACCO"}"#).unwrap();
+        assert_eq!(exact_spreaker_result(item, "almanacco").len(), 1);
+    }
+
+    #[tokio::test]
+    #[ignore = "requires live Apple and Spreaker services"]
+    async fn live_almanacco_search_and_feed() {
+        let results = search_podcasts("Almanacco").await.unwrap();
+        let found = results
+            .iter()
+            .find(|r| r.feed_url == "https://www.spreaker.com/show/5587296/episodes/feed")
+            .expect("Almanacco by Radio Taormina must be discoverable");
+        assert_eq!(found.title, "Almanacco");
+        assert_eq!(found.artist, "Radio Taormina");
+        assert_eq!(results[0].title, "Almanacco");
+        let feed = fetch_source(&PodcastSource {
+            title: found.title.clone(),
+            url: found.feed_url.clone(),
+            episodes: Vec::new(),
+        })
+        .await
+        .unwrap();
+        assert!(!feed.episodes.is_empty());
+        assert!(
+            feed.episodes
+                .iter()
+                .any(|e| e.audio_url.starts_with("https://"))
+        );
+        println!(
+            "Live: {} search results; {} episodes from {}",
+            results.len(),
+            feed.episodes.len(),
+            found.title
+        );
+    }
 }
