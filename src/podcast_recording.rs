@@ -108,6 +108,13 @@ pub fn open_dialog(parent: &Frame) {
         .with_style(TextCtrlStyle::ReadOnly)
         .build();
     output.set_accessibility_label(&tr(&labels, "record_output"));
+    let default_output = crate::default_audiobook_save_folder().join(format!(
+        "{}-{}.{}",
+        crate::sanitize_filename(&tr(&labels, "record_filename")),
+        chrono::Local::now().format("%Y-%m-%d_%H-%M-%S"),
+        engine::FORMATS[0],
+    ));
+    output.set_value(&default_output.to_string_lossy());
     let choose = Button::builder(&panel)
         .with_label(&tr(&labels, "record_choose_output"))
         .build();
@@ -227,6 +234,7 @@ pub fn open_dialog(parent: &Frame) {
         let picker = FileDialog::builder(&dialog)
             .with_message(&tr(&l, "record_choose_output"))
             .with_style(FileDialogStyle::Save)
+            .with_default_dir(&path.parent().unwrap_or(std::path::Path::new("")).to_string_lossy())
             .with_default_file(&name)
             .with_wildcard(&format!("{}|*.{ext}", ext.to_uppercase()))
             .build();

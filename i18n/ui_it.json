@@ -96,6 +96,8 @@
   "menu_updates": "Controlla &aggiornamenti",
   "menu_updates_help": "Controlla se esiste una nuova versione",
   "updates_title": "Aggiornamenti",
+  "update_downloading": "Scaricamento aggiornamento in corso...",
+  "update_extracting": "Preparazione aggiornamento in corso...",
   "changelog_title": "Changelog",
   "podcast_error_title": "Errore podcast",
   "yes": "Sì",

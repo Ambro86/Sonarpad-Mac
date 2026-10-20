@@ -96,6 +96,8 @@
   "menu_updates": "Sprawdź &aktualizacje",
   "menu_updates_help": "Sprawdź, czy jest dostępna nowa wersja",
   "updates_title": "Aktualizacje",
+  "update_downloading": "Pobieranie aktualizacji...",
+  "update_extracting": "Przygotowywanie aktualizacji...",
   "changelog_title": "Changelog",
   "podcast_error_title": "Błąd podcastu",
   "yes": "Tak",

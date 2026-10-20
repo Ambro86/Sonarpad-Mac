@@ -89,6 +89,10 @@ fn trf(key: &str, values: &[(&str, String)]) -> String {
     text
 }
 
+pub fn action_label() -> String {
+    tr("media_transcription.start")
+}
+
 pub fn menu_label() -> String {
     tr("media_transcription.title")
 }
@@ -332,6 +336,10 @@ fn run_with_progress(
 }
 
 pub fn open_dialog(parent: &Frame) {
+    open_dialog_with_input(parent, None);
+}
+
+pub fn open_dialog_with_input(parent: &dyn WxWidget, initial_input: Option<PathBuf>) {
     let dialog = Dialog::builder(parent, &tr("media_transcription.title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 350)
@@ -372,6 +380,19 @@ pub fn open_dialog(parent: &Frame) {
     let output = TextCtrl::builder(&panel).build();
     output_row.add(&output, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&output_row, 0, SizerFlag::Expand, 0);
+    if let Some(path) = initial_input {
+        input.set_value(&path.to_string_lossy());
+        let suggested = suggested_output(&path);
+        let mut folder = crate::default_audiobook_save_folder();
+        if !folder.is_dir() {
+            folder = crate::app_storage_path("transcriptions");
+            if let Err(error) = fs::create_dir_all(&folder) {
+                crate::append_podcast_log(&format!("transcription.output_directory_failed: {error}"));
+            }
+        }
+        let destination = folder.join(suggested.file_name().unwrap_or_default());
+        output.set_value(&destination.to_string_lossy());
+    }
 
     let model_row = BoxSizer::builder(Orientation::Horizontal).build();
     model_row.add(

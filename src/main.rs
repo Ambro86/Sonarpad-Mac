@@ -1,5 +1,8 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod menu_shortcuts;
+#[cfg(target_os = "macos")]
+mod update_progress;
 mod document_deck;
 mod documents;
 mod articles;
@@ -361,6 +364,8 @@ struct GithubReleaseInfo {
 struct GithubReleaseAsset {
     name: String,
     browser_download_url: String,
+    #[serde(default)]
+    size: u64,
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]
@@ -1104,6 +1109,8 @@ struct UiStrings {
     menu_updates: String,
     menu_updates_help: String,
     updates_title: String,
+    update_downloading: String,
+    update_extracting: String,
     changelog_title: String,
     podcast_error_title: String,
     yes: String,
@@ -7097,6 +7104,7 @@ fn matching_macos_release_asset(release: &GithubReleaseInfo) -> Option<GithubRel
 #[cfg(target_os = "macos")]
 fn prepare_macos_update_install(
     asset: &GithubReleaseAsset,
+    progress: &Arc<Mutex<update_progress::Progress>>,
 ) -> Result<PendingMacUpdateInstall, String> {
     let work_dir = std::env::temp_dir().join(format!("sonarpad-update-{}", Uuid::new_v4()));
     std::fs::create_dir_all(&work_dir)
@@ -7114,8 +7122,13 @@ fn prepare_macos_update_install(
         .map_err(|err| format!("download aggiornamento fallito: {}", err))?;
     let mut file = std::fs::File::create(&zip_path)
         .map_err(|err| format!("creazione archivio update fallita: {err}"))?;
-    std::io::copy(&mut response, &mut file)
-        .map_err(|err| format!("salvataggio archivio update fallito: {err}"))?;
+    let total = response.content_length().filter(|size| *size > 0)
+        .or_else(|| (asset.size > 0).then_some(asset.size));
+    update_progress::copy_download(&mut response, &mut file, total, |value| {
+        *progress.lock().unwrap() = value;
+    }).map_err(|err| format!("salvataggio archivio update fallito: {err}"))?;
+    drop(file);
+    progress.lock().unwrap().extracting = true;
 
     let extract_dir = work_dir.join("extracted");
     std::fs::create_dir_all(&extract_dir)
@@ -7152,37 +7165,60 @@ fn prepare_macos_update_install_with_progress(
     asset: GithubReleaseAsset,
 ) -> Result<PendingMacUpdateInstall, String> {
     let ui = current_ui_strings();
-    let message = if Settings::load().ui_language == "it" {
-        "Scaricamento aggiornamento in corso..."
-    } else {
-        "Downloading update..."
-    };
-    let progress = ProgressDialog::builder(parent, &ui.updates_title, message, 100)
-        .with_style(ProgressDialogStyle::AutoHide | ProgressDialogStyle::Smooth)
+    let dialog = Dialog::builder(parent, &ui.updates_title)
+        .with_size(540, 160)
         .build();
+    dialog.set_escape_id(wxdragon::id::ID_NONE);
+    let panel = Panel::builder(&dialog).build();
+    let status = StaticText::builder(&panel).with_label(&ui.update_downloading).build();
+    let gauge = Gauge::builder(&panel).with_range(100).build();
+    gauge.set_accessibility_label(&ui.update_downloading);
+    let layout = BoxSizer::builder(Orientation::Vertical).build();
+    layout.add(&status, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    layout.add(&gauge, 0, SizerFlag::Expand | SizerFlag::All, 12);
+    panel.set_sizer(layout, true);
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    root.add(&panel, 1, SizerFlag::Expand, 0);
+    dialog.set_sizer(root, true);
+    // Keep the modal owner alive until the worker has finished.
+    dialog.on_close(|event| event.skip(false));
+    let progress = Arc::new(Mutex::new(update_progress::Progress::default()));
     let result_state = Arc::new(Mutex::new(None::<Result<PendingMacUpdateInstall, String>>));
-    let result_state_thread = Arc::clone(&result_state);
-
+    let worker_result = Arc::clone(&result_state);
+    let worker_progress = Arc::clone(&progress);
     std::thread::spawn(move || {
-        let result = prepare_macos_update_install(&asset);
-        *result_state_thread.lock().unwrap() = Some(result);
+        let result = prepare_macos_update_install(&asset, &worker_progress);
+        *worker_result.lock().unwrap() = Some(result);
     });
-
-    let mut progress_value = 0;
-    loop {
-        std::thread::sleep(Duration::from_millis(150));
-        if let Some(result) = result_state.lock().unwrap().take() {
-            progress.update(100, Some(message));
-            progress.destroy();
-            return result;
+    let timer = Timer::new(&dialog);
+    let timer_result = Arc::clone(&result_state);
+    let last_message = RefCell::new(String::new());
+    timer.on_tick(move |_| {
+        let value = *progress.lock().unwrap();
+        let message = if value.extracting {
+            ui.update_extracting.clone()
+        } else if let Some(percent) = value.percent() {
+            format!("{} {percent}%", ui.update_downloading)
+        } else {
+            format!("{} {:.1} MiB", ui.update_downloading, value.downloaded as f64 / 1_048_576.0)
+        };
+        if *last_message.borrow() != message {
+            gauge.set_value(value.percent().unwrap_or(0) as i32);
+            status.set_label(&message);
+            gauge.set_accessibility_label(&message);
+            panel.layout();
+            *last_message.borrow_mut() = message;
         }
-
-        progress_value += 2;
-        if progress_value >= 95 {
-            progress_value = 10;
+        if timer_result.lock().unwrap().is_some() {
+            dialog.end_modal(ID_OK);
         }
-        progress.update(progress_value, Some(message));
-    }
+    });
+    timer.start(150, false);
+    dialog.show_modal();
+    timer.stop();
+    dialog.destroy();
+    result_state.lock().unwrap().take()
+        .unwrap_or_else(|| Err("Update window closed before completion".to_string()))
 }
 
 #[cfg(target_os = "macos")]
@@ -10341,61 +10377,61 @@ fn rebuild_articles_menu(
         let _ = articles_menu.delete_item(&item);
     }
 
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_ADD_SOURCE,
         &format!("{}...", ui.add_source),
         &ui.add_source,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_ADD_COMMUNITY_SOURCE,
         &format!("{}...", ui.add_article_community),
         &ui.add_article_community,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_COMMUNITY_SOURCES,
         &format!("{}...", ui.article_community_sources),
         &ui.article_community_sources,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_EDIT_SOURCE,
         &format!("{}...", ui.edit_source),
         &ui.edit_source,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_DELETE_SOURCE,
         &format!("{}...", ui.delete_source),
         &ui.delete_source,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_REORDER_SOURCES,
         &format!("{}...", ui.reorder_sources),
         &ui.reorder_sources,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_SORT_SOURCES_ALPHABETICALLY,
         &ui.sorted_articles_title,
         &ui.sorted_articles_message,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_RESTORE_DEFAULT_SOURCES,
         &ui.restore_default_sources,
         &ui.restore_default_sources,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_IMPORT_SOURCES,
         &format!("{}...", ui.import_sources),
         &ui.import_sources,
         ItemKind::Normal,
     );
-    let _ = articles_menu.append(
+    let _ = articles_menu.append_command(
         ID_ARTICLES_EXPORT_SOURCES,
         &format!("{}...", ui.export_sources),
         &ui.export_sources,
@@ -10406,7 +10442,7 @@ fn rebuild_articles_menu(
         .or_else(last_article_state)
         .is_some()
     {
-        let _ = articles_menu.append(
+        let _ = articles_menu.append_command(
             ID_RECENT_ARTICLES,
             &ui.menu_recent_articles,
             &ui.menu_recent_articles,
@@ -10459,7 +10495,7 @@ fn rebuild_podcasts_menu(
         let _ = podcasts_menu.delete_item(&item);
     }
 
-    let _ = podcasts_menu.append(
+    let _ = podcasts_menu.append_command(
         ID_PODCASTS_ADD,
         &format!("{}...", ui.add_podcast),
         &ui.add_podcast,
@@ -10523,19 +10559,19 @@ fn rebuild_podcasts_menu(
         "Sfoglia per categorie",
         "Sfoglia podcast per categoria",
     );
-    let _ = podcasts_menu.append(
+    let _ = podcasts_menu.append_command(
         ID_PODCASTS_DELETE,
         &format!("{}...", ui.delete_podcast),
         &ui.delete_podcast,
         ItemKind::Normal,
     );
-    let _ = podcasts_menu.append(
+    let _ = podcasts_menu.append_command(
         ID_PODCASTS_REORDER_SOURCES,
         &format!("{}...", ui.reorder_podcasts),
         &ui.reorder_podcasts,
         ItemKind::Normal,
     );
-    let _ = podcasts_menu.append(
+    let _ = podcasts_menu.append_command(
         ID_PODCASTS_SORT_SOURCES_ALPHABETICALLY,
         &ui.sorted_podcasts_title,
         &ui.sorted_podcasts_message,
@@ -10607,8 +10643,8 @@ fn rebuild_radio_menu(
         let _ = radio_menu.delete_item(&item);
     }
 
-    let _ = radio_menu.append(ID_RADIO_SEARCH, "Cerca...", "Cerca radio", ItemKind::Normal);
-    let _ = radio_menu.append(
+    let _ = radio_menu.append_command(ID_RADIO_SEARCH, "Cerca...", "Cerca radio", ItemKind::Normal);
+    let _ = radio_menu.append_command(
         ID_RADIO_RECORDINGS,
         if ui_language == "it" {
             "Registrazioni..."
@@ -10622,19 +10658,19 @@ fn rebuild_radio_menu(
         },
         ItemKind::Normal,
     );
-    let _ = radio_menu.append(
+    let _ = radio_menu.append_command(
         ID_RADIO_ADD,
         &format!("{}...", ui.add_radio),
         &ui.add_radio,
         ItemKind::Normal,
     );
-    let _ = radio_menu.append(
+    let _ = radio_menu.append_command(
         ID_RADIO_EDIT_FAVORITE,
         &format!("{}...", ui.edit_radio),
         &ui.edit_radio,
         ItemKind::Normal,
     );
-    let _ = radio_menu.append(
+    let _ = radio_menu.append_command(
         ID_RADIO_REORDER_FAVORITES,
         &format!("{}...", ui.reorder_radios),
         &ui.reorder_radios,
@@ -10738,7 +10774,7 @@ fn rebuild_radio_menu(
         }
     }
     let _ = radio_menu.append_submenu(favorites_menu, &ui.radio_favorites, &ui.radio_favorites);
-    let _ = radio_menu.append(
+    let _ = radio_menu.append_command(
         ID_RADIO_DELETE_FAVORITE,
         &format!("{}...", ui.delete_radio_favorite),
         &ui.delete_radio_favorite,
@@ -12311,7 +12347,9 @@ fn open_add_podcast_dialog(
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
     );
-    let keyword_ctrl = TextCtrl::builder(&panel).build();
+    let keyword_ctrl = TextCtrl::builder(&panel)
+        .with_style(TextCtrlStyle::ProcessEnter)
+        .build();
     keyword_row.add(&keyword_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&keyword_row, 0, SizerFlag::Expand, 0);
 
@@ -12329,6 +12367,10 @@ fn open_add_podcast_dialog(
     let dialog_ok = dialog;
     ok_button.on_click(move |_| {
         dialog_ok.end_modal(ID_OK);
+    });
+    let dialog_enter = dialog;
+    keyword_ctrl.on_text_enter(move |_| {
+        dialog_enter.end_modal(ID_OK);
     });
 
     let result = if dialog.show_modal() == ID_OK {
@@ -21745,6 +21787,41 @@ fn open_youtube_progress_dialog_with_cancel(
     }
 }
 
+struct YoutubeTranscriptionDownload {
+    path: PathBuf,
+}
+
+impl Drop for YoutubeTranscriptionDownload {
+    fn drop(&mut self) {
+        if let Err(error) = std::fs::remove_file(&self.path)
+            && error.kind() != std::io::ErrorKind::NotFound
+        {
+            append_podcast_log(&format!("youtube.transcription.cleanup_failed: {error}"));
+        }
+        // Remove only an empty directory: a user may have saved the transcript beside the audio.
+        if let Some(directory) = self.path.parent() {
+            match std::fs::remove_dir(directory) {
+                Ok(()) => {}
+                Err(error) if matches!(error.kind(), std::io::ErrorKind::NotFound | std::io::ErrorKind::DirectoryNotEmpty) => {}
+                Err(error) => append_podcast_log(&format!("youtube.transcription.cleanup_failed: {error}")),
+            }
+        }
+    }
+}
+
+fn download_youtube_for_transcription(url: &str, title: &str) -> Result<YoutubeTranscriptionDownload, String> {
+    let directory = std::env::temp_dir()
+        .join(format!("sonarpad-youtube-transcription-{}", uuid::Uuid::new_v4()));
+    let output = directory.join(format!("{}.mp3", sanitize_filename(title)));
+    let result = save_youtube_to_path(url, "mp3", "best", output);
+    if result.is_err() && directory.exists()
+        && let Err(error) = std::fs::remove_dir_all(&directory)
+    {
+        append_podcast_log(&format!("youtube.transcription.cleanup_failed: {error}"));
+    }
+    result.map(|path| YoutubeTranscriptionDownload { path })
+}
+
 fn open_youtube_results_dialog(
     parent: &Dialog,
     settings: &Arc<Mutex<Settings>>,
@@ -21891,6 +21968,9 @@ fn open_youtube_results_dialog(
     root.add_sizer(&options, 0, SizerFlag::Expand, 0);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let save_button = Button::builder(&panel).with_label(&ui.youtube_save).build();
+    let transcribe_button = Button::builder(&panel)
+        .with_label(&media_transcription::action_label())
+        .build();
     let create_audio_description_button = Button::builder(&panel)
         .with_label(&audio_description::menu_label())
         .build();
@@ -21900,6 +21980,7 @@ fn open_youtube_results_dialog(
         .build();
     buttons.add_spacer(1);
     buttons.add(&save_button, 0, SizerFlag::All, 10);
+    buttons.add(&transcribe_button, 0, SizerFlag::All, 10);
     buttons.add(&create_audio_description_button, 0, SizerFlag::All, 10);
     buttons.add(&close_button, 0, SizerFlag::All, 10);
     root.add_sizer(&buttons, 0, SizerFlag::Expand, 0);
@@ -21916,6 +21997,7 @@ fn open_youtube_results_dialog(
     create_audio_description_button.show(
         results.first().is_some_and(|result| !result.is_collection),
     );
+    transcribe_button.show(results.first().is_some_and(|result| !result.is_collection));
     panel.layout();
     dialog.layout();
     let youtube_pending_result =
@@ -21925,10 +22007,14 @@ fn open_youtube_results_dialog(
     let youtube_pending_save = Arc::new(Mutex::new(None::<Result<PathBuf, String>>));
     let youtube_pending_audio_description =
         Arc::new(Mutex::new(None::<Result<PathBuf, String>>));
+    let youtube_pending_transcription =
+        Arc::new(Mutex::new(None::<Result<YoutubeTranscriptionDownload, String>>));
     let youtube_busy = Arc::new(AtomicBool::new(false));
     let youtube_open_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_save_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_audio_description_progress =
+        Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
+    let youtube_transcription_progress =
         Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_more_progress = Rc::new(RefCell::new(None::<YoutubeSearchProgressDialog>));
     let youtube_result_timer = Rc::new(Timer::new(&dialog));
@@ -21938,6 +22024,8 @@ fn open_youtube_results_dialog(
     let youtube_pending_save_timer = Arc::clone(&youtube_pending_save);
     let youtube_pending_audio_description_timer =
         Arc::clone(&youtube_pending_audio_description);
+    let youtube_pending_transcription_timer = Arc::clone(&youtube_pending_transcription);
+    let youtube_transcription_progress_timer = Rc::clone(&youtube_transcription_progress);
     let youtube_busy_timer = Arc::clone(&youtube_busy);
     let settings_timer = Arc::clone(settings);
     let audio_context_timer = audio_context.clone();
@@ -22004,6 +22092,23 @@ fn open_youtube_results_dialog(
                     show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err)
                 }
             }
+            choice_save_focus_timer.set_focus();
+        }
+        let transcription_result = youtube_pending_transcription_timer.lock().unwrap().take();
+        if let Some(result) = transcription_result {
+            if let Some(progress_dialog) = youtube_transcription_progress_timer.borrow_mut().take() {
+                progress_dialog.destroy();
+            }
+            // Keep other YouTube actions blocked while the transcription dialog is open.
+            match result {
+                Ok(path) => {
+                    media_transcription::open_dialog_with_input(&dialog_timer, Some(path.path.clone()));
+                }
+                Err(error) => show_message_subdialog(
+                    &dialog_timer, &current_ui_strings().youtube_title, &error,
+                ),
+            }
+            youtube_busy_timer.store(false, Ordering::SeqCst);
             choice_save_focus_timer.set_focus();
         }
         let audio_description_result = youtube_pending_audio_description_timer
@@ -22134,6 +22239,7 @@ fn open_youtube_results_dialog(
     let dialog_favorite_visibility = dialog;
     let favorite_button_visibility = favorite_button;
     let create_audio_description_button_visibility = create_audio_description_button;
+    let transcribe_button_visibility = transcribe_button;
     let open_button_selection = open_button;
     choice.on_selection_changed(move |_| {
         let selected_result = choice_favorite_visibility
@@ -22155,6 +22261,7 @@ fn open_youtube_results_dialog(
         });
         let audio_description_visible = selected_result.is_some_and(|result| !result.is_collection);
         create_audio_description_button_visibility.show(audio_description_visible);
+        transcribe_button_visibility.show(audio_description_visible);
         panel_favorite_visibility.layout();
         dialog_favorite_visibility.layout();
     });
@@ -22275,6 +22382,28 @@ fn open_youtube_results_dialog(
         } else {
             youtube_busy_save.store(false, Ordering::SeqCst);
         }
+    });
+    let choice_transcription = choice;
+    let results_transcription = Rc::clone(&results);
+    let dialog_transcription = dialog;
+    let pending_transcription_click = Arc::clone(&youtube_pending_transcription);
+    let busy_transcription = Arc::clone(&youtube_busy);
+    let transcription_progress_click = Rc::clone(&youtube_transcription_progress);
+    transcribe_button.on_click(move |_| {
+        let selected = choice_transcription.get_selection()
+            .and_then(|index| results_transcription.get(index as usize))
+            .filter(|result| !result.is_collection);
+        let Some(selected) = selected else { return; };
+        if busy_transcription.swap(true, Ordering::SeqCst) { return; }
+        let url = selected.url.clone();
+        let title = youtube_result_title_for_save(selected);
+        let pending = Arc::clone(&pending_transcription_click);
+        *transcription_progress_click.borrow_mut() =
+            Some(open_youtube_save_progress_dialog(&dialog_transcription));
+        std::thread::spawn(move || {
+            let result = download_youtube_for_transcription(&url, &title);
+            *pending.lock().unwrap() = Some(result);
+        });
     });
     let choice_audio_description = choice;
     let results_audio_description = Rc::clone(&results);
@@ -22416,6 +22545,7 @@ fn open_youtube_results_dialog(
     let youtube_save_progress_destroy = Rc::clone(&youtube_save_progress);
     let youtube_audio_description_progress_destroy =
         Rc::clone(&youtube_audio_description_progress);
+    let youtube_transcription_progress_destroy = Rc::clone(&youtube_transcription_progress);
     dialog.on_destroy(move |event| {
         if let Some(progress_dialog) = youtube_more_progress_destroy.borrow_mut().take() {
             progress_dialog.destroy();
@@ -22429,6 +22559,9 @@ fn open_youtube_results_dialog(
         if let Some(progress_dialog) =
             youtube_audio_description_progress_destroy.borrow_mut().take()
         {
+            progress_dialog.destroy();
+        }
+        if let Some(progress_dialog) = youtube_transcription_progress_destroy.borrow_mut().take() {
             progress_dialog.destroy();
         }
         youtube_result_timer_destroy.stop();
@@ -29265,6 +29398,19 @@ fn run_ffmpeg_save_blocking(args: &[String], output_path: &Path) -> Result<(), S
 }
 
 
+trait MenuCommandExt {
+    fn append_command(&self, id: i32, title: &str, help: &str, kind: ItemKind)
+        -> Option<wxdragon::menus::MenuItem>;
+}
+
+impl MenuCommandExt for Menu {
+    fn append_command(&self, id: i32, title: &str, help: &str, kind: ItemKind)
+        -> Option<wxdragon::menus::MenuItem>
+    {
+        self.append(id, &menu_shortcuts::label(id, title), help, kind)
+    }
+}
+
 fn clear_menu(menu: &Menu) {
     for item in menu.get_menu_items().into_iter().rev() {
         let _ = menu.delete_item(&item);
@@ -29272,27 +29418,27 @@ fn clear_menu(menu: &Menu) {
 }
 
 fn append_tools_reading_content(menu: &Menu, settings: &Settings, ui: &UiStrings) {
-    let _ = menu.append(ID_TOOLS_BATCH_AUDIOBOOKS, &batch_audiobooks::menu_label(), &batch_audiobooks::menu_label(), ItemKind::Normal);
-    let _ = menu.append(
+    let _ = menu.append_command(ID_TOOLS_BATCH_AUDIOBOOKS, &batch_audiobooks::menu_label(), &batch_audiobooks::menu_label(), ItemKind::Normal);
+    let _ = menu.append_command(
         ID_TOOLS_WIKIPEDIA,
         &ui.tools_wikipedia_label,
         &ui.tools_wikipedia_label,
         ItemKind::Normal,
     );
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_VOICE_DICTIONARY,
         voice_dictionary_title(),
         voice_dictionary_title(),
         ItemKind::Normal,
     );
     if settings.ui_language == "it" {
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_TOOLS_TRECCANI,
             "Cerca e importa da Treccani",
             "Cerca e importa voci dall’Enciclopedia Treccani",
             ItemKind::Normal,
         );
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_TOOLS_BDCIECHI,
             &ui.bdciechi_title,
             &ui.bdciechi_title,
@@ -29303,50 +29449,50 @@ fn append_tools_reading_content(menu: &Menu, settings: &Settings, ui: &UiStrings
 
 fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
     let audio_description_label = audio_description::menu_label();
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_AUDIO_DESCRIPTION,
         &audio_description_label,
         &audio_description_label,
         ItemKind::Normal,
     );
     let media_transcription_label = media_transcription::menu_label();
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_MEDIA_TRANSCRIPTION,
         &media_transcription_label,
         &media_transcription_label,
         ItemKind::Normal,
     );
     if youtube_tools_available() {
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_TOOLS_YOUTUBE,
             &ui.tools_youtube_label,
             &ui.tools_youtube_label,
             ItemKind::Normal,
         );
     }
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_CINEMA,
         &ui.cinema_title,
         &ui.cinema_title,
         ItemKind::Normal,
     );
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_CONVERT_MEDIA,
         &ui.convert_media_title,
         &ui.convert_media_title,
         ItemKind::Normal,
     );
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_CONVERT_FOLDER,
         &ui.convert_folder_title,
         &ui.convert_folder_title,
         ItemKind::Normal,
     );
-    let _ = menu.append(ID_TOOLS_MEDIA_JOIN, &media_join::menu_label(), &media_join::menu_label(), ItemKind::Normal);
-    let _ = menu.append(ID_TOOLS_RECORD_PODCAST, &podcast_recording::menu_label(), &podcast_recording::menu_label(), ItemKind::Normal);
+    let _ = menu.append_command(ID_TOOLS_MEDIA_JOIN, &media_join::menu_label(), &media_join::menu_label(), ItemKind::Normal);
+    let _ = menu.append_command(ID_TOOLS_RECORD_PODCAST, &podcast_recording::menu_label(), &podcast_recording::menu_label(), ItemKind::Normal);
     if SHOW_MEDIA_CUTTER_IN_MENUS {
         let media_cutter_label = media_cutter::menu_label();
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_TOOLS_MEDIA_CUTTER,
             &media_cutter_label,
             &media_cutter_label,
@@ -29355,63 +29501,63 @@ fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
     }
     if settings.ui_language == "it" {
         if load_saved_rai_luce_code().is_some() {
-            let _ = menu.append(
+            let _ = menu.append_command(
                 ID_SONARPAD_AUDIO_DESCRIPTIONS,
                 "Audiodescrizioni Sonarpad",
                 "Audiodescrizioni Sonarpad",
                 ItemKind::Normal,
             );
         }
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_RAI_AUDIO_DESCRIPTIONS,
             &ui.rai_audio_descriptions_label,
             &ui.rai_audio_descriptions_label,
             ItemKind::Normal,
         );
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_RAIPLAY_BROWSE,
             &ui.raiplay_label,
             &ui.raiplay_label,
             ItemKind::Normal,
         );
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_LA7_PLAY,
             la7_play::menu_label(),
             la7_play::menu_label(),
             ItemKind::Normal,
         );
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_RAIPLAY_SOUND,
             &ui.raiplaysound_label,
             &ui.raiplaysound_label,
             ItemKind::Normal,
         );
-        let _ = menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
+        let _ = menu.append_command(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
     }
 }
 
 fn append_tools_utilities(menu: &Menu, settings: &Settings, ui: &UiStrings) {
     let calendar_labels = calendar::labels(&settings.ui_language);
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_CALENDAR,
         calendar_labels.menu,
         calendar_labels.menu,
         ItemKind::Normal,
     );
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_WEATHER,
         &ui.meteo_title,
         &ui.meteo_title,
         ItemKind::Normal,
     );
-    let _ = menu.append(
+    let _ = menu.append_command(
         ID_TOOLS_ROUTES,
         &ui.routes_title,
         &ui.routes_title,
         ItemKind::Normal,
     );
     if settings.ui_language == "it" {
-        let _ = menu.append(
+        let _ = menu.append_command(
             ID_TOOLS_ITALIAN_DIRECTORIES,
             &ui.tools_italian_directories_label,
             &ui.tools_italian_directories_label,
@@ -29447,84 +29593,84 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
             &ui.tools_category_utilities,
         );
     } else {
-        let _ = tools_menu.append(ID_TOOLS_BATCH_AUDIOBOOKS, &batch_audiobooks::menu_label(), &batch_audiobooks::menu_label(), ItemKind::Normal);
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(ID_TOOLS_BATCH_AUDIOBOOKS, &batch_audiobooks::menu_label(), &batch_audiobooks::menu_label(), ItemKind::Normal);
+        let _ = tools_menu.append_command(
             ID_TOOLS_WIKIPEDIA,
             &ui.tools_wikipedia_label,
             &ui.tools_wikipedia_label,
             ItemKind::Normal,
         );
         let audio_description_label = audio_description::menu_label();
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_AUDIO_DESCRIPTION,
             &audio_description_label,
             &audio_description_label,
             ItemKind::Normal,
         );
         let media_transcription_label = media_transcription::menu_label();
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_MEDIA_TRANSCRIPTION,
             &media_transcription_label,
             &media_transcription_label,
             ItemKind::Normal,
         );
         if youtube_tools_available() {
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_TOOLS_YOUTUBE,
                 &ui.tools_youtube_label,
                 &ui.tools_youtube_label,
                 ItemKind::Normal,
             );
         }
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_WEATHER,
             &ui.meteo_title,
             &ui.meteo_title,
             ItemKind::Normal,
         );
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_CINEMA,
             &ui.cinema_title,
             &ui.cinema_title,
             ItemKind::Normal,
         );
         let calendar_labels = calendar::labels(&settings.ui_language);
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_CALENDAR,
             calendar_labels.menu,
             calendar_labels.menu,
             ItemKind::Normal,
         );
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_CONVERT_MEDIA,
             &ui.convert_media_title,
             &ui.convert_media_title,
             ItemKind::Normal,
         );
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_CONVERT_FOLDER,
             &ui.convert_folder_title,
             &ui.convert_folder_title,
             ItemKind::Normal,
         );
-        let _ = tools_menu.append(ID_TOOLS_MEDIA_JOIN, &media_join::menu_label(), &media_join::menu_label(), ItemKind::Normal);
-        let _ = tools_menu.append(ID_TOOLS_RECORD_PODCAST, &podcast_recording::menu_label(), &podcast_recording::menu_label(), ItemKind::Normal);
+        let _ = tools_menu.append_command(ID_TOOLS_MEDIA_JOIN, &media_join::menu_label(), &media_join::menu_label(), ItemKind::Normal);
+        let _ = tools_menu.append_command(ID_TOOLS_RECORD_PODCAST, &podcast_recording::menu_label(), &podcast_recording::menu_label(), ItemKind::Normal);
         if SHOW_MEDIA_CUTTER_IN_MENUS {
             let media_cutter_label = media_cutter::menu_label();
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_TOOLS_MEDIA_CUTTER,
                 &media_cutter_label,
                 &media_cutter_label,
                 ItemKind::Normal,
             );
         }
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_ROUTES,
             &ui.routes_title,
             &ui.routes_title,
             ItemKind::Normal,
         );
-        let _ = tools_menu.append(
+        let _ = tools_menu.append_command(
             ID_TOOLS_VOICE_DICTIONARY,
             voice_dictionary_title(),
             voice_dictionary_title(),
@@ -29532,52 +29678,52 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
         );
         if settings.ui_language == "it" {
             let _ = tools_menu.append_separator();
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_TOOLS_TRECCANI,
                 "Cerca e importa da Treccani",
                 "Cerca e importa voci dall’Enciclopedia Treccani",
                 ItemKind::Normal,
             );
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_TOOLS_BDCIECHI,
                 &ui.bdciechi_title,
                 &ui.bdciechi_title,
                 ItemKind::Normal,
             );
             if load_saved_rai_luce_code().is_some() {
-                let _ = tools_menu.append(
+                let _ = tools_menu.append_command(
                     ID_SONARPAD_AUDIO_DESCRIPTIONS,
                     "Audiodescrizioni Sonarpad",
                     "Audiodescrizioni Sonarpad",
                     ItemKind::Normal,
                 );
             }
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_RAI_AUDIO_DESCRIPTIONS,
                 &ui.rai_audio_descriptions_label,
                 &ui.rai_audio_descriptions_label,
                 ItemKind::Normal,
             );
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_RAIPLAY_BROWSE,
                 &ui.raiplay_label,
                 &ui.raiplay_label,
                 ItemKind::Normal,
             );
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_LA7_PLAY,
                 la7_play::menu_label(),
                 la7_play::menu_label(),
                 ItemKind::Normal,
             );
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(
                 ID_RAIPLAY_SOUND,
                 &ui.raiplaysound_label,
                 &ui.raiplaysound_label,
                 ItemKind::Normal,
             );
-            let _ = tools_menu.append(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
-            let _ = tools_menu.append(
+            let _ = tools_menu.append_command(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
+            let _ = tools_menu.append_command(
                 ID_TOOLS_ITALIAN_DIRECTORIES,
                 &ui.tools_italian_directories_label,
                 &ui.tools_italian_directories_label,
@@ -29725,19 +29871,19 @@ fn main() {
             .build();
 
         let file_menu = Menu::builder().build();
-        file_menu.append(
+        file_menu.append_command(
             documents::ID_NEW_DOCUMENT,
             &format!("{}\tCtrl+N", ui.document_new),
             &ui.document_new,
             ItemKind::Normal,
         );
-        file_menu.append(
+        file_menu.append_command(
             documents::ID_CLOSE_DOCUMENT,
             &format!("{}\tCtrl+W", ui.document_close),
             &ui.document_close,
             ItemKind::Normal,
         );
-        file_menu.append(ID_OPEN, &ui.menu_open, &ui.menu_open_help, ItemKind::Normal);
+        file_menu.append_command(ID_OPEN, &ui.menu_open, &ui.menu_open_help, ItemKind::Normal);
         let recent_text_files_menu_owned = Menu::builder().build();
         rebuild_recent_text_files_menu(&recent_text_files_menu_owned, &settings, ui);
         let recent_text_files_menu_ptr = recent_text_files_menu_owned.as_const_ptr();
@@ -29748,28 +29894,28 @@ fn main() {
         );
         let recent_text_files_menu = Rc::new(Menu::from(recent_text_files_menu_ptr));
         #[cfg(target_os = "macos")]
-        let save_text_menu_item = file_menu.append(
+        let save_text_menu_item = file_menu.append_command(
             ID_SAVE_TEXT,
             &ui.menu_save_text,
             &ui.menu_save_text_help,
             ItemKind::Normal,
         );
         #[cfg(target_os = "macos")]
-        let save_text_as_menu_item = file_menu.append(
+        let save_text_as_menu_item = file_menu.append_command(
             ID_SAVE_TEXT_AS,
             &ui.menu_save_text_as,
             &ui.menu_save_text_as_help,
             ItemKind::Normal,
         );
         #[cfg(not(target_os = "macos"))]
-        file_menu.append(
+        file_menu.append_command(
             ID_SAVE_TEXT,
             &ui.menu_save_text,
             &ui.menu_save_text_help,
             ItemKind::Normal,
         );
         #[cfg(not(target_os = "macos"))]
-        file_menu.append(
+        file_menu.append_command(
             ID_SAVE_TEXT_AS,
             &ui.menu_save_text_as,
             &ui.menu_save_text_as_help,
@@ -29777,14 +29923,14 @@ fn main() {
         );
         file_menu.append_separator();
         #[cfg(target_os = "macos")]
-        let start_menu_item = file_menu.append(
+        let start_menu_item = file_menu.append_command(
             ID_START_PLAYBACK,
             &ui.menu_start,
             &ui.menu_start_help,
             ItemKind::Normal,
         );
         #[cfg(target_os = "macos")]
-        let play_menu_item = file_menu.append(
+        let play_menu_item = file_menu.append_command(
             ID_PLAY_PAUSE,
             &ui.menu_play_pause,
             &ui.menu_play_pause_help,
@@ -29792,12 +29938,12 @@ fn main() {
         );
         #[cfg(target_os = "macos")]
         let stop_menu_item =
-            file_menu.append(ID_STOP, &ui.menu_stop, &ui.menu_stop_help, ItemKind::Normal);
+            file_menu.append_command(ID_STOP, &ui.menu_stop, &ui.menu_stop_help, ItemKind::Normal);
         #[cfg(target_os = "macos")]
         let save_menu_item =
-            file_menu.append(ID_SAVE, &ui.menu_save, &ui.menu_save_help, ItemKind::Normal);
+            file_menu.append_command(ID_SAVE, &ui.menu_save, &ui.menu_save_help, ItemKind::Normal);
         #[cfg(target_os = "macos")]
-        let settings_menu_item = file_menu.append(
+        let settings_menu_item = file_menu.append_command(
             ID_SETTINGS,
             &settings_menu_label(&ui.menu_settings),
             &ui.menu_settings_help,
@@ -29805,33 +29951,33 @@ fn main() {
         );
         #[cfg(target_os = "macos")]
         file_menu.append_separator();
-        file_menu.append(ID_EXIT, &ui.menu_exit, &ui.menu_exit_help, ItemKind::Normal);
+        file_menu.append_command(ID_EXIT, &ui.menu_exit, &ui.menu_exit_help, ItemKind::Normal);
         let help_menu = Menu::builder().build();
-        help_menu.append(
+        help_menu.append_command(
             ID_SEND_DIAGNOSTICS,
             &ui.report_title,
             &ui.report_notice,
             ItemKind::Normal,
         );
-        help_menu.append(
+        help_menu.append_command(
             ID_ABOUT,
             &ui.menu_about,
             &ui.menu_about_help,
             ItemKind::Normal,
         );
-        help_menu.append(
+        help_menu.append_command(
             ID_DONATIONS,
             &ui.menu_donations,
             &ui.menu_donations_help,
             ItemKind::Normal,
         );
-        help_menu.append(
+        help_menu.append_command(
             ID_CHANGELOG,
             &ui.menu_changelog,
             &ui.menu_changelog_help,
             ItemKind::Normal,
         );
-        help_menu.append(
+        help_menu.append_command(
             ID_CHECK_UPDATES,
             &ui.menu_updates,
             &ui.menu_updates_help,
@@ -29860,14 +30006,14 @@ fn main() {
         let radio_menu_timer = Menu::from(radio_menu.as_const_ptr());
 
         let view_menu = Menu::builder().build();
-        view_menu.append(
+        view_menu.append_command(
             ID_READ_ONLY_MODE,
             &ui.menu_read_only_mode,
             &ui.menu_read_only_mode,
             ItemKind::Check,
         );
         view_menu.check_item(ID_READ_ONLY_MODE, settings.lock().unwrap().read_only_mode);
-        view_menu.append(
+        view_menu.append_command(
             ID_BOOK_TOC,
             &ui.menu_book_toc,
             &ui.menu_book_toc,
@@ -29889,13 +30035,13 @@ fn main() {
         #[cfg(target_os = "macos")]
         let menubar_builder = {
             let window_menu = Menu::builder().build();
-            window_menu.append(
+            window_menu.append_command(
                 documents::ID_NEXT_DOCUMENT,
                 &format!("{}\tCtrl+<", ui.document_next),
                 &ui.document_next,
                 ItemKind::Normal,
             );
-            window_menu.append(
+            window_menu.append_command(
                 documents::ID_PREVIOUS_DOCUMENT,
                 &format!("{}\tCtrl+>", ui.document_previous),
                 &ui.document_previous,

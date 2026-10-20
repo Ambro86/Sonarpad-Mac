@@ -21,6 +21,29 @@ def text(path: Path) -> str:
 
 
 class MacOSMediaTranscriptionTests(unittest.TestCase):
+    def test_youtube_result_downloads_audio_and_prefills_existing_transcription(self):
+        source = text(MAIN)
+        start = source.index("fn open_youtube_results_dialog(")
+        end = source.index("fn open_youtube_dialog(", start)
+        body = source[start:end]
+        self.assertIn("media_transcription::action_label()", body)
+        self.assertIn("transcribe_button.on_click", body)
+        self.assertIn(".filter(|result| !result.is_collection)", body)
+        self.assertIn("transcribe_button_visibility.show(audio_description_visible)", body)
+        self.assertIn("download_youtube_for_transcription(&url, &title)", body)
+        self.assertIn("media_transcription::open_dialog_with_input(&dialog_timer, Some(path.path.clone()))", body)
+        self.assertIn("youtube_transcription_progress_timer.borrow_mut().take()", body)
+        self.assertIn("youtube_transcription_progress_destroy.borrow_mut().take()", body)
+        download = source[source.index("fn download_youtube_for_transcription("):start]
+        self.assertIn('save_youtube_to_path(url, "mp3", "best", output)', download)
+        self.assertNotIn("prompt_youtube_save_path", download)
+        ui = text(UI)
+        self.assertIn("open_dialog_with_input(parent, None)", ui)
+        self.assertIn("if let Some(path) = initial_input", ui)
+        self.assertIn("input.set_value(&path.to_string_lossy())", ui)
+        self.assertIn("crate::default_audiobook_save_folder()", ui)
+        self.assertIn('crate::app_storage_path("transcriptions")', ui)
+
     def test_bridge_keeps_windows_protocol_and_models(self):
         source = text(BRIDGE)
         self.assertIn("BRIDGE_PROTOCOL_VERSION = 2", source)

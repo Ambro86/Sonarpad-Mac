@@ -96,6 +96,8 @@
   "menu_updates": "Zkontrolovat &aktualizace",
   "menu_updates_help": "Zkontrolovat, zda je dostupná nová verze",
   "updates_title": "Aktualizace",
+  "update_downloading": "Stahování aktualizace...",
+  "update_extracting": "Příprava aktualizace...",
   "changelog_title": "Seznam změn",
   "podcast_error_title": "Chyba podcastu",
   "yes": "Ano",
