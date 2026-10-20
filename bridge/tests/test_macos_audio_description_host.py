@@ -284,8 +284,18 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
                     self.assertIn(required_component, workflow)
 
     def test_ffmpeg_cache_is_invalidated_for_mpegps_input_fix(self):
-        self.assertIn("ffmpeg-8.0.1-v20-media-cutter", WORKFLOW)
-        self.assertIn("ffmpeg-${{ env.FFMPEG_VERSION }}-v22-media-cutter", CATALINA)
+        # Later cache revisions also include the MPEG-PS fix. Feature names
+        # change as FFmpeg gains capabilities, so do not pin an obsolete key.
+        for name, workflow, minimum_revision in (
+            ("macOS", WORKFLOW, 20),
+            ("Catalina", CATALINA, 22),
+        ):
+            with self.subTest(workflow=name):
+                revision = re.search(
+                    r"^\s*key:.*-ffmpeg-.*-v(\d+)-", workflow, re.MULTILINE
+                )
+                self.assertIsNotNone(revision, "Missing versioned FFmpeg cache key")
+                self.assertGreaterEqual(int(revision.group(1)), minimum_revision)
 
     def test_avi_upload_uses_gemini_documented_mime_type(self):
         self.assertIn('".avi": "video/avi"', AUDIO_DESCRIBER)
