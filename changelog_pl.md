@@ -22,6 +22,8 @@ Wersja 0.5.3 - 14 października 2026
 
 10. Dodano SonarMusic w Multimediach: wyszukiwanie utworów, albumów, wykonawców, playlist i teledysków, sugestie po wpisaniu tekstu, nawigacja i stronicowanie wyników. Utwory można odtwarzać, zapisywać, transkrybować i tworzyć audiodeskrypcję AI istniejącymi narzędziami multimedialnymi.
 
+11. Szybsze otwieranie filmów YouTube i utworów SonarMusic, z automatycznymi metodami zapasowymi, jeśli pierwsza zawiedzie.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

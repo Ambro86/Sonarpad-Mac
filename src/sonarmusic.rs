@@ -707,3 +707,129 @@ mod tests {
         }
     }
 }
+
+/// Resolve only progressive video+audio streams. Other formats keep the existing
+/// yt-dlp path; never hand a video-only stream to the player.
+pub fn resolve_playback(watch_url: &str) -> Result<String, String> {
+    let url = reqwest::Url::parse(watch_url).map_err(|_| "Invalid watch URL")?;
+    if url.host_str() != Some("www.youtube.com") || url.path() != "/watch" {
+        return Err("Unsupported watch URL".into());
+    }
+    let id = url
+        .query_pairs()
+        .find(|(key, _)| key == "v")
+        .map(|(_, value)| value.into_owned())
+        .filter(|id| valid_video_id(id))
+        .ok_or("Invalid video ID")?;
+    static HTTP: OnceLock<reqwest::blocking::Client> = OnceLock::new();
+    let client = HTTP.get_or_init(reqwest::blocking::Client::new);
+    let data: Value = client.post("https://www.youtube.com/youtubei/v1/player?prettyPrint=false&key=AIzaSyA8eiZmM1FaDVjRy-df2KTyQ_vfUWA8808")
+        .timeout(Duration::from_secs(10))
+        .header("User-Agent", "com.google.android.youtube/21.29.366 (Linux; U; Android 16; en_US; SM-S908E Build/TP1A.220624.014) gzip")
+        .header("X-YouTube-Client-Name", "3")
+        .header("X-YouTube-Client-Version", "21.29.366")
+        .json(&serde_json::json!({"context":{"client":{"hl":"en","gl":"US","clientName":"ANDROID","clientVersion":"21.29.366","androidSdkVersion":33,"osName":"Android","osVersion":"16","platform":"MOBILE"}},"videoId":id,"playbackContext":{"contentPlaybackContext":{"html5Preference":"HTML5_PREF_WANTS"}},"contentCheckOk":true,"racyCheckOk":true}))
+        .send().map_err(|_| "Direct resolver network failure")?
+        .error_for_status().map_err(|_| "Direct resolver HTTP failure")?
+        .json().map_err(|_| "Direct resolver invalid response")?;
+    playback_url(&data)
+}
+
+fn playback_url(data: &Value) -> Result<String, String> {
+    if data["playabilityStatus"]["status"] != "OK" || data["videoDetails"]["isLiveContent"] == true
+    {
+        return Err("Direct playback unavailable".into());
+    }
+    let formats = data["streamingData"]["formats"]
+        .as_array()
+        .ok_or("No progressive formats")?;
+    let valid = |f: &&Value| {
+        f["audioQuality"].is_string()
+            && f["mimeType"]
+                .as_str()
+                .is_some_and(|mime| mime.starts_with("video/"))
+            && f["url"].as_str().is_some_and(|url| {
+                reqwest::Url::parse(url).is_ok_and(|u| {
+                    u.scheme() == "https"
+                        && u.host_str()
+                            .is_some_and(|host| host.ends_with(".googlevideo.com"))
+                })
+            })
+    };
+    formats
+        .iter()
+        .filter(valid)
+        .find(|f| f["itag"] == 18)
+        .or_else(|| {
+            formats
+                .iter()
+                .filter(valid)
+                .filter(|f| f["height"].as_u64().unwrap_or(u64::MAX) <= 480)
+                .max_by_key(|f| f["height"].as_u64().unwrap_or(0))
+        })
+        .and_then(|f| f["url"].as_str())
+        .map(str::to_owned)
+        .ok_or("No compatible direct stream".into())
+}
+
+#[cfg(test)]
+mod playback_tests {
+    use super::*;
+    use serde_json::json;
+    fn data() -> Value {
+        json!({"playabilityStatus":{"status":"OK"},"streamingData":{"formats":[{"itag":18,"height":360,"audioQuality":"AUDIO_QUALITY_MEDIUM","mimeType":"video/mp4","url":"https://rr1.googlevideo.com/videoplayback?test=1"}]}})
+    }
+    #[test]
+    fn progressive_stream() {
+        assert!(playback_url(&data()).is_ok());
+    }
+    #[test]
+    fn unavailable() {
+        let mut d = data();
+        d["playabilityStatus"]["status"] = json!("ERROR");
+        assert!(playback_url(&d).is_err());
+    }
+    #[test]
+    fn live_uses_fallback() {
+        let mut d = data();
+        d["videoDetails"] = json!({"isLiveContent":true});
+        assert!(playback_url(&d).is_err());
+    }
+    #[test]
+    fn cipher_uses_fallback() {
+        let mut d = data();
+        d["streamingData"]["formats"][0]["url"] = Value::Null;
+        assert!(playback_url(&d).is_err());
+    }
+    #[test]
+    fn video_only_uses_fallback() {
+        let mut d = data();
+        d["streamingData"]["formats"][0]["audioQuality"] = Value::Null;
+        assert!(playback_url(&d).is_err());
+    }
+    #[test]
+    fn reject_untrusted_url() {
+        let mut d = data();
+        d["streamingData"]["formats"][0]["url"] = json!("https://googlevideo.com.evil.test/a");
+        assert!(playback_url(&d).is_err());
+    }
+    #[test]
+    fn reject_plain_http() {
+        let mut d = data();
+        d["streamingData"]["formats"][0]["url"] = json!("http://rr1.googlevideo.com/a");
+        assert!(playback_url(&d).is_err());
+    }
+    #[test]
+    fn adaptive_only_uses_fallback() {
+        assert!(
+            playback_url(
+                &json!({"playabilityStatus":{"status":"OK"},"streamingData":{"adaptiveFormats":[]}})
+            )
+            .is_err()
+        );
+    }
+    #[test]
+    fn invalid_watch_url() {
+        assert!(resolve_playback("https://example.org/watch?v=4K6cvc27_CE").is_err());
+    }
+}

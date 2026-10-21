@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod sonarmusic;
+mod youtube_playback;
 mod sonarmusic_window;
 mod menu_shortcuts;
 #[cfg(target_os = "macos")]
@@ -20940,6 +20941,16 @@ fn configure_youtube_mpv_command(
     title: &str,
     ipc_path: Option<&Path>,
 ) -> Result<(), String> {
+    configure_youtube_mpv_command_with_input(command, url, title, ipc_path, None)
+}
+
+fn configure_youtube_mpv_command_with_input(
+    command: &mut Command,
+    url: &str,
+    title: &str,
+    ipc_path: Option<&Path>,
+    direct: Option<&str>,
+) -> Result<(), String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let ytdlp = ytdlp_executable_path();
@@ -20958,7 +20969,7 @@ fn configure_youtube_mpv_command(
         command.current_dir(parent_dir);
     }
     command
-        .arg(url)
+        .arg(direct.unwrap_or(url))
         .arg(format!("--config-dir={}", mpv_config_dir.display()))
         .arg(format!("--input-conf={}", mpv_input_conf.display()))
         .arg("--force-window=yes")
@@ -20970,6 +20981,9 @@ fn configure_youtube_mpv_command(
         // Parità Windows: il flusso YouTube è aperto come vero video, con audio auto.
         .arg("--aid=auto")
         .arg("--audio-channels=stereo");
+    if direct.is_some() {
+        command.arg("--ytdl=no");
+    }
     if is_youtube_url(url) {
         command.arg(format!("--ytdl-format={YOUTUBE_MPV_STREAM_FORMAT}"));
     }
@@ -21012,10 +21026,23 @@ fn spawn_youtube_mpv(
     title: &str,
     ipc_path: Option<&Path>,
 ) -> Result<std::process::Child, String> {
+    spawn_youtube_mpv_with_input(url, title, ipc_path, None)
+}
+
+fn spawn_youtube_mpv_with_input(
+    url: &str,
+    title: &str,
+    ipc_path: Option<&Path>,
+    direct: Option<&str>,
+) -> Result<std::process::Child, String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let mut command = Command::new(&mpv_executable);
-    configure_youtube_mpv_command(&mut command, url, title, ipc_path)?;
+    if direct.is_some() {
+        configure_youtube_mpv_command_with_input(&mut command, url, title, ipc_path, direct)?;
+    } else {
+        configure_youtube_mpv_command(&mut command, url, title, ipc_path)?;
+    }
     append_podcast_log(&format!(
         "youtube.mpv.spawn title={} url={} mpv={}",
         title,
@@ -21084,7 +21111,7 @@ fn wait_for_youtube_mpv_start(
     stream
         .set_read_timeout(Some(Duration::from_millis(250)))
         .map_err(|err| err.to_string())?;
-    let deadline = Instant::now() + Duration::from_secs(30);
+    let deadline = Instant::now() + Duration::from_secs(60);
     let mut pending = Vec::new();
     let mut buffer = [0_u8; 4096];
     while Instant::now() < deadline {
@@ -21145,21 +21172,43 @@ fn open_youtube_with_mpv(
     title: &str,
     cancel_requested: &AtomicBool,
 ) -> Result<(), String> {
+    open_youtube_with_mpv_input(url, title, cancel_requested, None)
+}
+
+fn open_youtube_with_mpv_input(
+    url: &str,
+    title: &str,
+    cancel_requested: &AtomicBool,
+    direct: Option<&str>,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
-        let ipc_path = Path::new("/tmp").join(format!(
-            "spd-youtube-{}.sock",
-            Uuid::new_v4().simple()
-        ));
+        let ipc_path =
+            Path::new("/tmp").join(format!("spd-youtube-{}.sock", Uuid::new_v4().simple()));
         let _ = std::fs::remove_file(&ipc_path);
-        let mut child = spawn_youtube_mpv(url, title, Some(&ipc_path))?;
-        return wait_for_youtube_mpv_start(&mut child, &ipc_path, cancel_requested);
+        let mut child = if direct.is_some() {
+            spawn_youtube_mpv_with_input(url, title, Some(&ipc_path), direct)?
+        } else {
+            spawn_youtube_mpv(url, title, Some(&ipc_path))?
+        };
+        let result = wait_for_youtube_mpv_start(&mut child, &ipc_path, cancel_requested);
+        if result.is_err() {
+            // Finish the failed attempt before starting the next resolver/player.
+            let _ = child.kill();
+            let _ = child.wait();
+            let _ = std::fs::remove_file(&ipc_path);
+        }
+        return result;
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _child = spawn_youtube_mpv(url, title, None)?;
+        let _child = spawn_youtube_mpv_with_input(url, title, None, direct)?;
         Ok(())
     }
+}
+
+fn open_sonarmusic_with_mpv(url: &str, title: &str, cancel: Arc<AtomicBool>) -> Result<(), String> {
+    open_youtube_with_windows_flow(url, title, cancel)
 }
 
 fn open_youtube_with_windows_flow(
@@ -21167,10 +21216,29 @@ fn open_youtube_with_windows_flow(
     title: &str,
     cancel_requested: Arc<AtomicBool>,
 ) -> Result<(), String> {
-    if cancel_requested.load(Ordering::SeqCst) {
-        return Err(YOUTUBE_OPEN_CANCELLED.to_string());
-    }
-    open_youtube_with_mpv(url, title, &cancel_requested)
+    youtube_playback::open_with_fallback(
+        url, &cancel_requested, YOUTUBE_OPEN_CANCELLED,
+        |source, watch| {
+            let started = Instant::now();
+            let result = match source {
+                youtube_playback::Source::Internal => sonarmusic::resolve_playback(watch),
+                youtube_playback::Source::Php => youtube_playback::resolve_php(watch, SONARPAD_ROUTE_CLIENT_TOKEN),
+                youtube_playback::Source::Ytdlp => unreachable!(),
+            };
+            append_podcast_log(&format!("youtube.resolve source={source:?} ok={} ms={}", result.is_ok(), started.elapsed().as_millis()));
+            result
+        },
+        |source, direct| {
+            let started = Instant::now();
+            let result = if direct.is_some() {
+                open_youtube_with_mpv_input(url, title, &cancel_requested, direct)
+            } else {
+                open_youtube_with_mpv(url, title, &cancel_requested)
+            };
+            append_podcast_log(&format!("youtube.open source={source:?} ok={} ms={}",result.is_ok(),started.elapsed().as_millis()));
+            result
+        },
+    )
 }
 
 fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
@@ -22291,6 +22359,7 @@ fn open_youtube_results_dialog_with_title(
     let youtube_open_cancel_requested_open = Arc::clone(&youtube_open_cancel_requested);
     let youtube_busy_open = Arc::clone(&youtube_busy);
     let youtube_open_progress_click = Rc::clone(&youtube_open_progress);
+    let sonarmusic_playback = title == "SonarMusic";
     let perform_open = Rc::new(move || {
         if let Some(sel) = choice_open.get_selection()
             && let Some(result) = results_open.get(sel as usize)
@@ -22328,7 +22397,8 @@ fn open_youtube_results_dialog_with_title(
                     );
                 }
                 std::thread::spawn(move || {
-                    let result = open_youtube_with_windows_flow(
+                    let opener = if sonarmusic_playback { open_sonarmusic_with_mpv } else { open_youtube_with_windows_flow };
+                    let result = opener(
                         &url,
                         &title,
                         cancel_requested,

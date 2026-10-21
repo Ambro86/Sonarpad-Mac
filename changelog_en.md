@@ -22,6 +22,8 @@ Version 0.5.3 - October 14, 2026
 
 10. Added SonarMusic in Multimedia: search songs, albums, artists, playlists and music videos, with suggestions shown only after typing, result navigation and pagination. Tracks support playback, saving, transcription and AI audio description through the existing media tools.
 
+11. Faster opening of YouTube videos and SonarMusic tracks, with automatic alternatives if the first method fails.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability

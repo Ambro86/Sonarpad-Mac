@@ -22,6 +22,8 @@ Versione 0.5.3 - 14 ottobre 2026
 
 10. Aggiunto SonarMusic in Multimedia: ricerca di brani, album, artisti, playlist e video musicali, con suggerimenti visibili solo dopo aver scritto, navigazione e paginazione dei risultati. Per i brani sono disponibili riproduzione, salvataggio, trascrizione e audiodescrizione con IA tramite gli strumenti multimediali esistenti.
 
+11. Velocizzata l’apertura dei video YouTube e dei brani SonarMusic, con tentativi automatici alternativi se il primo metodo non riesce.
+
 Versione 0.5.2 - 12 ottobre 2026
 
 Voci Edge, audiodescrizioni e affidabilità

@@ -22,6 +22,8 @@ Verze 0.5.3 - 14. října 2026
 
 10. Přidán SonarMusic do Multimédií: vyhledávání skladeb, alb, interpretů, playlistů a hudebních videí, návrhy po zadání textu, procházení a stránkování výsledků. Skladby lze přehrát, uložit, přepsat a vytvořit k nim audiopopis pomocí AI se stávajícími multimediálními nástroji.
 
+11. Rychlejší otevírání videí YouTube a skladeb SonarMusic s automatickým použitím dalších metod, pokud první selže.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost
