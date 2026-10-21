@@ -20,6 +20,8 @@ Versión 0.5.3 - 14 de octubre de 2026
 
 9. Añadida la apertura de varios documentos y el cambio entre ellos con Command+< (Command+> para retroceder), o desde el menú Ventana. Archivo incluye Nuevo documento y Cerrar documento. Cada documento conserva su texto, cambios y posición de lectura; al salir se comprueban los cambios sin guardar de todos los documentos.
 
+10. Añadido SonarMusic en Multimedia: búsqueda de canciones, álbumes, artistas, listas y vídeos musicales, sugerencias al escribir, navegación y paginación. Las pistas permiten reproducción, guardado, transcripción y audiodescripción con IA mediante las herramientas multimedia existentes.
+
 Versión 0.5.2 - 12 de octubre de 2026
 
 Voces Edge, audiodescripciones y estabilidad

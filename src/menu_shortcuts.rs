@@ -48,6 +48,7 @@ pub const BINDINGS: &[(i32, &str)] = &[
     (crate::ID_TOOLS_AUDIO_DESCRIPTION, "Alt+Shift+A"),
     (crate::ID_TOOLS_MEDIA_TRANSCRIPTION, "Alt+Shift+T"),
     (crate::ID_TOOLS_YOUTUBE, "Alt+Shift+U"),
+    (crate::ID_TOOLS_SONARMUSIC, "Ctrl+Alt+Shift+M"),
     (crate::ID_TOOLS_CINEMA, "Alt+Shift+C"),
     (crate::ID_TOOLS_CONVERT_MEDIA, "Alt+Shift+M"),
     (crate::ID_TOOLS_CONVERT_FOLDER, "Alt+Shift+Q"),

@@ -20,6 +20,8 @@ Verze 0.5.3 - 14. října 2026
 
 9. Přidána možnost otevřít více dokumentů a přepínat mezi nimi pomocí Command+< (Command+> pro návrat) nebo nabídky Okno. Nabídka Soubor obsahuje Nový dokument a Zavřít dokument. Každý dokument zachovává text, změny a pozici čtení; při ukončení se kontrolují neuložené změny všech dokumentů.
 
+10. Přidán SonarMusic do Multimédií: vyhledávání skladeb, alb, interpretů, playlistů a hudebních videí, návrhy po zadání textu, procházení a stránkování výsledků. Skladby lze přehrát, uložit, přepsat a vytvořit k nim audiopopis pomocí AI se stávajícími multimediálními nástroji.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost

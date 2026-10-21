@@ -1,5 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod sonarmusic;
+mod sonarmusic_window;
 mod menu_shortcuts;
 #[cfg(target_os = "macos")]
 mod update_progress;
@@ -141,6 +143,7 @@ const ID_RAIPLAY_SOUND: i32 = 2363;
 const ID_TV: i32 = 2364;
 const ID_TOOLS_WIKIPEDIA: i32 = 2365;
 const ID_TOOLS_YOUTUBE: i32 = 2366;
+const ID_TOOLS_SONARMUSIC: i32 = 2399;
 const ID_TOOLS_ITALIAN_DIRECTORIES: i32 = 2367;
 const ID_TOOLS_WEATHER: i32 = 2368;
 const ID_TOOLS_CINEMA: i32 = 2369;
@@ -21830,12 +21833,25 @@ fn open_youtube_results_dialog(
     audio_context: &AudioDescriptionLaunchContext,
     auto_open_direct_url: bool,
 ) {
+    open_youtube_results_dialog_with_title(parent, settings, results, search_context, audio_context,
+        auto_open_direct_url, &current_ui_strings().youtube_title);
+}
+
+fn open_youtube_results_dialog_with_title(
+    parent: &Dialog,
+    settings: &Arc<Mutex<Settings>>,
+    results: Vec<YoutubeSearchResult>,
+    search_context: Option<YoutubeSearchContext>,
+    audio_context: &AudioDescriptionLaunchContext,
+    auto_open_direct_url: bool,
+    title: &str,
+) {
     let ui = current_ui_strings();
     if results.is_empty() {
         show_message_subdialog(parent, &ui.youtube_title, &ui.youtube_no_results);
         return;
     }
-    let dialog = Dialog::builder(parent, &ui.youtube_title)
+    let dialog = Dialog::builder(parent, title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(740, 300)
         .build();
@@ -29470,6 +29486,7 @@ fn append_tools_multimedia(menu: &Menu, settings: &Settings, ui: &UiStrings) {
             ItemKind::Normal,
         );
     }
+    let _ = menu.append_command(ID_TOOLS_SONARMUSIC, "SonarMusic", "SonarMusic", ItemKind::Normal);
     let _ = menu.append_command(
         ID_TOOLS_CINEMA,
         &ui.cinema_title,
@@ -29628,6 +29645,7 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
             &ui.meteo_title,
             ItemKind::Normal,
         );
+        let _ = tools_menu.append_command(ID_TOOLS_SONARMUSIC, "SonarMusic", "SonarMusic", ItemKind::Normal);
         let _ = tools_menu.append_command(
             ID_TOOLS_CINEMA,
             &ui.cinema_title,
@@ -30798,14 +30816,18 @@ fn main() {
                 audio_description::open_create_dialog(&f_menu, &settings_menu, &rt_audio_description_menu, &voices_audio_description_menu);
             } else if event.get_id() == ID_TOOLS_MEDIA_TRANSCRIPTION {
                 media_transcription::open_dialog(&f_menu);
-            } else if event.get_id() == ID_TOOLS_YOUTUBE {
+            } else if event.get_id() == ID_TOOLS_YOUTUBE || event.get_id() == ID_TOOLS_SONARMUSIC {
                 let audio_context = AudioDescriptionLaunchContext {
                     main_parent: f_menu,
                     settings: Arc::clone(&settings_menu),
                     rt: Arc::clone(&rt_audio_description_menu),
                     voices_data: Arc::clone(&voices_audio_description_menu),
                 };
-                open_youtube_dialog(&f_menu, &settings_menu, &audio_context);
+                if event.get_id() == ID_TOOLS_SONARMUSIC {
+                    sonarmusic_window::open(&f_menu, &settings_menu, &audio_context);
+                } else {
+                    open_youtube_dialog(&f_menu, &settings_menu, &audio_context);
+                }
             } else if event.get_id() == ID_TOOLS_TRECCANI {
                 if Settings::load().ui_language == "it" {
                     open_treccani_dialog(&f_menu, tc_menu, Rc::clone(&cursor_moved_menu));

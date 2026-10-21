@@ -20,6 +20,8 @@ Version 0.5.3 - 14 octobre 2026
 
 9. Ajout de l’ouverture de plusieurs documents et du passage de l’un à l’autre avec Command+< (Command+> pour revenir), ou depuis le menu Fenêtre. Fichier propose Nouveau document et Fermer le document. Chaque document conserve son texte, ses modifications et sa position de lecture ; les modifications non enregistrées de tous les documents sont vérifiées à la fermeture.
 
+10. Ajout de SonarMusic dans Multimédia : recherche de titres, albums, artistes, playlists et clips, suggestions après saisie, navigation et pagination. Les titres permettent la lecture, l’enregistrement, la transcription et l’audiodescription par IA avec les outils multimédias existants.
+
 Version 0.5.2 - 12 octobre 2026
 
 Voix Edge, audiodescriptions et fiabilité

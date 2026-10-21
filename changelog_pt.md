@@ -20,6 +20,8 @@ Versão 0.5.3 - 14 de outubro de 2026
 
 9. Adicionado suporte para abrir vários documentos e alternar com Command+< (Command+> para voltar), ou pelo menu Janela. Ficheiro inclui Novo documento e Fechar documento. Cada documento mantém o texto, as alterações e a posição de leitura; ao sair são verificadas as alterações não guardadas de todos os documentos.
 
+10. Adicionado SonarMusic em Multimédia: pesquisa de músicas, álbuns, artistas, listas e vídeos musicais, sugestões após escrever, navegação e paginação. Permite reprodução, gravação, transcrição e audiodescrição com IA através das ferramentas multimédia existentes.
+
 Versão 0.5.2 - 12 de outubro de 2026
 
 Vozes Edge, audiodescrições e fiabilidade

@@ -20,6 +20,8 @@ Versione 0.5.3 - 14 ottobre 2026
 
 9. Aggiunta la possibilità di aprire più documenti e passare da uno all’altro con Command+< (Command+> per tornare indietro), oppure dal menu Finestra. File include Nuovo documento e Chiudi documento. Ogni documento conserva testo, modifiche e posizione di lettura; all’uscita vengono controllate le modifiche non salvate di tutti i documenti.
 
+10. Aggiunto SonarMusic in Multimedia: ricerca di brani, album, artisti, playlist e video musicali, con suggerimenti visibili solo dopo aver scritto, navigazione e paginazione dei risultati. Per i brani sono disponibili riproduzione, salvataggio, trascrizione e audiodescrizione con IA tramite gli strumenti multimediali esistenti.
+
 Versione 0.5.2 - 12 ottobre 2026
 
 Voci Edge, audiodescrizioni e affidabilità

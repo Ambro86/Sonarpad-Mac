@@ -20,6 +20,8 @@ Wersja 0.5.3 - 14 października 2026
 
 9. Dodano otwieranie wielu dokumentów i przełączanie między nimi przez Command+< (Command+> wstecz) lub menu Okno. Menu Plik zawiera Nowy dokument i Zamknij dokument. Każdy dokument zachowuje tekst, zmiany i pozycję czytania; przy zamykaniu sprawdzane są niezapisane zmiany wszystkich dokumentów.
 
+10. Dodano SonarMusic w Multimediach: wyszukiwanie utworów, albumów, wykonawców, playlist i teledysków, sugestie po wpisaniu tekstu, nawigacja i stronicowanie wyników. Utwory można odtwarzać, zapisywać, transkrybować i tworzyć audiodeskrypcję AI istniejącymi narzędziami multimedialnymi.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność
