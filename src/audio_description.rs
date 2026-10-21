@@ -2656,6 +2656,21 @@ fn audio_description_pcm_has_signal(samples: &[i16]) -> bool {
     tts_retry::has_audible_signal(samples)
 }
 
+fn normalize_audio_description_pronunciation(text: &str) -> String {
+    text.replace('_', " ")
+        .split_inclusive(|c: char| !c.is_alphanumeric())
+        .map(|part| {
+            if part.eq_ignore_ascii_case("dr.") {
+                "dr"
+            } else if part.eq_ignore_ascii_case("mr.") {
+                "mr"
+            } else {
+                part
+            }
+        })
+        .collect()
+}
+
 fn synthesize_text_pcm(
     text: &str,
     tts: TtsParameters<'_>,
@@ -2695,6 +2710,9 @@ where
     if !is_active() {
         return Err("cancelled".to_string());
     }
+    // Pronunciation only: preserve descriptions, timing and synthesis pipeline.
+    let pronunciation_text = normalize_audio_description_pronunciation(text);
+    let text = pronunciation_text.as_str();
     let spoken_text = crate::apply_voice_dictionary_to_text(text);
     if spoken_text != text {
         append_podcast_log(&format!(

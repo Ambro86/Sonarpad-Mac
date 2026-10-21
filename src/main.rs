@@ -415,6 +415,8 @@ struct Settings {
     #[serde(default)]
     youtube_favorites: Vec<YoutubeFavorite>,
     #[serde(default)]
+    sonarmusic_search_type: String,
+    #[serde(default)]
     tv_favorites: Vec<TvFavorite>,
     #[serde(default)]
     rai_luce_code: String,
@@ -547,6 +549,7 @@ impl Settings {
             podcast_sources: Vec::new(),
             radio_favorites: Vec::new(),
             youtube_favorites: Vec::new(),
+            sonarmusic_search_type: String::new(),
             tv_favorites: Vec::new(),
             rai_luce_code: String::new(),
             auto_media_bookmark: false,

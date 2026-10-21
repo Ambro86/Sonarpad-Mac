@@ -1,14 +1,16 @@
-use crate::sonarmusic::{self as music, Client, Page, Request, TYPES};
+use crate::sonarmusic::{self as music, Client, Page, Pagination, Request, ResultRow, TYPES};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex, mpsc};
 use wxdragon::prelude::*;
 use wxdragon::timer::Timer;
+const ID_BACK: i32 = 31001;
 #[derive(Clone, Default)]
 struct View {
     request: Option<Request>,
     page: Page,
     number: usize,
+    pagination: Pagination,
     selection: usize,
 }
 enum Reply {
@@ -26,7 +28,6 @@ struct Controls {
     search: Button,
     suggest: Button,
     open: Button,
-    more: Button,
     back: Button,
 }
 impl Controls {
@@ -36,28 +37,35 @@ impl Controls {
         self.search.enable(!busy);
         self.suggest.enable(!busy);
         self.results.enable(!busy);
-        let item = view
-            .page
-            .items
-            .get(self.results.get_selection().unwrap_or(0) as usize);
-        self.open.enable(
-            !busy
-                && (suggestions.as_ref().is_some_and(|s| !s.is_empty())
-                    || item.is_some_and(|i| i.playable() || i.browse_request().is_some())),
+        let row = view.pagination.row(
+            &view.page,
+            self.results.get_selection().unwrap_or(0) as usize,
         );
-        self.more
-            .enable(!busy && suggestions.is_none() && view.page.next.is_some());
-        self.back
-            .enable(!busy && (suggestions.is_some() || history));
+        let available = match row {
+            Some(ResultRow::Previous | ResultRow::Next) => true,
+            Some(ResultRow::Item(index)) => view
+                .page
+                .items
+                .get(index)
+                .is_some_and(|i| i.playable() || i.browse_request().is_some()),
+            None => false,
+        };
+        self.open
+            .enable(!busy && (suggestions.as_ref().is_some_and(|s| !s.is_empty()) || available));
+        let can_go_back = view.pagination.can_return(suggestions.is_some(), history);
+        self.back.enable(!busy && can_go_back);
+        self.dialog
+            .set_escape_id(if can_go_back { ID_BACK } else { ID_CANCEL });
     }
     fn render(self, view: &View, locale: &str) {
         self.results.clear();
-        for item in &view.page.items {
-            self.results.append(&item.display(locale));
+        let rows = view.pagination.labels(&view.page, locale);
+        for row in &rows {
+            self.results.append(row);
         }
-        if !view.page.items.is_empty() {
+        if !rows.is_empty() {
             self.results
-                .set_selection(view.selection.min(view.page.items.len() - 1) as u32);
+                .set_selection(view.selection.min(rows.len() - 1) as u32);
         }
     }
 }
@@ -95,9 +103,7 @@ pub(crate) fn open(
     query.set_accessibility_label(&text("query"));
     root.add(&query, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let row = BoxSizer::builder(Orientation::Horizontal).build();
-    let search = Button::builder(&panel).with_label(&text("search")).build();
     let suggest = Button::builder(&panel).with_label(&text("suggest")).build();
-    row.add(&search, 0, SizerFlag::All, 5);
     row.add(&suggest, 0, SizerFlag::All, 5);
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
     root.add(
@@ -113,8 +119,18 @@ pub(crate) fn open(
     for t in TYPES {
         kind.append(&text(t));
     }
-    kind.set_selection(0);
+    let saved_kind = settings.lock().unwrap().sonarmusic_search_type.clone();
+    kind.set_selection(music::search_type_index(&saved_kind) as u32);
+    let settings_kind = Arc::clone(settings);
+    kind.on_selection_changed(move |_| {
+        let index = (kind.get_selection().unwrap_or(0) as usize).min(TYPES.len() - 1);
+        let mut settings = settings_kind.lock().unwrap();
+        settings.sonarmusic_search_type = TYPES[index].to_owned();
+        settings.save();
+    });
     root.add(&kind, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let search = Button::builder(&panel).with_label(&text("search")).build();
+    root.add(&search, 0, SizerFlag::All, 5);
     root.add(
         &StaticText::builder(&panel)
             .with_label(&text("results"))
@@ -130,13 +146,15 @@ pub(crate) fn open(
     root.add(&status, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let row = BoxSizer::builder(Orientation::Horizontal).build();
     let open = Button::builder(&panel).with_label(&text("open")).build();
-    let more = Button::builder(&panel).with_label(&text("more")).build();
-    let back = Button::builder(&panel).with_label(&text("back")).build();
+    let back = Button::builder(&panel)
+        .with_id(ID_BACK)
+        .with_label(&text("back"))
+        .build();
     let close = Button::builder(&panel)
         .with_id(ID_CANCEL)
         .with_label(&text("close"))
         .build();
-    for button in [open, more, back, close] {
+    for button in [open, back, close] {
         row.add(&button, 0, SizerFlag::All, 5);
     }
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
@@ -155,7 +173,6 @@ pub(crate) fn open(
         search,
         suggest,
         open,
-        more,
         back,
     };
     let view = Rc::new(RefCell::new(View::default()));
@@ -243,22 +260,22 @@ pub(crate) fn open(
             let _ = tx.send(client.suggestions(&query).map(Reply::Suggestions));
         });
     });
-    let run_more = run.clone();
-    let v = view.clone();
-    more.on_click(move |_| {
-        if let Some(r) = v.borrow().request.clone() {
-            run_more(r, true);
-        }
-    });
     let v = view.clone();
     let h = history.clone();
     let sg = suggestions.clone();
     let lang = locale.clone();
     back.on_click(move |_| {
-        if sg.borrow_mut().take().is_none()
-            && let Some(previous) = h.borrow_mut().pop()
-        {
-            *v.borrow_mut() = previous;
+        if sg.borrow_mut().take().is_none() {
+            let mut current = v.borrow_mut();
+            let View {
+                pagination, page, ..
+            } = &mut *current;
+            if pagination.back(page) {
+                current.number = current.number.saturating_sub(1);
+                current.selection = 0;
+            } else if let Some(previous) = h.borrow_mut().pop() {
+                *current = previous;
+            }
         }
         c.render(&v.borrow(), &lang);
         c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
@@ -270,7 +287,11 @@ pub(crate) fn open(
     let lang = locale.clone();
     let settings = Arc::clone(settings);
     let audio = audio.clone();
-    open.on_click(move |_| {
+    let opening_busy = busy.clone();
+    let activate = Rc::new(move || {
+        if opening_busy.get() {
+            return;
+        }
         let index = results.get_selection().unwrap_or(0) as usize;
         let suggestion = sg.borrow().as_ref().and_then(|s| s.get(index)).cloned();
         if let Some(value) = suggestion {
@@ -281,7 +302,38 @@ pub(crate) fn open(
             query.set_focus();
             return;
         }
-        let item = v.borrow().page.items.get(index).cloned();
+        let row = {
+            let current = v.borrow();
+            current.pagination.row(&current.page, index)
+        };
+        let item_index = match row {
+            Some(ResultRow::Next) => {
+                let request = v.borrow().request.clone();
+                if let Some(request) = request {
+                    run(request, true);
+                }
+                return;
+            }
+            Some(ResultRow::Previous) => {
+                {
+                    let mut current = v.borrow_mut();
+                    let View {
+                        pagination, page, ..
+                    } = &mut *current;
+                    if pagination.back(page) {
+                        current.number = current.number.saturating_sub(1);
+                        current.selection = 0;
+                    }
+                }
+                c.render(&v.borrow(), &lang);
+                c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
+                results.set_focus();
+                return;
+            }
+            Some(ResultRow::Item(index)) => index,
+            None => return,
+        };
+        let item = v.borrow().page.items.get(item_index).cloned();
         let Some(item) = item else {
             return;
         };
@@ -308,6 +360,17 @@ pub(crate) fn open(
             run(request, false);
         }
     });
+    let on_open = activate.clone();
+    open.on_click(move |_| on_open());
+    results.on_key_down(move |event| {
+        if let WindowEventData::Keyboard(key) = &event
+            && key.get_key_code() == Some(13)
+        {
+            activate();
+            return;
+        }
+        event.skip(true);
+    });
     let v = view.clone();
     let h = history.clone();
     let sg = suggestions.clone();
@@ -323,19 +386,27 @@ pub(crate) fn open(
     timer.on_tick(move |_| {
         if let Ok(reply) = rx.try_recv() {
             b.set(false);
+            let failed = reply.is_err();
             match reply {
                 Ok(Reply::Page(request, page, more)) => {
                     sg.borrow_mut().take();
                     let mut v = v.borrow_mut();
                     v.request = Some(request);
                     if more {
-                        v.page.append(page);
+                        let View {
+                            pagination,
+                            page: current,
+                            ..
+                        } = &mut *v;
+                        pagination.advance(current, page);
                         v.number += 1;
                     } else {
                         v.page = page;
+                        v.pagination = Pagination::default();
                         v.number = 1;
                         v.selection = 0;
                     }
+                    v.selection = 0;
                     c.render(&v, &locale);
                     status.set_label(&if v.page.items.is_empty() {
                         music::label(&locale, "empty")
@@ -346,7 +417,6 @@ pub(crate) fn open(
                             v.page.items.len()
                         )
                     });
-                    results.set_focus();
                 }
                 Ok(Reply::Suggestions(values)) => {
                     results.clear();
@@ -365,15 +435,24 @@ pub(crate) fn open(
                         },
                     ));
                     *sg.borrow_mut() = Some(values);
-                    results.set_focus();
                 }
                 Err(error) => {
                     crate::append_podcast_log(&error);
                     status.set_label(&error);
-                    query.set_focus();
                 }
             }
             c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
+            // Native controls must be enabled before VoiceOver can focus them.
+            if failed {
+                query.set_focus();
+            } else {
+                results.set_focus();
+                crate::append_podcast_log(&format!(
+                    "SonarMusic results focused: page={} index={}",
+                    v.borrow().number,
+                    results.get_selection().unwrap_or(0)
+                ));
+            }
         }
     });
     close.on_click(move |_| dialog.end_modal(ID_CANCEL));

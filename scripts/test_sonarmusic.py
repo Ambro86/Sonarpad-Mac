@@ -30,7 +30,8 @@ use wxdragon::prelude::*;
 #[path="CORE"] mod sonarmusic;
 #[path="UI"] mod sonarmusic_window;
 const SONARPAD_ROUTE_CLIENT_TOKEN:&str="";
-struct Settings {ui_language:String}
+struct Settings {ui_language:String, sonarmusic_search_type:String}
+impl Settings { fn save(&self) {} }
 #[derive(Clone)] struct AudioDescriptionLaunchContext;
 struct YoutubeSearchResult {title:String,url:String,is_collection:bool,duration:Option<String>}
 fn normalize_ui_language(s:&str)->String{s.into()}
