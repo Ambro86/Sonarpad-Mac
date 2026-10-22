@@ -44,6 +44,35 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn("crate::default_audiobook_save_folder()", ui)
         self.assertIn('crate::app_storage_path("transcriptions")', ui)
 
+    def test_timestamp_preference_defaults_off_is_saved_and_passed_to_worker(self):
+        ui = text(UI)
+        main = text(MAIN)
+        self.assertIn('#[serde(default)]\n    transcription_include_timestamps: bool', main)
+        self.assertIn('transcription_include_timestamps: false', main)
+        self.assertIn('timestamps.set_value(Settings::load().transcription_include_timestamps)', ui)
+        self.assertIn('settings.transcription_include_timestamps = timestamps.get_value()', ui)
+        self.assertIn('timestamps.on_toggled', ui)
+        self.assertIn('chosen_language,\n            timestamps.get_value(),', ui)
+        self.assertIn('.args(include_timestamps.then_some("--timestamps"))', text(RUST_BRIDGE))
+        for locale in LOCALES:
+            self.assertTrue(json.loads(text(locale))['media_transcription.include_timestamps'])
+
+    def test_real_worker_formats_timestamps_only_when_requested(self):
+        import importlib.util
+        from types import SimpleNamespace
+        spec = importlib.util.spec_from_file_location('transcription_timestamp_worker', BRIDGE)
+        worker = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(worker)
+        segments = [SimpleNamespace(text=' First ', start=2.5, end=4),
+                    SimpleNamespace(text='Second', start=65, end=70)]
+        plain, timed, offset = [], [], []
+        worker.append_transcribed_segments(segments, plain, False, 0, 0, 0)
+        worker.append_transcribed_segments(segments, timed, True, 0, 0, 0)
+        worker.append_transcribed_segments(segments, offset, True, 3600, 0, 0)
+        self.assertEqual(plain, ['First', 'Second'])
+        self.assertEqual(timed, ['[00:02] First', '[01:05] Second'])
+        self.assertEqual(offset, ['[01:00:02] First', '[01:01:05] Second'])
+
     def test_bridge_keeps_windows_protocol_and_models(self):
         source = text(BRIDGE)
         self.assertIn("BRIDGE_PROTOCOL_VERSION = 2", source)

@@ -30,8 +30,9 @@ use wxdragon::prelude::*;
 #[path="CORE"] mod sonarmusic;
 #[path="PLAYBACK"] mod youtube_playback;
 #[path="UI"] mod sonarmusic_window;
+#[path="LABELS"] mod result_labels;
 const SONARPAD_ROUTE_CLIENT_TOKEN:&str="";
-struct Settings {ui_language:String, sonarmusic_search_type:String}
+struct Settings {ui_language:String, sonarmusic_search_type:String, sonarmusic_favorites:Vec<serde_json::Value>}
 impl Settings { fn save(&self) {} }
 #[derive(Clone)] struct AudioDescriptionLaunchContext;
 struct YoutubeSearchResult {title:String,url:String,is_collection:bool,duration:Option<String>}
@@ -42,6 +43,7 @@ fn open_youtube_results_dialog_with_title(_: &Dialog,_:&Arc<Mutex<Settings>>,_:V
 '''
 harness = harness.replace('PLAYBACK', (ROOT/'src/youtube_playback.rs').as_posix())
 harness = harness.replace('CORE', (ROOT/'src/sonarmusic.rs').as_posix())
+harness = harness.replace('LABELS', (ROOT/'src/result_labels.rs').as_posix())
 harness = harness.replace('UI', (ROOT/'src/sonarmusic_window.rs').as_posix())
 
 # Compile the actual MPV command builder too, with filesystem/UI helpers stubbed.

@@ -833,3 +833,84 @@ mod playback_tests {
         assert!(resolve_playback("https://example.org/watch?v=4K6cvc27_CE").is_err());
     }
 }
+
+/// Persist the original catalog fields, not the UI label or a temporary media URL.
+pub fn favorite_value(item: &Item) -> Value {
+    serde_json::json!({"kind":item.kind,"id":item.id,"title":item.title,
+        "video_id":item.video_id,"browse_id":item.browse_id,"browse_params":item.params,
+        "artist":item.artist,"duration":item.duration,"available":item.available})
+}
+pub fn favorite_items(values: &[Value]) -> Vec<Item> {
+    values
+        .iter()
+        .filter_map(Item::parse)
+        .filter(|item| item.playable() || item.browse_request().is_some())
+        .collect()
+}
+pub fn same_favorite(left: &Item, right: &Item) -> bool {
+    if let (Some(a), Some(b)) = (left.watch_url(), right.watch_url()) {
+        return a == b;
+    }
+    left.kind == right.kind
+        && left.browse_request().is_some()
+        && left.browse_request() == right.browse_request()
+}
+pub fn add_favorite(values: &mut Vec<Value>, item: &Item) -> bool {
+    if (!item.playable() && item.browse_request().is_none())
+        || favorite_items(values)
+            .iter()
+            .any(|saved| same_favorite(saved, item))
+    {
+        return false;
+    }
+    values.push(favorite_value(item));
+    true
+}
+pub fn remove_favorite(values: &mut Vec<Value>, item: &Item) {
+    values.retain(|value| !Item::parse(value).is_some_and(|saved| same_favorite(&saved, item)));
+}
+#[cfg(test)]
+mod favorite_tests {
+    use super::*;
+    #[test]
+    fn track_round_trip_and_duplicate_identity() {
+        let a = Item::parse(
+            &serde_json::json!({"kind":"song","id":"a","video_id":"abcdefghijk","title":"Same"}),
+        )
+        .unwrap();
+        let mut favorites = Vec::new();
+        assert!(add_favorite(&mut favorites, &a));
+        let saved = serde_json::to_string(&favorites).unwrap();
+        let mut restored: Vec<Value> = serde_json::from_str(&saved).unwrap();
+        assert_eq!(favorite_items(&restored), vec![a.clone()]);
+        let mut renamed = a.clone();
+        renamed.title = "New title".into();
+        assert!(!add_favorite(&mut restored, &renamed));
+        remove_favorite(&mut restored, &renamed);
+        assert!(restored.is_empty());
+    }
+    #[test]
+    fn albums_keep_browse_parameters_and_same_titles_stay_distinct() {
+        let a=Item::parse(&serde_json::json!({"kind":"album","id":"MPREone","title":"Same","browse_params":"special"})).unwrap();
+        let mut b = a.clone();
+        b.id = "MPREtwo".into();
+        let mut saved = Vec::new();
+        assert!(add_favorite(&mut saved, &a));
+        assert!(add_favorite(&mut saved, &b));
+        let restored = favorite_items(&saved);
+        assert_eq!(restored.len(), 2);
+        assert_eq!(restored[0].browse_request(), a.browse_request());
+        remove_favorite(&mut saved, &a);
+        assert_eq!(favorite_items(&saved), vec![b]);
+    }
+    #[test]
+    fn damaged_and_unavailable_entries_are_not_opened() {
+        assert!(
+            favorite_items(&[
+                Value::Null,
+                serde_json::json!({"id":"x","kind":"song","available":false})
+            ])
+            .is_empty()
+        );
+    }
+}

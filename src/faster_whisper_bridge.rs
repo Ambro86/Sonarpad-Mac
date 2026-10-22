@@ -186,6 +186,7 @@ pub fn transcribe_media(
     input_path: &Path,
     model: BridgeModel,
     language: &str,
+    include_timestamps: bool,
     cancel: Arc<AtomicBool>,
     mut callbacks: BridgeProgressCallbacks,
 ) -> Result<BridgeTranscriptionResult, String> {
@@ -215,6 +216,7 @@ pub fn transcribe_media(
         .arg(model.as_name())
         .arg("--language")
         .arg(&requested_language)
+        .args(include_timestamps.then_some("--timestamps"))
         .arg("--download-root")
         .arg(&model_cache)
         .stdin(Stdio::null())

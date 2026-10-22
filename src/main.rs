@@ -1,6 +1,7 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod sonarmusic;
+mod result_labels;
 mod youtube_playback;
 mod sonarmusic_window;
 mod menu_shortcuts;
@@ -402,6 +403,8 @@ struct Settings {
     announce_media_duration_on_seek: bool,
     #[serde(default)]
     transcription_audio_language: String,
+    #[serde(default)]
+    transcription_include_timestamps: bool,
     rate: i32,
     pitch: i32,
     volume: i32,
@@ -417,6 +420,8 @@ struct Settings {
     youtube_favorites: Vec<YoutubeFavorite>,
     #[serde(default)]
     sonarmusic_search_type: String,
+    #[serde(default)]
+    sonarmusic_favorites: Vec<serde_json::Value>,
     #[serde(default)]
     tv_favorites: Vec<TvFavorite>,
     #[serde(default)]
@@ -542,6 +547,7 @@ impl Settings {
             media_seek_seconds: default_media_seek_seconds(),
             announce_media_duration_on_seek: true,
             transcription_audio_language: String::new(),
+            transcription_include_timestamps: false,
             rate: 0,
             pitch: 0,
             volume: 100,
@@ -551,6 +557,7 @@ impl Settings {
             radio_favorites: Vec::new(),
             youtube_favorites: Vec::new(),
             sonarmusic_search_type: String::new(),
+            sonarmusic_favorites: Vec::new(),
             tv_favorites: Vec::new(),
             rai_luce_code: String::new(),
             auto_media_bookmark: false,
@@ -20376,6 +20383,24 @@ fn youtube_result_title_for_save(result: &YoutubeSearchResult) -> String {
     }
 }
 
+fn youtube_lockup_views(metadata: &serde_json::Value, collection: bool) -> &str {
+    let Some(rows) = metadata["metadata"]["contentMetadataViewModel"]["metadataRows"].as_array() else {
+        return "";
+    };
+    if rows.iter().any(|row| row["badges"].as_array().is_some_and(|badges|
+        badges.iter().any(|badge| badge["badgeViewModel"]["badgeStyle"] == "BADGE_MEMBERS_ONLY"))) {
+        return "";
+    }
+    // Hype and other badge-only rows do not describe the channel or views.
+    let rows: Vec<_> = rows.iter().filter(|row|
+        row["metadataParts"].as_array().is_some_and(|parts| !parts.is_empty())).collect();
+    let single_row = rows.len() == 1
+        && (collection || metadata["image"]["decoratedAvatarViewModel"].is_object());
+    rows.get(if single_row { 0 } else { 1 })
+        .and_then(|row| row["metadataParts"][0]["text"]["content"].as_str())
+        .unwrap_or_default()
+}
+
 fn youtube_collect_direct_results(
     value: &serde_json::Value,
     include_collections: bool,
@@ -20403,6 +20428,30 @@ fn youtube_collect_direct_results(
                         duration,
                     });
                 }
+            }
+            if include_videos
+                && let Some(renderer) = map.get("lockupViewModel")
+                && renderer["contentType"] == "LOCKUP_CONTENT_TYPE_VIDEO"
+            {
+                let metadata = &renderer["metadata"]["lockupMetadataViewModel"];
+                if !youtube_lockup_views(metadata, !include_collections).trim().is_empty()
+                    && let Some(video_id) = renderer["contentId"].as_str()
+                    && let Some(title) = metadata["title"]["content"].as_str()
+                {
+                    let url = format!("https://www.youtube.com/watch?v={video_id}");
+                    if seen.insert(url.clone()) {
+                        let duration = renderer["contentImage"]["thumbnailViewModel"]["overlays"]
+                            .as_array().into_iter().flatten()
+                            .filter_map(|overlay| overlay["thumbnailBottomOverlayViewModel"]["badges"].as_array())
+                            .flatten()
+                            .find_map(|badge| badge["thumbnailBadgeViewModel"]["text"].as_str())
+                            .map(str::to_string);
+                        results.push(YoutubeSearchResult {
+                            title: title.to_string(), url, is_collection: false, duration,
+                        });
+                    }
+                }
+                return;
             }
             if include_collections
                 && let Some(renderer) = map.get("channelRenderer")

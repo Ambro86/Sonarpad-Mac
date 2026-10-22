@@ -179,6 +179,7 @@ fn run_with_progress(
     output: PathBuf,
     model: BridgeModel,
     language: String,
+    include_timestamps: bool,
 ) -> Result<PathBuf, String> {
     let progress_dialog = Dialog::builder(parent, &tr("media_transcription.title"))
         .with_style(
@@ -229,7 +230,7 @@ fn run_with_progress(
         let state_progress = Arc::clone(&state_thread);
         let state_stage = Arc::clone(&state_thread);
         crate::append_podcast_log(&format!(
-            "transcription.request model={} language={}",
+            "transcription.request model={} language={} timestamps={include_timestamps}",
             model.as_name(),
             language
         ));
@@ -237,6 +238,7 @@ fn run_with_progress(
             &input,
             model,
             &language,
+            include_timestamps,
             cancel_thread,
             BridgeProgressCallbacks {
                 transcription: Some(Box::new(move |progress| {
@@ -342,7 +344,7 @@ pub fn open_dialog(parent: &Frame) {
 pub fn open_dialog_with_input(parent: &dyn WxWidget, initial_input: Option<PathBuf>) {
     let dialog = Dialog::builder(parent, &tr("media_transcription.title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(760, 350)
+        .with_size(760, 390)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -442,6 +444,17 @@ pub fn open_dialog_with_input(parent: &dyn WxWidget, initial_input: Option<PathB
         }
     });
 
+    let timestamps = CheckBox::builder(&panel)
+        .with_label(&tr("media_transcription.include_timestamps"))
+        .build();
+    timestamps.set_value(Settings::load().transcription_include_timestamps);
+    root.add(&timestamps, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    timestamps.on_toggled(move |_| {
+        let mut settings = Settings::load();
+        settings.transcription_include_timestamps = timestamps.get_value();
+        settings.save();
+    });
+
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let start = Button::builder(&panel)
         .with_id(ID_TRANSCRIPTION_START)
@@ -523,6 +536,7 @@ pub fn open_dialog_with_input(parent: &dyn WxWidget, initial_input: Option<PathB
             output_path,
             chosen_model,
             chosen_language,
+            timestamps.get_value(),
         ) {
             Ok(path) => {
                 show_message(

@@ -29,6 +29,10 @@ struct Controls {
     suggest: Button,
     open: Button,
     back: Button,
+    favorites: Choice,
+    open_favorite: Button,
+    remove_favorite: Button,
+    add_favorite: Button,
 }
 impl Controls {
     fn update(self, busy: bool, view: &View, suggestions: &Option<Vec<String>>, history: bool) {
@@ -37,6 +41,11 @@ impl Controls {
         self.search.enable(!busy);
         self.suggest.enable(!busy);
         self.results.enable(!busy);
+        self.favorites.enable(!busy);
+        self.open_favorite
+            .enable(!busy && self.favorites.get_selection().is_some());
+        self.remove_favorite
+            .enable(!busy && self.favorites.get_selection().is_some());
         let row = view.pagination.row(
             &view.page,
             self.results.get_selection().unwrap_or(0) as usize,
@@ -50,6 +59,9 @@ impl Controls {
                 .is_some_and(|i| i.playable() || i.browse_request().is_some()),
             None => false,
         };
+        self.add_favorite.enable(
+            !busy && suggestions.is_none() && matches!(row, Some(ResultRow::Item(_))) && available,
+        );
         self.open
             .enable(!busy && (suggestions.as_ref().is_some_and(|s| !s.is_empty()) || available));
         let can_go_back = view.pagination.can_return(suggestions.is_some(), history);
@@ -84,7 +96,7 @@ pub(crate) fn open(
         }
     };
     let dialog = Dialog::builder(parent, "SonarMusic")
-        .with_size(780, 450)
+        .with_size(780, 590)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .build();
     let panel = Panel::builder(&dialog).build();
@@ -142,6 +154,31 @@ pub(crate) fn open(
     let results = Choice::builder(&panel).build();
     results.set_accessibility_label(&text("results"));
     root.add(&results, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    root.add(
+        &StaticText::builder(&panel)
+            .with_label(&text("favorites"))
+            .build(),
+        0,
+        SizerFlag::All,
+        5,
+    );
+    let favorites = Choice::builder(&panel).build();
+    favorites.set_accessibility_label(&text("favorites"));
+    root.add(&favorites, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let favorite_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let open_favorite = Button::builder(&panel)
+        .with_label(&text("open_favorite"))
+        .build();
+    let remove_favorite = Button::builder(&panel)
+        .with_label(&text("remove_favorite"))
+        .build();
+    favorite_row.add(&open_favorite, 0, SizerFlag::All, 5);
+    favorite_row.add(&remove_favorite, 0, SizerFlag::All, 5);
+    root.add_sizer(&favorite_row, 0, SizerFlag::Expand, 0);
+    let add_favorite = Button::builder(&panel)
+        .with_label(&text("add_favorite"))
+        .build();
+    root.add(&add_favorite, 0, SizerFlag::All, 5);
     let status = StaticText::builder(&panel).build();
     root.add(&status, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let row = BoxSizer::builder(Orientation::Horizontal).build();
@@ -174,7 +211,37 @@ pub(crate) fn open(
         suggest,
         open,
         back,
+        favorites,
+        open_favorite,
+        remove_favorite,
+        add_favorite,
     };
+    let favorite_settings = Arc::clone(settings);
+    let saved_favorites = Rc::new(RefCell::new(music::favorite_items(
+        &settings.lock().unwrap().sonarmusic_favorites,
+    )));
+    let refresh_favorites = {
+        let saved = saved_favorites.clone();
+        let locale = locale.clone();
+        Rc::new(move || {
+            let index = favorites.get_selection().unwrap_or(0) as usize;
+            favorites.clear();
+            let labels = crate::result_labels::accessible_result_labels(
+                saved
+                    .borrow()
+                    .iter()
+                    .map(|item| item.display(&locale))
+                    .collect(),
+            );
+            for label in &labels {
+                favorites.append(label);
+            }
+            if !labels.is_empty() {
+                favorites.set_selection(index.min(labels.len() - 1) as u32);
+            }
+        })
+    };
+    refresh_favorites();
     let view = Rc::new(RefCell::new(View::default()));
     let history = Rc::new(RefCell::new(Vec::<View>::new()));
     let suggestions = Rc::new(RefCell::new(None::<Vec<String>>));
@@ -362,6 +429,7 @@ pub(crate) fn open(
     });
     let on_open = activate.clone();
     open.on_click(move |_| on_open());
+    let activate_favorite = activate.clone();
     results.on_key_down(move |event| {
         if let WindowEventData::Keyboard(key) = &event
             && key.get_key_code() == Some(13)
@@ -377,6 +445,109 @@ pub(crate) fn open(
     let b = busy.clone();
     results.on_selection_changed(move |_| {
         c.update(b.get(), &v.borrow(), &sg.borrow(), !h.borrow().is_empty())
+    });
+    let add_action = {
+        let saved = saved_favorites.clone();
+        let settings = Arc::clone(&favorite_settings);
+        let v = view.clone();
+        let sg = suggestions.clone();
+        let b = busy.clone();
+        let h = history.clone();
+        let refresh = refresh_favorites.clone();
+        move || {
+            if b.get() || sg.borrow().is_some() {
+                return;
+            }
+            let current = v.borrow();
+            let Some(ResultRow::Item(index)) = current
+                .pagination
+                .row(&current.page, results.get_selection().unwrap_or(0) as usize)
+            else {
+                return;
+            };
+            let Some(item) = current.page.items.get(index) else {
+                return;
+            };
+            {
+                let mut settings = settings.lock().unwrap();
+                music::add_favorite(&mut settings.sonarmusic_favorites, item);
+                *saved.borrow_mut() = music::favorite_items(&settings.sonarmusic_favorites);
+                settings.save();
+            }
+            drop(current);
+            refresh();
+            c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
+        }
+    };
+    add_favorite.on_click(move |_| add_action());
+    let saved = saved_favorites.clone();
+    let settings_f = Arc::clone(&favorite_settings);
+    let b = busy.clone();
+    let v = view.clone();
+    let sg = suggestions.clone();
+    let h = history.clone();
+    let refresh = refresh_favorites.clone();
+    remove_favorite.on_click(move |_| {
+        if b.get() {
+            return;
+        }
+        let item = saved
+            .borrow()
+            .get(favorites.get_selection().unwrap_or(0) as usize)
+            .cloned();
+        if let Some(item) = item {
+            {
+                let mut settings = settings_f.lock().unwrap();
+                music::remove_favorite(&mut settings.sonarmusic_favorites, &item);
+                *saved.borrow_mut() = music::favorite_items(&settings.sonarmusic_favorites);
+                settings.save();
+            }
+            refresh();
+            c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
+            favorites.set_focus();
+        }
+    });
+    let v = view.clone();
+    let h = history.clone();
+    let sg = suggestions.clone();
+    let b = busy.clone();
+    let saved = saved_favorites.clone();
+    let lang = locale.clone();
+    let open_saved = Rc::new(move || {
+        if b.get() {
+            return;
+        }
+        let index = favorites.get_selection().unwrap_or(0) as usize;
+        if index >= saved.borrow().len() {
+            return;
+        }
+        let mut previous = v.borrow().clone();
+        previous.selection = results.get_selection().unwrap_or(0) as usize;
+        h.borrow_mut().push(previous);
+        *v.borrow_mut() = View {
+            page: Page {
+                items: saved.borrow().clone(),
+                next: None,
+            },
+            number: 1,
+            selection: index,
+            ..View::default()
+        };
+        sg.borrow_mut().take();
+        c.render(&v.borrow(), &lang);
+        c.update(false, &v.borrow(), &None, !h.borrow().is_empty());
+        activate_favorite();
+    });
+    let f = open_saved.clone();
+    open_favorite.on_click(move |_| f());
+    favorites.on_key_down(move |event| {
+        if let WindowEventData::Keyboard(key) = &event
+            && key.get_key_code() == Some(13)
+        {
+            open_saved();
+            return;
+        }
+        event.skip(true);
     });
     let timer = Timer::new(&dialog);
     let v = view.clone();
