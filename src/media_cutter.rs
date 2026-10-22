@@ -159,6 +159,7 @@ struct Labels {
     hide_video: &'static str,
     add_track: &'static str,
     save: &'static str,
+    choose_destination: &'static str,
     cancel_processing: &'static str,
     close: &'static str,
     ready: &'static str,
@@ -254,6 +255,7 @@ fn labels() -> Labels {
         show_video: t(l, "Mostra anteprima video", "Show video preview", "Afficher l’aperçu vidéo", "Mostrar vista previa de vídeo", "Mostrar pré-visualização do vídeo", "Zobrazit náhled videa", "Pokaż podgląd wideo"),
         hide_video: t(l, "Nascondi anteprima video", "Hide video preview", "Masquer l’aperçu vidéo", "Ocultar vista previa de vídeo", "Ocultar pré-visualização do vídeo", "Skrýt náhled videa", "Ukryj podgląd wideo"),
         add_track: t(l, "Aggiungi nuova traccia…", "Add new track…", "Ajouter une nouvelle piste…", "Añadir nueva pista…", "Adicionar nova faixa…", "Přidat novou stopu…", "Dodaj nową ścieżkę…"),
+        choose_destination: t(l, "Cambia cartella di destinazione...", "Change destination folder...", "Changer le dossier de destination...", "Cambiar carpeta de destino...", "Alterar pasta de destino...", "Změnit cílovou složku...", "Zmień folder docelowy..."),
         save: t(l, "Salva…", "Save…", "Enregistrer…", "Guardar…", "Guardar…", "Uložit…", "Zapisz…"),
         cancel_processing: t(l, "Interrompi", "Stop", "Interrompre", "Interrumpir", "Interromper", "Přerušit", "Przerwij"),
         close: t(l, "Chiudi", "Close", "Fermer", "Cerrar", "Fechar", "Zavřít", "Zamknij"),
@@ -824,7 +826,7 @@ fn choose_output(parent: &Dialog, input: &Path, has_video: bool, labels: &Labels
     let formats: &[&str] = if has_video { &["mp4", "mkv", "avi", "mov", "m4a", "mp3", "wav", "flac", "aiff"] } else { &["m4a", "mp3", "wav", "flac", "aiff"] };
     let wildcard = formats.iter().map(|ext| format!("{}|*.{ext}", ext.to_uppercase())).collect::<Vec<_>>().join("|");
     let dialog = FileDialog::builder(parent)
-        .with_message(labels.save)
+        .with_message(labels.choose_destination)
         .with_wildcard(&wildcard)
         .with_default_file(&default_name)
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
