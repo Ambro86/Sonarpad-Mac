@@ -1,6 +1,7 @@
 {
   "document_new": "Nuovo documento",
   "document_close": "Chiudi documento",
+  "prefer_raiplay_audio_description_label": "Preferisci traccia audiodescritta per RaiPlay",
   "document_next": "Documento successivo",
   "document_previous": "Documento precedente",
   "document_untitled": "Senza titolo",
@@ -498,7 +499,7 @@
   "record_refresh": "Aggiorna elenco microfoni",
   "record_mic_volume": "Volume del microfono",
   "record_system_volume": "Volume dell’audio di sistema",
-  "record_output": "File di destinazione",
+  "record_output": "Cartella di destinazione",
   "record_choose_output": "Cambia cartella di destinazione...",
   "record_status": "Stato della registrazione",
   "record_elapsed": "Tempo registrato",

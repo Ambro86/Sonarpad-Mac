@@ -5,15 +5,17 @@ pub struct DocumentDeck<T> {
 }
 
 /// Prefer the produced character: on some layouts '<' and '>' share a key.
-pub fn shortcut_direction(key_code: i32, unicode_key: i32) -> Option<bool> {
-    match if unicode_key > 0 {
-        unicode_key
-    } else {
-        key_code
-    } {
+pub fn shortcut_direction(key_code: i32, unicode_key: i32, shift: bool) -> Option<bool> {
+    match unicode_key {
         60 => Some(false),
         62 => Some(true),
-        _ => None,
+        _ => match key_code {
+            60 => Some(shift),
+            62 => Some(true),
+            44 if shift => Some(false),
+            46 if shift => Some(true),
+            _ => None,
+        },
     }
 }
 
@@ -60,11 +62,16 @@ mod tests {
 
     #[test]
     fn shortcuts_respect_layout_and_leave_comma_for_settings() {
-        assert_eq!(shortcut_direction(60, 60), Some(false));
-        assert_eq!(shortcut_direction(60, 62), Some(true));
-        assert_eq!(shortcut_direction(44, 60), Some(false));
-        assert_eq!(shortcut_direction(44, 44), None);
-        assert_eq!(shortcut_direction(60, 0), Some(false));
+        assert_eq!(shortcut_direction(60, 60, false), Some(false));
+        assert_eq!(shortcut_direction(60, 62, true), Some(true));
+        assert_eq!(shortcut_direction(44, 60, true), Some(false));
+        assert_eq!(shortcut_direction(44, 44, false), None);
+        assert_eq!(shortcut_direction(60, 0, false), Some(false));
+        assert_eq!(shortcut_direction(60, 44, false), Some(false));
+        assert_eq!(shortcut_direction(60, 44, true), Some(true));
+        assert_eq!(shortcut_direction(44, 44, true), Some(false));
+        assert_eq!(shortcut_direction(46, 46, true), Some(true));
+        assert_eq!(shortcut_direction(46, 46, false), None);
     }
 
     #[derive(Default, Debug, PartialEq)]

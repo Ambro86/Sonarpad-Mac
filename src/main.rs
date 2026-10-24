@@ -432,6 +432,8 @@ struct Settings {
     auto_media_bookmark: bool,
     #[serde(default)]
     auto_audio_describe_tv_recordings: bool,
+    #[serde(default = "default_true")]
+    prefer_raiplay_audio_description: bool,
     #[serde(default)]
     disable_blank_line_pauses: bool,
     #[serde(default)]
@@ -565,6 +567,7 @@ impl Settings {
             rai_luce_code: String::new(),
             auto_media_bookmark: false,
             auto_audio_describe_tv_recordings: false,
+            prefer_raiplay_audio_description: true,
             disable_blank_line_pauses: false,
             read_only_mode: false,
             group_tools_menu_by_category: true,
@@ -931,6 +934,7 @@ struct UiStrings {
     document_new: String,
     document_close: String,
     document_next: String,
+    prefer_raiplay_audio_description_label: String,
     document_previous: String,
     document_untitled: String,
     menu_recent_text_files: String,
@@ -2040,13 +2044,20 @@ fn handle_shortcut_event(
 
             if command_shortcut_down(key_event)
                 && !key_event.alt_down()
-                && let Some(backwards) = document_deck::shortcut_direction(key_code, unicode_key)
+                && let Some(backwards) = document_deck::shortcut_direction(
+                    key_code,
+                    unicode_key,
+                    key_event.shift_down(),
+                )
             {
                 let id = if backwards {
                     documents::ID_PREVIOUS_DOCUMENT
                 } else {
                     documents::ID_NEXT_DOCUMENT
                 };
+                append_podcast_log(&format!(
+                    "document.shortcut key={key_code} unicode={unicode_key} backwards={backwards}"
+                ));
                 (actions.document)(id);
                 event.skip(false);
                 return;
@@ -14047,6 +14058,18 @@ fn open_settings_dialog(
         5,
     );
 
+    let prefer_raiplay_audio_description_checkbox = CheckBox::builder(&panel)
+        .with_label(&ui.prefer_raiplay_audio_description_label)
+        .build();
+    prefer_raiplay_audio_description_checkbox
+        .set_value(settings_before.prefer_raiplay_audio_description);
+    root.add(
+        &prefer_raiplay_audio_description_checkbox,
+        0,
+        SizerFlag::Expand | SizerFlag::Left | SizerFlag::Right | SizerFlag::Top,
+        5,
+    );
+
     let auto_audio_describe_tv_recordings_checkbox = CheckBox::builder(&panel)
         .with_label("Apri Crea audiodescrizione al termine delle registrazioni TV")
         .build();
@@ -14516,6 +14539,8 @@ fn open_settings_dialog(
             updated.rai_luce_code = rai_code_ctrl.get_value().trim().to_string();
         }
         updated.auto_media_bookmark = auto_media_bookmark_checkbox.get_value();
+        updated.prefer_raiplay_audio_description =
+            prefer_raiplay_audio_description_checkbox.get_value();
         updated.group_tools_menu_by_category = group_tools_menu_by_category_checkbox.get_value();
         if settings_before.ui_language == "it" {
             updated.auto_audio_describe_tv_recordings =
@@ -14543,6 +14568,8 @@ fn open_settings_dialog(
             || settings_before.announce_media_duration_on_seek
                 != updated.announce_media_duration_on_seek
             || settings_before.auto_media_bookmark != updated.auto_media_bookmark
+            || settings_before.prefer_raiplay_audio_description
+                != updated.prefer_raiplay_audio_description
             || settings_before.group_tools_menu_by_category
                 != updated.group_tools_menu_by_category
             || settings_before.auto_audio_describe_tv_recordings
@@ -29262,13 +29289,17 @@ fn open_raiplay_target_with_mpv(
     target: &raiplay::PlaybackTarget,
     title: &str,
 ) -> Result<(), String> {
-    let recording_config = if let Some(audio_url) = target.audio_description_url() {
+    let prefer_description = Settings::load().prefer_raiplay_audio_description;
+    let recording_config = if let Some(audio_url) = target
+        .audio_description_url()
+        .filter(|_| prefer_description)
+    {
         MpvRecordingConfig::rai_separate_audio_description(target.media_url(), audio_url, title)
     } else {
         MpvRecordingConfig::tv(target.media_url(), title)
     };
     open_stream_with_mpv_recordable(
-        target.playback_url(),
+        target.preferred_playback_url(prefer_description),
         title,
         None,
         true,

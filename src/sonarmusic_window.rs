@@ -59,6 +59,14 @@ impl Controls {
                 .is_some_and(|i| i.playable() || i.browse_request().is_some()),
             None => false,
         };
+        let playable = suggestions.is_none()
+            && matches!(row, Some(ResultRow::Item(index)) if view.page.items.get(index).is_some_and(|item| item.watch_url().is_some()));
+        let ui = crate::current_ui_strings();
+        self.open.set_label(if playable {
+            &ui.youtube_open_video
+        } else {
+            &ui.open
+        });
         self.add_favorite.enable(
             !busy && suggestions.is_none() && matches!(row, Some(ResultRow::Item(_))) && available,
         );
@@ -416,7 +424,7 @@ pub(crate) fn open(
                 }],
                 None,
                 &audio,
-                false,
+                true,
                 "SonarMusic",
             );
             results.set_focus();

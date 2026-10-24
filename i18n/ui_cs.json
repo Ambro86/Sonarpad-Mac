@@ -1,6 +1,7 @@
 {
   "document_new": "Nový dokument",
   "document_close": "Zavřít dokument",
+  "prefer_raiplay_audio_description_label": "Upřednostnit zvukovou stopu s audiopopisem na RaiPlay",
   "document_next": "Další dokument",
   "document_previous": "Předchozí dokument",
   "document_untitled": "Bez názvu",
@@ -498,7 +499,7 @@
   "record_refresh": "Obnovit seznam mikrofonů",
   "record_mic_volume": "Hlasitost mikrofonu",
   "record_system_volume": "Hlasitost systémového zvuku",
-  "record_output": "Cílový soubor",
+  "record_output": "Cílová složka",
   "record_choose_output": "Změnit cílovou složku...",
   "record_status": "Stav nahrávání",
   "record_elapsed": "Doba nahrávání",

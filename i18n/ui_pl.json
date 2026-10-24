@@ -1,6 +1,7 @@
 {
   "document_new": "Nowy dokument",
   "document_close": "Zamknij dokument",
+  "prefer_raiplay_audio_description_label": "Preferuj ścieżkę z audiodeskrypcją w RaiPlay",
   "document_next": "Następny dokument",
   "document_previous": "Poprzedni dokument",
   "document_untitled": "Bez tytułu",
@@ -498,7 +499,7 @@
   "record_refresh": "Odśwież listę mikrofonów",
   "record_mic_volume": "Głośność mikrofonu",
   "record_system_volume": "Głośność dźwięku systemowego",
-  "record_output": "Plik docelowy",
+  "record_output": "Folder docelowy",
   "record_choose_output": "Zmień folder docelowy...",
   "record_status": "Stan nagrywania",
   "record_elapsed": "Czas nagrania",

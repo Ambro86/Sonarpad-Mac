@@ -1,6 +1,7 @@
 {
   "document_new": "New document",
   "document_close": "Close document",
+  "prefer_raiplay_audio_description_label": "Prefer audio-described track for RaiPlay",
   "document_next": "Next document",
   "document_previous": "Previous document",
   "document_untitled": "Untitled",
@@ -498,7 +499,7 @@
   "record_refresh": "Refresh microphone list",
   "record_mic_volume": "Microphone volume",
   "record_system_volume": "System audio volume",
-  "record_output": "Destination file",
+  "record_output": "Destination folder",
   "record_choose_output": "Change destination folder...",
   "record_status": "Recording status",
   "record_elapsed": "Recorded time",

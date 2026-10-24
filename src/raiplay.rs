@@ -53,8 +53,46 @@ impl PlaybackTarget {
         &self.playback_url
     }
 
+    pub fn preferred_playback_url(&self, prefer_description: bool) -> &str {
+        if prefer_description {
+            self.playback_url()
+        } else {
+            self.media_url()
+        }
+    }
+
     pub fn audio_description_url(&self) -> Option<&str> {
         self.audio_description_url.as_deref()
+    }
+}
+
+#[cfg(test)]
+mod playback_preference_tests {
+    use super::PlaybackTarget;
+
+    #[test]
+    fn preference_selects_description_or_original_without_changing_save_urls() {
+        let target = PlaybackTarget {
+            media_url: "original.m3u8".into(),
+            playback_url: "described.m3u8".into(),
+            audio_description_url: Some("described.m3u8".into()),
+        };
+        assert_eq!(target.preferred_playback_url(true), "described.m3u8");
+        assert_eq!(target.preferred_playback_url(false), "original.m3u8");
+        assert_eq!(target.playback_url(), "described.m3u8");
+        assert_eq!(target.audio_description_url(), Some("described.m3u8"));
+    }
+
+    #[test]
+    fn missing_description_uses_original_for_both_preferences() {
+        let target = PlaybackTarget {
+            media_url: "original.m3u8".into(),
+            playback_url: "original.m3u8".into(),
+            audio_description_url: None,
+        };
+        for prefer in [true, false] {
+            assert_eq!(target.preferred_playback_url(prefer), "original.m3u8");
+        }
     }
 }
 
