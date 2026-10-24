@@ -1,3 +1,4 @@
+import json
 import unittest
 from unittest import mock
 from types import SimpleNamespace
@@ -859,6 +860,77 @@ class ChunkTimestampTests(unittest.TestCase):
             self.assertEqual(glossary, [])
             self.assertEqual(usage, [])
             prepare_video.assert_not_called()
+
+    def test_prompt_reads_narrative_on_screen_text_without_bypassing_silences(self):
+        settings = {
+            "application_language": "it",
+            "enable_character_glossary": False,
+            "gemini_description_verbosity": "standard",
+            "recognize_screen_text": True,
+        }
+        with mock.patch(
+            "audio_describer.core.audio_describer.config_model.get_setting",
+            side_effect=lambda key: settings.get(key),
+        ):
+            system, prompt = _build_unified_prompts(
+                "", "gemini-test", dialogue_free_windows="10.000-13.000"
+            )
+
+        self.assertIn("READ NARRATIVELY IMPORTANT ON-SCREEN TEXT", system)
+        self.assertIn("Three years later", system)
+        self.assertIn("dates, locations", system)
+        self.assertIn("letters or messages", system)
+        self.assertIn("persistent channel logos/watermarks", system)
+        self.assertIn("subtitles/", system)
+        self.assertIn("repeat audible dialogue", system)
+        self.assertIn("NEVER overrides dialogue", system)
+        self.assertIn("dialogue-free window", system)
+        self.assertIn("visual_evidence_time_seconds", system)
+        self.assertIn("Authoritative dialogue-free windows", prompt)
+        self.assertIn("never place a description outside them", prompt)
+        self.assertIn('three top-level keys:', system)
+        self.assertIn('"on_screen_text"', system)
+        self.assertIn('"narratively_relevant"', system)
+        self.assertIn("including text visible during dialogue", system)
+        self.assertIn("Otherwise keep it only in on_screen_text", system)
+        self.assertIn("READ SELECTED END CREDITS", system)
+        self.assertIn("legible roles and names in audio_descriptions", system)
+        self.assertIn("not just in on_screen_text", system)
+        self.assertIn("allowed even without a character glossary", system)
+        self.assertIn("Never infer missing credits", system)
+        self.assertIn("Instrumental music alone is not", system)
+        self.assertIn("Do not move a credit into a later silence", system)
+        self.assertIn("01:36 means 96 seconds", system)
+        self.assertIn("Printed end-credit names may still be read", prompt)
+        example = json.loads(system.split("**EXAMPLE OUTPUT:**", 1)[1])
+        self.assertEqual(example["on_screen_text"], [])
+
+    def test_prompt_keeps_legacy_behavior_when_screen_text_recognition_is_disabled(self):
+        settings = {
+            "application_language": "it",
+            "enable_character_glossary": False,
+            "gemini_description_verbosity": "standard",
+            "recognize_screen_text": False,
+        }
+        with mock.patch(
+            "audio_describer.core.audio_describer.config_model.get_setting",
+            side_effect=lambda key: settings.get(key),
+        ):
+            system, _prompt = _build_unified_prompts(
+                "", "gemini-test", dialogue_free_windows="10.000-13.000"
+            )
+
+        self.assertNotIn("READ SELECTED END CREDITS", system)
+        self.assertNotIn("Printed end-credit names", _prompt)
+
+        self.assertNotIn("READ NARRATIVELY IMPORTANT ON-SCREEN TEXT", system)
+        self.assertNotIn("Three years later", system)
+        self.assertNotIn("persistent channel logos/watermarks", system)
+        self.assertNotIn("on_screen_text", system)
+        self.assertIn("two top-level keys:", system)
+        example = json.loads(system.split("**EXAMPLE OUTPUT:**", 1)[1])
+        self.assertEqual(set(example), {"character_glossary", "audio_descriptions"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -24,6 +24,10 @@ Version 0.5.3 - October 14, 2026
 
 11. Faster opening of YouTube videos and SonarMusic tracks, with automatic alternatives if the first method fails.
 
+12. Improved audio descriptions: enabling on-screen text reading now also reads end credits that Gemini can identify.
+
+13. Improved audio description timing: fixed an issue where, after long stretches without room for narration, Gemini could keep describing earlier scenes instead of following the current scene.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability

@@ -24,6 +24,10 @@ Verze 0.5.3 - 14. října 2026
 
 11. Rychlejší otevírání videí YouTube a skladeb SonarMusic s automatickým použitím dalších metod, pokud první selže.
 
+12. Vylepšen zvukový popis: při zapnutém čtení textu na obrazovce se nyní čtou také závěrečné titulky, které Gemini dokáže rozpoznat.
+
+13. Vylepšeno časování audiopopisu: opraven problém, kdy Gemini po delších úsecích bez prostoru pro komentář mohl nadále popisovat předchozí scény místo aktuální scény.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost

@@ -24,6 +24,10 @@ Versión 0.5.3 - 14 de octubre de 2026
 
 11. Apertura más rápida de vídeos de YouTube y canciones de SonarMusic, con alternativas automáticas si falla el primer método.
 
+12. Mejoradas las audiodescripciones: al activar la lectura de textos en pantalla, también se leen los créditos finales que Gemini puede identificar.
+
+13. Mejorada la sincronización de las audiodescripciones: corregido un problema por el que, tras largos tramos sin espacio para la narración, Gemini podía seguir describiendo escenas anteriores en lugar de la escena actual.
+
 Versión 0.5.2 - 12 de octubre de 2026
 
 Voces Edge, audiodescripciones y estabilidad

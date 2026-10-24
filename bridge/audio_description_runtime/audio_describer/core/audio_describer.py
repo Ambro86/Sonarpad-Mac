@@ -925,11 +925,29 @@ def _items_for_minute(items, minute_start, minute_end, local_origin):
     return selected
 
 
+def _narration_restart_ranges(dialogue_intervals, duration, chunk_start, chunk_end):
+    """Reuse the existing clipped-request path after 45s without a usable pause."""
+    cuts = []
+    previous_end = 0.0
+    for start, end in speech_detector.speech_free_intervals(dialogue_intervals or [], duration):
+        if end - start < 3.0:
+            continue
+        if (start - previous_end >= 45.0
+                and start - chunk_start >= 45.0
+                and chunk_end - start >= 3.0):
+            cuts.append(start)
+        previous_end = end
+    if not cuts:
+        return None
+    bounds = [chunk_start, *cuts, chunk_end]
+    return list(zip(bounds, bounds[1:]))
+
+
 def _generate_blocked_chunk_by_minutes(
     *, client, model_name, video_path, prepared_chunk_path, chunk_start, chunk_end, chunk_number,
     total_chunks, clipped_windows, intensive_slots, extended_anchors,
     intensive_mode, extended_mode, user_prompt, character_continuity,
-    prior_descriptions, status_update_callback,
+    prior_descriptions, status_update_callback, clip_ranges=None,
 ):
     """Salvage a blocked three-minute chunk using independent one-minute clips.
 
@@ -961,6 +979,9 @@ def _generate_blocked_chunk_by_minutes(
         minute_ranges.append((minute_start, minute_end))
         minute_start = minute_end
 
+    if clip_ranges is not None:
+        minute_ranges = clip_ranges
+
     if not minute_ranges:
         return recovered_descriptions, recovered_glossary, recovered_usage
 
@@ -968,19 +989,25 @@ def _generate_blocked_chunk_by_minutes(
     for minute_index, (minute_start, minute_end) in enumerate(minute_ranges):
         minute_duration = minute_end - minute_start
         minute_label = minute_index + 1
-        status_update_callback(
-            _(
-                "Chunk %(chunk)d/%(total)d blocked: trying minute "
-                "%(minute)d/%(minutes)d (%(start).0fs - %(end).0fs)…"
-            ) % {
-                "chunk": chunk_number,
-                "total": total_chunks,
-                "minute": minute_label,
-                "minutes": minute_count,
-                "start": minute_start,
-                "end": minute_end,
-            }
-        )
+        if clip_ranges is not None:
+            status_update_callback(
+                _("Processing chunk %d of %d (%.0fs - %.0fs)...")
+                % (chunk_number, total_chunks, minute_start, minute_end)
+            )
+        else:
+            status_update_callback(
+                _(
+                    "Chunk %(chunk)d/%(total)d blocked: trying minute "
+                    "%(minute)d/%(minutes)d (%(start).0fs - %(end).0fs)…"
+                ) % {
+                    "chunk": chunk_number,
+                    "total": total_chunks,
+                    "minute": minute_label,
+                    "minutes": minute_count,
+                    "start": minute_start,
+                    "end": minute_end,
+                }
+            )
 
         minute_windows = []
         for start, end in clipped_windows or []:
@@ -1410,9 +1437,14 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
 
             _update_status(_("Processing chunk %d of %d (%.0fs - %.0fs)...") % (i + 1, num_chunks, chunk_start, chunk_end))
 
+            restart_ranges = _narration_restart_ranges(
+                dialogue_intervals, total_duration, chunk_start, chunk_end
+            )
             current_chunk_path = prepared_chunk["path"]
             current_chunk_file_obj = None
-            if use_per_chunk_uploads:
+            if restart_ranges:
+                video_part = None
+            elif use_per_chunk_uploads:
                 # Sonarpad created this physical clip through its FFmpeg DLL backend.
                 # It has a local 0-based timeline; normalization adds chunk_start.
                 video_part, current_chunk_file_obj = _prepare_video_for_gemini(
@@ -1480,95 +1512,123 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
             minute_fallback_used = False
             chunk_visual_evidence = []
             try:
-                try:
-                    response = gemini.generate_content_with_retry(
-                        client, model=model_name_to_use, contents=api_contents,
-                        config=gen_config, status_callback=_update_status,
-                        prohibited_content_max_attempts=2,
+                if restart_ranges:
+                    minute_fallback_used = True
+                    app_logger.info(
+                        "Chunk %d: restarting narration with existing metadata clipping: %s",
+                        i + 1, restart_ranges,
                     )
-                except Exception as exc:
-                    chunk_size = os.path.getsize(current_chunk_path)
-                    if (
-                        current_chunk_file_obj is not None
-                        and chunk_size <= _INLINE_FALLBACK_MAX_BYTES
-                        and _is_permission_denied_error(exc)
-                    ):
-                        _update_status(
-                            _("Gemini denied the uploaded clip; retrying inline (%s MB)...")
-                            % f"{chunk_size / (1024 * 1024):.1f}"
-                        )
-                        app_logger.warning(
-                            "Files API generateContent returned permission denied for chunk %d; "
-                            "retrying inline (%d bytes).",
-                            i + 1, chunk_size,
-                        )
-                        _cleanup_uploaded_file(
-                            client, current_chunk_file_obj, _update_status
-                        )
-                        if current_chunk_file_obj in per_chunk_uploaded_files:
-                            per_chunk_uploaded_files.remove(current_chunk_file_obj)
-                        current_chunk_file_obj = None
-                        video_part = _build_inline_video_part(current_chunk_path)
-                        api_contents = [chunk_prompt_text, video_part]
+                    normalized_chunk, chunk_glossary, fallback_usage = _generate_blocked_chunk_by_minutes(
+                        client=client,
+                        model_name=model_name_to_use,
+                        video_path=video_path,
+                        prepared_chunk_path=current_chunk_path,
+                        chunk_start=chunk_start,
+                        chunk_end=chunk_end,
+                        chunk_number=i + 1,
+                        total_chunks=num_chunks,
+                        clipped_windows=clipped,
+                        intensive_slots=intensive_slots,
+                        extended_anchors=extended_anchors,
+                        intensive_mode=intensive_mode,
+                        extended_mode=extended_mode,
+                        user_prompt=user_prompt,
+                        character_continuity=character_continuity,
+                        prior_descriptions=all_descriptions,
+                        status_update_callback=_update_status,
+                        clip_ranges=restart_ranges,
+                    )
+                    all_token_usage.extend(fallback_usage)
+                else:
+                    try:
                         response = gemini.generate_content_with_retry(
                             client, model=model_name_to_use, contents=api_contents,
                             config=gen_config, status_callback=_update_status,
                             prohibited_content_max_attempts=2,
                         )
-                    else:
-                        raise
-                gemini.save_raw_ai_output(
-                    os.path.basename(video_path), "unified_raw_response",
-                    response, suffix=f"_chunk{i+1}"
-                )
-
-                chunk_usage = gemini.log_token_usage(f"Chunk_{i+1}", response)
-                if chunk_usage:
-                    all_token_usage.append(chunk_usage)
-
-                _update_status(_("Chunk %d/%d: reading Gemini response…") % (i + 1, num_chunks))
-                raw_json_text, success = gemini.process_gemini_response(response, _update_status)
-                if not success or not raw_json_text:
-                    app_logger.warning(f"Chunk {i+1} returned no usable response.")
-                    _update_status(_("Chunk %d/%d: no usable AI text.") % (i + 1, num_chunks))
-                    if current_chunk_file_obj is not None:
-                        _cleanup_uploaded_file(client, current_chunk_file_obj, _update_status)
-                        per_chunk_uploaded_files.remove(current_chunk_file_obj)
-                    continue
-
-                chunk_descriptions, chunk_glossary = _parse_with_optional_json_repair(
-                    client,
-                    model_name_to_use,
-                    video_part,
-                    raw_json_text,
-                    response,
-                    status_update_callback=_update_status,
-                )
-                chunk_visual_evidence = list(_LAST_PARSED_VISUAL_EVIDENCE_RAW)
-                if chunk_soft:
-                    allowed = {row["id"] for row in chunk_soft}
-                    verified = [row_id for row_id in _LAST_PARSED_VERIFIED_NONVERBAL_IDS
-                                if row_id in allowed]
-                    confirmed_nonverbal_ids.extend(verified)
-                    app_logger.info(
-                        "Chunk %d optional nonverbal verification: candidates=%d "
-                        "Gemini-approved=%d ids=%s.", i + 1,
-                        len(chunk_soft), len(verified), ",".join(verified) or "none",
+                    except Exception as exc:
+                        chunk_size = os.path.getsize(current_chunk_path)
+                        if (
+                            current_chunk_file_obj is not None
+                            and chunk_size <= _INLINE_FALLBACK_MAX_BYTES
+                            and _is_permission_denied_error(exc)
+                        ):
+                            _update_status(
+                                _("Gemini denied the uploaded clip; retrying inline (%s MB)...")
+                                % f"{chunk_size / (1024 * 1024):.1f}"
+                            )
+                            app_logger.warning(
+                                "Files API generateContent returned permission denied for chunk %d; "
+                                "retrying inline (%d bytes).",
+                                i + 1, chunk_size,
+                            )
+                            _cleanup_uploaded_file(
+                                client, current_chunk_file_obj, _update_status
+                            )
+                            if current_chunk_file_obj in per_chunk_uploaded_files:
+                                per_chunk_uploaded_files.remove(current_chunk_file_obj)
+                            current_chunk_file_obj = None
+                            video_part = _build_inline_video_part(current_chunk_path)
+                            api_contents = [chunk_prompt_text, video_part]
+                            response = gemini.generate_content_with_retry(
+                                client, model=model_name_to_use, contents=api_contents,
+                                config=gen_config, status_callback=_update_status,
+                                prohibited_content_max_attempts=2,
+                            )
+                        else:
+                            raise
+                    gemini.save_raw_ai_output(
+                        os.path.basename(video_path), "unified_raw_response",
+                        response, suffix=f"_chunk{i+1}"
                     )
 
-                # Validate this model response before mixing it with descriptions
-                # from other chunks. A few English entries can otherwise disappear
-                # inside a much larger, predominantly Italian final sample.
-                chunk_descriptions, chunk_language_usage = _correct_description_language(
-                    client, model_name_to_use, chunk_descriptions, _update_status
-                )
-                if chunk_language_usage:
-                    all_token_usage.append(chunk_language_usage)
-                chunk_glossary, glossary_language_usage = _correct_glossary_language(
-                    client, model_name_to_use, chunk_glossary, _update_status
-                )
-                if glossary_language_usage:
-                    all_token_usage.append(glossary_language_usage)
+                    chunk_usage = gemini.log_token_usage(f"Chunk_{i+1}", response)
+                    if chunk_usage:
+                        all_token_usage.append(chunk_usage)
+
+                    _update_status(_("Chunk %d/%d: reading Gemini response…") % (i + 1, num_chunks))
+                    raw_json_text, success = gemini.process_gemini_response(response, _update_status)
+                    if not success or not raw_json_text:
+                        app_logger.warning(f"Chunk {i+1} returned no usable response.")
+                        _update_status(_("Chunk %d/%d: no usable AI text.") % (i + 1, num_chunks))
+                        if current_chunk_file_obj is not None:
+                            _cleanup_uploaded_file(client, current_chunk_file_obj, _update_status)
+                            per_chunk_uploaded_files.remove(current_chunk_file_obj)
+                        continue
+
+                    chunk_descriptions, chunk_glossary = _parse_with_optional_json_repair(
+                        client,
+                        model_name_to_use,
+                        video_part,
+                        raw_json_text,
+                        response,
+                        status_update_callback=_update_status,
+                    )
+                    chunk_visual_evidence = list(_LAST_PARSED_VISUAL_EVIDENCE_RAW)
+                    if chunk_soft:
+                        allowed = {row["id"] for row in chunk_soft}
+                        verified = [row_id for row_id in _LAST_PARSED_VERIFIED_NONVERBAL_IDS
+                                    if row_id in allowed]
+                        confirmed_nonverbal_ids.extend(verified)
+                        app_logger.info(
+                            "Chunk %d optional nonverbal verification: candidates=%d "
+                            "Gemini-approved=%d ids=%s.", i + 1,
+                            len(chunk_soft), len(verified), ",".join(verified) or "none",
+                        )
+
+                    # Validate this model response before mixing it with descriptions
+                    # from other chunks. A few English entries can otherwise disappear
+                    # inside a much larger, predominantly Italian final sample.
+                    chunk_descriptions, chunk_language_usage = _correct_description_language(
+                        client, model_name_to_use, chunk_descriptions, _update_status
+                    )
+                    if chunk_language_usage:
+                        all_token_usage.append(chunk_language_usage)
+                    chunk_glossary, glossary_language_usage = _correct_glossary_language(
+                        client, model_name_to_use, chunk_glossary, _update_status
+                    )
+                    if glossary_language_usage:
+                        all_token_usage.append(glossary_language_usage)
             except ContentBlockedError as exc:
                 if str(getattr(exc, "reason", "")).upper() != "PROHIBITED_CONTENT":
                     raise
@@ -3519,7 +3579,7 @@ def _build_unified_prompts(user_prompt, model_name_to_use, dialogue_free_windows
     visible words in their original language), "visual_evidence_time_seconds" (the exact visible
     instant, using the same local/absolute timeline requested for descriptions), and
     "narratively_relevant" (a JSON boolean). Exclude decorative text, persistent watermarks,
-    routine credits, and subtitles that only repeat speech. Never guess unreadable words.
+    unselected routine credits, and subtitles that only repeat speech. Never guess unreadable words.
     Return [] if no qualifying text is legible. This array is evidence metadata, not narration.
     For each relevant entry, include its readable content in audio_descriptions when it is
     visible inside an authorized dialogue-free window and fits that window's word budget.
@@ -3534,11 +3594,28 @@ def _build_unified_prompts(user_prompt, model_name_to_use, dialogue_free_windows
     to understanding the scene. Render the meaning naturally in the target language when useful.
     When describing important, legible text, include what it says rather than merely saying
     that a title, sign, or message is visible. Never guess words that you cannot read.
-    Do NOT read decorative text, persistent channel logos/watermarks, routine credits, or subtitles/
+    Do NOT read decorative text, persistent channel logos/watermarks, unselected routine credits, or subtitles/
     closed captions that merely repeat audible dialogue. This rule NEVER overrides dialogue
     protection: the resulting description must still fit completely inside an authorized
     dialogue-free window, and if no such window is available, omit the text rather than speaking
     over dialogue. The text must be visible at the reported `visual_evidence_time_seconds`.
+10. **READ SELECTED END CREDITS:** During visible end credits, include a useful selection of
+    legible roles and names in audio_descriptions, not just in on_screen_text or a generic
+    "credits roll" description. This is an exception to the plot-critical selection rule:
+    prioritize direction, writing/source, cast (with roles when printed), music and production.
+    Translate role labels naturally; preserve the printed names. Reading printed credits is
+    allowed even without a character glossary: it does not identify characters in the story.
+    Never infer missing credits from knowledge of the film, the soundtrack or earlier scenes.
+    Select complete role/name pairs that fit naturally at two words per second while visible;
+    use separate short entries for successive cards or scrolling groups. Continue inspecting
+    the credits through the end of the clip: do not stop after the first production credit
+    when further legible cast or creative credits can fit. Do not rush through
+    every crew member, repeat credits, or read legal boilerplate and technical company lists.
+    Include selected credits in on_screen_text as relevant. Instrumental music alone is not
+    dialogue. All dialogue protection, authorized-window, word-budget and visual-grounding
+    rules still apply. Do not move a credit into a later silence or extend its visible range.
+    Report the actual evidence instant in seconds, not MMSS digits (01:36 means 96 seconds,
+    not 136). If no complete credit can fit safely, omit it rather than guessing or rushing.
 """
 
     # The main system instruction, now asking for a unified JSON object.
@@ -3574,6 +3651,8 @@ Your entire output MUST be a single JSON object with {output_keys}.
             + "the timed audio descriptions. "
             + ("Follow all instructions." if enable_glossary else
                "Set character_glossary to an empty array and do not use character names.")
+            + (" Printed end-credit names may still be read under the selected-credits rule."
+               if bool(config_model.get_setting("recognize_screen_text")) else "")
         ),
         "\n**Current Task Specifications:**",
         (
