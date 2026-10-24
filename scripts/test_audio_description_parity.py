@@ -20,23 +20,33 @@ def main():
     pieces = ["#![allow(dead_code)]", "use serde::{Serialize, Deserialize};",
               "use std::{path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, Ordering}}};",
               "use hound::{WavReader, WavWriter, WavSpec, SampleFormat};",
-              "fn default_true() -> bool { true }"]
+              "fn default_true() -> bool { true }",
+              "fn append_podcast_log(_: &str) {}",
+              "fn audio_description_pcm_has_signal(pcm: &[i16]) -> bool { pcm.iter().any(|v| *v != 0) }"]
     for name in ("AudioDescriptionPreparedChunk", "BridgeCharacter", "BridgeDescription",
-                 "AudioDescriptionBridgeResume"):
+                 "AudioDescriptionBridgeResume", "BridgeInterval"):
         pieces.append(item(bridge, "pub struct " + name, True))
     for name in ("AudioDescriptionPartialCatalog", "AudioDescriptionChunkLayout",
                  "AudioDescriptionAnalysisProgress", "AudioDescriptionPartialCheckpoint",
-                 "ScheduledDescription"):
+                 "ScheduledDescription", "SynthesizedDescription", "DroppedDescription"):
+        pieces.append(item(audio, "struct " + name, True))
+    for name in ("ProjectDescription",):
         pieces.append(item(audio, "struct " + name, True))
     pieces.append(item(audio, "enum AudioDescriptionChunkMode", True))
     for name in ("AudioDescriptionChunkLayout", "AudioDescriptionAnalysisProgress",
                  "AudioDescriptionPartialCheckpoint"):
         pieces.append(item(audio, "impl " + name))
     for name in ("default_source_volume", "normalize_source_volume", "mix_sample",
-                 "smooth_duck_fade", "merge_duck_intervals", "duck_gain_for", "render_mix"):
+                 "smooth_duck_fade", "merge_duck_intervals", "duck_gain_for", "render_mix",
+                 "normalize_intervals", "free_intervals", "subtract_reserved", "restrict_slot",
+                 "choose_slot", "choose_pause_anchor", "schedule_descriptions"):
         pieces.append(item(audio, "fn " + name + "("))
-    for name in ("MIX_SAMPLE_RATE", "MIX_CHANNELS", "DUCKING_DB", "FADE_MS", "PRE_DUCK_MS", "RELEASE_MS"):
+    pieces.append(item(audio, "fn recover_descriptions_with_native_rate"))
+    for name in ("MAX_SHIFT_SEC", "MIN_EXTENDED_ANCHOR_SEC", "MIX_SAMPLE_RATE", "MIX_CHANNELS", "DUCKING_DB", "FADE_MS", "PRE_DUCK_MS", "RELEASE_MS"):
         pieces.append(re.search(r"const " + name + r":.*?;", audio).group())
+    fixture_start = audio.index("fn test_project_description(")
+    fixture_end = audio.index("\n    }", fixture_start) + len("\n    }")
+    pieces.append(audio[fixture_start:fixture_end])
     pieces.append((ROOT / "scripts/audio_description_parity_tests.rs").read_text(encoding="utf-8"))
     harness = ROOT / "target/audio-description-parity"
     harness.mkdir(parents=True, exist_ok=True)

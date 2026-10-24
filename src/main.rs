@@ -405,6 +405,8 @@ struct Settings {
     transcription_audio_language: String,
     #[serde(default)]
     transcription_include_timestamps: bool,
+    #[serde(default)]
+    media_cutter_advanced_mode: bool,
     rate: i32,
     pitch: i32,
     volume: i32,
@@ -478,7 +480,7 @@ struct Settings {
     audio_description_verbosity: String,
     #[serde(default = "default_true")]
     audio_description_extended_pauses: bool,
-    #[serde(default)]
+    #[serde(default = "default_true")]
     audio_description_allow_nonverbal_vocals: bool,
     #[serde(default = "default_true")]
     audio_description_recognize_characters: bool,
@@ -548,6 +550,7 @@ impl Settings {
             announce_media_duration_on_seek: true,
             transcription_audio_language: String::new(),
             transcription_include_timestamps: false,
+            media_cutter_advanced_mode: false,
             rate: 0,
             pitch: 0,
             volume: 100,
@@ -586,7 +589,7 @@ impl Settings {
             audio_description_source_volume: 1.0,
             audio_description_verbosity: default_audio_description_verbosity(),
             audio_description_extended_pauses: false,
-            audio_description_allow_nonverbal_vocals: false,
+            audio_description_allow_nonverbal_vocals: true,
             audio_description_recognize_characters: true,
             audio_description_recognize_screen_text: true,
             audio_description_save_project: false,

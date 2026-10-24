@@ -90,6 +90,7 @@ fn actual_mix_adjusts_only_movie_volume_and_preserves_ducking() {
     for _ in 0..MIX_SAMPLE_RATE * 8 { writer.write_sample(4000i16).unwrap(); }
     writer.finalize().unwrap();
     let cue = ScheduledDescription {
+        tts_rate_override: None,
         original_index: 0, text: "test".into(), desired_start_sec: 1.0,
         visual_evidence_time_sec: None, mandatory: false, slot_id: String::new(),
         slot_start_sec: None, slot_end_sec: None, start_sec: 1.0,
@@ -112,4 +113,75 @@ fn source_gain_normalization_keeps_mute_and_clamps_bad_values() {
     for (value, expected) in [(0.0, 0.0), (-1.0, 0.0), (3.0, 2.0), (f32::NAN, 1.0), (f32::INFINITY, 1.0)] {
         assert_eq!(normalize_source_volume(value), expected);
     }
+}
+
+fn native_cue(duration: f64) -> SynthesizedDescription {
+    SynthesizedDescription {
+        tts_rate_override: None, original_index: 10, text: "A door opens.".into(),
+        desired_start_sec: 1.0, visual_start_sec: 1.0, visual_evidence_time_sec: None,
+        mandatory: true, slot_id: "slot".into(), slot_start_sec: Some(1.0),
+        slot_end_sec: Some(4.0), pcm: Arc::from(vec![1000; (duration * MIX_SAMPLE_RATE as f64 * MIX_CHANNELS as f64) as usize]),
+        duration_sec: duration,
+    }
+}
+
+#[test]
+fn native_rate_recovery_uses_one_synthesis_and_real_duration() {
+    for (original, actual, expected_rate, accepted) in [
+        (3.2, 2.9, Some(10), true), (3.4, 2.95, Some(15), true),
+        (3.5, 2.9, None, false), (3.2, 3.1, Some(10), false),
+        (3.2, 0.0, Some(10), false), (2.9, 2.9, None, true),
+    ] {
+        let cues = [native_cue(original)];
+        let (mut scheduled, mut dropped) = schedule_descriptions(&cues, &[], 5.0, false);
+        let mut rates = Vec::new();
+        recover_descriptions_with_native_rate(&cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
+            |_, rate| { rates.push(rate); Ok(native_cue(actual).pcm) }).unwrap();
+        assert_eq!(rates, expected_rate.into_iter().collect::<Vec<_>>());
+        assert_eq!(scheduled.len(), usize::from(accepted));
+        assert_eq!(dropped.len(), usize::from(!accepted));
+        if accepted { assert_eq!(scheduled[0].tts_rate_override, expected_rate); }
+    }
+}
+
+#[test]
+fn native_rate_does_not_take_accepted_space_or_compound_saved_rate() {
+    let mut cues = [native_cue(3.2), native_cue(1.0)];
+    cues[1].original_index = 11;
+    let (mut scheduled, mut dropped) = schedule_descriptions(&cues, &[], 5.0, false);
+    let pcm = scheduled[0].pcm.clone();
+    recover_descriptions_with_native_rate(&cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
+        |_, _| panic!("no space remains")).unwrap();
+    assert!(Arc::ptr_eq(&pcm, &scheduled[0].pcm));
+    scheduled.clear();
+    cues[0].tts_rate_override = Some(10);
+    recover_descriptions_with_native_rate(&cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
+        |_, _| panic!("never compound saved acceleration")).unwrap();
+    assert_eq!(dropped.len(), 1);
+}
+
+#[test]
+fn native_rate_cancellation_and_errors_keep_the_rejected_cue() {
+    for error in ["cancelled", "voice unavailable"] {
+        let cues = [native_cue(3.2)];
+        let (mut scheduled, mut dropped) = schedule_descriptions(&cues, &[], 5.0, false);
+        let result = recover_descriptions_with_native_rate(&cues, &[], 5.0, 0,
+            &mut scheduled, &mut dropped, |_, _| Err(error.into()));
+        assert_eq!(result.is_err(), error == "cancelled");
+        assert!(scheduled.is_empty());
+        assert_eq!(dropped.len(), 1);
+    }
+}
+
+#[test]
+fn native_rate_project_roundtrip_and_legacy_default() {
+    let mut cue = test_project_description(10, "A door opens.");
+    cue.tts_rate_override = Some(10);
+    let mut value = serde_json::to_value(&cue).unwrap();
+    let mut restored: ProjectDescription = serde_json::from_value(value.clone()).unwrap();
+    restored.text = "Edited phrase".into();
+    assert_eq!(restored.tts_rate_override, Some(10));
+    value.as_object_mut().unwrap().remove("tts_rate_override");
+    let legacy: ProjectDescription = serde_json::from_value(value).unwrap();
+    assert_eq!(legacy.tts_rate_override, None);
 }

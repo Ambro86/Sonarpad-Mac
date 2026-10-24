@@ -362,6 +362,7 @@ pub(super) fn schedule_dialogue_overlap(
         }
         cursor = start + required;
         scheduled.push(ScheduledDescription {
+            tts_rate_override: item.tts_rate_override,
             original_index: item.original_index,
             text: item.text,
             desired_start_sec: visual,
@@ -410,6 +411,7 @@ pub(super) fn create_dialogue_overlap(
             .iter()
             .enumerate()
             .map(|(index, description)| AudioDescriptionSynthesisTask {
+                tts_rate_override: None,
                 original_index: index,
                 synthesis_index: index,
                 text: description.text.clone(),

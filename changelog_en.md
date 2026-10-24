@@ -28,6 +28,10 @@ Version 0.5.3 - October 14, 2026
 
 13. Improved audio description timing: fixed an issue where, after long stretches without room for narration, Gemini could keep describing earlier scenes instead of following the current scene.
 
+14. Audio descriptions: if a sentence does not fit the available gap, Sonarpad tries regenerating it with the speech engine at 10% or, if needed, 15% higher speed, checking its actual duration. The speed is saved only for that description and retained for edits, previews and later exports; other sentences remain unchanged.
+
+15. Audio descriptions: reduced the minimum required pause to 1.5 seconds. Sonarpad can now produce more descriptions, including in short pauses that were previously left unused.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability

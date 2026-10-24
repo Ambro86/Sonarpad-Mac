@@ -28,6 +28,10 @@ Version 0.5.3 - 14 octobre 2026
 
 13. Amélioration de la synchronisation des audiodescriptions : correction d’un problème qui pouvait amener Gemini, après de longs passages sans place pour la narration, à continuer de décrire des scènes précédentes au lieu de suivre la scène actuelle.
 
+14. Audiodescriptions : si une phrase ne tient pas dans le créneau disponible, Sonarpad tente de la régénérer avec une vitesse de synthèse augmentée de 10 % ou, si nécessaire, de 15 %, puis vérifie sa durée réelle. Cette vitesse est enregistrée uniquement pour cette description et conservée lors des modifications, des aperçus et des exportations ultérieures ; les autres phrases restent inchangées.
+
+15. Audiodescriptions : la pause minimale requise passe à 1,5 seconde. Sonarpad peut ainsi produire davantage de descriptions, y compris dans les courtes pauses qui n’étaient pas utilisées auparavant.
+
 Version 0.5.2 - 12 octobre 2026
 
 Voix Edge, audiodescriptions et fiabilité

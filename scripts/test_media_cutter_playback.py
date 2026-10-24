@@ -26,10 +26,28 @@ args = parser.parse_args()
 code = "use std::path::Path;\nconst MIN_PART_SECONDS: f64 = 0.1;\n"
 code += "#[derive(Clone, Debug)]\n" + extract("struct MediaPart {")
 code += extract("impl MediaPart {")
-for name in ["remaining_kept_ranges", "kept_position", "kept_seek_position", "playback_edl", "audition_ranges", "clamp_parts", "split_part_at", "delete_range", "restore_part_index", "adjust_part_boundary"]:
+for name in ["remaining_kept_ranges", "kept_position", "kept_seek_position", "playback_edl", "audition_ranges", "clamp_parts", "split_part_at", "delete_range", "restore_part_index", "adjust_part_boundary", "audition_resume_position"]:
     code += extract(f"fn {name}(")
+code += "use std::process::Child;\nuse std::time::Instant;\n"
+code += extract("struct PreviewState {")
+code += extract("impl PreviewState {")
 code += r'''
 fn main() {
+    let mut preview = PreviewState::new();
+    preview.playing = true;
+    preview.base_position = 15.0;
+    preview.audition_bounds = Some((10.0, 20.0));
+    preview.pause(30.0);
+    assert!(!preview.playing);
+    assert_eq!(preview.base_position, 15.0);
+    assert_eq!(preview.audition_bounds, Some((10.0, 20.0)));
+    assert_eq!(audition_resume_position(preview.audition_bounds, preview.base_position, 10.0, 20.0), 15.0);
+    preview.stop_child();
+    assert_eq!(preview.audition_bounds, None);
+    assert_eq!(audition_resume_position(None, 15.0, 10.0, 20.0), 10.0);
+    assert_eq!(audition_resume_position(Some((10.0, 20.0)), 15.0, 10.0, 20.0), 15.0);
+    assert_eq!(audition_resume_position(Some((10.0, 20.0)), 20.0, 10.0, 20.0), 10.0);
+    assert_eq!(audition_resume_position(Some((10.0, 20.0)), 15.0, 20.0, 30.0), 20.0);
     let parts = vec![
         MediaPart { start: 0.0, end: 2.0, keep: true },
         MediaPart { start: 2.0, end: 4.0, keep: false },

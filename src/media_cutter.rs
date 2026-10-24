@@ -63,6 +63,7 @@ struct PreviewState {
     base_position: f64,
     started_at: Option<Instant>,
     playback_ranges: Vec<MediaPart>,
+    audition_bounds: Option<(f64, f64)>,
 }
 
 impl PreviewState {
@@ -73,6 +74,7 @@ impl PreviewState {
             base_position: 0.0,
             started_at: None,
             playback_ranges: Vec::new(),
+            audition_bounds: None,
         }
     }
 
@@ -97,11 +99,14 @@ impl PreviewState {
         self.playing = false;
         self.started_at = None;
         self.playback_ranges.clear();
+        self.audition_bounds = None;
     }
 
     fn pause(&mut self, duration: f64) {
         self.base_position = self.position(duration);
+        let audition = self.audition_bounds;
         self.stop_child();
+        self.audition_bounds = audition;
     }
 }
 
@@ -148,6 +153,7 @@ struct Labels {
     split_here: &'static str,
     part_singular: &'static str,
     listen: &'static str,
+    pause_listen: &'static str,
     delete: &'static str,
     restore: &'static str,
     rotation: &'static str,
@@ -244,6 +250,7 @@ fn labels() -> Labels {
         listen_cut: t(l, "Ascolta taglio (Option+3)", "Listen to cut (Option+3)", "Écouter la coupe (Option+3)", "Escuchar corte (Option+3)", "Ouvir corte (Option+3)", "Poslechnout střih (Option+3)", "Odsłuchaj cięcie (Option+3)"),
         split_here: t(l, "Dividi qui (Option+S)", "Split here (Option+S)", "Diviser ici (Option+S)", "Dividir aquí (Option+S)", "Dividir aqui (Option+S)", "Rozdělit zde (Option+S)", "Podziel tutaj (Option+S)"),
         part_singular: t(l, "Parte", "Part", "Partie", "Parte", "Parte", "Část", "Część"),
+        pause_listen: t(l, "Pausa (Option+3)", "Pause (Option+3)", "Pause (Option+3)", "Pausa (Option+3)", "Pausa (Option+3)", "Pauza (Option+3)", "Pauza (Option+3)"),
         listen: t(l, "Ascolta (Option+3)", "Listen (Option+3)", "Écouter (Option+3)", "Escuchar (Option+3)", "Ouvir (Option+3)", "Poslechnout (Option+3)", "Odsłuchaj (Option+3)"),
         delete: t(l, "Elimina (Option+D)", "Delete (Option+D)", "Supprimer (Option+D)", "Eliminar (Option+D)", "Eliminar (Option+D)", "Odstranit (Option+D)", "Usuń (Option+D)"),
         restore: t(l, "Ripristina parte eliminata (Option+R)", "Restore deleted part (Option+R)", "Restaurer la partie supprimée (Option+R)", "Restaurar parte eliminada (Option+R)", "Restaurar parte eliminada (Option+R)", "Obnovit odstraněnou část (Option+R)", "Przywróć usuniętą część (Option+R)"),
@@ -590,6 +597,14 @@ fn start_playback(preview: &Rc<RefCell<PreviewState>>, path: &Path, duration: f6
     state.started_at = Some(Instant::now());
     state.playback_ranges = ranges;
     Ok(())
+}
+
+fn audition_resume_position(previous: Option<(f64, f64)>, position: f64, start: f64, end: f64) -> f64 {
+    if previous == Some((start, end)) && position >= start && position < end - MIN_PART_SECONDS {
+        position
+    } else {
+        start
+    }
 }
 
 fn movement_seconds(choice: Choice) -> f64 {
@@ -1261,7 +1276,8 @@ pub fn open_dialog(parent: &Frame) {
     let mode_choice = Choice::builder(&panel).build();
     mode_choice.append(labels.guided);
     mode_choice.append(labels.advanced);
-    mode_choice.set_selection(0);
+    let initial_advanced = crate::Settings::load().media_cutter_advanced_mode;
+    mode_choice.set_selection(if initial_advanced { 1 } else { 0 });
     mode_row.add(&mode_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&mode_row, 0, SizerFlag::Expand, 0);
 
@@ -1295,27 +1311,31 @@ pub fn open_dialog(parent: &Frame) {
     root.add_sizer(&guided_row, 0, SizerFlag::Expand, 0);
     guided_listen.enable(false);
 
-    let advanced_row = BoxSizer::builder(Orientation::Horizontal).build();
     let split_here = Button::builder(&panel).with_label(labels.split_here).build();
-    let listen_part = Button::builder(&panel).with_label(labels.listen).build();
-    let delete_part = Button::builder(&panel).with_label(labels.delete).build();
-    let restore_part = Button::builder(&panel).with_label(labels.restore).build();
-    advanced_row.add(&split_here, 1, SizerFlag::All, 4);
-    advanced_row.add(&listen_part, 1, SizerFlag::All, 4);
-    advanced_row.add(&delete_part, 1, SizerFlag::All, 4);
-    advanced_row.add(&restore_part, 1, SizerFlag::All, 4);
-    split_here.show(false);
-    listen_part.show(false);
-    delete_part.show(false);
-    restore_part.show(false);
-    root.add_sizer(&advanced_row, 0, SizerFlag::Expand, 0);
+    split_here.show(initial_advanced);
+    root.add(&split_here, 0, SizerFlag::Expand | SizerFlag::All, 4);
     let parts_label = StaticText::builder(&panel).with_label(labels.parts_label).build();
-    parts_label.show(false);
+    parts_label.show(initial_advanced);
     root.add(&parts_label, 0, SizerFlag::All, 5);
     let parts_choice = Choice::builder(&panel).build();
     parts_choice.set_accessibility_label(labels.parts_label);
-    parts_choice.show(false);
+    parts_choice.show(initial_advanced);
     root.add(&parts_choice, 0, SizerFlag::Expand | SizerFlag::All, 7);
+    // Creation and visual order both match VoiceOver navigation: part first,
+    // then the actions that operate on that part.
+    let advanced_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let listen_part = Button::builder(&panel).with_label(labels.listen).build();
+    let delete_part = Button::builder(&panel).with_label(labels.delete).build();
+    let restore_part = Button::builder(&panel).with_label(labels.restore).build();
+    advanced_row.add(&listen_part, 1, SizerFlag::All, 4);
+    advanced_row.add(&delete_part, 1, SizerFlag::All, 4);
+    advanced_row.add(&restore_part, 1, SizerFlag::All, 4);
+    listen_part.show(initial_advanced);
+    delete_part.show(initial_advanced);
+    restore_part.show(initial_advanced);
+    guided_primary.show(!initial_advanced);
+    guided_listen.show(!initial_advanced);
+    root.add_sizer(&advanced_row, 0, SizerFlag::Expand, 0);
 
     let adjustment_panel = Panel::builder(&panel).build();
     let adjustment_root = BoxSizer::builder(Orientation::Vertical).build();
@@ -1505,6 +1525,9 @@ pub fn open_dialog(parent: &Frame) {
                 guided_listen.enable(false);
             }
         }
+        let mut settings = crate::Settings::load();
+        settings.media_cutter_advanced_mode = advanced;
+        settings.save();
         guided_primary.show(!advanced);
         guided_listen.show(!advanced);
         split_here.show(advanced);
@@ -1633,11 +1656,24 @@ pub fn open_dialog(parent: &Frame) {
     let input_guided_listen = Rc::clone(&input); let probe_guided_listen = Rc::clone(&probe); let preview_guided_listen = Rc::clone(&preview); let start_guided_listen = Rc::clone(&guided_start); let end_guided_listen = Rc::clone(&guided_end); let show_guided_listen = Rc::clone(&show_video);
     let parts_guided_listen = Rc::clone(&parts);
     let guided_listen_action: Rc<dyn Fn()> = Rc::new(move || {
+        if preview_guided_listen.borrow().playing {
+            if let Some(info) = probe_guided_listen.borrow().as_ref() {
+                preview_guided_listen.borrow_mut().pause(info.duration);
+                guided_listen.set_label(labels.listen_cut);
+            }
+            return;
+        }
         let (Some(path), Some(info), Some(start), Some(end)) = (input_guided_listen.borrow().clone(), probe_guided_listen.borrow().clone(), start_guided_listen.get(), end_guided_listen.get()) else { return; };
         let ranges = audition_ranges(&parts_guided_listen.borrow(), start, end);
         if ranges.is_empty() { announce_voiceover_message(labels.part_deleted); return; }
-        if let Err(err) = start_playback(&preview_guided_listen, &path, info.duration, start, &ranges, show_guided_listen.get()) {
+        let position = {
+            let state = preview_guided_listen.borrow();
+            audition_resume_position(state.audition_bounds, state.base_position, start, end)
+        };
+        if let Err(err) = start_playback(&preview_guided_listen, &path, info.duration, position, &ranges, show_guided_listen.get()) {
             show_error(&dialog, labels.title, &err);
+        } else {
+            preview_guided_listen.borrow_mut().audition_bounds = Some((start, end));
         }
     });
     let click_action = Rc::clone(&guided_listen_action);
@@ -1663,6 +1699,13 @@ pub fn open_dialog(parent: &Frame) {
 
     let parts_listen = Rc::clone(&parts); let input_listen = Rc::clone(&input); let probe_listen = Rc::clone(&probe); let preview_listen = Rc::clone(&preview); let show_listen = Rc::clone(&show_video);
     let listen_part_action: Rc<dyn Fn()> = Rc::new(move || {
+        if preview_listen.borrow().playing {
+            if let Some(info) = probe_listen.borrow().as_ref() {
+                preview_listen.borrow_mut().pause(info.duration);
+                listen_part.set_label(labels.listen);
+            }
+            return;
+        }
         let index = parts_choice.get_selection().unwrap_or(0) as usize;
         let Some(part) = parts_listen.borrow().get(index).cloned() else { return; };
         append_podcast_log(&format!("media_cutter.listen index={index} keep={}", part.keep));
@@ -1672,8 +1715,14 @@ pub fn open_dialog(parent: &Frame) {
         }
         let (Some(path), Some(info)) = (input_listen.borrow().clone(), probe_listen.borrow().clone()) else { return; };
         let ranges = audition_ranges(&parts_listen.borrow(), part.start, part.end);
-        if let Err(err) = start_playback(&preview_listen, &path, info.duration, part.start, &ranges, show_listen.get()) {
+        let position = {
+            let state = preview_listen.borrow();
+            audition_resume_position(state.audition_bounds, state.base_position, part.start, part.end)
+        };
+        if let Err(err) = start_playback(&preview_listen, &path, info.duration, position, &ranges, show_listen.get()) {
             show_error(&dialog, labels.title, &err);
+        } else {
+            preview_listen.borrow_mut().audition_bounds = Some((part.start, part.end));
         }
     });
     let click_action = Rc::clone(&listen_part_action);
@@ -1853,6 +1902,10 @@ pub fn open_dialog(parent: &Frame) {
             }
             let label = if state.playing { labels.pause } else { labels.play };
             if play_pause.get_label() != label { play_pause.set_label(label); }
+            let listen_label = if state.playing { labels.pause_listen } else { labels.listen };
+            if listen_part.get_label() != listen_label { listen_part.set_label(listen_label); }
+            let guided_label = if state.playing { labels.pause_listen } else { labels.listen_cut };
+            if guided_listen.get_label() != guided_label { guided_listen.set_label(guided_label); }
             position_text.set_label(&format!("{} / {}", format_time(state.position(info.duration)), format_time(info.duration)));
         }
         let bounds = if mode_choice.get_selection().unwrap_or(0) == 1 {

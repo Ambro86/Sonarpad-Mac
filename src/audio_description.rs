@@ -339,6 +339,7 @@ struct AudioDescriptionResumeCandidate {
 
 #[derive(Clone, Debug)]
 struct SynthesizedDescription {
+    tts_rate_override: Option<i32>,
     original_index: usize,
     text: String,
     desired_start_sec: f64,
@@ -354,6 +355,7 @@ struct SynthesizedDescription {
 
 #[derive(Clone, Debug)]
 struct AudioDescriptionSynthesisTask {
+    tts_rate_override: Option<i32>,
     original_index: usize,
     synthesis_index: usize,
     text: String,
@@ -368,6 +370,7 @@ struct AudioDescriptionSynthesisTask {
 
 #[derive(Clone, Debug)]
 struct ScheduledDescription {
+    tts_rate_override: Option<i32>,
     original_index: usize,
     text: String,
     desired_start_sec: f64,
@@ -401,6 +404,8 @@ pub struct ProjectInterval {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct ProjectDescription {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tts_rate_override: Option<i32>,
     pub id: usize,
     pub text: String,
     pub original_text: String,
@@ -2913,7 +2918,7 @@ where
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let pcm = match synthesize_text_pcm_while_active(
                             &task.text,
-                            tts,
+                            TtsParameters { rate: task.tts_rate_override.unwrap_or(tts.rate), ..tts },
                             rt,
                             dir,
                             task.synthesis_index,
@@ -2934,6 +2939,7 @@ where
                         let duration_sec =
                             pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
                         Ok::<Option<SynthesizedDescription>, String>(Some(SynthesizedDescription {
+                            tts_rate_override: task.tts_rate_override,
                             original_index: task.original_index,
                             text: task.text.clone(),
                             desired_start_sec: task.desired_start_sec,
@@ -3150,6 +3156,7 @@ fn schedule_descriptions(
         ) {
             reserved.push((start, start + d.duration_sec));
             scheduled.push(ScheduledDescription {
+                tts_rate_override: d.tts_rate_override,
                 original_index: d.original_index,
                 text: d.text,
                 desired_start_sec: d.visual_start_sec,
@@ -3174,6 +3181,7 @@ fn schedule_descriptions(
             if let Some(start) = anchor {
                 reserved.push((start, start + MIN_EXTENDED_ANCHOR_SEC));
                 scheduled.push(ScheduledDescription {
+                    tts_rate_override: d.tts_rate_override,
                     original_index: d.original_index,
                     text: d.text,
                     desired_start_sec: d.visual_start_sec,
@@ -3202,6 +3210,137 @@ fn schedule_descriptions(
     }
     scheduled.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
     (scheduled, dropped)
+}
+
+// Called only after the normal scheduler has finished. Accepted cues are never moved.
+fn recover_descriptions_with_native_rate<F>(
+    descriptions: &[SynthesizedDescription],
+    protected_intervals: &[BridgeInterval],
+    duration_sec: f64,
+    base_rate: i32,
+    scheduled: &mut Vec<ScheduledDescription>,
+    dropped: &mut Vec<DroppedDescription>,
+    mut resynthesize: F,
+) -> Result<(), String>
+where
+    F: FnMut(&SynthesizedDescription, i32) -> Result<Arc<[i16]>, String>,
+{
+    if dropped.is_empty() || base_rate <= -100 {
+        return Ok(());
+    }
+    let free = free_intervals(
+        &normalize_intervals(protected_intervals, duration_sec),
+        duration_sec,
+    );
+    let mut reserved: Vec<_> = scheduled
+        .iter()
+        .map(|cue| {
+            (
+                cue.start_sec,
+                cue.start_sec
+                    + if cue.extended_pause {
+                        MIN_EXTENDED_ANCHOR_SEC
+                    } else {
+                        cue.duration_sec
+                    },
+            )
+        })
+        .collect();
+    let mut remaining = Vec::new();
+    for rejected in dropped.iter() {
+        let Some(original) = descriptions
+            .iter()
+            .find(|cue| cue.original_index == rejected.original_index)
+        else {
+            remaining.push(rejected.clone());
+            continue;
+        };
+        // A saved accelerated cue must not gain another 10-15% on each export.
+        if original.tts_rate_override.is_some() {
+            remaining.push(rejected.clone());
+            continue;
+        }
+        let available = subtract_reserved(&free, &reserved);
+        let candidates = if original.mandatory {
+            restrict_slot(&available, original)
+        } else {
+            available
+        };
+        let selected_rate = [110_i64, 115].into_iter().find_map(|percent| {
+            let baseline = i64::from(base_rate) + 100;
+            let rate = i32::try_from(baseline * percent / 100 - 100).ok()?;
+            if rate <= base_rate {
+                return None;
+            }
+            let multiplier = (f64::from(rate) + 100.0) / baseline as f64;
+            choose_slot(
+                &candidates,
+                original.desired_start_sec,
+                original.visual_start_sec,
+                rejected.duration_sec / multiplier,
+            )
+            .map(|_| rate)
+        });
+        let Some(rate) = selected_rate else {
+            remaining.push(rejected.clone());
+            continue;
+        };
+        let pcm = match resynthesize(original, rate) {
+            Ok(audio) => audio,
+            Err(error) if error == "cancelled" => return Err(error),
+            Err(error) => {
+                append_podcast_log(&format!(
+                    "Audio description: native-rate fallback failed cue={} rate={} error={error}",
+                    original.original_index, rate,
+                ));
+                remaining.push(rejected.clone());
+                continue;
+            }
+        };
+        let actual = pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
+        let start = if actual > 0.0 && audio_description_pcm_has_signal(&pcm) {
+            choose_slot(
+                &candidates,
+                original.desired_start_sec,
+                original.visual_start_sec,
+                actual,
+            )
+        } else {
+            None
+        };
+        append_podcast_log(&format!(
+            "Audio description: native-rate fallback cue={} base_rate={} retry_rate={} original={:.3}s actual={:.3}s accepted={}",
+            original.original_index,
+            base_rate,
+            rate,
+            rejected.duration_sec,
+            actual,
+            start.is_some(),
+        ));
+        if let Some(start) = start {
+            reserved.push((start, start + actual));
+            scheduled.push(ScheduledDescription {
+                tts_rate_override: Some(rate),
+                original_index: original.original_index,
+                text: original.text.clone(),
+                desired_start_sec: original.visual_start_sec,
+                visual_evidence_time_sec: original.visual_evidence_time_sec,
+                start_sec: start,
+                pcm,
+                duration_sec: actual,
+                mandatory: original.mandatory,
+                slot_id: original.slot_id.clone(),
+                slot_start_sec: original.slot_start_sec,
+                slot_end_sec: original.slot_end_sec,
+                extended_pause: false,
+            });
+        } else {
+            remaining.push(rejected.clone());
+        }
+    }
+    *dropped = remaining;
+    scheduled.sort_by(|left, right| left.start_sec.total_cmp(&right.start_sec));
+    Ok(())
 }
 
 pub(crate) fn default_source_volume() -> f32 {
@@ -3724,6 +3863,7 @@ fn build_project(
         let (duck_start_sec, duck_end_sec) =
             project_duck_bounds(output_start, output_end, d.extended_pause);
         descriptions.push(ProjectDescription {
+            tts_rate_override: d.tts_rate_override,
             id,
             text: d.text.clone(),
             original_text: d.text.clone(),
@@ -4302,6 +4442,7 @@ fn create_audio_description_attempt(
             .iter()
             .enumerate()
             .map(|(index, description)| AudioDescriptionSynthesisTask {
+                tts_rate_override: None,
                 original_index: index,
                 synthesis_index: index,
                 text: description.text.clone(),
@@ -4338,12 +4479,22 @@ fn create_audio_description_attempt(
             s.status = tr("audio_description.progress.schedule");
             s.progress = 80;
         }
-        let (scheduled, dropped) = schedule_descriptions(
+        let (mut scheduled, mut dropped) = schedule_descriptions(
             &synthesized,
             &analysis.protected_intervals,
             analysis.duration_sec,
             job.allow_extended_pauses && !job.create_video_output,
         );
+        recover_descriptions_with_native_rate(
+            &synthesized, &analysis.protected_intervals, analysis.duration_sec,
+            job.rate, &mut scheduled, &mut dropped,
+            |cue, rate| synthesize_text_pcm_while_active(
+                &cue.text,
+                TtsParameters { engine: &job.tts_engine, voice: &job.tts_voice,
+                    rate, pitch: job.pitch, volume: job.volume },
+                rt, &work, cue.original_index, &cancel, || true, None,
+            ),
+        )?;
         if scheduled.is_empty() {
             return Err("Nessuna descrizione può essere inserita in sicurezza.".into());
         }
@@ -5533,6 +5684,7 @@ impl MixPreview {
                 ]);
                 run_ffmpeg(&args, &cancel)?;
                 let cue = ScheduledDescription {
+                    tts_rate_override: None,
                     original_index: 0,
                     text,
                     desired_start_sec: 1.0,
@@ -7217,7 +7369,7 @@ fn synthesize_project_text_duration_with_voice(
             TtsParameters {
                 engine: &project.tts_engine,
                 voice: tts_voice,
-                rate: project.tts_rate,
+                rate: project.descriptions.get(index).and_then(|d| d.tts_rate_override).unwrap_or(project.tts_rate),
                 pitch: project.tts_pitch,
                 volume: project.tts_volume,
             },
@@ -7276,6 +7428,7 @@ fn change_project_voice(
             .iter()
             .enumerate()
             .map(|(index, description)| AudioDescriptionSynthesisTask {
+                tts_rate_override: description.tts_rate_override,
                 original_index: index,
                 synthesis_index: index,
                 text: description.text.clone(),
@@ -7393,6 +7546,7 @@ fn change_project_voice(
                 scheduled_description.extended_pause,
             );
             descriptions.push(ProjectDescription {
+                tts_rate_override: scheduled_description.tts_rate_override,
                 id: new_id,
                 text: old.text.clone(),
                 original_text: old.original_text.clone(),
@@ -8308,6 +8462,7 @@ fn rebuild_project(
             .iter()
             .enumerate()
             .map(|(index, description)| AudioDescriptionSynthesisTask {
+                tts_rate_override: description.tts_rate_override,
                 original_index: index,
                 synthesis_index: index,
                 text: description.text.clone(),
@@ -8350,7 +8505,7 @@ fn rebuild_project(
             })
             .collect::<Vec<_>>();
 
-        let (scheduled, dropped) = if fixed_timeline {
+        let (mut scheduled, mut dropped) = if fixed_timeline {
             if project.output_is_video
                 && project.descriptions.iter().any(|description| description.extended_pause)
             {
@@ -8382,6 +8537,7 @@ fn rebuild_project(
                     ));
                 }
                 fixed.push(ScheduledDescription {
+                    tts_rate_override: rendered.tts_rate_override,
                     original_index: index,
                     text: description.text.clone(),
                     desired_start_sec: description.gemini_start_sec,
@@ -8405,6 +8561,18 @@ fn rebuild_project(
                 project.allow_extended_pauses && !project.output_is_video,
             )
         };
+        if !fixed_timeline {
+            recover_descriptions_with_native_rate(
+                &synthesized, &protected, duration, project.tts_rate,
+                &mut scheduled, &mut dropped,
+                |cue, rate| synthesize_text_pcm_while_active(
+                    &cue.text,
+                    TtsParameters { engine: &project.tts_engine, voice: &project.tts_voice,
+                        rate, pitch: project.tts_pitch, volume: project.tts_volume },
+                    rt, &work, cue.original_index, &cancel, || true, None,
+                ),
+            )?;
+        }
         if scheduled.is_empty() {
             return Err("Nessuna descrizione può essere inserita in sicurezza.".to_string());
         }
@@ -8457,6 +8625,7 @@ fn rebuild_project(
             let (duck_start_sec, duck_end_sec) =
                 project_duck_bounds(output_start, output_end, old.extended_pause);
             descriptions.push(ProjectDescription {
+                tts_rate_override: scheduled_description.tts_rate_override,
                 id: if fixed_timeline { old.id } else { new_id },
                 text: old.text.clone(),
                 original_text: old.original_text.clone(),
@@ -9619,7 +9788,7 @@ pub fn open_project_editor(
             &snapshot.tts_engine,
             &preview_text,
             &snapshot.tts_voice,
-            snapshot.tts_rate,
+            snapshot.descriptions[index].tts_rate_override.unwrap_or(snapshot.tts_rate),
             snapshot.tts_pitch,
             snapshot.tts_volume,
             &rt_play,
@@ -10003,6 +10172,7 @@ mod tests {
 
     fn test_project_description(id: usize, text: &str) -> ProjectDescription {
         ProjectDescription {
+            tts_rate_override: None,
             id,
             text: text.to_string(),
             original_text: text.to_string(),

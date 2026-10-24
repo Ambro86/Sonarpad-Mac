@@ -28,6 +28,10 @@ Wersja 0.5.3 - 14 października 2026
 
 13. Poprawiono synchronizację audiodeskrypcji: usunięto problem, przez który po dłuższych fragmentach bez miejsca na narrację Gemini mógł nadal opisywać wcześniejsze sceny zamiast bieżącej.
 
+14. Audiodeskrypcja: jeśli zdanie nie mieści się w dostępnej przerwie, Sonarpad próbuje wygenerować je ponownie z prędkością syntezy zwiększoną o 10% lub, w razie potrzeby, o 15%, sprawdzając rzeczywisty czas trwania. Prędkość jest zapisywana tylko dla tego opisu i zachowywana przy edycji, odsłuchu i kolejnych eksportach; pozostałe zdania pozostają bez zmian.
+
+15. Audiodeskrypcja: minimalna wymagana przerwa została skrócona do 1,5 sekundy. Sonarpad może dzięki temu tworzyć więcej opisów, również w krótkich przerwach, które wcześniej pozostawały niewykorzystane.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

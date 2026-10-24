@@ -28,6 +28,10 @@ Verze 0.5.3 - 14. října 2026
 
 13. Vylepšeno časování audiopopisu: opraven problém, kdy Gemini po delších úsecích bez prostoru pro komentář mohl nadále popisovat předchozí scény místo aktuální scény.
 
+14. Zvukové popisy: pokud se věta nevejde do dostupné mezery, Sonarpad ji zkusí znovu vytvořit hlasovou syntézou s rychlostí vyšší o 10 %, případně o 15 %, a ověří skutečnou délku. Rychlost se ukládá pouze pro tento popis a zachová se při úpravách, náhledech i dalších exportech; ostatní věty zůstávají beze změny.
+
+15. Audiopopis: minimální požadovaná pauza byla zkrácena na 1,5 sekundy. Sonarpad tak může vytvářet více popisů, a to i v krátkých pauzách, které dříve zůstávaly nevyužité.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost
