@@ -27839,6 +27839,8 @@ fn log_mpv_debug_log_snapshot(context: &str, path: &Path) {
         "track",
         "reconfig",
         "decoder",
+        "ao/",
+        "audio",
     ];
     let mut relevant: Vec<&str> = lines
         .iter()
@@ -28221,6 +28223,12 @@ local function log_basic_state(context)
     log_property("aid")
     log_property("audio-codec")
     log_property("audio-params")
+    log_property("audio-out-params")
+    log_property("current-ao")
+    log_property("audio-device")
+    log_property("audio-device-list")
+    log_property("volume")
+    log_property("mute")
     log_property("track-list")
 end
 
@@ -28240,6 +28248,10 @@ local function log_option_state(context)
     log_property("options/video")
     log_property("options/vid")
     log_property("options/aid")
+    log_property("options/ao")
+    log_property("options/audio-exclusive")
+    log_property("options/audio-channels")
+    log_property("options/audio-samplerate")
     log_property("options/profile")
     log_property("options/geometry")
     log_property("options/autofit")
@@ -28348,6 +28360,66 @@ local function log_full_video_diagnostics(context)
     log_option_state(context .. " options")
 end
 
+-- Read-only audio diagnostics. Never change mpv's selected device or format.
+local audio_probe_pending = false
+local audio_probe_request = nil
+local audio_probe_timeout = nil
+local audio_probe_stopped = false
+local function log_system_audio_devices()
+    if audio_probe_pending or audio_probe_stopped then return end
+    audio_probe_pending = true
+    mp.add_timeout(1.0, function()
+        if audio_probe_stopped then return end
+        audio_probe_request = mp.command_native_async({
+            name = "subprocess",
+            args = {"/usr/sbin/system_profiler", "SPAudioDataType", "-json", "-detailLevel", "mini", "-timeout", "5"},
+            playback_only = false,
+            capture_stdout = true,
+            capture_stderr = true,
+        }, function(success, result, error)
+            if audio_probe_timeout then audio_probe_timeout:kill() end
+            audio_probe_timeout = nil
+            audio_probe_request = nil
+            audio_probe_pending = false
+            if audio_probe_stopped then return end
+            if success and result and result.status == 0 then
+                local output = tostring(result.stdout or ""):gsub("[\r\n]+", " ")
+                log_line("audio.system_devices " .. output:sub(1, 32768))
+            else
+                log_line("audio.system_devices.failed status=" .. tostring(result and result.status) .. " error=" .. tostring(error))
+            end
+        end)
+        audio_probe_timeout = mp.add_timeout(8.0, function()
+            if audio_probe_request then
+                log_line("audio.system_devices.timeout")
+                mp.abort_async_command(audio_probe_request)
+            end
+        end)
+    end)
+end
+
+mp.register_event("shutdown", function()
+    audio_probe_stopped = true
+    if audio_probe_timeout then audio_probe_timeout:kill() end
+    if audio_probe_request then mp.abort_async_command(audio_probe_request) end
+end)
+-- audio-device=auto is a preference, not the actual device. Keep AO messages
+-- (including device changes) so the effective selection is visible as well.
+mp.enable_messages("v")
+mp.register_event("log-message", function(event)
+    local prefix = tostring(event.prefix or "")
+    local text = tostring(event.text or "")
+    if prefix:match("^ao[/]?") or (prefix == "cplayer" and text:match("^AO:")) then
+        log_line("audio.output " .. prefix .. " " .. text:gsub("[\r\n]+", " "))
+    end
+end)
+mp.observe_property("audio-device-list", "native", function(_, value)
+    log_line("observe audio-device-list=" .. native_to_text(value))
+    log_system_audio_devices()
+end)
+mp.register_event("audio-reconfig", log_system_audio_devices)
+mp.register_event("file-loaded", log_system_audio_devices)
+
 local function observe_property(name)
     mp.observe_property(name, "native", function(_, value)
         log_line("observe " .. tostring(name) .. "=" .. native_to_text(value))
@@ -28370,6 +28442,11 @@ observe_property("window-maximized")
 observe_property("fullscreen")
 observe_property("cache-buffering-state")
 observe_property("paused-for-cache")
+observe_property("current-ao")
+observe_property("audio-device")
+observe_property("audio-out-params")
+observe_property("volume")
+observe_property("mute")
 
 mp.register_event("start-file", function() log_full_video_diagnostics("event start-file") end)
 mp.register_event("file-loaded", function()
