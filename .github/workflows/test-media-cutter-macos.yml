@@ -1,6 +1,11 @@
 name: Test bundled macOS media cutter
 on:
   workflow_dispatch:
+    inputs:
+      check_ui:
+        description: Check the native UI (disable only if this source revision already passed)
+        type: boolean
+        default: true
 permissions:
   contents: read
 jobs:
@@ -35,6 +40,7 @@ jobs:
         with:
           cache-on-failure: true
       - name: Check native macOS user interface
+        if: ${{ inputs.check_ui }}
         run: cargo check --release --target ${{ matrix.target }}
       - name: Verify cutter keyboard, focus and playback rules
         run: |
