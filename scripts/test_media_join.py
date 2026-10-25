@@ -6,6 +6,7 @@ not native macOS accessibility or the shipped macOS binary.
 """
 import json
 import math
+import os
 from pathlib import Path
 import shutil
 import struct
@@ -26,6 +27,7 @@ def main():
     ffprobe = ffmpeg.with_name("ffprobe.exe" if sys.platform == "win32" else "ffprobe")
     if not ffprobe.exists():
         ffprobe = Path(shutil.which("ffprobe"))
+    fixture_ffmpeg = os.environ.get("TEST_FIXTURE_FFMPEG", str(ffmpeg))
     WORK.mkdir(parents=True, exist_ok=True)
     (WORK / "Cargo.toml").write_text('''[package]
 name="media-join-tests"
@@ -73,7 +75,7 @@ fn main() {
             writer.setparams((channels, 2, rate, 0, "NONE", ""))
             values = [int(8000 * math.sin(2 * math.pi * freq * frame / rate)) for frame in range(rate)]
             writer.writeframes(b"".join(struct.pack("<h", value) * channels for value in values))
-        run([ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c={'red' if index == 0 else 'green'}:s={'64x48' if index == 0 else '96x64'}:r={25 if index == 0 else 30}",
+        run([fixture_ffmpeg, "-v", "error", "-y", "-f", "lavfi", "-i", f"color=c={'red' if index == 0 else 'green'}:s={'64x48' if index == 0 else '96x64'}:r={25 if index == 0 else 30}",
              "-i", WORK / f"audio{index}.wav", "-t", "1", "-c:v", "mpeg4", "-c:a", "aac", WORK / f"video{index}.mp4"])
     inputs = [WORK / "audio0.wav", WORK / "audio1.wav"]
     videos = [WORK / "video0.mp4", WORK / "video1.mp4"]

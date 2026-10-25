@@ -141,8 +141,10 @@ def run():
             audio.writeframes(b"".join(struct.pack("<h", int(2000 * math.sin(2 * math.pi * frequency * i / 48000))) for i in range(int(48000 * duration))))
     video = fixtures / "source.mp4"
     ffmpeg = Path(sys.argv[1]).resolve()
+    # The release decoder set handles real media, not lavfi wrapped_avframe test inputs.
+    fixture_ffmpeg = os.environ.get("TEST_FIXTURE_FFMPEG", str(ffmpeg))
     if not video.exists():
-        subprocess.run([str(ffmpeg), "-y", "-f", "lavfi", "-i", "testsrc2=size=128x96:rate=25:duration=6",
+        subprocess.run([fixture_ffmpeg, "-y", "-f", "lavfi", "-i", "testsrc2=size=128x96:rate=25:duration=6",
                         "-i", str(fixtures / "source.wav"), "-c:v", "libx264", "-c:a", "aac", "-shortest", str(video)], check=True, capture_output=True)
     subprocess.run([str(ffmpeg), "-y", "-i", str(video), "-t", "6", "-an", "-c:v", "copy", str(fixtures / "silent.mp4")], check=True, capture_output=True)
     executable = build_harness()

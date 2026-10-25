@@ -32,6 +32,8 @@ jobs:
           python-version: '3.11'
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
       - name: Check native macOS user interface
         run: cargo check --release --target ${{ matrix.target }}
       - name: Verify cutter keyboard, focus and playback rules
@@ -41,8 +43,11 @@ jobs:
           python scripts/test_media_cutter_announcements.py
           python scripts/test_media_cutter_focus.py
           python scripts/test_media_cutter_playback.py
-      - name: Install assembler
-        run: command -v nasm || brew install nasm
+      - name: Install test fixture tools
+        run: |
+          command -v nasm || brew install nasm
+          command -v ffmpeg || brew install ffmpeg
+          echo "TEST_FIXTURE_FFMPEG=$(command -v ffmpeg)" >> "$GITHUB_ENV"
       - uses: actions/cache@v4
         with:
           path: |
