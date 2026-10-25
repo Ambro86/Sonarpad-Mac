@@ -407,6 +407,10 @@ struct Settings {
     transcription_include_timestamps: bool,
     #[serde(default)]
     media_cutter_advanced_mode: bool,
+    #[serde(default)]
+    media_cutter_goldwave_keys: bool,
+    #[serde(default)]
+    media_cutter_overwrite_original: bool,
     rate: i32,
     pitch: i32,
     volume: i32,
@@ -553,6 +557,8 @@ impl Settings {
             transcription_audio_language: String::new(),
             transcription_include_timestamps: false,
             media_cutter_advanced_mode: false,
+            media_cutter_goldwave_keys: false,
+            media_cutter_overwrite_original: false,
             rate: 0,
             pitch: 0,
             volume: 100,

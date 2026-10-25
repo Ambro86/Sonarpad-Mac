@@ -17,7 +17,10 @@ use wxdragon::timer::Timer;
 
 #[path = "media_cutter_keyboard.rs"]
 mod keyboard;
-use keyboard::{CutterAction, cutter_shortcut, cutter_key_from_code};
+use keyboard::{CutterAction, cutter_shortcut, cutter_key_from_code, goldwave_shortcut};
+
+#[path = "media_cutter_project.rs"]
+mod project;
 
 const MIN_PART_SECONDS: f64 = 0.10;
 
@@ -29,7 +32,7 @@ enum VideoRotation {
     Half,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 struct MediaPart {
     start: f64,
     end: f64,
@@ -125,6 +128,7 @@ struct ExportProgress {
 
 #[derive(Clone)]
 struct ExportSnapshot {
+    overwrite_original: bool,
     input: PathBuf,
     output: PathBuf,
     parts: Vec<MediaPart>,
@@ -135,6 +139,22 @@ struct ExportSnapshot {
 
 #[derive(Clone, Copy)]
 struct Labels {
+    backup_created: &'static str,
+    overwrite_unavailable: &'static str,
+    overwrite_confirm: &'static str,
+    open_project: &'static str,
+    save_project: &'static str,
+    project_saved: &'static str,
+    project_loaded: &'static str,
+    goldwave_keys: &'static str,
+    goldwave_help: &'static str,
+    goldwave_start_first: &'static str,
+    goldwave_mark_first: &'static str,
+    clear_markers: &'static str,
+    markers_cleared: &'static str,
+    markers_empty: &'static str,
+    overwrite_original: &'static str,
+
     menu: &'static str,
     title: &'static str,
     open_file: &'static str,
@@ -233,6 +253,21 @@ fn labels() -> Labels {
     let lang = crate::normalize_ui_language(&crate::Settings::load().ui_language);
     let l = lang.as_str();
     Labels {
+        backup_created: t(l, "Copia di sicurezza salvata in", "Backup saved at", "Copie de sauvegarde enregistrée dans", "Copia de seguridad guardada en", "Cópia de segurança guardada em", "Záložní kopie uložena do", "Kopia zapasowa zapisana w"),
+        overwrite_unavailable: t(l, "La sovrascrittura è disponibile soltanto per un file originale con formato supportato, senza media inseriti e senza un progetto .sonarcut aperto.", "Overwriting is only available for a supported original file without inserted media or an open .sonarcut project.", "Cette option est réservée aux fichiers originaux de format compatible, sans média inséré ni projet .sonarcut ouvert.", "La sobrescritura solo está disponible para un archivo original compatible, sin medios insertados ni un proyecto .sonarcut abierto.", "A substituição só está disponível para ficheiros originais de formato suportado, sem multimédia inserida nem projeto .sonarcut aberto.", "Přepsání je dostupné pouze pro podporovaný původní soubor bez vložených médií a bez otevřeného projektu .sonarcut.", "Nadpisywanie jest dostępne tylko dla obsługiwanego pliku oryginalnego, bez wstawionych mediów i otwartego projektu .sonarcut."),
+        overwrite_confirm: t(l, "Vuoi sostituire il file originale? Sonarpad salverà una copia di sicurezza prima della sostituzione.", "Replace the original file? Sonarpad will save a backup before replacing it.", "Voulez-vous remplacer le fichier original ? Sonarpad créera une sauvegarde avant de le remplacer.", "¿Quieres reemplazar el archivo original? Sonarpad creará una copia de seguridad antes de sustituirlo.", "Pretende substituir o ficheiro original? O Sonarpad criará uma cópia de segurança antes da substituição.", "Opravdu chcete nahradit původní soubor? Sonarpad před nahrazením vytvoří zálohu.", "Czy zastąpić oryginalny plik? Sonarpad utworzy kopię zapasową przed zastąpieniem."),
+        open_project: t(l, "Apri progetto Sonarpad…", "Open Sonarpad project…", "Ouvrir un projet Sonarpad…", "Abrir proyecto Sonarpad…", "Abrir projeto Sonarpad…", "Otevřít projekt Sonarpad…", "Otwórz projekt Sonarpad…"),
+        save_project: t(l, "Salva progetto…", "Save project…", "Enregistrer le projet…", "Guardar proyecto…", "Guardar projeto…", "Uložit projekt…", "Zapisz projekt…"),
+        project_saved: t(l, "Progetto salvato. Puoi riprendere il lavoro senza ricomprimere l'audio.", "Project saved. You can resume editing without recompressing the audio.", "Projet enregistré. Reprenez le montage sans recompresser le son.", "Proyecto guardado. Puedes continuar sin volver a comprimir el audio.", "Projeto guardado. Pode continuar sem voltar a comprimir o áudio.", "Projekt uložen. V úpravách lze pokračovat bez opětovné komprese zvuku.", "Projekt zapisany. Można kontynuować bez ponownej kompresji dźwięku."),
+        project_loaded: t(l, "Progetto aperto. Puoi continuare a modificare.", "Project opened. You can continue editing.", "Projet ouvert. Vous pouvez reprendre le montage.", "Proyecto abierto. Puedes seguir editando.", "Projeto aberto. Pode continuar a editar.", "Projekt otevřen. Můžete pokračovat v úpravách.", "Projekt otwarty. Można kontynuować edycję."),
+        goldwave_keys: t(l, "Usa comandi stile GoldWave ([, ] e Canc)", "Use GoldWave-style keys ([, ] and Delete)", "Utiliser les touches GoldWave ([, ] et Suppr)", "Usar teclas de GoldWave ([, ] y Supr)", "Usar teclas do GoldWave ([, ] e Delete)", "Používat klávesy jako v GoldWave ([, ] a Delete)", "Używaj klawiszy jak w GoldWave ([, ] i Delete)"),
+        goldwave_help: t(l, "[ segna l'inizio; ] segna la fine; Canc elimina il segmento selezionato, anche nel taglio avanzato.", "[ marks the start; ] marks the end; Delete removes the selected range, also in advanced cut mode.", "[ marque le début ; ] marque la fin ; Suppr efface la sélection, même en mode avancé.", "[ marca el inicio; ] marca el final; Supr elimina la selección, también en modo avanzado.", "[ marca o início; ] marca o fim; Delete elimina a seleção, também no modo avançado.", "[ označí začátek; ] konec; Delete odstraní vybraný úsek, také v pokročilém režimu.", "[ oznacza początek; ] koniec; Delete usuwa zaznaczony fragment, również w trybie zaawansowanym."),
+        goldwave_start_first: t(l, "Segna prima l'inizio con [.", "Mark the start with [ first.", "Marquez d'abord le début avec [.", "Marca primero el inicio con [.", "Marque primeiro o início com [.", "Nejprve označte začátek klávesou [.", "Najpierw zaznacz początek klawiszem [."),
+        goldwave_mark_first: t(l, "Segna inizio e fine con [ e ] prima di cancellare.", "Mark the start and end with [ and ] before deleting.", "Marquez le début et la fin avec [ et ] avant de supprimer.", "Marca el inicio y el final con [ y ] antes de eliminar.", "Marque o início e o fim com [ e ] antes de eliminar.", "Před odstraněním označte začátek a konec klávesami [ a ].", "Przed usunięciem zaznacz początek i koniec klawiszami [ i ]."),
+        clear_markers: t(l, "Azzera marcatori (Option+0)", "Clear markers (Option+0)", "Effacer les marqueurs (Option+0)", "Borrar marcadores (Option+0)", "Limpar marcadores (Option+0)", "Vymazat značky (Option+0)", "Wyczyść znaczniki (Option+0)"),
+        markers_cleared: t(l, "Marcatori cancellati. Puoi impostare un nuovo inizio.", "Markers cleared. You can set a new start.", "Marqueurs effacés. Vous pouvez définir un nouveau début.", "Marcadores borrados. Ya puedes establecer un nuevo inicio.", "Marcadores limpos. Pode definir um novo início.", "Značky vymazány. Můžete nastavit nový začátek.", "Znaczniki wyczyszczone. Możesz ustawić nowy początek."),
+        markers_empty: t(l, "Non ci sono marcatori da cancellare.", "There are no markers to clear.", "Aucun marqueur à effacer.", "No hay marcadores que borrar.", "Não há marcadores para limpar.", "Nejsou nastaveny žádné značky k vymazání.", "Brak znaczników do wyczyszczenia."),
+        overwrite_original: t(l, "Sovrascrivi il file originale (crea una copia di sicurezza)", "Overwrite original file (create a backup)", "Écraser le fichier original (créer une sauvegarde)", "Sobrescribir el archivo original (crear copia de seguridad)", "Substituir o ficheiro original (criar cópia de segurança)", "Přepsat původní soubor (vytvořit zálohu)", "Nadpisz oryginalny plik (utwórz kopię zapasową)"),
         menu: t(l, "Taglia file media…", "Cut media file…", "Découper un fichier multimédia…", "Cortar archivo multimedia…", "Cortar ficheiro multimédia…", "Oříznout multimediální soubor…", "Przytnij plik multimedialny…"),
         title: t(l, "Taglia file media", "Cut media file", "Découper un fichier multimédia", "Cortar archivo multimedia", "Cortar ficheiro multimédia", "Oříznout multimediální soubor", "Przytnij plik multimedialny"),
         open_file: t(l, "Apri file media…", "Open media file…", "Ouvrir un fichier multimédia…", "Abrir archivo multimedia…", "Abrir ficheiro multimédia…", "Otevřít multimediální soubor…", "Otwórz plik multimedialny…"),
@@ -657,6 +692,12 @@ fn seek_preview(
     announce_voiceover_message(&format_duration_natural(new_position));
 }
 
+fn clear_selection_markers(start: &Cell<Option<f64>>, end: &Cell<Option<f64>>) -> bool {
+    let pending = start.get().is_some() || end.get().is_some();
+    start.set(None); end.set(None);
+    pending
+}
+
 fn cut_precision_seconds(choice: Choice) -> f64 {
     match choice.get_selection().unwrap_or(0) {
         1 => 0.5,
@@ -819,6 +860,20 @@ fn choose_input(parent: &Dialog, labels: &Labels) -> Option<PathBuf> {
     crate::resolve_file_dialog_path(&dialog, true)
 }
 
+fn choose_project(parent: &Dialog, input: Option<&Path>, labels: &Labels) -> Option<PathBuf> {
+    let name = input.map(|p| p.with_extension("sonarcut").file_name().unwrap_or_default().to_string_lossy().into_owned()).unwrap_or_default();
+    let style = if input.is_some() { FileDialogStyle::Save | FileDialogStyle::OverwritePrompt } else { FileDialogStyle::Open | FileDialogStyle::FileMustExist };
+    let dialog = FileDialog::builder(parent).with_message(if input.is_some() { labels.save_project } else { labels.open_project })
+        .with_wildcard("Sonarpad (*.sonarcut)|*.sonarcut").with_default_file(&name).with_style(style).build();
+    crate::set_mac_native_file_dialog_open(true);
+    let result = dialog.show_modal();
+    crate::set_mac_native_file_dialog_open(false);
+    if result != ID_OK { return None; }
+    let mut path = crate::resolve_file_dialog_path(&dialog, input.is_none())?;
+    if input.is_some() { path.set_extension("sonarcut"); }
+    Some(path)
+}
+
 fn choose_audio_track(parent: &Dialog, labels: &Labels) -> Option<PathBuf> {
     let wildcard = "Audio|*.mp3;*.m4a;*.aac;*.flac;*.ogg;*.opus;*.wma;*.aiff;*.aif;*.m4b;*.wav|Tutti|*.*";
     let dialog = FileDialog::builder(parent)
@@ -972,6 +1027,12 @@ fn copy_file(src: &Path, dst: &Path) -> Result<(), String> {
 fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, cancel: Arc<AtomicBool>) {
     let work_dir = std::env::temp_dir().join(format!("sonarpad_media_cutter_{}", Uuid::new_v4().simple()));
     let result = (|| -> Result<PathBuf, String> {
+        if project::same_file(&snapshot.input, &snapshot.output) && !snapshot.overwrite_original {
+            return Err("Cannot overwrite source media during export".into());
+        }
+        if snapshot.added_track.as_ref().is_some_and(|t| project::same_file(&t.path, &snapshot.output)) {
+            return Err("Cannot overwrite the additional audio track".into());
+        }
         std::fs::create_dir_all(&work_dir).map_err(|err| err.to_string())?;
         let kept: Vec<MediaPart> = snapshot.parts.iter().filter(|p| p.keep && p.duration() >= MIN_PART_SECONDS).cloned().collect();
         if kept.is_empty() {
@@ -1114,10 +1175,20 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
             .unwrap_or_else(|| Path::new("."))
             .join(pending_name);
         copy_file(&final_temp, &pending)?;
-        std::fs::rename(&pending, &snapshot.output).map_err(|err| {
+        if cancel.load(Ordering::SeqCst) {
             let _ = std::fs::remove_file(&pending);
-            err.to_string()
-        })?;
+            return Err("__CANCELLED__".into());
+        }
+        progress.lock().unwrap().message.clear();
+        let installed = if snapshot.output.exists() {
+            project::backup_and_replace(&snapshot.output, &pending).map(|backup| {
+                append_podcast_log(&format!("media_cutter.backup {}", backup.display()));
+                progress.lock().unwrap().message = format!("{}", backup.display());
+            })
+        } else if snapshot.overwrite_original {
+            Err("Original file is no longer available; replacement cancelled".into())
+        } else { std::fs::rename(&pending, &snapshot.output).map_err(|err| err.to_string()) };
+        if let Err(err) = installed { let _ = std::fs::remove_file(&pending); return Err(err); }
         progress.lock().unwrap().percent = 100;
         Ok(snapshot.output)
     })();
@@ -1258,6 +1329,7 @@ pub fn open_dialog(parent: &Frame) {
     let guided_start = Rc::new(Cell::new(None::<f64>));
     let guided_end = Rc::new(Cell::new(None::<f64>));
     let edited = Rc::new(Cell::new(false));
+    let project_in_use = Rc::new(Cell::new(false));
     let preview = Rc::new(RefCell::new(PreviewState::new()));
     let show_video = Rc::new(Cell::new(false));
     let rotation = Rc::new(Cell::new(VideoRotation::None));
@@ -1266,6 +1338,8 @@ pub fn open_dialog(parent: &Frame) {
     let top_buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let open_button = Button::builder(&panel).with_label(labels.open_file).build();
     top_buttons.add(&open_button, 1, SizerFlag::All, 8);
+    let open_project_button = Button::builder(&panel).with_label(labels.open_project).build();
+    top_buttons.add(&open_project_button, 1, SizerFlag::All, 8);
     root.add_sizer(&top_buttons, 0, SizerFlag::Expand, 0);
     let file_status = StaticText::builder(&panel).with_label("").build();
     file_status.show(false);
@@ -1281,6 +1355,16 @@ pub fn open_dialog(parent: &Frame) {
     mode_row.add(&mode_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&mode_row, 0, SizerFlag::Expand, 0);
 
+    let goldwave_box = CheckBox::builder(&panel).with_label(labels.goldwave_keys).build();
+    goldwave_box.set_value(crate::Settings::load().media_cutter_goldwave_keys);
+    root.add(&goldwave_box, 0, SizerFlag::All, 5);
+    let goldwave_dirty = Rc::clone(&edited); let goldwave_input = Rc::clone(&input);
+    goldwave_box.on_toggled(move |_| {
+        if goldwave_input.borrow().is_some() { goldwave_dirty.set(true); }
+        let mut settings = crate::Settings::load();
+        settings.media_cutter_goldwave_keys = goldwave_box.get_value();
+        settings.save();
+    });
     let movement_row = BoxSizer::builder(Orientation::Horizontal).build();
     movement_row.add(&StaticText::builder(&panel).with_label(labels.movement).build(), 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let movement_choice = Choice::builder(&panel).build();
@@ -1311,6 +1395,8 @@ pub fn open_dialog(parent: &Frame) {
     root.add_sizer(&guided_row, 0, SizerFlag::Expand, 0);
     guided_listen.enable(false);
 
+    let clear_markers = Button::builder(&panel).with_label(labels.clear_markers).build();
+    root.add(&clear_markers, 0, SizerFlag::All, 5);
     let split_here = Button::builder(&panel).with_label(labels.split_here).build();
     split_here.show(initial_advanced);
     root.add(&split_here, 0, SizerFlag::Expand | SizerFlag::All, 4);
@@ -1394,6 +1480,14 @@ pub fn open_dialog(parent: &Frame) {
     root.add(&command_area, 0, SizerFlag::Expand | SizerFlag::All, 8);
     let status_text = StaticText::builder(&panel).with_label(labels.ready).build();
     root.add(&status_text, 0, SizerFlag::Expand | SizerFlag::All, 8);
+    let overwrite_box = CheckBox::builder(&panel).with_label(labels.overwrite_original).build();
+    overwrite_box.set_value(crate::Settings::load().media_cutter_overwrite_original);
+    root.add(&overwrite_box, 0, SizerFlag::All, 5);
+    overwrite_box.on_toggled(move |_| {
+        let mut settings = crate::Settings::load();
+        settings.media_cutter_overwrite_original = overwrite_box.get_value();
+        settings.save();
+    });
     let bottom = BoxSizer::builder(Orientation::Horizontal).build();
     let save_button = Button::builder(&panel).with_label(&format!("{} (Command+S)", labels.save)).build();
     save_button.enable(false);
@@ -1402,6 +1496,8 @@ pub fn open_dialog(parent: &Frame) {
     forward.enable(false);
     guided_primary.enable(false);
     split_here.enable(false);
+    let save_project_button = Button::builder(&panel).with_label(labels.save_project).build();
+    bottom.add(&save_project_button, 1, SizerFlag::All, 6);
     bottom.add(&save_button, 1, SizerFlag::All, 6);
     root.add_sizer(&bottom, 0, SizerFlag::Expand, 0);
 
@@ -1446,15 +1542,16 @@ pub fn open_dialog(parent: &Frame) {
     let file_status_open = file_status;
     let position_open = position_text;
     let parts_choice_open = parts_choice;
-    open_button.on_click(move |_| {
-        if (edited_open.get() || guided_start_open.get().is_some())
-            && !ask_yes_no(&dialog_open, labels.unsaved_title, labels.unsaved_message)
-        {
-            return;
-        }
-        let Some(path) = choose_input(&dialog_open, &labels) else { return; };
+    let project_open = Rc::clone(&project_in_use);
+    let load_action: Rc<dyn Fn(PathBuf, Option<project::CutterProject>)> = Rc::new(move |path, saved| {
         match probe_media(&path) {
             Ok(info) if info.has_audio || info.has_video => {
+                if saved.as_ref().is_some_and(|p| (p.duration - info.duration).abs() > 0.1 || p.has_video != info.has_video) {
+                    show_error(&dialog_open, labels.title, labels.invalid_media);
+                    return;
+                }
+                let is_project = saved.is_some();
+                project_open.set(is_project);
                 preview_open.borrow_mut().stop_child();
                 preview_open.borrow_mut().base_position = 0.0;
                 play_pause.set_label(labels.play);
@@ -1496,14 +1593,72 @@ pub fn open_dialog(parent: &Frame) {
                 forward.enable(true);
                 guided_primary.enable(true);
                 split_here.enable(true);
+                if let Some(saved) = saved {
+                    *parts_open.borrow_mut() = saved.parts;
+                    *deleted_open.borrow_mut() = parts_open.borrow().iter().filter(|p| !p.keep).map(|p| (p.start,p.end)).collect();
+                    preview_open.borrow_mut().base_position = saved.position;
+                    rotation_open.set([VideoRotation::None, VideoRotation::Right, VideoRotation::Left, VideoRotation::Half][saved.rotation]);
+                    rotation_choice.set_selection(saved.rotation as u32);
+                    *added_track_open.borrow_mut() = saved.track.map(|t| AddedTrackSettings { path: t.path, original_volume: t.original_volume.round() as i32, new_volume: t.new_volume.round() as i32, loop_track: t.loop_track });
+                    remove_track.show(added_track_open.borrow().is_some());
+                    mode_choice.set_selection(saved.mode as u32);
+                    movement_choice.set_selection(saved.movement as u32);
+                    goldwave_box.set_value(saved.goldwave_keys);
+                    let mut settings = crate::Settings::load();
+                    settings.media_cutter_advanced_mode = saved.mode == 1;
+                    settings.media_cutter_goldwave_keys = saved.goldwave_keys;
+                    settings.save();
+                    let advanced = saved.mode == 1;
+                    guided_primary.show(!advanced); guided_listen.show(!advanced);
+                    split_here.show(advanced); listen_part.show(advanced); delete_part.show(advanced);
+                    restore_part.show(advanced); parts_choice.show(advanced); parts_label.show(advanced);
+                    refresh_parts_choice(parts_choice_open, &parts_open.borrow(), &labels, Some(0));
+                }
                 mode_choice.set_focus();
-                let instruction = if mode_choice.get_selection().unwrap_or(0) == 0 { labels.guide_start } else { labels.ready };
+                let instruction = if is_project { labels.project_loaded } else if mode_choice.get_selection().unwrap_or(0) == 0 { labels.guide_start } else { labels.ready };
                 status_text.set_label(labels.ready);
                 status_text.wrap(780);
                 panel.layout();
                 announce_voiceover_message(&format!("{}: {name}, {}. {}", labels.file_loaded, format_duration_natural(info.duration), instruction));
             }
             _ => show_error(&dialog_open, labels.title, labels.invalid_media),
+        }
+    });
+
+    let load_media = Rc::clone(&load_action);
+    let dirty_open = Rc::clone(&edited); let markers_open = Rc::clone(&guided_start);
+    open_button.on_click(move |_| {
+        if (dirty_open.get() || markers_open.get().is_some()) && !ask_yes_no(&dialog, labels.unsaved_title, labels.unsaved_message) { return; }
+        if let Some(path) = choose_input(&dialog, &labels) { load_media(path, None); }
+    });
+    let load_project = Rc::clone(&load_action);
+    let dirty_open = Rc::clone(&edited); let markers_open = Rc::clone(&guided_start);
+    open_project_button.on_click(move |_| {
+        if (dirty_open.get() || markers_open.get().is_some()) && !ask_yes_no(&dialog, labels.unsaved_title, labels.unsaved_message) { return; }
+        let Some(path) = choose_project(&dialog, None, &labels) else { return; };
+        match project::load(&path) {
+            Ok(saved) => { load_project(saved.input.clone(), Some(saved)); }
+            Err(err) => show_error(&dialog, labels.title, &err),
+        }
+    });
+    let input_project = Rc::clone(&input); let probe_project = Rc::clone(&probe); let parts_project = Rc::clone(&parts);
+    let preview_project = Rc::clone(&preview); let rotation_project = Rc::clone(&rotation); let track_project = Rc::clone(&added_track);
+    let dirty_project = Rc::clone(&edited); let start_project = Rc::clone(&guided_start);
+    let project_saved = Rc::clone(&project_in_use);
+    save_project_button.on_click(move |_| {
+        let (Some(input), Some(info)) = (input_project.borrow().clone(), probe_project.borrow().clone()) else { show_info(&dialog, labels.title, labels.no_file); return; };
+        if start_project.get().is_some() { show_info(&dialog, labels.title, labels.pending_cut_save); return; }
+        let mut saved = project::CutterProject::new(input.clone(), info.duration, info.has_video, parts_project.borrow().clone());
+        saved.position = preview_project.borrow().position(info.duration);
+        saved.rotation = match rotation_project.get() { VideoRotation::None => 0, VideoRotation::Right => 1, VideoRotation::Left => 2, VideoRotation::Half => 3 };
+        saved.track = track_project.borrow().as_ref().map(|t| project::ProjectTrack { path: t.path.clone(), original_volume: t.original_volume as f64, new_volume: t.new_volume as f64, loop_track: t.loop_track });
+        saved.mode = mode_choice.get_selection().unwrap_or(0) as usize;
+        saved.movement = movement_choice.get_selection().unwrap_or(0) as usize;
+        saved.goldwave_keys = goldwave_box.get_value();
+        let Some(path) = choose_project(&dialog, Some(&input), &labels) else { return; };
+        match project::save(&path, &saved) {
+            Ok(()) => { project_saved.set(true); dirty_project.set(false); status_text.set_label(labels.project_saved); announce_voiceover_message(labels.project_saved); }
+            Err(err) => show_error(&dialog, labels.save_failed, &err),
         }
     });
 
@@ -1588,6 +1743,16 @@ pub fn open_dialog(parent: &Frame) {
     forward.on_click(move |_| {
         seek_preview(1.0, movement_choice, &input_forward, &probe_forward, &preview_forward, &show_forward, &parts_forward, &d_forward, labels);
     });
+
+    let start_clear = Rc::clone(&guided_start); let end_clear = Rc::clone(&guided_end);
+    let clear_action: Rc<dyn Fn()> = Rc::new(move || {
+        let pending = clear_selection_markers(&start_clear, &end_clear);
+        guided_primary.set_label(labels.set_start); guided_listen.enable(false);
+        // Do not stop playback, move the cursor, change applied cuts or mark dirty.
+        announce_voiceover_message(if pending { labels.markers_cleared } else { labels.markers_empty });
+    });
+    let clear_click = Rc::clone(&clear_action);
+    clear_markers.on_click(move |_| clear_click());
 
     // Guided cut.
     let parts_guided = Rc::clone(&parts);
@@ -1882,6 +2047,8 @@ pub fn open_dialog(parent: &Frame) {
     let adjustment_visible = Cell::new(false);
     let close_after_export_tick = Rc::clone(&close_after_export);
     let last_progress_tick = Rc::clone(&last_progress);
+    let input_tick = Rc::clone(&input);
+    let reload_export = Rc::clone(&load_action);
     let initial_focus_pending = Cell::new(true);
     timer_tick.on_tick(move |_| {
         if initial_focus_pending.replace(false) {
@@ -1971,8 +2138,11 @@ pub fn open_dialog(parent: &Frame) {
         save_button.set_focus();
         match snapshot.3.unwrap_or_else(|| Err("errore sconosciuto".to_string())) {
             Ok(path) => {
+                let overwrote_source = input_tick.borrow().as_ref().is_some_and(|p| project::same_file(p, &path));
+                if overwrote_source { reload_export(path.clone(), None); }
                 edited_tick.set(false);
-                let message = format!("{}: {}", labels.saved, path.display());
+                let mut message = format!("{}: {}", labels.saved, path.display());
+                if !snapshot.1.is_empty() { message.push_str(&format!("\n{}: {}", labels.backup_created, snapshot.1)); }
                 status_text.set_label(&message);
                 announce_voiceover_message(&message);
                 show_info(&dialog_tick, labels.title, &message);
@@ -1991,6 +2161,7 @@ pub fn open_dialog(parent: &Frame) {
 
     // Export.
     let input_save = Rc::clone(&input); let probe_save = Rc::clone(&probe); let parts_save = Rc::clone(&parts); let rotation_save = Rc::clone(&rotation); let added_save = Rc::clone(&added_track); let export_job_save = Rc::clone(&export_job); let export_busy_save = Arc::clone(&export_busy); let export_cancel_save = Arc::clone(&export_cancel); let preview_save = Rc::clone(&preview); let guided_start_save = Rc::clone(&guided_start);
+    let project_export = Rc::clone(&project_in_use);
     let save_button_action: Rc<dyn Fn()> = Rc::new(move || {
         if export_busy_save.load(Ordering::SeqCst) { return; }
         if guided_start_save.get().is_some() {
@@ -2002,10 +2173,21 @@ pub fn open_dialog(parent: &Frame) {
             show_error(&dialog, labels.title, labels.nothing_to_save);
             return;
         }
-        let Some(output) = choose_output(&dialog, &input_path, probe_info.has_video, &labels) else { return; };
-        if output == input_path {
-            show_error(&dialog, labels.title, labels.same_output);
-            return;
+        let overwrite_original = overwrite_box.get_value();
+        let output = if overwrite_original {
+            let ext = input_path.extension().and_then(|v| v.to_str()).unwrap_or("").to_ascii_lowercase();
+            if project_export.get() || !matches!(ext.as_str(), "mp4" | "mkv" | "mov" | "avi" | "mp3" | "m4a" | "wav" | "flac" | "aiff") {
+                show_error(&dialog, labels.title, labels.overwrite_unavailable); return;
+            }
+            if !ask_yes_no(&dialog, labels.title, labels.overwrite_confirm) { return; }
+            input_path.clone()
+        } else {
+            let Some(output) = choose_output(&dialog, &input_path, probe_info.has_video, &labels) else { return; };
+            if project::same_file(&output, &input_path) { show_error(&dialog, labels.title, labels.same_output); return; }
+            output
+        };
+        if added_save.borrow().as_ref().is_some_and(|t| project::same_file(&t.path, &output)) {
+            show_error(&dialog, labels.title, labels.same_output); return;
         }
         preview_save.borrow_mut().pause(probe_info.duration);
         play_pause.set_label(labels.play);
@@ -2041,7 +2223,7 @@ pub fn open_dialog(parent: &Frame) {
         dialog.layout();
         progress_gauge.set_focus();
         announce_voiceover_message(labels.processing_started);
-        let snapshot = ExportSnapshot { input: input_path, output, parts: parts_save.borrow().clone(), probe: probe_info, rotation: rotation_save.get(), added_track: added_save.borrow().clone() };
+        let snapshot = ExportSnapshot { input: input_path, output, overwrite_original, parts: parts_save.borrow().clone(), probe: probe_info, rotation: rotation_save.get(), added_track: added_save.borrow().clone() };
         let cancel = Arc::clone(&export_cancel_save);
         std::thread::spawn(move || export_media(snapshot, state, cancel));
     });
@@ -2082,8 +2264,10 @@ pub fn open_dialog(parent: &Frame) {
             held_down.set(None);
             return;
         }
-        let action = cutter_shortcut(key_kind, command_area.has_focus(), key.alt_down(),
-            key.cmd_down(), control, key.shift_down(), advanced);
+        let unicode = key.get_unicode_key().unwrap_or_default();
+        let goldwave_key = if matches!(unicode, 91 | 93) { cutter_key_from_code(unicode) } else { key_kind };
+        let action = goldwave_shortcut(goldwave_key, goldwave_box.get_value(), key.alt_down(), key.cmd_down(), control, key.shift_down())
+            .or_else(|| cutter_shortcut(key_kind, command_area.has_focus(), key.alt_down(), key.cmd_down(), control, key.shift_down(), advanced));
         let Some(action) = action else { event.skip(true); return; };
         append_podcast_log(&format!("media_cutter.key code={code} area={} option={} command={} control={control} shift={} advanced={advanced} action={action:?}",
             command_area.has_focus(), key.alt_down(), key.cmd_down(), key.shift_down()));
@@ -2093,14 +2277,30 @@ pub fn open_dialog(parent: &Frame) {
             && !matches!(action, CutterAction::Seek(..) | CutterAction::Select(..)) { return; }
         match action {
             CutterAction::Help => {
-                let help = format!("{}\n{}", labels.keys_common,
-                    if advanced { labels.keys_advanced } else { labels.keys_guided });
+                let mut help = format!("{}\n{}\n{}", labels.keys_common,
+                    if advanced { labels.keys_advanced } else { labels.keys_guided }, labels.clear_markers);
+                if goldwave_box.get_value() { help.push_str("\n"); help.push_str(labels.goldwave_help); }
                 show_info(&dialog, labels.title, &help);
                 command_area.set_focus();
                 held_down.set(None);
             }
             CutterAction::Save => { save_button_action(); held_down.set(None); }
             _ if input_keys.borrow().is_none() => announce_voiceover_message(labels.no_file),
+            CutterAction::ClearMarkers => clear_action(),
+            CutterAction::GoldWaveStart => {
+                let Some(info) = probe_keys.borrow().clone() else { return; };
+                start_keys.set(Some(preview_keys.borrow().position(info.duration))); end_keys.set(None);
+                guided_primary.set_label(labels.set_end); guided_listen.enable(false);
+                announce_voiceover_message(&format!("{}: {}", labels.start_set, format_duration_natural(start_keys.get().unwrap())));
+            }
+            CutterAction::GoldWaveEnd => {
+                if start_keys.get().is_none() { announce_voiceover_message(labels.goldwave_start_first); }
+                else { end_keys.set(None); guided_primary_action(); }
+            }
+            CutterAction::GoldWaveDelete => {
+                if start_keys.get().zip(end_keys.get()).is_none() { announce_voiceover_message(labels.goldwave_mark_first); }
+                else { guided_primary_action(); }
+            }
             CutterAction::Play => play_pause_action(),
             CutterAction::Seek(direction, seconds) => {
                 let ratio = seconds.map(|n| n as f64 / movement_seconds(movement_choice)).unwrap_or(1.0);
@@ -2153,7 +2353,7 @@ pub fn open_dialog(parent: &Frame) {
     bind_cutter_keys!(dialog, panel, progress_panel, progress_gauge, cancel_button, open_button, mode_choice, movement_choice, back, play_pause,
         forward, guided_primary, guided_listen, split_here, listen_part,
         delete_part, restore_part, parts_choice, rotation_choice, video_preview_button,
-        add_track_button, remove_track, save_button, command_area, adjustment_panel, precision, start_back,
+        add_track_button, remove_track, save_button, open_project_button, save_project_button, goldwave_box, overwrite_box, clear_markers, command_area, adjustment_panel, precision, start_back,
         start_forward, end_back, end_forward);
 
     let export_cancel_click = Arc::clone(&export_cancel);

@@ -49,9 +49,11 @@ fn append_podcast_log(message: &str) { eprintln!("{message}"); }
 struct Labels { processing: &'static str }
 fn labels() -> Labels { Labels { processing: "Processing" } }
 """
+    code += "#[path = " + json.dumps(str(ROOT / "src/media_cutter_project.rs")) + "] mod project;\n"
     code += "#[derive(Clone, Copy)]\n" + extract(source, "enum VideoRotation {") + "\n"
     for name in ["MediaPart", "ProbeInfo", "AddedTrackSettings", "ExportProgress", "ExportSnapshot"]:
-        code += "#[derive(Clone)]\n" + extract(source, f"struct {name} {{") + "\n"
+        derive = "Clone, Debug, serde::Serialize, serde::Deserialize" if name == "MediaPart" else "Clone"
+        code += f"#[derive({derive})]\n" + extract(source, f"struct {name} {{") + "\n"
     code += extract(source, "impl MediaPart {") + "\n"
     for name in ["ffprobe_path", "parse_ffmpeg_clock", "probe_media_with_ffmpeg", "probe_media", "rotation_filter", "ffmpeg_time", "run_ffmpeg_step", "write_concat_file", "copy_file", "export_media"]:
         code += extract(source, f"fn {name}(") + "\n"
@@ -61,7 +63,12 @@ fn main() {
     let case = &args[1];
     let dir = PathBuf::from(&args[2]);
     let video = case.starts_with("video") || case.starts_with("silent");
-    let input = dir.join(if case.starts_with("silent") { "silent.mp4" } else if video { "source.mp4" } else { "source.wav" });
+    let mut input = dir.join(if case.starts_with("silent") { "silent.mp4" } else if video { "source.mp4" } else { "source.wav" });
+    if case.contains("overwrite") {
+        let disposable = dir.join(format!("{case}-source.wav"));
+        std::fs::copy(&input, &disposable).unwrap(); input = disposable;
+    }
+    let before = std::fs::read(&input).unwrap();
     let probe = probe_media(&input).unwrap();
     assert_eq!(probe.has_video, video);
     let parts = if case.contains("multi") {
@@ -70,17 +77,25 @@ fn main() {
     let rotation = if case.contains("right") { VideoRotation::Right } else if case.contains("left") { VideoRotation::Left } else if case.contains("half") { VideoRotation::Half } else { VideoRotation::None };
     let added_track = case.contains("mix").then(|| AddedTrackSettings { path: dir.join("added.wav"), original_volume: 60, new_volume: 40, loop_track: true });
     let progress = Arc::new(Mutex::new(ExportProgress { percent: 0, message: String::new(), finished: false, result: None }));
-    let cancel = Arc::new(AtomicBool::new(case == "cancel"));
+    let cancel = Arc::new(AtomicBool::new(case.contains("cancel")));
     let output_ext = case.split("-to-").nth(1).unwrap_or(if video { "mp4" } else { "m4a" });
     let output_video = matches!(output_ext, "mp4" | "mkv" | "avi" | "mov");
-    let output = dir.join(format!("{case}.{output_ext}"));
-    export_media(ExportSnapshot { input, output: output.clone(), parts, probe, rotation, added_track }, progress.clone(), cancel);
+    let output = if case.contains("overwrite") { input.clone() } else { dir.join(format!("{case}.{output_ext}")) };
+    export_media(ExportSnapshot { overwrite_original: case.contains("overwrite") && !case.contains("denied"), input: input.clone(), output: output.clone(), parts, probe, rotation, added_track }, progress.clone(), cancel);
     let progress = progress.lock().unwrap();
     let result = progress.result.as_ref().unwrap();
-    if case == "cancel" {
+    if case.contains("denied") {
+        assert!(result.is_err()); assert_eq!(std::fs::read(&input).unwrap(), before); return;
+    }
+    if case.contains("cancel") {
         assert_eq!(result.as_ref().unwrap_err(), "__CANCELLED__");
-        assert!(!output.exists());
+        if case.contains("overwrite") { assert_eq!(std::fs::read(&input).unwrap(), before); } else { assert!(!output.exists()); }
         return;
+    }
+    if case.contains("overwrite") {
+        assert!(result.is_ok(), "{result:?}");
+        let backup = std::fs::read_dir(dir).unwrap().flatten().find(|e| e.file_name().to_string_lossy().starts_with(&format!("{case}-source.sonarpad-backup"))).unwrap();
+        assert_eq!(std::fs::read(backup.path()).unwrap(), before);
     }
     match result {
         Ok(path) => {
@@ -107,8 +122,10 @@ path = "main.rs"
 [dependencies]
 uuid = { version = "1.19", features = ["v4"] }
 serde_json = "1.0"
+serde = { version = "1.0", features = ["derive"] }
 ''')
     subprocess.run(["cargo", "build", "--manifest-path", str(work / "Cargo.toml")], check=True)
+    subprocess.run(["cargo", "test", "--manifest-path", str(work / "Cargo.toml")], check=True)
     return work / ("target/debug/media-cutter-test.exe" if os.name == "nt" else "target/debug/media-cutter-test")
 
 
@@ -133,7 +150,7 @@ def run():
     env["TEST_FFMPEG"] = str(ffmpeg)
     if os.name != "nt": env["PATH"] = "/usr/bin:/bin"  # No Homebrew ffprobe: test the actual bundle fallback.
     results = []
-    for case in ["audio-single", "audio-multi", "audio-mix", "video-single", "video-multi", "video-right", "video-left", "video-half", "video-mix", "silent-single", "silent-mix", "cancel", "audio-multi-to-mp3", "audio-multi-to-wav", "audio-multi-to-flac", "audio-multi-to-aiff", "video-multi-to-mkv", "video-multi-to-avi", "video-multi-to-mov", "video-multi-to-m4a", "video-multi-to-mp3", "video-multi-to-wav", "video-mix-to-flac"]:
+    for case in ["audio-overwrite", "audio-overwrite-denied", "audio-overwrite-cancel", "audio-single", "audio-multi", "audio-mix", "video-single", "video-multi", "video-right", "video-left", "video-half", "video-mix", "silent-single", "silent-mix", "cancel", "audio-multi-to-mp3", "audio-multi-to-wav", "audio-multi-to-flac", "audio-multi-to-aiff", "video-multi-to-mkv", "video-multi-to-avi", "video-multi-to-mov", "video-multi-to-m4a", "video-multi-to-mp3", "video-multi-to-wav", "video-mix-to-flac"]:
         result = subprocess.run([str(executable), case, str(fixtures)], env=env, text=True, capture_output=True, timeout=90)
         (OUT / f"{case}.log").write_text(result.stdout + result.stderr)
         print(case, "PASS" if result.returncode == 0 else "FAIL", flush=True)

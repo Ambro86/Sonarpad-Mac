@@ -16,9 +16,11 @@ jobs:
             target: x86_64-apple-darwin
             minimum: "10.15"
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       MACOSX_DEPLOYMENT_TARGET: ${{ matrix.minimum }}
+      CMAKE_ARGS: -DwxUSE_OPENGL=OFF
+      CMAKE_OSX_DEPLOYMENT_TARGET: ${{ matrix.minimum }}
       TEST_RUST_TARGET: ${{ matrix.target }}
       CFLAGS: -mmacosx-version-min=${{ matrix.minimum }}
       CXXFLAGS: -mmacosx-version-min=${{ matrix.minimum }}
@@ -29,6 +31,9 @@ jobs:
         with:
           python-version: '3.11'
       - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Check native macOS user interface
+        run: cargo check --release --target ${{ matrix.target }}
       - name: Verify cutter keyboard, focus and playback rules
         run: |
           rustc --edition=2024 --test src/media_cutter_keyboard.rs -o /tmp/cutter-keyboard-tests

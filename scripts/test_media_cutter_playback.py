@@ -28,11 +28,21 @@ code += "#[derive(Clone, Debug)]\n" + extract("struct MediaPart {")
 code += extract("impl MediaPart {")
 for name in ["remaining_kept_ranges", "kept_position", "kept_seek_position", "playback_edl", "audition_ranges", "clamp_parts", "split_part_at", "delete_range", "restore_part_index", "adjust_part_boundary", "audition_resume_position"]:
     code += extract(f"fn {name}(")
+code += "use std::cell::Cell;\n" + extract("fn clear_selection_markers(")
 code += "use std::process::Child;\nuse std::time::Instant;\n"
 code += extract("struct PreviewState {")
 code += extract("impl PreviewState {")
 code += r'''
 fn main() {
+    let start = Cell::new(Some(1.0)); let end = Cell::new(Some(3.0));
+    assert!(clear_selection_markers(&start, &end));
+    assert_eq!(start.get(), None); assert_eq!(end.get(), None);
+    assert!(!clear_selection_markers(&start, &end));
+    start.set(Some(2.0)); assert!(clear_selection_markers(&start, &end));
+    // GoldWave Delete reuses the guided deletion even on a split timeline.
+    let mut goldwave_parts = vec![MediaPart { start: 0.0, end: 3.0, keep: true }, MediaPart { start: 3.0, end: 6.0, keep: true }];
+    delete_range(&mut goldwave_parts, 2.0, 4.0, 6.0);
+    assert_eq!(remaining_kept_ranges(&goldwave_parts, 0.0).iter().map(|p| (p.start,p.end)).collect::<Vec<_>>(), vec![(0.0,2.0),(4.0,6.0)]);
     let mut preview = PreviewState::new();
     preview.playing = true;
     preview.base_position = 15.0;

@@ -16,6 +16,10 @@ pub enum CutterKey {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum CutterAction {
+    ClearMarkers,
+    GoldWaveStart,
+    GoldWaveEnd,
+    GoldWaveDelete,
     Play,
     Seek(i32, Option<u32>),
     FileBoundary(bool),
@@ -82,6 +86,7 @@ pub fn cutter_shortcut(
     match key {
         K::Home if area && !option => Some(FileBoundary(false)),
         K::End if area && !option => Some(FileBoundary(true)),
+        K::Letter('0') => Some(ClearMarkers),
         K::Space => Some(Play),
         K::Left => Some(Seek(-1, None)),
         K::Right => Some(Seek(1, None)),
@@ -327,5 +332,115 @@ mod tests {
             cutter_shortcut(CutterKey::Left, true, false, true, false, false, true),
             Some(CutterAction::Seek(-1, Some(10)))
         );
+    }
+}
+
+// Brackets are decoded from the actual Unicode character, not a US keyboard key code.
+// Option is needed for brackets on several Mac keyboard layouts; Control+Option
+// remains reserved for VoiceOver.
+pub fn goldwave_shortcut(
+    key: CutterKey,
+    enabled: bool,
+    option: bool,
+    command: bool,
+    control: bool,
+    shift: bool,
+) -> Option<CutterAction> {
+    if !enabled || command || control {
+        return None;
+    }
+    match key {
+        CutterKey::Letter('[') => Some(CutterAction::GoldWaveStart),
+        CutterKey::Letter(']') => Some(CutterAction::GoldWaveEnd),
+        CutterKey::DeleteKey if !option && !shift => Some(CutterAction::GoldWaveDelete),
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod new_shortcut_tests {
+    use super::*;
+    #[test]
+    fn goldwave_is_optional_and_preserves_voiceover() {
+        for (key, action) in [
+            (CutterKey::Letter('['), CutterAction::GoldWaveStart),
+            (CutterKey::Letter(']'), CutterAction::GoldWaveEnd),
+            (CutterKey::DeleteKey, CutterAction::GoldWaveDelete),
+        ] {
+            assert_eq!(
+                goldwave_shortcut(key, true, false, false, false, false),
+                Some(action)
+            );
+            assert_eq!(
+                goldwave_shortcut(key, false, false, false, false, false),
+                None
+            );
+            assert_eq!(goldwave_shortcut(key, true, true, false, true, false), None);
+            assert_eq!(
+                goldwave_shortcut(key, true, false, true, false, false),
+                None
+            );
+        }
+        assert_eq!(
+            goldwave_shortcut(CutterKey::Letter('['), true, true, false, false, true),
+            Some(CutterAction::GoldWaveStart)
+        );
+        assert_eq!(
+            goldwave_shortcut(CutterKey::DeleteKey, true, false, false, false, true),
+            None
+        );
+    }
+    #[test]
+    fn reset_is_available_in_both_modes_without_consuming_native_zero() {
+        for advanced in [false, true] {
+            assert_eq!(
+                cutter_shortcut(
+                    CutterKey::Letter('0'),
+                    true,
+                    false,
+                    false,
+                    false,
+                    false,
+                    advanced
+                ),
+                Some(CutterAction::ClearMarkers)
+            );
+            assert_eq!(
+                cutter_shortcut(
+                    CutterKey::Letter('0'),
+                    false,
+                    true,
+                    false,
+                    false,
+                    false,
+                    advanced
+                ),
+                Some(CutterAction::ClearMarkers)
+            );
+            assert_eq!(
+                cutter_shortcut(
+                    CutterKey::Letter('0'),
+                    false,
+                    false,
+                    false,
+                    false,
+                    false,
+                    advanced
+                ),
+                None
+            );
+            assert_eq!(
+                cutter_shortcut(
+                    CutterKey::Letter('0'),
+                    true,
+                    true,
+                    false,
+                    true,
+                    false,
+                    advanced
+                ),
+                None
+            );
+        }
     }
 }
