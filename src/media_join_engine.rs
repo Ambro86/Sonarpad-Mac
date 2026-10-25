@@ -205,7 +205,7 @@ pub fn join(
             let name = format!("clip{index}.{}", if video { "mkv" } else { "wav" });
             let mut args = vec!["-i".into(), input.to_string_lossy().into_owned()];
             if video && !media[index].audio {
-                args.extend(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"].map(String::from));
+                args.extend(["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo,aformat=sample_fmts=s16"].map(String::from));
             }
             if video {
                 args.extend(
