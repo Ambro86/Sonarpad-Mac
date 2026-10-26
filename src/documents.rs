@@ -153,14 +153,24 @@ pub fn command(
     cursor: &Rc<Cell<bool>>,
     article: &Rc<RefCell<Option<CurrentArticleState>>>,
 ) {
+    let (before, count) = DOCUMENTS.with(|documents| {
+        let documents = documents.borrow();
+        (documents.active, documents.items.len())
+    });
+    append_podcast_log(&format!(
+        "document.command.begin id={id} active={} count={count} modified={}",
+        before + 1, text.is_modified(),
+    ));
     if matches!(id, ID_NEXT_DOCUMENT | ID_PREVIOUS_DOCUMENT)
-        && DOCUMENTS.with(|documents| documents.borrow().items.len() < 2)
+        && count < 2
     {
+        append_podcast_log("document.command.skipped reason=only_one_document");
         return;
     }
     if id == ID_CLOSE_DOCUMENT
         && !confirm_unsaved_changes_before_close(frame, settings, text, state, "document.close")
     {
+        append_podcast_log("document.command.skipped reason=close_cancelled");
         return;
     }
     remember_text_bookmark(settings, text, state);
@@ -181,6 +191,14 @@ pub fn command(
     }
     restore(frame, text, state);
     cursor.set(true);
+    DOCUMENTS.with(|documents| {
+        let documents = documents.borrow();
+        append_podcast_log(&format!(
+            "document.command.completed id={id} before={} active={} count={} changed={} selection={:?}",
+            before + 1, documents.active + 1, documents.items.len(),
+            before != documents.active, text.get_selection(),
+        ));
+    });
     let title = state
         .lock()
         .unwrap()

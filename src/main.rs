@@ -2068,6 +2068,14 @@ fn handle_shortcut_event(
             let key_code = key_event.get_key_code().unwrap_or_default();
             let unicode_key = key_event.get_unicode_key().unwrap_or_default();
 
+            if command_shortcut_down(key_event) {
+                append_podcast_log(&format!(
+                    "document.shortcut.observed key={key_code} unicode={unicode_key} shift={} option={} native_direction={:?}",
+                    key_event.shift_down(), key_event.alt_down(),
+                    mac_native_document_shortcut_direction(),
+                ));
+            }
+
             if command_shortcut_down(key_event)
                 && !key_event.alt_down()
                 && let Some(backwards) = document_deck::shortcut_direction(
@@ -16208,7 +16216,8 @@ fn deliver_voiceover_message(message: &str) {
     }
     let result = Command::new("/usr/bin/osascript").args([
         "-e", "on run argv",
-        "-e", "tell application \"VoiceOver\" to output (item 1 of argv)",
+        "-e", "set announcementText to (item 1 of argv) as text",
+        "-e", "tell application \"VoiceOver\" to output announcementText",
         "-e", "end run", message,
     ]).output();
     match result {
@@ -28561,7 +28570,8 @@ local function speak(text)
         args = {
             "/usr/bin/osascript",
             "-e", "on run argv",
-            "-e", "tell application \"VoiceOver\" to output (item 1 of argv)",
+            "-e", "set announcementText to (item 1 of argv) as text",
+            "-e", "tell application \"VoiceOver\" to output announcementText",
             "-e", "end run",
             text
         }
@@ -30917,6 +30927,7 @@ fn main() {
         frame.on_menu(move |event| {
             let ui = current_ui_strings();
             if matches!(event.get_id(), documents::ID_NEW_DOCUMENT | documents::ID_CLOSE_DOCUMENT | documents::ID_NEXT_DOCUMENT | documents::ID_PREVIOUS_DOCUMENT) {
+                append_podcast_log(&format!("document.menu id={}", event.get_id()));
                 document_action_menu(event.get_id());
                 return;
             }

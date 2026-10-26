@@ -4,6 +4,12 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+main_source = (ROOT / 'src/main.rs').read_text(encoding='utf-8')
+# Both the application and MPV must send a text value, not a list-item
+# reference which VoiceOver may evaluate in its own application context.
+assert 'to output (item 1 of argv)' not in main_source
+assert main_source.count('set announcementText to (item 1 of argv) as text') == 2
+assert main_source.count('to output announcementText') == 2
 source = (ROOT / 'src/media_cutter_accessibility.rs').read_text(encoding='utf-8')
 start = source.index('pub(super) fn announce_voiceover_message(')
 end = source.index('\n}', start) + 2

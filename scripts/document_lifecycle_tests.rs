@@ -72,6 +72,7 @@ fn current_ui_strings() -> UiStrings {
     }
 }
 fn announce_voiceover_message(_: &str) {}
+fn append_podcast_log(_: &str) {}
 fn stop_tts_playback(_: &Arc<Mutex<GlobalPlayback>>) {}
 fn stop_podcast_playback(_: &Rc<RefCell<PodcastPlaybackState>>) {}
 fn remember_text_bookmark(
