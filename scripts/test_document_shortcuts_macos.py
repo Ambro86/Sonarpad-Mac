@@ -49,6 +49,12 @@ if "--prepare" not in sys.argv:
     carbon.TISGetInputSourceProperty.argtypes = [ptr, ptr]
     carbon.TISGetInputSourceProperty.restype = ptr
     carbon.TISCopyCurrentKeyboardInputSource.restype = ptr
+    carbon.TISCopyCurrentKeyboardLayoutInputSource.restype = ptr
+    carbon.LMGetKbdType.restype = ctypes.c_uint8
+    carbon.UCKeyTranslate.argtypes = [ptr, ctypes.c_uint16, ctypes.c_uint16, ctypes.c_uint32,
+        ctypes.c_uint32, ctypes.c_uint32, ctypes.POINTER(ctypes.c_uint32), ctypes.c_uint32,
+        ctypes.POINTER(ctypes.c_uint32), ctypes.POINTER(ctypes.c_uint16)]
+    carbon.UCKeyTranslate.restype = ctypes.c_int32
     carbon.TISSelectInputSource.argtypes = [ptr]
     carbon.TISSelectInputSource.restype = ctypes.c_int32
     carbon.TISEnableInputSource.argtypes = [ptr]
@@ -58,10 +64,38 @@ if "--prepare" not in sys.argv:
     cf.CFArrayGetValueAtIndex.restype = ptr
     cf.CFStringGetCString.argtypes = [ptr, ptr, ctypes.c_long, ctypes.c_uint32]
     cf.CFRelease.argtypes = [ptr]
+    cf.CFDataGetBytePtr.argtypes = [ptr]
+    cf.CFDataGetBytePtr.restype = ptr
     identifier = ptr.in_dll(carbon, "kTISPropertyInputSourceID")
     sources = carbon.TISCreateInputSourceList(None, True)
     original = carbon.TISCopyCurrentKeyboardInputSource()
     available = {}
+    def shortcut_keys():
+        layout_source = carbon.TISCopyCurrentKeyboardLayoutInputSource()
+        try:
+            data = carbon.TISGetInputSourceProperty(layout_source, ptr.in_dll(carbon, "kTISPropertyUnicodeKeyLayoutData"))
+            if not data:
+                raise RuntimeError("Input source has no Unicode keyboard layout")
+            keyboard = cf.CFDataGetBytePtr(data)
+            found = {}
+            for shift in (0, 1):
+                for key in range(128):
+                    dead = ctypes.c_uint32(0)
+                    length = ctypes.c_uint32(0)
+                    chars = (ctypes.c_uint16 * 4)()
+                    result = carbon.UCKeyTranslate(keyboard, key, 0, shift * 2, carbon.LMGetKbdType(),
+                                                  1, ctypes.byref(dead), 4, ctypes.byref(length), chars)
+                    if result == 0 and length.value == 1 and chars[0] in (60, 62):
+                        found.setdefault(chr(chars[0]), (key, shift))
+            if len(found) != 2:
+                raise RuntimeError(f"Cannot locate < and > on active keyboard: {found}")
+            print(f"Actual hardware mapping: {found}", flush=True)
+            return {"SHORTCUT_TEST_" + name: str(found[char][part])
+                    for char, prefix in (("<", "NEXT"), (">", "PREVIOUS"))
+                    for part, suffix in ((0, "KEY"), (1, "SHIFT"))
+                    for name in (prefix + "_" + suffix,)}
+        finally:
+            cf.CFRelease(layout_source)
     for index in range(cf.CFArrayGetCount(sources)):
         source = cf.CFArrayGetValueAtIndex(sources, index)
         value = carbon.TISGetInputSourceProperty(source, identifier)
@@ -79,7 +113,7 @@ if "--prepare" not in sys.argv:
                 raise RuntimeError(f"Could not select {layout}: {result}")
             print(f"Native input source: {layout}", flush=True)
             subprocess.run(["cargo", "run", "--manifest-path", str(WORK / "Cargo.toml")],
-                           env={**os.environ, "SHORTCUT_TEST_LAYOUT": layout}, check=True, timeout=1200)
+                           env={**os.environ, "SHORTCUT_TEST_LAYOUT": layout, **shortcut_keys()}, check=True, timeout=1200)
     finally:
         carbon.TISSelectInputSource(original)
         cf.CFRelease(original)
