@@ -4,6 +4,7 @@ use objc2::MainThreadMarker;
 use objc2_app_kit::{NSApplication, NSEvent, NSEventModifierFlags, NSEventType};
 use objc2_foundation::{NSPoint, NSString};
 use wxdragon::prelude::*;
+use wxdragon::event::KeyboardEvent;
 use wxdragon::timer::Timer;
 #[path = "DOCUMENT_DECK_PATH"] mod document_deck;
 mod documents {
@@ -22,7 +23,7 @@ fn keyboard(event: WindowEventData, actions: &ShortcutActions) {
 }
 fn main() {
     wxdragon::main(|_app| {
-        let frame = Frame::builder().with_title("Sonarpad document shortcut test").with_size(600, 300).build();
+        let frame = Frame::builder().with_title("Sonarpad document shortcut test").with_size(Size::new(600, 300)).build();
         let menu = Menu::builder().build();
         menu.append(documents::ID_NEXT_DOCUMENT, "Next\tNEXT_ACCELERATOR", "", ItemKind::Normal);
         menu.append(documents::ID_PREVIOUS_DOCUMENT, "Previous\tPREVIOUS_ACCELERATOR", "", ItemKind::Normal);
