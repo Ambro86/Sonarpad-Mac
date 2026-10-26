@@ -9,6 +9,13 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class DocumentTests(unittest.TestCase):
+    def test_document_navigation_is_in_file_menu(self):
+        source = (ROOT / "src/main.rs").read_text(encoding="utf-8")
+        file_menu = source[source.index("let file_menu = Menu::builder()"):]
+        file_menu = file_menu[:file_menu.index("let help_menu = Menu::builder()")]
+        for command in ("NEXT", "PREVIOUS"):
+            self.assertIn(f"file_menu.append_command(\n            documents::ID_{command}_DOCUMENT,", file_menu)
+
     def test_production_document_controller(self):
         executable = ROOT / "target" / (
             "document_lifecycle_tests.exe" if sys.platform == "win32" else "document_lifecycle_tests"

@@ -30160,6 +30160,18 @@ fn main() {
             &ui.document_close,
             ItemKind::Normal,
         );
+        file_menu.append_command(
+            documents::ID_NEXT_DOCUMENT,
+            &ui.document_next,
+            &ui.document_next,
+            ItemKind::Normal,
+        );
+        file_menu.append_command(
+            documents::ID_PREVIOUS_DOCUMENT,
+            &ui.document_previous,
+            &ui.document_previous,
+            ItemKind::Normal,
+        );
         file_menu.append_command(ID_OPEN, &ui.menu_open, &ui.menu_open_help, ItemKind::Normal);
         let recent_text_files_menu_owned = Menu::builder().build();
         rebuild_recent_text_files_menu(&recent_text_files_menu_owned, &settings, ui);
@@ -30309,23 +30321,6 @@ fn main() {
             .append(radio_menu, &ui.menu_radio)
             .append(view_menu, &ui.menu_view)
             .append(tools_menu, &ui.menu_tools);
-        #[cfg(target_os = "macos")]
-        let menubar_builder = {
-            let window_menu = Menu::builder().build();
-            window_menu.append_command(
-                documents::ID_NEXT_DOCUMENT,
-                &format!("{}\tCtrl+<", ui.document_next),
-                &ui.document_next,
-                ItemKind::Normal,
-            );
-            window_menu.append_command(
-                documents::ID_PREVIOUS_DOCUMENT,
-                &format!("{}\tCtrl+>", ui.document_previous),
-                &ui.document_previous,
-                ItemKind::Normal,
-            );
-            menubar_builder.append(window_menu, &ui.menu_window)
-        };
         let menubar = menubar_builder.append(help_menu, &ui.menu_help).build();
         frame.set_menu_bar(menubar);
 

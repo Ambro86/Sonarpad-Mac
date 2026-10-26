@@ -28,7 +28,7 @@ fn main() {
         let menu = Menu::builder().build();
         menu.append(documents::ID_NEXT_DOCUMENT, "Next\tNEXT_ACCELERATOR", "", ItemKind::Normal);
         menu.append(documents::ID_PREVIOUS_DOCUMENT, "Previous\tPREVIOUS_ACCELERATOR", "", ItemKind::Normal);
-        frame.set_menu_bar(MenuBar::builder().append(menu, "Window").build());
+        frame.set_menu_bar(MenuBar::builder().append(menu, "File").build());
         let panel = Panel::builder(&frame).build();
         let editor = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
         let deck = Rc::new(RefCell::new(document_deck::DocumentDeck::<String>::default()));
