@@ -1,0 +1,31 @@
+name: Test macOS document shortcuts
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  documents:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15, macos-15-intel]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    env:
+      CMAKE_ARGS: -DwxUSE_OPENGL=OFF
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: target/document-shortcuts-native
+          cache-on-failure: true
+      - name: Test production document lifecycle and menu registry
+        run: |
+          python scripts/test_documents.py
+          python scripts/test_menu_shortcuts.py
+      - name: Send native Command less-than and greater-than to wxDragon
+        run: python scripts/test_document_shortcuts_macos.py
