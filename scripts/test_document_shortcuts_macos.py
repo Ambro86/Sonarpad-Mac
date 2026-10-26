@@ -21,6 +21,8 @@ handler = main[start:end]
 registry = (ROOT / "src/menu_shortcuts.rs").read_text(encoding="utf-8")
 source = (ROOT / "scripts/document_shortcuts_native.rs").read_text(encoding="utf-8")
 source = source.replace("// PRODUCTION_HANDLER", handler)
+native_start = main.index("fn mac_native_document_shortcut_direction()")
+source = source.replace("// PRODUCTION_NATIVE_FALLBACK", main[native_start:main.index("fn handle_shortcut_event(", native_start)])
 source = source.replace("DOCUMENT_DECK_PATH", (ROOT / "src/document_deck.rs").as_posix())
 for name in ("NEXT", "PREVIOUS"):
     accelerator = re.search(r'ID_' + name + r'_DOCUMENT, "([^"]+)"', registry).group(1)

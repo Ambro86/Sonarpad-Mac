@@ -2031,6 +2031,26 @@ fn command_shortcut_down(key_event: &KeyboardEvent) -> bool {
     key_event.cmd_down()
 }
 
+#[cfg(target_os = "macos")]
+fn mac_native_document_shortcut_direction() -> Option<bool> {
+    use objc2::MainThreadMarker;
+    use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSEventType};
+    let event = NSApplication::sharedApplication(MainThreadMarker::new()?).currentEvent()?;
+    if event.r#type() != NSEventType::KeyDown
+        || !event.modifierFlags().contains(NSEventModifierFlags::Command)
+        || event.modifierFlags().contains(NSEventModifierFlags::Option)
+    {
+        return None;
+    }
+    // wx can translate the physical key differently from the active layout.
+    // Only recover the two exact document shortcuts from the original event.
+    match event.charactersIgnoringModifiers()?.to_string().as_str() {
+        "<" => Some(false),
+        ">" => Some(true),
+        _ => None,
+    }
+}
+
 fn handle_shortcut_event(
     event: WindowEventData,
     actions: &ShortcutActions,
@@ -2054,7 +2074,7 @@ fn handle_shortcut_event(
                     key_code,
                     unicode_key,
                     key_event.shift_down(),
-                )
+                ).or_else(mac_native_document_shortcut_direction)
             {
                 let id = if backwards {
                     documents::ID_PREVIOUS_DOCUMENT

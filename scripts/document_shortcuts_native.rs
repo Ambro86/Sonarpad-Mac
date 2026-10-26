@@ -14,6 +14,7 @@ mod documents {
 struct ShortcutActions { document: Rc<dyn Fn(i32)> }
 fn command_shortcut_down(key: &KeyboardEvent) -> bool { key.cmd_down() }
 fn append_podcast_log(message: &str) { println!("{message}"); }
+// PRODUCTION_NATIVE_FALLBACK
 fn keyboard(event: WindowEventData, actions: &ShortcutActions) {
     if let WindowEventData::Keyboard(key_event) = &event {
         println!("key={:?} unicode={:?} cmd={} shift={}", key_event.get_key_code(), key_event.get_unicode_key(), key_event.cmd_down(), key_event.shift_down());
@@ -58,7 +59,9 @@ fn main() {
             let key = |name: &str| std::env::var(format!("SHORTCUT_TEST_{name}_KEY")).unwrap().parse::<u16>().unwrap();
             let shift = |name: &str| std::env::var(format!("SHORTCUT_TEST_{name}_SHIFT")).unwrap() == "1";
             let cases = [("next", "<", key("NEXT"), shift("NEXT"), 1),
-                         ("previous", ">", key("PREVIOUS"), shift("PREVIOUS"), 2)];
+                         ("previous", ">", key("PREVIOUS"), shift("PREVIOUS"), 2),
+                         ("native character fallback next", "<", 10, false, 1),
+                         ("native character fallback previous", ">", 10, true, 2)];
             let step = phase.get();
             phase.set(step + 1);
             let index = step / 2;
