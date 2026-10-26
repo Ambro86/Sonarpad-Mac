@@ -43,7 +43,10 @@ fn normalize_ui_language(s:&str)->String{s.into()}
 fn show_message_dialog(_: &Frame,_:&str,_:&str){}
 fn append_podcast_log(_:&str){}
 struct UiStrings {youtube_open_video:String, open:String}
-fn current_ui_strings()->UiStrings{UiStrings{youtube_open_video:"Open video".into(),open:"Open".into()}}
+fn current_ui_strings()->&'static UiStrings{
+ static STRINGS:std::sync::OnceLock<UiStrings>=std::sync::OnceLock::new();
+ STRINGS.get_or_init(||UiStrings{youtube_open_video:"Open video".into(),open:"Open".into()})
+}
 fn open_youtube_results_dialog_with_title(_: &Dialog,_:&Arc<Mutex<Settings>>,_:Vec<YoutubeSearchResult>,_:Option<()>,_:&AudioDescriptionLaunchContext,_:bool,_:&str){}
 '''
 harness = harness.replace('PLAYBACK', (ROOT/'src/youtube_playback.rs').as_posix())

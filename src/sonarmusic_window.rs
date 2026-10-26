@@ -63,7 +63,7 @@ impl Controls {
             && matches!(row, Some(ResultRow::Item(index)) if view.page.items.get(index).is_some_and(|item| item.watch_url().is_some()));
         let ui = crate::current_ui_strings();
         let open_label = if playable {
-            ui.youtube_open_video
+            ui.youtube_open_video.clone()
         } else {
             let key = if suggestions.is_some() {
                 "use_suggestion"
