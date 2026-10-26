@@ -7,7 +7,9 @@ pub struct DocumentDeck<T> {
 /// Prefer the produced character: on some layouts '<' and '>' share a key.
 pub fn shortcut_direction(key_code: i32, unicode_key: i32, shift: bool) -> Option<bool> {
     match unicode_key {
-        60 => Some(false),
+        // Cocoa/wx may report the unshifted '<' for both keys on Italian
+        // layouts. US Shift+comma also produces '<', but still means next.
+        60 => Some(shift && key_code == 60),
         62 => Some(true),
         _ => match key_code {
             60 => Some(shift),
@@ -64,6 +66,7 @@ mod tests {
     fn shortcuts_respect_layout_and_leave_comma_for_settings() {
         assert_eq!(shortcut_direction(60, 60, false), Some(false));
         assert_eq!(shortcut_direction(60, 62, true), Some(true));
+        assert_eq!(shortcut_direction(60, 60, true), Some(true));
         assert_eq!(shortcut_direction(44, 60, true), Some(false));
         assert_eq!(shortcut_direction(44, 44, false), None);
         assert_eq!(shortcut_direction(60, 0, false), Some(false));
