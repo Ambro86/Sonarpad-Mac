@@ -234,5 +234,9 @@
   "audio_description.dialogue_overlap_retry_prompt": "A tentativa com descrições muito curtas também não conseguiu inseri-las sem sobrepor a fala. Deseja fazer uma última tentativa permitindo breves sobreposições com os diálogos? Este é um fallback isolado e não altera a análise normal de audiodescrição.",
   "audio_description.dialogue_overlap_retrying": "A criar o fallback final com sobreposição ao diálogo...",
   "audio_description.dialogue_overlap_unavailable": "O fallback final não pode ser usado porque não existem descrições geradas disponíveis para reutilizar.",
-  "audio_description.dialogue_overlap_direct_prompt": "A análise já foi executada com descrições Breves, mas nenhuma pôde ser inserida sem se sobrepor à fala. Pretende criar a audiodescrição mesmo assim, permitindo breves sobreposições com o diálogo? Este é um fallback isolado e não altera o fluxo normal de audiodescrição."
+  "audio_description.dialogue_overlap_direct_prompt": "A análise já foi executada com descrições Breves, mas nenhuma pôde ser inserida sem se sobrepor à fala. Pretende criar a audiodescrição mesmo assim, permitindo breves sobreposições com o diálogo? Este é um fallback isolado e não altera o fluxo normal de audiodescrição.",
+  "audio_description.allow_nonverbal_vocals": "Permitir descrições sobre vocalizações não verbais",
+  "audio_description.error.resume_layout": "O vídeo preparado não corresponde ao trabalho interrompido. O ponto de recuperação foi preservado.",
+  "audio_description.source_volume": "Volume do filme",
+  "tts_tuning.label_pitch": "Tom:"
 }

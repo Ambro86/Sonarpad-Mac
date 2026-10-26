@@ -234,5 +234,9 @@
   "audio_description.dialogue_overlap_retry_prompt": "The retry with very short descriptions also could not place them without overlapping speech. Do you want to make one final attempt allowing brief overlaps with dialogue? This is an isolated fallback and does not change the normal audio-description analysis.",
   "audio_description.dialogue_overlap_retrying": "Creating the final fallback with dialogue overlap...",
   "audio_description.dialogue_overlap_unavailable": "The final fallback cannot be used because there are no generated descriptions available to reuse.",
-  "audio_description.dialogue_overlap_direct_prompt": "The analysis was already run with Brief descriptions, but none could be inserted without overlapping speech. Do you want to create the audio description anyway by allowing brief overlaps with dialogue? This is an isolated fallback and does not change the normal audio-description pipeline."
+  "audio_description.dialogue_overlap_direct_prompt": "The analysis was already run with Brief descriptions, but none could be inserted without overlapping speech. Do you want to create the audio description anyway by allowing brief overlaps with dialogue? This is an isolated fallback and does not change the normal audio-description pipeline.",
+  "audio_description.allow_nonverbal_vocals": "Allow descriptions over non-verbal vocal sounds",
+  "audio_description.error.resume_layout": "The prepared video does not match the interrupted job. The checkpoint has been preserved.",
+  "audio_description.source_volume": "Movie volume",
+  "tts_tuning.label_pitch": "Pitch:"
 }

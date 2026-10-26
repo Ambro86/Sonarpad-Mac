@@ -234,5 +234,9 @@
   "audio_description.dialogue_overlap_retry_prompt": "La tentative avec des descriptions très courtes n’a pas non plus permis de les insérer sans chevaucher la parole. Voulez-vous effectuer une dernière tentative en autorisant de brefs chevauchements avec les dialogues ? Il s’agit d’un fallback isolé qui ne modifie pas l’analyse normale de l’audiodescription.",
   "audio_description.dialogue_overlap_retrying": "Création du fallback final avec chevauchement des dialogues...",
   "audio_description.dialogue_overlap_unavailable": "Le fallback final ne peut pas être utilisé car aucune description générée n’est disponible pour être réutilisée.",
-  "audio_description.dialogue_overlap_direct_prompt": "L’analyse a déjà été effectuée avec des descriptions Brèves, mais aucune n’a pu être insérée sans chevaucher la parole. Voulez-vous tout de même créer l’audiodescription en autorisant de brefs chevauchements avec les dialogues ? Il s’agit d’un fallback isolé qui ne modifie pas le pipeline normal d’audiodescription."
+  "audio_description.dialogue_overlap_direct_prompt": "L’analyse a déjà été effectuée avec des descriptions Brèves, mais aucune n’a pu être insérée sans chevaucher la parole. Voulez-vous tout de même créer l’audiodescription en autorisant de brefs chevauchements avec les dialogues ? Il s’agit d’un fallback isolé qui ne modifie pas le pipeline normal d’audiodescription.",
+  "audio_description.allow_nonverbal_vocals": "Autoriser les descriptions sur les sons vocaux non verbaux",
+  "audio_description.error.resume_layout": "La vidéo préparée ne correspond pas au travail interrompu. Le point de reprise a été conservé.",
+  "audio_description.source_volume": "Volume du film",
+  "tts_tuning.label_pitch": "Hauteur :"
 }

@@ -5748,6 +5748,7 @@ fn source_volume_choice(panel: &Panel, root: &BoxSizer, value: f32) -> Choice {
         5,
     );
     let choice = Choice::builder(panel).build();
+    choice.set_accessibility_label(&tr("audio_description.source_volume"));
     for percent in (0..=200).step_by(5) {
         choice.append(&format!("{percent}%"));
     }

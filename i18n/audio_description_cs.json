@@ -234,5 +234,9 @@
   "audio_description.dialogue_overlap_retry_prompt": "Ani pokus s velmi krátkými popisy je nedokázal vložit bez překrytí řeči. Chcete provést poslední pokus a povolit krátké překrytí dialogu? Jde o izolovaný záložní režim a běžnou analýzu audiopopisu nemění.",
   "audio_description.dialogue_overlap_retrying": "Vytváří se poslední záložní varianta s překrytím dialogu...",
   "audio_description.dialogue_overlap_unavailable": "Poslední záložní režim nelze použít, protože nejsou k dispozici žádné vygenerované popisy k opětovnému použití.",
-  "audio_description.dialogue_overlap_direct_prompt": "Analýza již proběhla s krátkými popisy, ale žádný z nich nebylo možné vložit bez překrytí mluvené řeči. Chcete přesto vytvořit audiopopis a povolit krátká překrytí s dialogem? Jde o izolovaný záložní režim, který nemění běžnou pipeline audiopopisu."
+  "audio_description.dialogue_overlap_direct_prompt": "Analýza již proběhla s krátkými popisy, ale žádný z nich nebylo možné vložit bez překrytí mluvené řeči. Chcete přesto vytvořit audiopopis a povolit krátká překrytí s dialogem? Jde o izolovaný záložní režim, který nemění běžnou pipeline audiopopisu.",
+  "audio_description.allow_nonverbal_vocals": "Povolit popisy během neřečových hlasových projevů",
+  "audio_description.error.resume_layout": "Připravené video neodpovídá přerušené úloze. Bod obnovení byl zachován.",
+  "audio_description.source_volume": "Hlasitost filmu",
+  "tts_tuning.label_pitch": "Výška:"
 }

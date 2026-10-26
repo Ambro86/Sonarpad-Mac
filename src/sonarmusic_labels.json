@@ -22,7 +22,14 @@
     "favorites": "Oblíbené",
     "add_favorite": "Přidat do oblíbených",
     "remove_favorite": "Odebrat z oblíbených",
-    "open_favorite": "Otevřít oblíbenou položku"
+    "open_favorite": "Otevřít oblíbenou položku",
+    "open_artist": "Otevřít interpreta",
+    "open_album": "Otevřít album",
+    "open_playlist": "Otevřít playlist",
+    "open_podcast": "Otevřít podcast",
+    "open_collection": "Otevřít sbírku",
+    "open_result": "Otevřít výsledek",
+    "use_suggestion": "Použít návrh"
   },
   "de": {
     "query": "Titel, Künstler oder Album",
@@ -72,7 +79,14 @@
     "favorites": "Favorites",
     "add_favorite": "Add to favorites",
     "remove_favorite": "Remove from favorites",
-    "open_favorite": "Open favorite"
+    "open_favorite": "Open favorite",
+    "open_artist": "Open artist",
+    "open_album": "Open album",
+    "open_playlist": "Open playlist",
+    "open_podcast": "Open podcast",
+    "open_collection": "Open collection",
+    "open_result": "Open result",
+    "use_suggestion": "Use suggestion"
   },
   "es": {
     "query": "Canción, artista o álbum",
@@ -97,7 +111,14 @@
     "favorites": "Favoritos",
     "add_favorite": "Añadir a favoritos",
     "remove_favorite": "Quitar de favoritos",
-    "open_favorite": "Abrir favorito"
+    "open_favorite": "Abrir favorito",
+    "open_artist": "Abrir artista",
+    "open_album": "Abrir álbum",
+    "open_playlist": "Abrir lista de reproducción",
+    "open_podcast": "Abrir pódcast",
+    "open_collection": "Abrir colección",
+    "open_result": "Abrir resultado",
+    "use_suggestion": "Usar sugerencia"
   },
   "fr": {
     "query": "Titre, artiste ou album",
@@ -122,7 +143,14 @@
     "favorites": "Favoris",
     "add_favorite": "Ajouter aux favoris",
     "remove_favorite": "Retirer des favoris",
-    "open_favorite": "Ouvrir le favori"
+    "open_favorite": "Ouvrir le favori",
+    "open_artist": "Ouvrir l’artiste",
+    "open_album": "Ouvrir l’album",
+    "open_playlist": "Ouvrir la playlist",
+    "open_podcast": "Ouvrir le podcast",
+    "open_collection": "Ouvrir la collection",
+    "open_result": "Ouvrir le résultat",
+    "use_suggestion": "Utiliser la suggestion"
   },
   "it": {
     "query": "Titolo, artista o album",
@@ -147,7 +175,14 @@
     "favorites": "Preferiti",
     "add_favorite": "Aggiungi ai preferiti",
     "remove_favorite": "Rimuovi dai preferiti",
-    "open_favorite": "Apri preferito"
+    "open_favorite": "Apri preferito",
+    "open_artist": "Apri artista",
+    "open_album": "Apri album",
+    "open_playlist": "Apri playlist",
+    "open_podcast": "Apri podcast",
+    "open_collection": "Apri raccolta",
+    "open_result": "Apri risultato",
+    "use_suggestion": "Usa suggerimento"
   },
   "pl": {
     "query": "Utwór, artysta lub album",
@@ -172,7 +207,14 @@
     "favorites": "Ulubione",
     "add_favorite": "Dodaj do ulubionych",
     "remove_favorite": "Usuń z ulubionych",
-    "open_favorite": "Otwórz ulubione"
+    "open_favorite": "Otwórz ulubione",
+    "open_artist": "Otwórz wykonawcę",
+    "open_album": "Otwórz album",
+    "open_playlist": "Otwórz playlistę",
+    "open_podcast": "Otwórz podcast",
+    "open_collection": "Otwórz kolekcję",
+    "open_result": "Otwórz wynik",
+    "use_suggestion": "Użyj sugestii"
   },
   "pt": {
     "query": "Música, artista ou álbum",
@@ -197,7 +239,14 @@
     "favorites": "Favoritos",
     "add_favorite": "Adicionar aos favoritos",
     "remove_favorite": "Remover dos favoritos",
-    "open_favorite": "Abrir favorito"
+    "open_favorite": "Abrir favorito",
+    "open_artist": "Abrir artista",
+    "open_album": "Abrir álbum",
+    "open_playlist": "Abrir lista de reprodução",
+    "open_podcast": "Abrir podcast",
+    "open_collection": "Abrir coleção",
+    "open_result": "Abrir resultado",
+    "use_suggestion": "Usar sugestão"
   },
   "pt_BR": {
     "query": "Música, artista ou álbum",

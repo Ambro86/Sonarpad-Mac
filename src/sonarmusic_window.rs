@@ -62,11 +62,29 @@ impl Controls {
         let playable = suggestions.is_none()
             && matches!(row, Some(ResultRow::Item(index)) if view.page.items.get(index).is_some_and(|item| item.watch_url().is_some()));
         let ui = crate::current_ui_strings();
-        self.open.set_label(if playable {
-            &ui.youtube_open_video
+        let open_label = if playable {
+            ui.youtube_open_video
         } else {
-            &ui.open
-        });
+            let key = if suggestions.is_some() {
+                "use_suggestion"
+            } else {
+                match row {
+                    Some(ResultRow::Previous) => "previous_results",
+                    Some(ResultRow::Next) => "next_results",
+                    Some(ResultRow::Item(index)) => match view.page.items[index].kind.as_str() {
+                        "artist" => "open_artist",
+                        "album" => "open_album",
+                        "playlist" => "open_playlist",
+                        "podcast" => "open_podcast",
+                        "collection" => "open_collection",
+                        _ => "open_result",
+                    },
+                    None => "open_result",
+                }
+            };
+            music::label(&crate::Settings::load().ui_language, key)
+        };
+        self.open.set_label(&open_label);
         self.add_favorite.enable(
             !busy && suggestions.is_none() && matches!(row, Some(ResultRow::Item(_))) && available,
         );
@@ -162,6 +180,11 @@ pub(crate) fn open(
     let results = Choice::builder(&panel).build();
     results.set_accessibility_label(&text("results"));
     root.add(&results, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    // Keep native keyboard/VoiceOver order aligned with the visible result action.
+    let open = Button::builder(&panel)
+        .with_label(&text("open_result"))
+        .build();
+    root.add(&open, 0, SizerFlag::All, 5);
     root.add(
         &StaticText::builder(&panel)
             .with_label(&text("favorites"))
@@ -190,7 +213,6 @@ pub(crate) fn open(
     let status = StaticText::builder(&panel).build();
     root.add(&status, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let row = BoxSizer::builder(Orientation::Horizontal).build();
-    let open = Button::builder(&panel).with_label(&text("open")).build();
     let back = Button::builder(&panel)
         .with_id(ID_BACK)
         .with_label(&text("back"))
@@ -199,7 +221,7 @@ pub(crate) fn open(
         .with_id(ID_CANCEL)
         .with_label(&text("close"))
         .build();
-    for button in [open, back, close] {
+    for button in [back, close] {
         row.add(&button, 0, SizerFlag::All, 5);
     }
     root.add_sizer(&row, 0, SizerFlag::Expand, 0);
