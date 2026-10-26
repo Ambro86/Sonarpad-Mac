@@ -82,7 +82,7 @@ fn main() {
             let event = NSEvent::keyEventWithType_location_modifierFlags_timestamp_windowNumber_context_characters_charactersIgnoringModifiers_isARepeat_keyCode(
                 NSEventType::KeyDown, NSPoint::new(0.0, 0.0), flags, 0.0, window.windowNumber(), None, &text, &text, false, key).unwrap();
             println!("Sending {name}");
-            app.sendEvent(&event);
+            app.postEvent_atStart(&event, false);
         });
         timer.start(500, false);
         std::mem::forget(timer);
