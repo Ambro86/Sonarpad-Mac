@@ -3945,6 +3945,7 @@ version = "0.5.3"
 dependencies = [
  "anyhow",
  "base64",
+ "block2",
  "calamine",
  "cfb",
  "chrono",

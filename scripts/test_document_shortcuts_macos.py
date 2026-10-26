@@ -22,7 +22,11 @@ registry = (ROOT / "src/menu_shortcuts.rs").read_text(encoding="utf-8")
 source = (ROOT / "scripts/document_shortcuts_native.rs").read_text(encoding="utf-8")
 source = source.replace("// PRODUCTION_HANDLER", handler)
 native_start = main.index("fn mac_native_document_shortcut_direction()")
-source = source.replace("// PRODUCTION_NATIVE_FALLBACK", main[native_start:main.index("fn handle_shortcut_event(", native_start)])
+native_end = main.index("fn install_mac_document_shortcut_monitor(", native_start)
+source = source.replace("// PRODUCTION_NATIVE_FALLBACK", main[native_start:native_end])
+monitor_start = native_end
+monitor_end = main.index("fn handle_shortcut_event(", monitor_start)
+source = source.replace("// PRODUCTION_NATIVE_MONITOR", main[monitor_start:monitor_end])
 source = source.replace("DOCUMENT_DECK_PATH", (ROOT / "src/document_deck.rs").as_posix())
 for name in ("NEXT", "PREVIOUS"):
     accelerator = re.search(r'ID_' + name + r'_DOCUMENT, "([^"]+)"', registry).group(1)
@@ -35,9 +39,10 @@ edition = "2024"
 [workspace]
 [dependencies]
 wxdragon = "=0.9.18"
+block2 = "0.6.2"
 objc2 = "0.6.3"
 objc2-foundation = {version = "0.3.2", features = ["NSString", "NSGeometry"]}
-objc2-app-kit = {version = "0.3.2", features = ["NSApplication", "NSWindow", "NSEvent", "NSGraphicsContext"]}
+objc2-app-kit = {version = "0.3.2", features = ["block2", "NSApplication", "NSWindow", "NSEvent", "NSGraphicsContext"]}
 ''', encoding="utf-8")
 shutil.copyfile(ROOT / "Cargo.lock", WORK / "Cargo.lock")
 if "--prepare" not in sys.argv:

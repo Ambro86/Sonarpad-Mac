@@ -2051,6 +2051,54 @@ fn mac_native_document_shortcut_direction() -> Option<bool> {
     }
 }
 
+#[cfg(target_os = "macos")]
+fn install_mac_document_shortcut_monitor(document_action: Rc<dyn Fn(i32)>) {
+    use block2::RcBlock;
+    use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
+    use std::ptr::NonNull;
+
+    let handler = RcBlock::new(move |event: NonNull<NSEvent>| -> *mut NSEvent {
+        // SAFETY: AppKit guarantees that the event pointer remains valid for
+        // the duration of a local event-monitor callback.
+        let event_ref = unsafe { event.as_ref() };
+        let modifiers = event_ref.modifierFlags();
+        if modifiers.contains(NSEventModifierFlags::Command)
+            && !modifiers.contains(NSEventModifierFlags::Option)
+            && !mac_native_file_dialog_open()
+        {
+            let direction = event_ref
+                .charactersIgnoringModifiers()
+                .and_then(|characters| match characters.to_string().as_str() {
+                    "<" => Some(false),
+                    ">" => Some(true),
+                    _ => None,
+                });
+            if let Some(backwards) = direction {
+                let id = if backwards {
+                    documents::ID_PREVIOUS_DOCUMENT
+                } else {
+                    documents::ID_NEXT_DOCUMENT
+                };
+                append_podcast_log(&format!(
+                    "document.shortcut.native backwards={backwards}"
+                ));
+                document_action(id);
+                return std::ptr::null_mut();
+            }
+        }
+        event.as_ptr()
+    });
+
+    // SAFETY: The callback returns either AppKit's original event pointer or
+    // null to consume one of the two handled shortcuts. The leaked monitor is
+    // intentionally retained for the lifetime of the application.
+    if let Some(monitor) = unsafe {
+        NSEvent::addLocalMonitorForEventsMatchingMask_handler(NSEventMask::KeyDown, &handler)
+    } {
+        let _ = Box::leak(Box::new(monitor));
+    }
+}
+
 fn handle_shortcut_event(
     event: WindowEventData,
     actions: &ShortcutActions,
@@ -30369,6 +30417,9 @@ fn main() {
             let article = Rc::clone(&current_article_state);
             Rc::new(move |id| documents::command(id, &frame, &settings, &text_ctrl, &state, &playback, &podcast, &cursor, &article))
         };
+
+        #[cfg(target_os = "macos")]
+        install_mac_document_shortcut_monitor(Rc::clone(&document_action));
 
         let btn_sizer = BoxSizer::builder(Orientation::Horizontal).build();
         let btn_start = Button::builder(&panel)

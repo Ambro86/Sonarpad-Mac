@@ -14,7 +14,9 @@ mod documents {
 struct ShortcutActions { document: Rc<dyn Fn(i32)> }
 fn command_shortcut_down(key: &KeyboardEvent) -> bool { key.cmd_down() }
 fn append_podcast_log(message: &str) { println!("{message}"); }
+fn mac_native_file_dialog_open() -> bool { false }
 // PRODUCTION_NATIVE_FALLBACK
+// PRODUCTION_NATIVE_MONITOR
 fn keyboard(event: WindowEventData, actions: &ShortcutActions) {
     if let WindowEventData::Keyboard(key_event) = &event {
         println!("key={:?} unicode={:?} cmd={} shift={}", key_event.get_key_code(), key_event.get_unicode_key(), key_event.cmd_down(), key_event.shift_down());
@@ -45,6 +47,7 @@ fn main() {
             editor.set_value(&deck.items[deck.active]);
             println!("document command={id} active={}", deck.active);
         });
+        install_mac_document_shortcut_monitor(action.clone());
         let menu_action = action.clone();
         frame.on_menu(move |event| menu_action(event.get_id()));
         let editor_action = action.clone();
