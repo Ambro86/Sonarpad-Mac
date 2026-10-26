@@ -5,7 +5,9 @@ does not simulate VoiceOver or a physical keyboard/input source.
 """
 from pathlib import Path
 import re
+import shutil
 import subprocess
+import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / "target/document-shortcuts-native"
@@ -33,4 +35,6 @@ objc2 = "0.6.3"
 objc2-foundation = {version = "0.3.2", features = ["NSString", "NSGeometry"]}
 objc2-app-kit = {version = "0.3.2", features = ["NSApplication", "NSWindow", "NSEvent", "NSGraphicsContext"]}
 ''', encoding="utf-8")
-subprocess.run(["cargo", "run", "--manifest-path", str(WORK / "Cargo.toml")], check=True, timeout=1200)
+shutil.copyfile(ROOT / "Cargo.lock", WORK / "Cargo.lock")
+if "--prepare" not in sys.argv:
+    subprocess.run(["cargo", "run", "--manifest-path", str(WORK / "Cargo.toml")], check=True, timeout=1200)
