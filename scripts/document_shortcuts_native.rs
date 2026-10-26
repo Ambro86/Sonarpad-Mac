@@ -55,7 +55,11 @@ fn main() {
         let phase = Cell::new(0usize);
         let failures = Cell::new(0);
         timer.on_tick(move |_| {
-            let cases = [("Italian next", "<", 10, false, 1), ("Italian previous", ">", 10, true, 2), ("US next", "<", 43, true, 1), ("US previous", ">", 47, true, 2)];
+            let cases = if std::env::var("SHORTCUT_TEST_LAYOUT").unwrap() == "US" {
+                [("US next", "<", 43, true, 1), ("US previous", ">", 47, true, 2)]
+            } else {
+                [("Italian next", "<", 10, false, 1), ("Italian previous", ">", 10, true, 2)]
+            };
             let step = phase.get();
             phase.set(step + 1);
             let index = step / 2;

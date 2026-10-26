@@ -8,6 +8,8 @@ import re
 import shutil
 import subprocess
 import sys
+import os
+import ctypes
 
 ROOT = Path(__file__).resolve().parents[1]
 WORK = ROOT / "target/document-shortcuts-native"
@@ -37,4 +39,48 @@ objc2-app-kit = {version = "0.3.2", features = ["NSApplication", "NSWindow", "NS
 ''', encoding="utf-8")
 shutil.copyfile(ROOT / "Cargo.lock", WORK / "Cargo.lock")
 if "--prepare" not in sys.argv:
-    subprocess.run(["cargo", "run", "--manifest-path", str(WORK / "Cargo.toml")], check=True, timeout=1200)
+    # wxWidgets translates hardware key codes using the active input source,
+    # rather than trusting NSEvent.characters. Select the actual layout first.
+    cf = ctypes.CDLL("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation")
+    carbon = ctypes.CDLL("/System/Library/Frameworks/Carbon.framework/Carbon")
+    ptr = ctypes.c_void_p
+    carbon.TISCreateInputSourceList.argtypes = [ptr, ctypes.c_bool]
+    carbon.TISCreateInputSourceList.restype = ptr
+    carbon.TISGetInputSourceProperty.argtypes = [ptr, ptr]
+    carbon.TISGetInputSourceProperty.restype = ptr
+    carbon.TISCopyCurrentKeyboardInputSource.restype = ptr
+    carbon.TISSelectInputSource.argtypes = [ptr]
+    carbon.TISSelectInputSource.restype = ctypes.c_int32
+    carbon.TISEnableInputSource.argtypes = [ptr]
+    cf.CFArrayGetCount.argtypes = [ptr]
+    cf.CFArrayGetCount.restype = ctypes.c_long
+    cf.CFArrayGetValueAtIndex.argtypes = [ptr, ctypes.c_long]
+    cf.CFArrayGetValueAtIndex.restype = ptr
+    cf.CFStringGetCString.argtypes = [ptr, ptr, ctypes.c_long, ctypes.c_uint32]
+    cf.CFRelease.argtypes = [ptr]
+    identifier = ptr.in_dll(carbon, "kTISPropertyInputSourceID")
+    sources = carbon.TISCreateInputSourceList(None, True)
+    original = carbon.TISCopyCurrentKeyboardInputSource()
+    available = {}
+    for index in range(cf.CFArrayGetCount(sources)):
+        source = cf.CFArrayGetValueAtIndex(sources, index)
+        value = carbon.TISGetInputSourceProperty(source, identifier)
+        buffer = ctypes.create_string_buffer(512)
+        if value and cf.CFStringGetCString(value, buffer, len(buffer), 0x08000100):
+            available[buffer.value.decode()] = source
+    try:
+        for layout in ("US", "Italian", "Italian-Pro"):
+            source = available.get("com.apple.keylayout." + layout)
+            if not source:
+                raise RuntimeError(f"Keyboard layout unavailable: {layout}")
+            carbon.TISEnableInputSource(source)
+            result = carbon.TISSelectInputSource(source)
+            if result:
+                raise RuntimeError(f"Could not select {layout}: {result}")
+            print(f"Native input source: {layout}", flush=True)
+            subprocess.run(["cargo", "run", "--manifest-path", str(WORK / "Cargo.toml")],
+                           env={**os.environ, "SHORTCUT_TEST_LAYOUT": layout}, check=True, timeout=1200)
+    finally:
+        carbon.TISSelectInputSource(original)
+        cf.CFRelease(original)
+        cf.CFRelease(sources)
