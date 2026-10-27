@@ -261,7 +261,66 @@ fn format_site_title(site: &str) -> String {
         .join(" ")
 }
 
+// Google News category IDs verified against the localized navigation and RSS on 2026-10-26.
+// Preserve unknown editions, other categories and all query parameters.
+pub(crate) fn normalize_google_news_category_url(value: &str) -> String {
+    let Ok(mut uri) = Url::parse(value) else {
+        return value.to_string();
+    };
+    if uri.host_str() != Some("news.google.com") {
+        return value.to_string();
+    }
+    let path = uri.path().trim_end_matches('/');
+    let topic = path
+        .strip_prefix("/news/rss/headlines/section/topic/")
+        .or_else(|| path.strip_prefix("/rss/headlines/section/topic/"));
+    let Some(topic) = topic else {
+        return value.to_string();
+    };
+    let edition = uri
+        .query_pairs()
+        .find(|(key, _)| key == "ceid")
+        .map(|(_, val)| val.into_owned())
+        .unwrap_or_default();
+    let id = match (edition.as_str(), topic) {
+        ("BR:pt-419", "NATION") => "CAAqJQgKIh9DQkFTRVFvSUwyMHZNREUxWm5JU0JYQjBMVUpTS0FBUAE",
+        ("BR:pt-419", "TECHNOLOGY") => {
+            "CAAqLAgKIiZDQkFTRmdvSkwyMHZNR1ptZHpWbUVnVndkQzFDVWhvQ1FsSW9BQVAB"
+        }
+        ("CZ:cs", "NATION") => "CAAqIQgKIhtDQkFTRGdvSUwyMHZNREZ0YW5FU0FtTnpLQUFQAQ",
+        ("CZ:cs", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSmpjeG9DUTFvb0FBUAE",
+        ("US:en", "NATION") => "CAAqIggKIhxDQkFTRHdvSkwyMHZNRGxqTjNjd0VnSmxiaWdBUAE",
+        ("FR:fr", "NATION") => "CAAqIggKIhxDQkFTRHdvSkwyMHZNR1k0YkRsakVnSm1jaWdBUAE",
+        ("FR:fr", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSm1jaG9DUmxJb0FBUAE",
+        ("DE:de", "NATION") => "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRE0wTldnU0FtUmxLQUFQAQ",
+        ("DE:de", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSmtaUm9DUkVVb0FBUAE",
+        ("IT:it", "NATION") => "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRE55YW1vU0FtbDBLQUFQAQ",
+        ("IT:it", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSnBkQm9DU1ZRb0FBUAE",
+        ("PL:pl", "NATION") => "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFZ4YUhjU0FuQnNLQUFQAQ",
+        ("PL:pl", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSndiQm9DVUV3b0FBUAE",
+        ("PT:pt-150", "NATION") => "CAAqJQgKIh9DQkFTRVFvSUwyMHZNRFZ5TkhjU0JYQjBMVkJVS0FBUAE",
+        ("PT:pt-150", "TECHNOLOGY") => {
+            "CAAqLAgKIiZDQkFTRmdvSkwyMHZNR1ptZHpWbUVnVndkQzFRVkJvQ1VGUW9BQVAB"
+        }
+        ("RO:ro", "NATION") => "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFpqTVhrU0FuSnZLQUFQAQ",
+        ("CN:zh-Hans", "NATION") => "CAAqJggKIiBDQkFTRWdvSkwyMHZNR1F3TlhjekVnVjZhQzFEVGlnQVAB",
+        ("ES:es", "NATION") => "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFp0YTJvU0FtVnpLQUFQAQ",
+        ("ES:es", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSmxjeG9DUlZNb0FBUAE",
+        ("TR:tr", "NATION") => "CAAqIggKIhxDQkFTRHdvSkwyMHZNREY2Ym1OZkVnSjBjaWdBUAE",
+        ("TR:tr", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSjBjaG9DVkZJb0FBUAE",
+        ("UA:uk", "NATION") => "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRGQwTWpFU0FuVnJLQUFQAQ",
+        ("UA:uk", "TECHNOLOGY") => "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSjFheG9DVlVFb0FBUAE",
+        _ => return value.to_string(),
+    };
+    uri.set_path(&format!("/rss/topics/{id}"));
+    uri.to_string()
+}
+
 fn normalize_known_feed_url(url: &str) -> String {
+    let category_url = normalize_google_news_category_url(url);
+    if category_url != url {
+        return category_url;
+    }
     if is_corriere_home_feed_url(url) {
         CORRIERE_HOME_FEED_URL.to_string()
     } else if is_il_giornale_feed_url(url) {
@@ -1534,5 +1593,157 @@ mod tests {
             Some("bbc.co.uk")
         );
     }
+}
 
+#[cfg(test)]
+mod google_news_category_regression_tests {
+    use super::normalize_google_news_category_url;
+    use url::Url;
+    #[test]
+    fn verified_editions_preserve_query_and_are_idempotent() {
+        for (edition, topic, id) in [
+            (
+                "BR:pt-419",
+                "NATION",
+                "CAAqJQgKIh9DQkFTRVFvSUwyMHZNREUxWm5JU0JYQjBMVUpTS0FBUAE",
+            ),
+            (
+                "BR:pt-419",
+                "TECHNOLOGY",
+                "CAAqLAgKIiZDQkFTRmdvSkwyMHZNR1ptZHpWbUVnVndkQzFDVWhvQ1FsSW9BQVAB",
+            ),
+            (
+                "CZ:cs",
+                "NATION",
+                "CAAqIQgKIhtDQkFTRGdvSUwyMHZNREZ0YW5FU0FtTnpLQUFQAQ",
+            ),
+            (
+                "CZ:cs",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSmpjeG9DUTFvb0FBUAE",
+            ),
+            (
+                "US:en",
+                "NATION",
+                "CAAqIggKIhxDQkFTRHdvSkwyMHZNRGxqTjNjd0VnSmxiaWdBUAE",
+            ),
+            (
+                "FR:fr",
+                "NATION",
+                "CAAqIggKIhxDQkFTRHdvSkwyMHZNR1k0YkRsakVnSm1jaWdBUAE",
+            ),
+            (
+                "FR:fr",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSm1jaG9DUmxJb0FBUAE",
+            ),
+            (
+                "DE:de",
+                "NATION",
+                "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRE0wTldnU0FtUmxLQUFQAQ",
+            ),
+            (
+                "DE:de",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSmtaUm9DUkVVb0FBUAE",
+            ),
+            (
+                "IT:it",
+                "NATION",
+                "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRE55YW1vU0FtbDBLQUFQAQ",
+            ),
+            (
+                "IT:it",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSnBkQm9DU1ZRb0FBUAE",
+            ),
+            (
+                "PL:pl",
+                "NATION",
+                "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFZ4YUhjU0FuQnNLQUFQAQ",
+            ),
+            (
+                "PL:pl",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSndiQm9DVUV3b0FBUAE",
+            ),
+            (
+                "PT:pt-150",
+                "NATION",
+                "CAAqJQgKIh9DQkFTRVFvSUwyMHZNRFZ5TkhjU0JYQjBMVkJVS0FBUAE",
+            ),
+            (
+                "PT:pt-150",
+                "TECHNOLOGY",
+                "CAAqLAgKIiZDQkFTRmdvSkwyMHZNR1ptZHpWbUVnVndkQzFRVkJvQ1VGUW9BQVAB",
+            ),
+            (
+                "RO:ro",
+                "NATION",
+                "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFpqTVhrU0FuSnZLQUFQAQ",
+            ),
+            (
+                "CN:zh-Hans",
+                "NATION",
+                "CAAqJggKIiBDQkFTRWdvSkwyMHZNR1F3TlhjekVnVjZhQzFEVGlnQVAB",
+            ),
+            (
+                "ES:es",
+                "NATION",
+                "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRFp0YTJvU0FtVnpLQUFQAQ",
+            ),
+            (
+                "ES:es",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSmxjeG9DUlZNb0FBUAE",
+            ),
+            (
+                "TR:tr",
+                "NATION",
+                "CAAqIggKIhxDQkFTRHdvSkwyMHZNREY2Ym1OZkVnSjBjaWdBUAE",
+            ),
+            (
+                "TR:tr",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSjBjaG9DVkZJb0FBUAE",
+            ),
+            (
+                "UA:uk",
+                "NATION",
+                "CAAqIQgKIhtDQkFTRGdvSUwyMHZNRGQwTWpFU0FuVnJLQUFQAQ",
+            ),
+            (
+                "UA:uk",
+                "TECHNOLOGY",
+                "CAAqKAgKIiJDQkFTRXdvSkwyMHZNR1ptZHpWbUVnSjFheG9DVlVFb0FBUAE",
+            ),
+        ] {
+            for prefix in [
+                "/news/rss/headlines/section/topic/",
+                "/rss/headlines/section/topic/",
+            ] {
+                let original = format!(
+                    "https://news.google.com{prefix}{topic}?ceid={edition}&hl=it&gl=IT&extra=keep%20me"
+                );
+                let normalized = normalize_google_news_category_url(&original);
+                let parsed = Url::parse(&normalized).unwrap();
+                assert_eq!(parsed.path(), format!("/rss/topics/{id}"));
+                assert_eq!(parsed.query(), Url::parse(&original).unwrap().query());
+                assert_eq!(normalize_google_news_category_url(&normalized), normalized);
+            }
+        }
+    }
+    #[test]
+    fn unrelated_feeds_and_separate_science_editions_are_unchanged() {
+        for value in [
+            "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?ceid=US:en",
+            "https://news.google.com/rss/headlines/section/topic/TECHNOLOGY?ceid=RO:ro",
+            "https://news.google.com/rss/headlines/section/topic/WORLD?ceid=IT:it",
+            "https://news.google.com/rss/headlines/section/topic/NATION?ceid=XX:xx",
+            "https://news.google.com/rss/search?q=Roma&ceid=IT:it",
+            "https://example.com/rss/headlines/section/topic/NATION?ceid=IT:it",
+        ] {
+            assert_eq!(normalize_google_news_category_url(value), value);
+        }
+    }
 }
