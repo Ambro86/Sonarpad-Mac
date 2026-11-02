@@ -18,8 +18,8 @@ def text(path: Path) -> str:
 class MacOsLa7PlayTests(unittest.TestCase):
     def test_windows_la7_core_is_ported_as_native_rust_module(self):
         source = text(LA7)
-        self.assertIn('const RIVEDI: &str = "https://www.la7.it/rivedila7/0/la7";', source)
-        self.assertIn('const PROGRAMMI: &str = "https://www.la7.it/programmi";', source)
+        self.assertIn('const RIVEDI: &str = "https://www.la7play.it/guida-tv-rivedi/la7";', source)
+        self.assertIn('const PROGRAMMI: &str = "https://www.la7play.it/programmi";', source)
         self.assertIn('const TUTTI_PROGRAMMI: &str = "https://www.la7.it/tutti-i-programmi";', source)
         self.assertIn('pub(crate) fn root_page()', source)
         self.assertIn('pub(crate) fn load_page(', source)
