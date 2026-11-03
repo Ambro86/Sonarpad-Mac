@@ -81,7 +81,8 @@ fn main() {
     let output_ext = case.split("-to-").nth(1).unwrap_or(if video { "mp4" } else { "m4a" });
     let output_video = matches!(output_ext, "mp4" | "mkv" | "avi" | "mov");
     let output = if case.contains("overwrite") { input.clone() } else { dir.join(format!("{case}.{output_ext}")) };
-    export_media(ExportSnapshot { overwrite_original: case.contains("overwrite") && !case.contains("denied"), input: input.clone(), output: output.clone(), parts, probe, rotation, added_track }, progress.clone(), cancel);
+    let still_video = if case.contains("still-black") { Some(None) } else if case.contains("still-image") { Some(Some(dir.join("cover.png"))) } else { None };
+    export_media(ExportSnapshot { still_video, overwrite_original: case.contains("overwrite") && !case.contains("denied"), input: input.clone(), output: output.clone(), parts, probe, rotation, added_track }, progress.clone(), cancel);
     let progress = progress.lock().unwrap();
     let result = progress.result.as_ref().unwrap();
     if case.contains("denied") {
@@ -147,12 +148,13 @@ def run():
         subprocess.run([fixture_ffmpeg, "-y", "-f", "lavfi", "-i", "testsrc2=size=128x96:rate=25:duration=6",
                         "-i", str(fixtures / "source.wav"), "-c:v", "libx264", "-c:a", "aac", "-shortest", str(video)], check=True, capture_output=True)
     subprocess.run([str(ffmpeg), "-y", "-i", str(video), "-t", "6", "-an", "-c:v", "copy", str(fixtures / "silent.mp4")], check=True, capture_output=True)
+    subprocess.run([fixture_ffmpeg, "-y", "-f", "lavfi", "-i", "color=c=red:s=301x199", "-frames:v", "1", str(fixtures / "cover.png")], check=True, capture_output=True)
     executable = build_harness()
     env = os.environ.copy()
     env["TEST_FFMPEG"] = str(ffmpeg)
     if os.name != "nt": env["PATH"] = "/usr/bin:/bin"  # No Homebrew ffprobe: test the actual bundle fallback.
     results = []
-    for case in ["audio-overwrite", "audio-overwrite-denied", "audio-overwrite-cancel", "audio-single", "audio-multi", "audio-mix", "video-single", "video-multi", "video-right", "video-left", "video-half", "video-mix", "silent-single", "silent-mix", "cancel", "audio-multi-to-mp3", "audio-multi-to-wav", "audio-multi-to-flac", "audio-multi-to-aiff", "video-multi-to-mkv", "video-multi-to-avi", "video-multi-to-mov", "video-multi-to-m4a", "video-multi-to-mp3", "video-multi-to-wav", "video-mix-to-flac"]:
+    for case in ["audio-still-black-to-mp4", "audio-still-image-multi-mix-to-mp4", "audio-still-black-cancel-to-mp4", "audio-overwrite", "audio-overwrite-denied", "audio-overwrite-cancel", "audio-single", "audio-multi", "audio-mix", "video-single", "video-multi", "video-right", "video-left", "video-half", "video-mix", "silent-single", "silent-mix", "cancel", "audio-multi-to-mp3", "audio-multi-to-wav", "audio-multi-to-flac", "audio-multi-to-aiff", "video-multi-to-mkv", "video-multi-to-avi", "video-multi-to-mov", "video-multi-to-m4a", "video-multi-to-mp3", "video-multi-to-wav", "video-mix-to-flac"]:
         result = subprocess.run([str(executable), case, str(fixtures)], env=env, text=True, capture_output=True, timeout=90)
         (OUT / f"{case}.log").write_text(result.stdout + result.stderr)
         print(case, "PASS" if result.returncode == 0 else "FAIL", flush=True)

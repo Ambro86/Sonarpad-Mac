@@ -128,7 +128,7 @@ jobs:
           path: |
             dist/ffmpeg-src
             dist/ffmpeg-install
-          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v22-podcast-recording
+          key: ${{ runner.os }}-${{ matrix.rust_target }}-ffmpeg-8.0.1-v23-cutter-still-video
 
       - name: Cache macOS curl-cffi
         uses: actions/cache@v4
@@ -260,6 +260,10 @@ jobs:
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]libmp3lame[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]pcm_s16le[[:space:]]' >/dev/null
             "${ffmpeg_bin}" -hide_banner -encoders | grep -E '[[:space:]]pcm_s16be[[:space:]]' >/dev/null
+            for decoder in png mjpeg wrapped_avframe; do
+              "${ffmpeg_bin}" -hide_banner -decoders | grep -E "[[:space:]]${decoder}[[:space:]]" >/dev/null
+            done
+            "${ffmpeg_bin}" -hide_banner -demuxers | grep -E '[[:space:]]image2[[:space:]]' >/dev/null
             for filter in pad setsar fps apad anullsrc color testsrc2; do
               "${ffmpeg_bin}" -hide_banner -filters | grep -E "[[:space:]]${filter}[[:space:]]" >/dev/null
             done
@@ -407,6 +411,13 @@ jobs:
             --enable-libx264 \
             --enable-encoder=libx264 \
             --enable-demuxer=concat \
+            --enable-demuxer=image2 \
+            --enable-zlib \
+            --enable-parser=png \
+            --enable-parser=mjpeg \
+            --enable-decoder=png \
+            --enable-decoder=mjpeg \
+            --enable-decoder=wrapped_avframe \
             --enable-bsf=h264_mp4toannexb \
             --enable-encoder=libmp3lame \
             --enable-parser=aac \

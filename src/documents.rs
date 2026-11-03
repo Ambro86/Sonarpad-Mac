@@ -8,6 +8,7 @@ pub const ID_PREVIOUS_DOCUMENT: i32 = 2015;
 
 #[derive(Clone, Default)]
 struct Document {
+    untitled_number: usize,
     text: String,
     state: CurrentDocumentState,
     selection: (i64, i64),
@@ -16,10 +17,15 @@ struct Document {
 
 thread_local! {
     static DOCUMENTS: RefCell<DocumentDeck<Document>> = RefCell::new(DocumentDeck::default());
+    static NEXT_UNTITLED_NUMBER: Cell<usize> = const { Cell::new(1) };
 }
 
 fn snapshot(text: &TextCtrl, state: &Arc<Mutex<CurrentDocumentState>>) -> Document {
     Document {
+        untitled_number: DOCUMENTS.with(|documents| {
+            let documents = documents.borrow();
+            documents.items[documents.active].untitled_number
+        }),
         text: text.get_value(),
         state: state.lock().unwrap().clone(),
         selection: text.get_selection(),
@@ -32,14 +38,32 @@ fn checkpoint(text: &TextCtrl, state: &Arc<Mutex<CurrentDocumentState>>) {
     DOCUMENTS.with(|documents| documents.borrow_mut().replace_current(document));
 }
 
-pub fn update_title(frame: &Frame, state: &Arc<Mutex<CurrentDocumentState>>) {
-    let state = state.lock().unwrap();
-    let title = state
+fn document_title(state: &CurrentDocumentState) -> String {
+    state
         .opened_path
         .as_ref()
         .and_then(|path| path.file_name())
         .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| current_ui_strings().document_untitled.clone());
+        .unwrap_or_else(|| {
+            let number = DOCUMENTS.with(|documents| {
+                let mut documents = documents.borrow_mut();
+                let active = documents.active;
+                let document = &mut documents.items[active];
+                if document.untitled_number == 0 {
+                    document.untitled_number = NEXT_UNTITLED_NUMBER.with(|next| {
+                        let number = next.get();
+                        next.set(number + 1);
+                        number
+                    });
+                }
+                document.untitled_number
+            });
+            format!("{} {number}", current_ui_strings().document_untitled)
+        })
+}
+
+pub fn update_title(frame: &Frame, state: &Arc<Mutex<CurrentDocumentState>>) {
+    let title = document_title(&state.lock().unwrap());
     let title = format!("{title} — Sonarpad");
     if frame.get_title() != title {
         frame.set_title(&title);
@@ -174,6 +198,9 @@ pub fn command(
         return;
     }
     remember_text_bookmark(settings, text, state);
+    if id == ID_NEW_DOCUMENT {
+        let _ = document_title(&state.lock().unwrap());
+    }
     checkpoint(text, state);
     stop_tts_playback(playback);
     stop_podcast_playback(podcast);
@@ -181,8 +208,7 @@ pub fn command(
     *article.borrow_mut() = None;
     match id {
         ID_NEW_DOCUMENT => {
-            begin_new(text, state);
-            DOCUMENTS.with(|documents| documents.borrow_mut().replace_current(Document::default()));
+            DOCUMENTS.with(|documents| documents.borrow_mut().append(Document::default()));
         }
         ID_CLOSE_DOCUMENT => DOCUMENTS.with(|documents| documents.borrow_mut().remove_current()),
         ID_NEXT_DOCUMENT => DOCUMENTS.with(|documents| documents.borrow_mut().step(false)),
@@ -199,13 +225,6 @@ pub fn command(
             before != documents.active, text.get_selection(),
         ));
     });
-    let title = state
-        .lock()
-        .unwrap()
-        .opened_path
-        .as_ref()
-        .and_then(|path| path.file_name())
-        .map(|name| name.to_string_lossy().into_owned())
-        .unwrap_or_else(|| current_ui_strings().document_untitled.clone());
+    let title = document_title(&state.lock().unwrap());
     announce_voiceover_message(&title);
 }

@@ -411,6 +411,10 @@ struct Settings {
     media_cutter_goldwave_keys: bool,
     #[serde(default)]
     media_cutter_overwrite_original: bool,
+    #[serde(default)]
+    media_cutter_export_video: u8,
+    #[serde(default)]
+    media_cutter_export_image: Option<PathBuf>,
     rate: i32,
     pitch: i32,
     volume: i32,
@@ -559,6 +563,8 @@ impl Settings {
             media_cutter_advanced_mode: false,
             media_cutter_goldwave_keys: false,
             media_cutter_overwrite_original: false,
+            media_cutter_export_video: 0,
+            media_cutter_export_image: None,
             rate: 0,
             pitch: 0,
             volume: 100,

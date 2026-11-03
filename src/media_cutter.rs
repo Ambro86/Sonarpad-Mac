@@ -128,6 +128,7 @@ struct ExportProgress {
 
 #[derive(Clone)]
 struct ExportSnapshot {
+    still_video: Option<Option<PathBuf>>,
     overwrite_original: bool,
     input: PathBuf,
     output: PathBuf,
@@ -185,6 +186,12 @@ struct Labels {
     hide_video: &'static str,
     add_track: &'static str,
     save: &'static str,
+    export_video: &'static str,
+    export_video_no: &'static str,
+    export_video_black: &'static str,
+    export_video_image: &'static str,
+    choose_image: &'static str,
+
     choose_destination: &'static str,
     cancel_processing: &'static str,
     close: &'static str,
@@ -298,6 +305,11 @@ fn labels() -> Labels {
         hide_video: t(l, "Nascondi anteprima video", "Hide video preview", "Masquer l’aperçu vidéo", "Ocultar vista previa de vídeo", "Ocultar pré-visualização do vídeo", "Skrýt náhled videa", "Ukryj podgląd wideo"),
         add_track: t(l, "Aggiungi nuova traccia…", "Add new track…", "Ajouter une nouvelle piste…", "Añadir nueva pista…", "Adicionar nova faixa…", "Přidat novou stopu…", "Dodaj nową ścieżkę…"),
         choose_destination: t(l, "Cambia cartella di destinazione...", "Change destination folder...", "Changer le dossier de destination...", "Cambiar carpeta de destino...", "Alterar pasta de destino...", "Změnit cílovou složku...", "Zmień folder docelowy..."),
+        export_video: t(l, "Esporta il file come video", "Export file as video", "Exporter le fichier en vidéo", "Exportar el archivo como vídeo", "Exportar o ficheiro como vídeo", "Exportovat soubor jako video", "Eksportuj plik jako wideo"),
+        export_video_no: t(l, "No", "No", "Non", "No", "Não", "Ne", "Nie"),
+        export_video_black: t(l, "Sì, con un’immagine nera", "Yes, with a black image", "Oui, avec une image noire", "Sí, con una imagen negra", "Sim, com uma imagem preta", "Ano, s černým obrázkem", "Tak, z czarnym obrazem"),
+        export_video_image: t(l, "Sì, con immagine a scelta", "Yes, with a chosen image", "Oui, avec une image au choix", "Sí, con una imagen elegida", "Sim, com uma imagem à escolha", "Ano, s vybraným obrázkem", "Tak, z wybranym obrazem"),
+        choose_image: t(l, "Scegli immagine…", "Choose image…", "Choisir une image…", "Elegir imagen…", "Escolher imagem…", "Vybrat obrázek…", "Wybierz obraz…"),
         save: t(l, "Salva…", "Save…", "Enregistrer…", "Guardar…", "Guardar…", "Uložit…", "Zapisz…"),
         cancel_processing: t(l, "Interrompi", "Stop", "Interrompre", "Interrumpir", "Interromper", "Přerušit", "Przerwij"),
         close: t(l, "Chiudi", "Close", "Fermer", "Cerrar", "Fechar", "Zavřít", "Zamknij"),
@@ -889,11 +901,11 @@ fn choose_audio_track(parent: &Dialog, labels: &Labels) -> Option<PathBuf> {
     crate::resolve_file_dialog_path(&dialog, true)
 }
 
-fn choose_output(parent: &Dialog, input: &Path, has_video: bool, labels: &Labels) -> Option<PathBuf> {
+fn choose_output(parent: &Dialog, input: &Path, has_video: bool, video_only: bool, labels: &Labels) -> Option<PathBuf> {
     let stem = input.file_stem().and_then(|v| v.to_str()).unwrap_or("media");
     let ext = if has_video { "mp4" } else { "m4a" };
     let default_name = format!("{stem}_{}.{ext}", labels.output_suffix);
-    let formats: &[&str] = if has_video { &["mp4", "mkv", "avi", "mov", "m4a", "mp3", "wav", "flac", "aiff"] } else { &["m4a", "mp3", "wav", "flac", "aiff"] };
+    let formats: &[&str] = if video_only { &["mp4"] } else if has_video { &["mp4", "mkv", "avi", "mov", "m4a", "mp3", "wav", "flac", "aiff"] } else { &["m4a", "mp3", "wav", "flac", "aiff"] };
     let wildcard = formats.iter().map(|ext| format!("{}|*.{ext}", ext.to_uppercase())).collect::<Vec<_>>().join("|");
     let dialog = FileDialog::builder(parent)
         .with_message(labels.choose_destination)
@@ -1033,6 +1045,9 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
         if snapshot.added_track.as_ref().is_some_and(|t| project::same_file(&t.path, &snapshot.output)) {
             return Err("Cannot overwrite the additional audio track".into());
         }
+        if snapshot.still_video.as_ref().and_then(|image| image.as_ref()).is_some_and(|image| project::same_file(image, &snapshot.output)) {
+            return Err("Cannot overwrite the selected image".into());
+        }
         std::fs::create_dir_all(&work_dir).map_err(|err| err.to_string())?;
         let kept: Vec<MediaPart> = snapshot.parts.iter().filter(|p| p.keep && p.duration() >= MIN_PART_SECONDS).cloned().collect();
         if kept.is_empty() {
@@ -1122,8 +1137,22 @@ fn export_media(snapshot: ExportSnapshot, progress: Arc<Mutex<ExportProgress>>, 
         }
         let output_ext = snapshot.output.extension().and_then(|v| v.to_str()).unwrap_or(ext).to_ascii_lowercase();
         let wants_video = matches!(output_ext.as_str(), "mp4" | "mkv" | "avi" | "mov");
-        if wants_video && !snapshot.probe.has_video { return Err("video source required".into()); }
-        let final_temp = if output_ext == ext {
+        if wants_video && !snapshot.probe.has_video && snapshot.still_video.is_none() { return Err("video source required".into()); }
+        let final_temp = if let Some(image) = &snapshot.still_video {
+            if snapshot.probe.has_video || output_ext != "mp4" { return Err("invalid still video output".into()); }
+            let converted = work_dir.join("still_video.mp4");
+            let mut args = vec!["-y".into(), "-i".into(), final_temp.to_string_lossy().into_owned()];
+            if let Some(image) = image {
+                args.extend(["-loop".into(), "1".into(), "-framerate".into(), "25".into(), "-i".into(), image.to_string_lossy().into_owned()]);
+            } else {
+                args.extend(["-f", "lavfi", "-i", "color=c=black:s=1280x720:r=25"].into_iter().map(str::to_string));
+            }
+            args.extend(["-map", "1:v:0", "-map", "0:a:0", "-vf", "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2,setsar=1",
+                "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage", "-pix_fmt", "yuv420p", "-c:a", "copy", "-movflags", "+faststart", "-shortest"].into_iter().map(str::to_string));
+            args.extend(["-t".into(), ffmpeg_time(total_duration), converted.to_string_lossy().into_owned()]);
+            run_ffmpeg_step(&args, 92, 7, total_duration, &progress, &cancel)?;
+            converted
+        } else if output_ext == ext {
             final_temp
         } else {
             let converted = work_dir.join(format!("converted.{output_ext}"));
@@ -1488,6 +1517,50 @@ pub fn open_dialog(parent: &Frame) {
         settings.media_cutter_overwrite_original = overwrite_box.get_value();
         settings.save();
     });
+    let export_video_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let export_video_label = StaticText::builder(&panel).with_label(labels.export_video).build();
+    let export_video_choice = Choice::builder(&panel).build();
+    for label in [labels.export_video_no, labels.export_video_black, labels.export_video_image] { export_video_choice.append(label); }
+    export_video_choice.set_selection(u32::from(crate::Settings::load().media_cutter_export_video.min(2)));
+    export_video_choice.set_accessibility_label(labels.export_video);
+    let image_button = Button::builder(&panel).with_label(labels.choose_image).build();
+    let export_image = Rc::new(RefCell::new(crate::Settings::load().media_cutter_export_image));
+    if let Some(path) = export_image.borrow().as_ref() {
+        image_button.set_label(&format!("{} {}", labels.choose_image, path.file_name().unwrap_or_default().to_string_lossy()));
+    }
+    export_video_row.add(&export_video_label, 0, SizerFlag::All, 6);
+    export_video_row.add(&export_video_choice, 1, SizerFlag::All | SizerFlag::Expand, 6);
+    export_video_row.add(&image_button, 0, SizerFlag::All, 6);
+    root.add_sizer(&export_video_row, 0, SizerFlag::Expand, 0);
+    export_video_label.show(false); export_video_choice.show(false); image_button.show(false);
+    export_video_choice.on_selection_changed(move |_| {
+        let mode = export_video_choice.get_selection().unwrap_or(0);
+        let mut settings = crate::Settings::load();
+        settings.media_cutter_export_video = mode.min(2) as u8;
+        settings.save();
+        image_button.show(mode == 2);
+        overwrite_box.enable(mode == 0);
+        panel.layout(); dialog.layout();
+    });
+    let image_pick = Rc::clone(&export_image);
+    image_button.on_click(move |_| {
+        let picker = FileDialog::builder(&dialog).with_message(labels.choose_image)
+            .with_wildcard("PNG, JPEG|*.png;*.jpg;*.jpeg")
+            .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist).build();
+        crate::set_mac_native_file_dialog_open(true);
+        let result = picker.show_modal();
+        crate::set_mac_native_file_dialog_open(false);
+        if result == ID_OK {
+            if let Some(path) = crate::resolve_file_dialog_path(&picker, true) {
+                image_button.set_label(&format!("{} {}", labels.choose_image, path.file_name().unwrap_or_default().to_string_lossy()));
+                let mut settings = crate::Settings::load();
+                settings.media_cutter_export_image = Some(path.clone());
+                settings.save();
+                *image_pick.borrow_mut() = Some(path);
+                panel.layout(); dialog.layout();
+            }
+        }
+    });
     let bottom = BoxSizer::builder(Orientation::Horizontal).build();
     let save_button = Button::builder(&panel).with_label(&format!("{} (Command+S)", labels.save)).build();
     save_button.enable(false);
@@ -1555,6 +1628,10 @@ pub fn open_dialog(parent: &Frame) {
                 preview_open.borrow_mut().stop_child();
                 preview_open.borrow_mut().base_position = 0.0;
                 play_pause.set_label(labels.play);
+                export_video_label.show(!info.has_video); export_video_choice.show(!info.has_video);
+                let export_mode = export_video_choice.get_selection().unwrap_or(0);
+                image_button.show(!info.has_video && export_mode == 2);
+                overwrite_box.enable(info.has_video || export_mode == 0);
                 rotation_choice.set_selection(0);
                 video_preview_button.set_label(labels.show_video);
                 *input_open.borrow_mut() = Some(path.clone());
@@ -2173,7 +2250,19 @@ pub fn open_dialog(parent: &Frame) {
             show_error(&dialog, labels.title, labels.nothing_to_save);
             return;
         }
-        let overwrite_original = overwrite_box.get_value();
+        let still_video = if probe_info.has_video { None } else {
+            match export_video_choice.get_selection().unwrap_or(0) {
+                1 => Some(None),
+                2 => {
+                    let Some(image) = export_image.borrow().clone() else {
+                        show_info(&dialog, labels.title, labels.choose_image); image_button.set_focus(); return;
+                    };
+                    Some(Some(image))
+                }
+                _ => None,
+            }
+        };
+        let overwrite_original = overwrite_box.get_value() && still_video.is_none();
         let output = if overwrite_original {
             let ext = input_path.extension().and_then(|v| v.to_str()).unwrap_or("").to_ascii_lowercase();
             if project_export.get() || !matches!(ext.as_str(), "mp4" | "mkv" | "mov" | "avi" | "mp3" | "m4a" | "wav" | "flac" | "aiff") {
@@ -2182,7 +2271,7 @@ pub fn open_dialog(parent: &Frame) {
             if !ask_yes_no(&dialog, labels.title, labels.overwrite_confirm) { return; }
             input_path.clone()
         } else {
-            let Some(output) = choose_output(&dialog, &input_path, probe_info.has_video, &labels) else { return; };
+            let Some(output) = choose_output(&dialog, &input_path, probe_info.has_video || still_video.is_some(), still_video.is_some(), &labels) else { return; };
             if project::same_file(&output, &input_path) { show_error(&dialog, labels.title, labels.same_output); return; }
             output
         };
@@ -2223,7 +2312,7 @@ pub fn open_dialog(parent: &Frame) {
         dialog.layout();
         progress_gauge.set_focus();
         announce_voiceover_message(labels.processing_started);
-        let snapshot = ExportSnapshot { input: input_path, output, overwrite_original, parts: parts_save.borrow().clone(), probe: probe_info, rotation: rotation_save.get(), added_track: added_save.borrow().clone() };
+        let snapshot = ExportSnapshot { still_video, input: input_path, output, overwrite_original, parts: parts_save.borrow().clone(), probe: probe_info, rotation: rotation_save.get(), added_track: added_save.borrow().clone() };
         let cancel = Arc::clone(&export_cancel_save);
         std::thread::spawn(move || export_media(snapshot, state, cancel));
     });
@@ -2354,7 +2443,7 @@ pub fn open_dialog(parent: &Frame) {
         forward, guided_primary, guided_listen, split_here, listen_part,
         delete_part, restore_part, parts_choice, rotation_choice, video_preview_button,
         add_track_button, remove_track, save_button, open_project_button, save_project_button, goldwave_box, overwrite_box, clear_markers, command_area, adjustment_panel, precision, start_back,
-        start_forward, end_back, end_forward);
+        start_forward, end_back, end_forward, export_video_choice, image_button);
 
     let export_cancel_click = Arc::clone(&export_cancel);
     cancel_button.on_click(move |_| {

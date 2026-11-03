@@ -157,6 +157,25 @@ impl Session {
 }
 
 #[test]
+fn new_empty_documents_keep_distinct_sequential_titles() {
+    let s = Session::default();
+    documents::update_title(&s.frame, &s.state);
+    assert_eq!(s.frame.get_title(), "Untitled 1 — Sonarpad");
+    s.command(documents::ID_NEW_DOCUMENT);
+    assert_eq!(s.frame.get_title(), "Untitled 2 — Sonarpad");
+    s.command(documents::ID_NEW_DOCUMENT);
+    assert_eq!(s.frame.get_title(), "Untitled 3 — Sonarpad");
+    s.command(documents::ID_PREVIOUS_DOCUMENT);
+    assert_eq!(s.frame.get_title(), "Untitled 2 — Sonarpad");
+    s.command(documents::ID_PREVIOUS_DOCUMENT);
+    assert_eq!(s.frame.get_title(), "Untitled 1 — Sonarpad");
+    s.command(documents::ID_CLOSE_DOCUMENT);
+    assert_eq!(s.frame.get_title(), "Untitled 2 — Sonarpad");
+    s.command(documents::ID_NEW_DOCUMENT);
+    assert_eq!(s.frame.get_title(), "Untitled 4 — Sonarpad");
+}
+
+#[test]
 fn reopening_a_file_preserves_unsaved_text_selection_and_toc() {
     let s = Session::default();
     s.open("first.txt", "original");
