@@ -263,7 +263,7 @@
   "menu_tools": "Outils",
   "menu_window": "Fenêtre",
   "tools_wikipedia_label": "Rechercher et importer depuis Wikipédia",
-  "tools_youtube_label": "Lire un média en streaming",
+  "tools_youtube_label": "SonarTube",
   "tools_italian_directories_label": "Pages blanches et pages jaunes",
   "meteo_title": "Météo",
   "weather_city": "Ville",
@@ -348,7 +348,7 @@
   "wikipedia_results_label": "Résultats",
   "wikipedia_open_preview": "Ouvrir l’aperçu",
   "wikipedia_import_editor": "Importer dans l’éditeur",
-  "youtube_title": "Lire un média en streaming",
+  "youtube_title": "SonarTube",
   "youtube_favorites_label": "Favoris",
   "youtube_format_label": "Format",
   "youtube_quality_label": "Qualité",
@@ -525,5 +525,7 @@
   "record_cancel_save": "Interrompre cette opération ? Les pistes déjà enregistrées seront conservées pour récupération.",
   "record_close_recording": "Un enregistrement est en cours. Voulez-vous l’arrêter, le sauvegarder et fermer la fenêtre ?",
   "record_mic_permission": "Autorisez Sonarpad à accéder au microphone dans Réglages Système → Confidentialité et sécurité → Microphone, puis réessayez.",
-  "record_system_permission": "Impossible de démarrer l’audio du système. Vérifiez l’autorisation d’enregistrement de l’écran et de l’audio de Sonarpad dans Réglages Système → Confidentialité et sécurité, puis réessayez."
+  "record_system_permission": "Impossible de démarrer l’audio du système. Vérifiez l’autorisation d’enregistrement de l’écran et de l’audio de Sonarpad dans Réglages Système → Confidentialité et sécurité, puis réessayez.",
+  "youtube_search_type": "Type de recherche",
+  "youtube_search_types": ["Tous", "Vidéos", "Playlists", "Chaînes", "Cours", "Podcasts"]
 }

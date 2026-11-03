@@ -263,7 +263,7 @@
   "menu_tools": "Tools",
   "menu_window": "Window",
   "tools_wikipedia_label": "Search and import from Wikipedia",
-  "tools_youtube_label": "Play streaming media",
+  "tools_youtube_label": "SonarTube",
   "tools_italian_directories_label": "White and Yellow Pages",
   "meteo_title": "Weather",
   "weather_city": "City",
@@ -348,7 +348,7 @@
   "wikipedia_results_label": "Results",
   "wikipedia_open_preview": "Open preview",
   "wikipedia_import_editor": "Import into editor",
-  "youtube_title": "Play streaming media",
+  "youtube_title": "SonarTube",
   "youtube_favorites_label": "Favorites",
   "youtube_format_label": "Format",
   "youtube_quality_label": "Quality",
@@ -525,5 +525,7 @@
   "record_cancel_save": "Stop this operation? Tracks already recorded will be preserved for recovery.",
   "record_close_recording": "A recording is in progress. Stop, save it and close the window?",
   "record_mic_permission": "Allow microphone access for Sonarpad in System Settings → Privacy & Security → Microphone, then try again.",
-  "record_system_permission": "Unable to start system audio. Check Sonarpad’s screen and audio recording permission in System Settings → Privacy & Security, then try again."
+  "record_system_permission": "Unable to start system audio. Check Sonarpad’s screen and audio recording permission in System Settings → Privacy & Security, then try again.",
+  "youtube_search_type": "Search type",
+  "youtube_search_types": ["All", "Videos", "Playlists", "Channels", "Courses", "Podcasts"]
 }

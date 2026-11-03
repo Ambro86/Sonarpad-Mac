@@ -7,6 +7,7 @@ work = ROOT / 'target/youtube-metadata-tests'
 (work / 'src').mkdir(parents=True, exist_ok=True)
 (work / 'Cargo.toml').write_text('[package]\nname="youtube-metadata-tests"\nversion="0.0.0"\nedition="2024"\n[workspace]\n[dependencies]\nserde_json="1"\n', encoding='utf8')
 code = '#![allow(dead_code)]\nuse std::collections::HashSet;\n#[derive(Debug)] struct YoutubeSearchResult {title:String,url:String,is_collection:bool,duration:Option<String>}\n'
+code += '#[path="' + (ROOT/'src/youtube_search_types.rs').as_posix() + '"] mod youtube_search_types;\n'
 code += source[source.index('fn youtube_text_value('):source.index('fn is_youtube_url(')]
 code += source[source.index('fn youtube_lockup_views('):source.index('fn youtube_find_continuation_token(')]
 fixture = (ROOT/'src/test_fixtures/sonartube_channel_hype.json').as_posix()
@@ -41,5 +42,33 @@ fn fixture()->serde_json::Value {serde_json::from_str(include_str!("FIXTURE")).u
 }
 }
 '''.replace('FIXTURE', fixture)
+# Optional network check: feed current YouTube responses into the actual Mac parser.
+import sys
+if '--live' in sys.argv:
+    import json, urllib.request, urllib.parse
+    for kind, query, param in [(0,'Pink Floyd',''),(1,'Pink Floyd','EgIQAQ=='),(2,'Pink Floyd','EgIQAw=='),(3,'Pink Floyd','EgIQAg=='),(4,'python course','EgIQAw=='),(5,'podcast italiano','EgIQAw==')]:
+        url='https://www.youtube.com/results?'+urllib.parse.urlencode({'search_query':query,'sp':param,'hl':'it','gl':'IT'})
+        request=urllib.request.Request(url,headers={'User-Agent':'Mozilla/5.0','Cookie':'SOCS=CAI'})
+        html=urllib.request.urlopen(request,timeout=30).read().decode('utf8')
+        marker='var ytInitialData = '
+        value=json.JSONDecoder().raw_decode(html.split(marker,1)[1])[0]
+        fixture=work/f'live-{kind}.json'
+        fixture.write_text(json.dumps(value),encoding='utf8')
+        code += f'''
+#[test] fn live_category_{kind}() {{
+          let mut data:serde_json::Value=serde_json::from_str(include_str!("{fixture.as_posix()}")).unwrap();
+          youtube_search_types::filter(&mut data,{kind});
+          let mut results=Vec::new();
+          youtube_collect_direct_results(&data,true,true,&mut results,&mut HashSet::new());
+          println!("Mac category {kind}: {{}} results",results.len());
+          assert!(!results.is_empty());
+          for r in results {{ match {kind} {{
+           1 => assert!(!r.is_collection),
+           2|4|5 => assert!(r.url.contains("list=")),
+           3 => assert!(r.is_collection && (r.url.contains("/channel/") || r.url.contains("/@"))),
+           _ => {{}}
+          }} }}
+        }}
+'''
 (work/'src/lib.rs').write_text(code,encoding='utf8')
-subprocess.run(['cargo','test','--offline','--manifest-path',str(work/'Cargo.toml')],check=True)
+subprocess.run(['cargo','test','--offline','--manifest-path',str(work/'Cargo.toml'),'--','--nocapture'],check=True)

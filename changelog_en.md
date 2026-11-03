@@ -2,6 +2,8 @@ Changelog
 
 Version 0.5.3 - October 14, 2026
 
+SonarTube is the new name for Play audio from streaming, with the same familiar features. YouTube searches can now show All, Videos, Playlists, Channels, Courses or Podcasts. The selection is remembered and does not affect direct links.
+
 1. Faster audio and video transcription on compatible Macs with a new CPU-optimized engine. Native Apple Silicon Macs use Metal acceleration, with automatic CPU recovery if problems occur. Intel Macs and execution under Rosetta use the CPU. Language and model selection, timestamps, progress and cancellation are preserved. Catalina and systems older than macOS 13.3 continue to use the previous engine, which also provides an automatic fallback if problems occur. The new engine downloads its own model on first use and reuses it for subsequent transcriptions.
 
 2. Expanded the radio catalog to make it richer and more complete, with paginated results and duplicate handling.

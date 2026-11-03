@@ -263,7 +263,7 @@
   "menu_tools": "&Narzędzia",
   "menu_window": "Okno",
   "tools_wikipedia_label": "Wikipedia",
-  "tools_youtube_label": "Odtwarzaj multimedia ze streamingu",
+  "tools_youtube_label": "SonarTube",
   "tools_italian_directories_label": "Pagine bianche e gialle",
   "meteo_title": "Pogoda",
   "weather_city": "Miasto",
@@ -348,7 +348,7 @@
   "wikipedia_results_label": "Wyniki",
   "wikipedia_open_preview": "Otwórz podgląd",
   "wikipedia_import_editor": "Importuj do edytora",
-  "youtube_title": "Odtwarzaj multimedia ze streamingu",
+  "youtube_title": "SonarTube",
   "youtube_favorites_label": "Ulubione",
   "youtube_format_label": "Format",
   "youtube_quality_label": "Jakość",
@@ -525,5 +525,7 @@
   "record_cancel_save": "Przerwać tę operację? Nagrane ścieżki zostaną zachowane do odzyskania.",
   "record_close_recording": "Trwa nagrywanie. Czy zatrzymać je, zapisać i zamknąć okno?",
   "record_mic_permission": "Zezwól Sonarpadowi na dostęp do mikrofonu w Ustawieniach systemowych → Prywatność i ochrona → Mikrofon, a następnie spróbuj ponownie.",
-  "record_system_permission": "Nie można uruchomić dźwięku systemowego. Sprawdź uprawnienia Sonarpadu do nagrywania ekranu i dźwięku w Ustawieniach systemowych → Prywatność i ochrona, a następnie spróbuj ponownie."
+  "record_system_permission": "Nie można uruchomić dźwięku systemowego. Sprawdź uprawnienia Sonarpadu do nagrywania ekranu i dźwięku w Ustawieniach systemowych → Prywatność i ochrona, a następnie spróbuj ponownie.",
+  "youtube_search_type": "Typ wyszukiwania",
+  "youtube_search_types": ["Wszystkie", "Filmy", "Playlisty", "Kanały", "Kursy", "Podcasty"]
 }

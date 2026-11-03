@@ -2,6 +2,8 @@ Lista zmian
 
 Wersja 0.5.3 - 14 października 2026
 
+SonarTube to nowa nazwa odtwarzania dźwięku ze streamingu, z tymi samymi funkcjami. Wyszukiwanie YouTube oferuje Wszystkie, Filmy, Playlisty, Kanały, Kursy lub Podcasty. Wybór jest zapamiętywany i nie wpływa na bezpośrednie linki.
+
 1. Szybsza transkrypcja dźwięku i wideo na zgodnych komputerach Mac dzięki nowemu silnikowi zoptymalizowanemu pod kątem CPU. Przy natywnym uruchomieniu na komputerach Mac z Apple Silicon używana jest akceleracja Metal z automatycznym powrotem do CPU w razie problemów. Komputery Mac z Intelem oraz uruchomienie przez Rosettę korzystają z CPU. Zachowano wybór języka i modelu, znaczniki czasu, postęp oraz anulowanie. Catalina i systemy starsze niż macOS 13.3 nadal korzystają z poprzedniego silnika, który jest też automatycznie używany w razie problemów. Nowy silnik pobiera własny model przy pierwszym użyciu i wykorzystuje go ponownie podczas kolejnych transkrypcji.
 
 2. Rozszerzono katalog stacji radiowych, dzięki czemu jest bogatszy i pełniejszy, ze stronicowaniem wyników i obsługą duplikatów.

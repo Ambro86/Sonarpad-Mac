@@ -263,7 +263,7 @@
   "menu_tools": "Strumenti",
   "menu_window": "Finestra",
   "tools_wikipedia_label": "Cerca e importa da Wikipedia",
-  "tools_youtube_label": "Riproduci media da streaming",
+  "tools_youtube_label": "SonarTube",
   "tools_italian_directories_label": "Pagine bianche e gialle",
   "meteo_title": "Meteo",
   "weather_city": "Città",
@@ -348,7 +348,7 @@
   "wikipedia_results_label": "Risultati",
   "wikipedia_open_preview": "Apri anteprima",
   "wikipedia_import_editor": "Importa nell'editor",
-  "youtube_title": "Riproduci media da streaming",
+  "youtube_title": "SonarTube",
   "youtube_favorites_label": "Preferiti",
   "youtube_format_label": "Formato",
   "youtube_quality_label": "Qualità",
@@ -525,5 +525,7 @@
   "record_cancel_save": "Vuoi interrompere l’operazione? Le tracce già registrate saranno conservate per il recupero.",
   "record_close_recording": "È in corso una registrazione. Vuoi interromperla, salvarla e chiudere la finestra?",
   "record_mic_permission": "Consenti l’accesso al microfono per Sonarpad in Impostazioni di Sistema → Privacy e sicurezza → Microfono, poi riprova.",
-  "record_system_permission": "Impossibile avviare l’audio di sistema. Controlla l’autorizzazione alla registrazione dello schermo e dell’audio per Sonarpad in Impostazioni di Sistema → Privacy e sicurezza, poi riprova."
+  "record_system_permission": "Impossibile avviare l’audio di sistema. Controlla l’autorizzazione alla registrazione dello schermo e dell’audio per Sonarpad in Impostazioni di Sistema → Privacy e sicurezza, poi riprova.",
+  "youtube_search_type": "Tipo di ricerca",
+  "youtube_search_types": ["Tutti", "Video", "Playlist", "Canali", "Corsi", "Podcast"]
 }

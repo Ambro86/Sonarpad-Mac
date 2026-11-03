@@ -263,7 +263,7 @@
   "menu_tools": "Nástroje",
   "menu_window": "Okno",
   "tools_wikipedia_label": "Hledat a importovat z Wikipedie",
-  "tools_youtube_label": "Přehrát streamované médium",
+  "tools_youtube_label": "SonarTube",
   "tools_italian_directories_label": "Bílé a Zlaté stránky",
   "meteo_title": "Počasí",
   "weather_city": "Město",
@@ -348,7 +348,7 @@
   "wikipedia_results_label": "Výsledky",
   "wikipedia_open_preview": "Otevřít náhled",
   "wikipedia_import_editor": "Importovat do editoru",
-  "youtube_title": "Přehrát streamované médium",
+  "youtube_title": "SonarTube",
   "youtube_favorites_label": "Oblíbené",
   "youtube_format_label": "Formát",
   "youtube_quality_label": "Kvalita",
@@ -525,5 +525,7 @@
   "record_cancel_save": "Přerušit tuto operaci? Již nahrané stopy budou uchovány pro obnovení.",
   "record_close_recording": "Probíhá nahrávání. Chcete je zastavit, uložit a zavřít okno?",
   "record_mic_permission": "Povolte Sonarpadu přístup k mikrofonu v Nastavení systému → Soukromí a zabezpečení → Mikrofon a zkuste to znovu.",
-  "record_system_permission": "Systémový zvuk se nepodařilo spustit. Zkontrolujte oprávnění Sonarpadu k nahrávání obrazovky a zvuku v Nastavení systému → Soukromí a zabezpečení a zkuste to znovu."
+  "record_system_permission": "Systémový zvuk se nepodařilo spustit. Zkontrolujte oprávnění Sonarpadu k nahrávání obrazovky a zvuku v Nastavení systému → Soukromí a zabezpečení a zkuste to znovu.",
+  "youtube_search_type": "Typ hledání",
+  "youtube_search_types": ["Vše", "Videa", "Playlisty", "Kanály", "Kurzy", "Podcasty"]
 }

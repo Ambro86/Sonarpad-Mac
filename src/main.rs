@@ -9,6 +9,7 @@ mod menu_shortcuts;
 mod update_progress;
 mod document_deck;
 mod documents;
+mod youtube_search_types;
 mod articles;
 mod audio_description;
 mod audio_description_bridge;
@@ -429,6 +430,8 @@ struct Settings {
     #[serde(default)]
     youtube_favorites: Vec<YoutubeFavorite>,
     #[serde(default)]
+    sonartube_search_type: u8,
+    #[serde(default)]
     sonarmusic_search_type: String,
     #[serde(default)]
     sonarmusic_favorites: Vec<serde_json::Value>,
@@ -573,6 +576,7 @@ impl Settings {
             podcast_sources: Vec::new(),
             radio_favorites: Vec::new(),
             youtube_favorites: Vec::new(),
+            sonartube_search_type: 0,
             sonarmusic_search_type: String::new(),
             sonarmusic_favorites: Vec::new(),
             tv_favorites: Vec::new(),
@@ -1083,6 +1087,8 @@ struct UiStrings {
     youtube_title: String,
     youtube_duration_label: String,
     youtube_search_label: String,
+    youtube_search_type: String,
+    youtube_search_types: Vec<String>,
     youtube_favorites_label: String,
     youtube_format_label: String,
     youtube_quality_label: String,
@@ -19156,6 +19162,7 @@ fn youtube_result_display_label(result: &YoutubeSearchResult, ui: &UiStrings) ->
 
 #[derive(Clone)]
 struct YoutubeSearchContext {
+    search_type: u8,
     query: String,
     page: usize,
     continuation: Option<YoutubeContinuation>,
@@ -20604,6 +20611,16 @@ fn youtube_collect_direct_results(
                     });
                 }
             }
+            if include_collections && let Some(renderer) = map.get("lockupViewModel")
+                && matches!(renderer["contentType"].as_str(), Some("LOCKUP_CONTENT_TYPE_PLAYLIST" | "LOCKUP_CONTENT_TYPE_COURSE" | "LOCKUP_CONTENT_TYPE_PODCAST"))
+                && let Some(id) = renderer["contentId"].as_str()
+                && let Some(title) = renderer["metadata"]["lockupMetadataViewModel"]["title"]["content"].as_str()
+            {
+                let url = format!("https://www.youtube.com/playlist?list={id}");
+                if seen.insert(url.clone()) {
+                    results.push(YoutubeSearchResult { title: title.to_string(), url, is_collection: true, duration: None });
+                }
+            }
             for child in map.values() {
                 youtube_collect_direct_results(
                     child,
@@ -20633,7 +20650,9 @@ fn youtube_find_continuation_token(value: &serde_json::Value) -> Option<String> 
     match value {
         serde_json::Value::Object(map) => {
             if let Some(token) = map
-                .get("continuationCommand")
+                .get("continuationItemRenderer")
+                .and_then(|item| item.get("continuationEndpoint"))
+                .and_then(|endpoint| endpoint.get("continuationCommand"))
                 .and_then(|command| command.get("token"))
                 .and_then(|token| token.as_str())
             {
@@ -20668,6 +20687,7 @@ fn youtube_direct_context(
     seen_urls: HashSet<String>,
 ) -> Option<YoutubeSearchContext> {
     token.map(|token| YoutubeSearchContext {
+        search_type: 0,
         query,
         page,
         continuation: Some(YoutubeContinuation {
@@ -20729,16 +20749,17 @@ fn youtube_parse_direct_page(args: YoutubeParseArgs) -> YoutubeResultsPayload {
     (results, context)
 }
 
-fn youtube_direct_search(query: &str) -> Result<YoutubeResultsPayload, String> {
+fn youtube_direct_search(query: &str, search_type: u8) -> Result<YoutubeResultsPayload, String> {
     let encoded_query = percent_encode(query);
-    let url = format!("https://www.youtube.com/results?search_query={encoded_query}&hl=it&gl=IT");
+    let url = format!("https://www.youtube.com/results?search_query={encoded_query}&hl=it&gl=IT&sp={}", percent_encode(youtube_search_types::params(search_type)));
     let html = youtube_direct_fetch_page(&url)?;
-    let value = youtube_extract_initial_data(&html)?;
+    let mut value = youtube_extract_initial_data(&html)?;
+    youtube_search_types::filter(&mut value, search_type);
     let api_key = youtube_extract_quoted_config(&html, "INNERTUBE_API_KEY")
         .ok_or_else(|| "Chiave API YouTube non trovata.".to_string())?;
     let client_version = youtube_extract_quoted_config(&html, "INNERTUBE_CLIENT_VERSION")
         .unwrap_or_else(|| YOUTUBE_DIRECT_CLIENT_VERSION.to_string());
-    Ok(youtube_parse_direct_page(YoutubeParseArgs {
+    let (results, mut context) = youtube_parse_direct_page(YoutubeParseArgs {
         query: query.to_string(),
         page: 0,
         endpoint: YoutubeContinuationEndpoint::Search,
@@ -20747,7 +20768,9 @@ fn youtube_direct_search(query: &str) -> Result<YoutubeResultsPayload, String> {
         client_version,
         include_collections: true,
         include_videos: true,
-    }))
+    });
+    if let Some(context) = &mut context { context.search_type = search_type; }
+    Ok((results, context))
 }
 
 fn youtube_direct_collection(url: &str) -> Result<YoutubeResultsPayload, String> {
@@ -20786,7 +20809,7 @@ fn youtube_direct_next_page(
         percent_encode(&continuation.api_key)
     );
     append_podcast_log(&format!("youtube.direct.continuation endpoint={endpoint}"));
-    let response = youtube_direct_client()?
+    let mut response = youtube_direct_client()?
         .post(url)
         .json(&serde_json::json!({
             "context": {
@@ -20806,7 +20829,8 @@ fn youtube_direct_next_page(
         .json::<serde_json::Value>()
         .map_err(|err| format!("lettura altri risultati YouTube fallita: {err}"))?;
     let include_collections = matches!(continuation.endpoint, YoutubeContinuationEndpoint::Search);
-    let (results, next_context) = youtube_parse_direct_page(YoutubeParseArgs {
+    youtube_search_types::filter(&mut response, context.search_type);
+    let (results, mut next_context) = youtube_parse_direct_page(YoutubeParseArgs {
         query: context.query.clone(),
         page: context.page.saturating_add(1),
         endpoint: continuation.endpoint,
@@ -20816,6 +20840,7 @@ fn youtube_direct_next_page(
         include_collections,
         include_videos: true,
     });
+    if let Some(next) = &mut next_context { next.search_type = context.search_type; }
     let payload = youtube_filter_seen_results(results, next_context, &context.seen_urls);
     if payload.0.is_empty() {
         Err("Nessun altro risultato nuovo.".to_string())
@@ -20832,10 +20857,11 @@ fn youtube_next_page(context: &YoutubeSearchContext) -> Result<YoutubeResultsPay
         return Err("Altri risultati non disponibili.".to_string());
     }
     let next_page = context.page.saturating_add(1);
-    youtube_search_page_ytdlp(&context.query, next_page).and_then(|results| {
+    youtube_search_page_ytdlp(&context.query, next_page, context.search_type).and_then(|results| {
         let payload = youtube_filter_seen_results(
             results,
             Some(YoutubeSearchContext {
+                search_type: context.search_type,
                 query: context.query.clone(),
                 page: next_page,
                 continuation: None,
@@ -20851,7 +20877,12 @@ fn youtube_next_page(context: &YoutubeSearchContext) -> Result<YoutubeResultsPay
     })
 }
 
+#[cfg(test)]
 fn youtube_search(query: &str) -> Result<YoutubeResultsPayload, String> {
+    youtube_search_with_type(query, 0)
+}
+fn youtube_search_with_type(query: &str, search_type: u8) -> Result<YoutubeResultsPayload, String> {
+    let search_type = if is_youtube_url(query) { 0 } else { search_type.min(5) };
     if let Some(url) = direct_external_media_url(query) {
         let (title, duration) =
             external_media_metadata(&url).unwrap_or_else(|_| (url.clone(), None));
@@ -20865,13 +20896,14 @@ fn youtube_search(query: &str) -> Result<YoutubeResultsPayload, String> {
             None,
         ));
     }
-    match youtube_direct_search(query) {
+    match youtube_direct_search(query, search_type) {
         Ok((results, context)) if !results.is_empty() => Ok((results, context)),
-        Ok(_) if is_youtube_url(query) => youtube_search_page_ytdlp(query, 0).map(|results| {
+        Ok(_) if is_youtube_url(query) => youtube_search_page_ytdlp(query, 0, search_type).map(|results| {
             let seen_urls = youtube_seen_urls(&results);
             (
                 results,
                 Some(YoutubeSearchContext {
+                    search_type,
                     query: query.to_string(),
                     page: 0,
                     continuation: None,
@@ -20880,11 +20912,12 @@ fn youtube_search(query: &str) -> Result<YoutubeResultsPayload, String> {
             )
         }),
         Ok(_) => Err("Nessun risultato trovato.".to_string()),
-        Err(_) => youtube_search_page_ytdlp(query, 0).map(|results| {
+        Err(_) => youtube_search_page_ytdlp(query, 0, search_type).map(|results| {
             let seen_urls = youtube_seen_urls(&results);
             (
                 results,
                 Some(YoutubeSearchContext {
+                    search_type,
                     query: query.to_string(),
                     page: 0,
                     continuation: None,
@@ -20895,14 +20928,15 @@ fn youtube_search(query: &str) -> Result<YoutubeResultsPayload, String> {
     }
 }
 
-fn youtube_search_page_ytdlp(query: &str, page: usize) -> Result<Vec<YoutubeSearchResult>, String> {
+fn youtube_search_page_ytdlp(query: &str, page: usize, search_type: u8) -> Result<Vec<YoutubeSearchResult>, String> {
     let ytdlp = ytdlp_executable_path();
     let start = page.saturating_mul(YOUTUBE_SEARCH_LIMIT).saturating_add(1);
     let end = page.saturating_add(1).saturating_mul(YOUTUBE_SEARCH_LIMIT);
     let limit = end.saturating_add(1);
     let limit_arg = limit.to_string();
     let encoded_query = percent_encode(query);
-    let search_url = format!("https://www.youtube.com/results?search_query={encoded_query}");
+    if search_type >= 4 { return Err("Nessun risultato trovato per questa categoria.".into()); }
+    let search_url = format!("https://www.youtube.com/results?search_query={encoded_query}&sp={}", percent_encode(youtube_search_types::params(search_type)));
     ytdlp_log_path_state("search", &ytdlp);
     ytdlp_log_basic_diagnostics("search", &ytdlp);
     append_podcast_log(&format!(
@@ -22850,7 +22884,7 @@ fn open_youtube_dialog_ready(
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, &ui.youtube_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(720, 240)
+        .with_size(720, 290)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -22864,6 +22898,21 @@ fn open_youtube_dialog_ready(
     search_button.set_default();
     search_row.add(&search_button, 0, SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
+    let type_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let type_label = StaticText::builder(&panel).with_label(&ui.youtube_search_type).build();
+    let type_choice = Choice::builder(&panel).build();
+    for label in &ui.youtube_search_types { type_choice.append(label); }
+    type_choice.set_accessibility_label(&ui.youtube_search_type);
+    type_choice.set_selection(u32::from(settings.lock().unwrap().sonartube_search_type.min(5)));
+    type_row.add(&type_label, 0, SizerFlag::All, 5);
+    type_row.add(&type_choice, 1, SizerFlag::All | SizerFlag::Expand, 5);
+    root.add_sizer(&type_row, 0, SizerFlag::Expand, 0);
+    let type_settings = Arc::clone(settings);
+    type_choice.on_selection_changed(move |_| {
+        let mut settings = type_settings.lock().unwrap();
+        settings.sonartube_search_type = type_choice.get_selection().unwrap_or(0).min(5) as u8;
+        settings.save();
+    });
     let favorites = Rc::new(RefCell::new(
         settings.lock().unwrap().youtube_favorites.clone(),
     ));
@@ -22994,8 +23043,9 @@ fn open_youtube_dialog_ready(
                 Some(open_youtube_search_progress_dialog(&dialog_search_progress));
         }
         let pending = Arc::clone(&youtube_pending_result_search);
+        let search_type = type_choice.get_selection().unwrap_or(0).min(5) as u8;
         std::thread::spawn(move || {
-            let result = youtube_search(&query);
+            let result = youtube_search_with_type(&query, search_type);
             *pending.lock().unwrap() = Some(result);
         });
     });

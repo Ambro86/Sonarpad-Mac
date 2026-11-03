@@ -263,7 +263,7 @@
   "menu_tools": "Herramientas",
   "menu_window": "Ventana",
   "tools_wikipedia_label": "Buscar e importar desde Wikipedia",
-  "tools_youtube_label": "Reproducir contenido en streaming",
+  "tools_youtube_label": "SonarTube",
   "tools_italian_directories_label": "Páginas blancas y amarillas",
   "meteo_title": "Tiempo",
   "weather_city": "Ciudad",
@@ -348,7 +348,7 @@
   "wikipedia_results_label": "Resultados",
   "wikipedia_open_preview": "Abrir vista previa",
   "wikipedia_import_editor": "Importar al editor",
-  "youtube_title": "Reproducir contenido en streaming",
+  "youtube_title": "SonarTube",
   "youtube_favorites_label": "Favoritos",
   "youtube_format_label": "Formato",
   "youtube_quality_label": "Calidad",
@@ -525,5 +525,7 @@
   "record_cancel_save": "¿Interrumpir esta operación? Las pistas ya grabadas se conservarán para recuperarlas.",
   "record_close_recording": "Hay una grabación en curso. ¿Quieres detenerla, guardarla y cerrar la ventana?",
   "record_mic_permission": "Permite el acceso al micrófono para Sonarpad en Ajustes del Sistema → Privacidad y seguridad → Micrófono y vuelve a intentarlo.",
-  "record_system_permission": "No se ha podido iniciar el audio del sistema. Comprueba el permiso de grabación de pantalla y audio de Sonarpad en Ajustes del Sistema → Privacidad y seguridad y vuelve a intentarlo."
+  "record_system_permission": "No se ha podido iniciar el audio del sistema. Comprueba el permiso de grabación de pantalla y audio de Sonarpad en Ajustes del Sistema → Privacidad y seguridad y vuelve a intentarlo.",
+  "youtube_search_type": "Tipo de búsqueda",
+  "youtube_search_types": ["Todos", "Vídeos", "Listas de reproducción", "Canales", "Cursos", "Pódcasts"]
 }
