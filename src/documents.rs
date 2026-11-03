@@ -18,6 +18,11 @@ struct Document {
 thread_local! {
     static DOCUMENTS: RefCell<DocumentDeck<Document>> = RefCell::new(DocumentDeck::default());
     static NEXT_UNTITLED_NUMBER: Cell<usize> = const { Cell::new(1) };
+    static NO_OPEN_DOCUMENT_WINDOW: Cell<bool> = const { Cell::new(false) };
+}
+
+pub fn has_no_open_document_window() -> bool {
+    NO_OPEN_DOCUMENT_WINDOW.with(Cell::get)
 }
 
 fn snapshot(text: &TextCtrl, state: &Arc<Mutex<CurrentDocumentState>>) -> Document {
@@ -63,6 +68,12 @@ fn document_title(state: &CurrentDocumentState) -> String {
 }
 
 pub fn update_title(frame: &Frame, state: &Arc<Mutex<CurrentDocumentState>>) {
+    if has_no_open_document_window() {
+        if frame.get_title() != "Sonarpad" {
+            frame.set_title("Sonarpad");
+        }
+        return;
+    }
     let title = document_title(&state.lock().unwrap());
     let title = format!("{title} — Sonarpad");
     if frame.get_title() != title {
@@ -125,6 +136,13 @@ pub fn activate_existing(
 
 /// Call only after a new document has loaded successfully, before replacing the editor.
 pub fn begin_new(text: &TextCtrl, state: &Arc<Mutex<CurrentDocumentState>>) {
+    if has_no_open_document_window() {
+        NO_OPEN_DOCUMENT_WINDOW.with(|closed| closed.set(false));
+        DOCUMENTS.with(|documents| {
+            documents.borrow_mut().replace_current(Document::default());
+        });
+        return;
+    }
     checkpoint(text, state);
     DOCUMENTS.with(|documents| {
         let mut documents = documents.borrow_mut();
@@ -183,11 +201,14 @@ pub fn command(
     });
     append_podcast_log(&format!(
         "document.command.begin id={id} active={} count={count} modified={}",
-        before + 1, text.is_modified(),
+        before + 1,
+        text.is_modified(),
     ));
-    if matches!(id, ID_NEXT_DOCUMENT | ID_PREVIOUS_DOCUMENT)
-        && count < 2
-    {
+    if has_no_open_document_window() && id != ID_NEW_DOCUMENT {
+        append_podcast_log("document.command.skipped reason=no_open_window");
+        return;
+    }
+    if matches!(id, ID_NEXT_DOCUMENT | ID_PREVIOUS_DOCUMENT) && count < 2 {
         append_podcast_log("document.command.skipped reason=only_one_document");
         return;
     }
@@ -198,22 +219,50 @@ pub fn command(
         return;
     }
     remember_text_bookmark(settings, text, state);
-    if id == ID_NEW_DOCUMENT {
+    let reopen_window = id == ID_NEW_DOCUMENT && has_no_open_document_window();
+    if id == ID_NEW_DOCUMENT && !reopen_window {
         let _ = document_title(&state.lock().unwrap());
     }
-    checkpoint(text, state);
+    if !reopen_window {
+        checkpoint(text, state);
+    }
     stop_tts_playback(playback);
     stop_podcast_playback(podcast);
     podcast.borrow_mut().selected_episode = None;
     *article.borrow_mut() = None;
     match id {
         ID_NEW_DOCUMENT => {
-            DOCUMENTS.with(|documents| documents.borrow_mut().append(Document::default()));
+            if reopen_window {
+                NO_OPEN_DOCUMENT_WINDOW.with(|closed| closed.set(false));
+                DOCUMENTS.with(|documents| {
+                    documents.borrow_mut().replace_current(Document::default());
+                });
+            } else {
+                DOCUMENTS.with(|documents| documents.borrow_mut().append(Document::default()));
+            }
+        }
+        ID_CLOSE_DOCUMENT if count == 1 => {
+            // Keep a blank internal backing document, but no visible editor window.
+            // Unlike Quit, Cmd+W must leave the macOS application running.
+            DOCUMENTS.with(|documents| {
+                documents.borrow_mut().replace_current(Document::default());
+            });
+            *state.lock().unwrap() = CurrentDocumentState::default();
+            text.set_value("");
+            text.set_modified(false);
+            NO_OPEN_DOCUMENT_WINDOW.with(|closed| closed.set(true));
+            frame.set_title("Sonarpad");
+            frame.show(false);
+            append_podcast_log("document.command.last_closed window_hidden");
+            return;
         }
         ID_CLOSE_DOCUMENT => DOCUMENTS.with(|documents| documents.borrow_mut().remove_current()),
         ID_NEXT_DOCUMENT => DOCUMENTS.with(|documents| documents.borrow_mut().step(false)),
         ID_PREVIOUS_DOCUMENT => DOCUMENTS.with(|documents| documents.borrow_mut().step(true)),
         _ => return,
+    }
+    if reopen_window {
+        frame.show(true);
     }
     restore(frame, text, state);
     cursor.set(true);

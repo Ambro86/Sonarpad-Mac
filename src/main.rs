@@ -2064,6 +2064,28 @@ fn mac_native_document_shortcut_direction() -> Option<bool> {
 }
 
 #[cfg(target_os = "macos")]
+fn focus_editor_for_voiceover(frame: &Frame, text_ctrl: &TextCtrl) {
+    if !frame.is_shown() {
+        return;
+    }
+    // A wx focus request before the first visible Cocoa layout may leave the
+    // VoiceOver cursor outside NSTextView even though keyboard input works.
+    text_ctrl.set_focus();
+    let native_view = text_ctrl.get_handle();
+    if !native_view.is_null() {
+        // SAFETY: wxDragon returns an NSView-backed Objective-C object for
+        // a live macOS text control. This runs on the Cocoa UI thread.
+        unsafe {
+            let element = &*native_view.cast::<objc2::runtime::AnyObject>();
+            objc2_app_kit::NSAccessibilityPostNotification(
+                element,
+                objc2_app_kit::NSAccessibilityFocusedUIElementChangedNotification,
+            );
+        }
+    }
+}
+
+#[cfg(target_os = "macos")]
 fn install_mac_document_shortcut_monitor(document_action: Rc<dyn Fn(i32)>) {
     use block2::RcBlock;
     use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};
@@ -2078,6 +2100,17 @@ fn install_mac_document_shortcut_monitor(document_action: Rc<dyn Fn(i32)>) {
             && !modifiers.contains(NSEventModifierFlags::Option)
             && !mac_native_file_dialog_open()
         {
+            // The document window may be hidden after Cmd+W. Its wx menu is
+            // not guaranteed to receive Cmd+N until a window is shown again.
+            if documents::has_no_open_document_window()
+                && !modifiers.contains(NSEventModifierFlags::Shift)
+                && event_ref
+                    .charactersIgnoringModifiers()
+                    .is_some_and(|text| text.to_string().eq_ignore_ascii_case("n"))
+            {
+                document_action(documents::ID_NEW_DOCUMENT);
+                return std::ptr::null_mut();
+            }
             let direction = event_ref
                 .charactersIgnoringModifiers()
                 .and_then(|characters| match characters.to_string().as_str() {
@@ -3834,6 +3867,9 @@ fn open_text_document_for_display(
         document.epub_toc,
     );
     documents::update_title(parent, document_state);
+    if !parent.is_shown() {
+        parent.show(true);
+    }
     text_ctrl.set_focus();
     remember_recent_text_file(settings, path);
     append_podcast_log(&format!(
@@ -30651,7 +30687,10 @@ fn main() {
                 let mut pending_ticks = startup_editor_focus_timer.borrow_mut();
                 if *pending_ticks > 0 {
                     *pending_ticks -= 1;
-                    if *pending_ticks == 0 {
+                    if *pending_ticks == 0 && frame_timer.is_shown() && !tc_articles_timer.has_focus() {
+                        #[cfg(target_os = "macos")]
+                        focus_editor_for_voiceover(&frame_timer, &tc_articles_timer);
+                        #[cfg(not(target_os = "macos"))]
                         tc_articles_timer.set_focus();
                     }
                 }
@@ -33620,6 +33659,15 @@ fn main() {
         if changelog_needs_first_show_after_update(&settings) {
             open_changelog_dialog(&frame);
             mark_changelog_shown_for_current_version(&settings);
+        }
+        #[cfg(target_os = "macos")]
+        {
+            // Dispatch once the native window and accessibility tree are ready.
+            let frame_focus = frame;
+            let editor_focus = text_ctrl;
+            wxdragon::call_after(Box::new(move || {
+                focus_editor_for_voiceover(&frame_focus, &editor_focus);
+            }));
         }
     });
 }

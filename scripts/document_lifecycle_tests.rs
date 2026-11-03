@@ -47,13 +47,22 @@ impl TextCtrl {
     fn set_focus(&self) {}
 }
 #[derive(Default)]
-struct Frame(RefCell<String>);
+struct Frame {
+    title: RefCell<String>,
+    visible: Cell<bool>,
+}
 impl Frame {
     fn get_title(&self) -> String {
-        self.0.borrow().clone()
+        self.title.borrow().clone()
     }
     fn set_title(&self, title: &str) {
-        *self.0.borrow_mut() = title.into();
+        *self.title.borrow_mut() = title.into();
+    }
+    fn show(&self, visible: bool) {
+        self.visible.set(visible);
+    }
+    fn is_shown(&self) -> bool {
+        self.visible.get()
     }
 }
 struct Settings;
@@ -173,6 +182,66 @@ fn new_empty_documents_keep_distinct_sequential_titles() {
     assert_eq!(s.frame.get_title(), "Untitled 2 — Sonarpad");
     s.command(documents::ID_NEW_DOCUMENT);
     assert_eq!(s.frame.get_title(), "Untitled 4 — Sonarpad");
+}
+
+#[test]
+fn closing_last_document_hides_window_and_new_reopens_without_phantom_tabs() {
+    let s = Session::default();
+    s.frame.show(true);
+    documents::update_title(&s.frame, &s.state);
+    assert_eq!(s.frame.get_title(), "Untitled 1 — Sonarpad");
+    s.command(documents::ID_CLOSE_DOCUMENT);
+    assert!(!s.frame.is_shown());
+    assert_eq!(s.frame.get_title(), "Sonarpad");
+    documents::update_title(&s.frame, &s.state);
+    assert_eq!(s.frame.get_title(), "Sonarpad");
+    s.command(documents::ID_CLOSE_DOCUMENT);
+    assert_eq!(s.frame.get_title(), "Sonarpad");
+    s.command(documents::ID_NEW_DOCUMENT);
+    assert!(s.frame.is_shown());
+    assert_eq!(s.frame.get_title(), "Untitled 2 — Sonarpad");
+    s.command(documents::ID_CLOSE_DOCUMENT);
+    assert!(!s.frame.is_shown());
+    assert_eq!(s.frame.get_title(), "Sonarpad");
+}
+
+#[test]
+fn closing_multiple_documents_keeps_window_until_the_final_close() {
+    let s = Session::default();
+    s.frame.show(true);
+    s.open("first.txt", "first");
+    s.open("second.txt", "second");
+    s.command(documents::ID_CLOSE_DOCUMENT);
+    assert!(s.frame.is_shown());
+    assert_eq!(s.text.get_value(), "first");
+    assert_eq!(s.frame.get_title(), "first.txt — Sonarpad");
+    s.command(documents::ID_CLOSE_DOCUMENT);
+    assert!(!s.frame.is_shown());
+    assert_eq!(s.frame.get_title(), "Sonarpad");
+    s.command(documents::ID_NEW_DOCUMENT);
+    assert!(s.frame.is_shown());
+    assert!(s.frame.get_title().starts_with("Untitled "));
+}
+
+#[test]
+fn opening_file_after_last_window_close_reuses_backing_document() {
+    let session = Session::default();
+    session.frame.show(true);
+    session.open("first.txt", "first");
+    session.command(documents::ID_CLOSE_DOCUMENT);
+    assert!(!session.frame.is_shown());
+    assert!(documents::has_no_open_document_window());
+
+    // A Finder open-files event uses begin_new, then shows the hidden frame.
+    session.open("from-finder.txt", "opened from Finder");
+    session.frame.show(true);
+    documents::update_title(&session.frame, &session.state);
+    assert!(!documents::has_no_open_document_window());
+    assert_eq!(session.text.get_value(), "opened from Finder");
+    assert_eq!(session.frame.get_title(), "from-finder.txt — Sonarpad");
+    session.command(documents::ID_CLOSE_DOCUMENT);
+    assert!(!session.frame.is_shown());
+    assert_eq!(session.frame.get_title(), "Sonarpad");
 }
 
 #[test]
