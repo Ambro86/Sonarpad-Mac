@@ -574,6 +574,10 @@ def _single_exception_is_retryable(exc: BaseException) -> bool:
     ):
         return True
 
+    # Only HTML 404 pages identified by the Sonarpad API transport qualify.
+    if getattr(exc, "temporary_html_not_found", False):
+        return True
+
     # Every HTTP server-side failure is transient from the client's point of
     # view.  Prefer structured status attributes used by google-genai, httpx,
     # requests and google-api-core so new 5xx variants do not need to be added

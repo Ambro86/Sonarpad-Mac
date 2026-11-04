@@ -2086,6 +2086,40 @@ fn focus_editor_for_voiceover(frame: &Frame, text_ctrl: &TextCtrl) {
 }
 
 #[cfg(target_os = "macos")]
+fn notify_voiceover_document_transition(frame: &Frame, text_ctrl: &TextCtrl) {
+    if !frame.is_shown() {
+        return;
+    }
+    // Called after the changed document's text, selection and title have
+    // reached the UI event loop. A spoken title alone is not an accessibility
+    // value-change event and may leave VoiceOver on the previous document.
+    text_ctrl.set_focus();
+    let native_view = text_ctrl.get_handle();
+    if native_view.is_null() {
+        append_podcast_log("document.voiceover native_view_unavailable");
+        return;
+    }
+    // SAFETY: wxDragon's macOS GetHandle returns the native Cocoa view for
+    // this live text control; this callback runs on the application's UI thread.
+    unsafe {
+        let element = &*native_view.cast::<objc2::runtime::AnyObject>();
+        objc2_app_kit::NSAccessibilityPostNotification(
+            element,
+            objc2_app_kit::NSAccessibilityValueChangedNotification,
+        );
+        objc2_app_kit::NSAccessibilityPostNotification(
+            element,
+            objc2_app_kit::NSAccessibilitySelectedTextChangedNotification,
+        );
+        objc2_app_kit::NSAccessibilityPostNotification(
+            element,
+            objc2_app_kit::NSAccessibilityFocusedUIElementChangedNotification,
+        );
+    }
+    append_podcast_log("document.voiceover native_transition_notified");
+}
+
+#[cfg(target_os = "macos")]
 fn install_mac_document_shortcut_monitor(document_action: Rc<dyn Fn(i32)>) {
     use block2::RcBlock;
     use objc2_app_kit::{NSEvent, NSEventMask, NSEventModifierFlags};

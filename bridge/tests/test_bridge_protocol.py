@@ -11,6 +11,15 @@ import audio_description_bridge as bridge
 
 
 class BridgeProtocolTests(unittest.TestCase):
+    def test_deferred_candidates_keep_text_and_original_times_without_mandatory_flag(self):
+        with mock.patch.object(bridge.audio_describer, "get_visual_evidence_time", return_value=7.5):
+            rows = bridge._normalise_descriptions([(5.0, 9.0, "Goku saluta.")])
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["text"], "Goku saluta.")
+        self.assertEqual(rows[0]["visual_start_sec"], 5.0)
+        self.assertEqual(rows[0]["visual_evidence_time_sec"], 7.5)
+        self.assertFalse(rows[0].get("mandatory", False))
+
     def test_quota_switch_returns_new_model_without_ending_worker(self):
         emitted = []
         reply = json.dumps({"action": "switch", "model": "gemini-3.5-flash"}) + "\n"

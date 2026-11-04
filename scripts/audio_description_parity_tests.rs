@@ -185,3 +185,143 @@ fn native_rate_project_roundtrip_and_legacy_default() {
     let legacy: ProjectDescription = serde_json::from_value(value).unwrap();
     assert_eq!(legacy.tts_rate_override, None);
 }
+
+fn deferred_test_candidate(start: f64) -> BridgeDescription {
+    serde_json::from_value(serde_json::json!({
+        "start_sec": start, "end_sec": start + 8.0, "text": "Goku saluta.",
+        "visual_start_sec": start, "visual_evidence_time_sec": start + 1.0,
+    }))
+    .unwrap()
+}
+
+#[test]
+fn deferred_tts_fallback_preserves_normal_cues_and_reuses_native_rates() -> Result<(), String> {
+    for (normal_ms, retry_ms, expected_rate) in [
+        (1900, 0, Some(0)),
+        (2200, 1990, Some(10)),
+        (2300, 1990, Some(15)),
+        (2400, 0, None),
+        (2200, 2100, None),
+    ] {
+        let protected = [
+            BridgeInterval {
+                start_sec: 0.0,
+                end_sec: 1.0,
+            },
+            BridgeInterval {
+                start_sec: 4.0,
+                end_sec: 20.0,
+            },
+        ];
+        let normal = native_cue(1.0);
+        let (mut scheduled, _) =
+            schedule_descriptions(&[normal], &protected, 20.0, false);
+        let original = scheduled[0].clone();
+        let mut calls = Vec::new();
+        let rejected = recover_deferred_descriptions(
+            &[deferred_test_candidate(2.0)],
+            100,
+            &protected,
+            20.0,
+            0,
+            &mut scheduled,
+            |_, index, rate| {
+                assert_eq!(index, 100);
+                calls.push(rate);
+                Ok(native_cue(if rate == 0 { normal_ms as f64 / 1000.0 } else { retry_ms as f64 / 1000.0 }).pcm)
+            },
+        )?;
+        let unchanged = scheduled
+            .iter()
+            .find(|cue| cue.original_index == original.original_index)
+            .unwrap();
+        assert_eq!(unchanged.start_sec, original.start_sec);
+        assert_eq!(unchanged.pcm, original.pcm);
+        assert_eq!(unchanged.tts_rate_override, original.tts_rate_override);
+        if let Some(rate) = expected_rate {
+            assert_eq!(scheduled.len(), 2);
+            assert!(rejected.is_empty());
+            let recovered = scheduled
+                .iter()
+                .find(|cue| cue.original_index == 100)
+                .unwrap();
+            assert_eq!(recovered.tts_rate_override.unwrap_or(0), rate);
+            assert!(recovered.start_sec >= 2.0);
+            assert!(recovered.start_sec + recovered.duration_sec <= 4.0);
+            assert_eq!(recovered.visual_evidence_time_sec, Some(3.0));
+
+        } else {
+            assert_eq!(scheduled.len(), 1);
+            assert_eq!(rejected.len(), 1);
+        }
+        assert_eq!(calls[0], 0);
+        assert!(calls.len() <= 2);
+        assert!(calls.iter().all(|rate| [0, 10, 15].contains(rate)));
+    }
+    Ok(())
+}
+
+#[test]
+fn deferred_tts_fallback_skips_missing_nearby_space_and_keeps_new_cues_separate()
+-> Result<(), String> {
+    let protected = [BridgeInterval {
+        start_sec: 3.0,
+        end_sec: 30.0,
+    }];
+    let mut scheduled = Vec::new();
+    let mut calls = 0;
+    let rejected = recover_deferred_descriptions(
+        &[
+            deferred_test_candidate(1.0),
+            deferred_test_candidate(1.5),
+            deferred_test_candidate(20.0),
+        ],
+        100,
+        &protected,
+        30.0,
+        0,
+        &mut scheduled,
+        |_, _, _| {
+            calls += 1;
+            Ok(native_cue(2.0).pcm)
+        },
+    )?;
+    assert_eq!(calls, 2); // Far-away cue is never synthesized.
+    assert_eq!(scheduled.len(), 1);
+    assert_eq!(rejected.len(), 1);
+    Ok(())
+}
+
+#[test]
+fn deferred_tts_fallback_handles_errors_cancellation_and_empty_legacy_results() {
+    let legacy: AudioDescriptionBridgeResult =
+        serde_json::from_str(r#"{"ok":true,"descriptions":[]}"#).unwrap();
+    assert!(legacy.deferred_descriptions.is_empty());
+    let mut scheduled = Vec::new();
+    recover_deferred_descriptions(&[], 0, &[], 10.0, 0, &mut scheduled, |_, _, _| {
+        panic!("empty fallback must not synthesize")
+    })
+    .unwrap();
+    let candidate = deferred_test_candidate(1.0);
+    let result = recover_deferred_descriptions(
+        std::slice::from_ref(&candidate),
+        0,
+        &[],
+        10.0,
+        0,
+        &mut scheduled,
+        |_, _, _| Err("temporary failure".into()),
+    );
+    assert!(result.is_ok());
+    assert!(scheduled.is_empty());
+    let result = recover_deferred_descriptions(
+        &[candidate],
+        0,
+        &[],
+        10.0,
+        0,
+        &mut scheduled,
+        |_, _, _| Err("cancelled".into()),
+    );
+    assert_eq!(result.unwrap_err(), "cancelled");
+}

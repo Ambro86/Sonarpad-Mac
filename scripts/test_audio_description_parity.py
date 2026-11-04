@@ -24,7 +24,7 @@ def main():
               "fn append_podcast_log(_: &str) {}",
               "fn audio_description_pcm_has_signal(pcm: &[i16]) -> bool { pcm.iter().any(|v| *v != 0) }"]
     for name in ("AudioDescriptionPreparedChunk", "BridgeCharacter", "BridgeDescription",
-                 "AudioDescriptionBridgeResume", "BridgeInterval"):
+                 "AudioDescriptionBridgeResume", "BridgeInterval", "AudioDescriptionBridgeResult"):
         pieces.append(item(bridge, "pub struct " + name, True))
     for name in ("AudioDescriptionPartialCatalog", "AudioDescriptionChunkLayout",
                  "AudioDescriptionAnalysisProgress", "AudioDescriptionPartialCheckpoint",
@@ -42,6 +42,7 @@ def main():
                  "choose_slot", "choose_pause_anchor", "schedule_descriptions"):
         pieces.append(item(audio, "fn " + name + "("))
     pieces.append(item(audio, "fn recover_descriptions_with_native_rate"))
+    pieces.append(item(audio, "fn recover_deferred_descriptions"))
     for name in ("MAX_SHIFT_SEC", "MIN_EXTENDED_ANCHOR_SEC", "MIX_SAMPLE_RATE", "MIX_CHANNELS", "DUCKING_DB", "FADE_MS", "PRE_DUCK_MS", "RELEASE_MS"):
         pieces.append(re.search(r"const " + name + r":.*?;", audio).group())
     fixture_start = audio.index("fn test_project_description(")

@@ -492,6 +492,7 @@ pub(super) fn create_dialogue_overlap(
                 analysis_engine: "completed-brief-checkpoint".into(),
                 protected_intervals: Vec::new(),
                 descriptions: checkpoint.descriptions.clone(),
+                deferred_descriptions: Vec::new(),
                 character_glossary: checkpoint.character_glossary.clone(),
                 gemini_model: checkpoint.gemini_model.clone(),
             };

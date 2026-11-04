@@ -2669,6 +2669,11 @@ fn normalize_audio_description_pronunciation(text: &str) -> String {
                 "dr"
             } else if part.eq_ignore_ascii_case("mr.") {
                 "mr"
+            } else if part.ends_with('.')
+                && part.chars().count() == 2
+                && part.starts_with(char::is_alphabetic)
+            {
+                part.trim_end_matches('.')
             } else {
                 part
             }
@@ -3210,6 +3215,94 @@ fn schedule_descriptions(
     }
     scheduled.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
     (scheduled, dropped)
+}
+
+fn recover_deferred_descriptions<F>(
+    candidates: &[BridgeDescription],
+    first_index: usize,
+    protected_intervals: &[BridgeInterval],
+    duration_sec: f64,
+    base_rate: i32,
+    scheduled: &mut Vec<ScheduledDescription>,
+    mut synthesize: F,
+) -> Result<Vec<DroppedDescription>, String>
+where
+    F: FnMut(&BridgeDescription, usize, i32) -> Result<Arc<[i16]>, String>,
+{
+    let mut dropped = Vec::new();
+    for (index, candidate) in candidates.iter().enumerate() {
+        let original_index = first_index + index;
+        let visual_start = candidate.visual_start_sec.unwrap_or(candidate.start_sec);
+        // Reuse the normal scheduler, protecting every previously accepted cue.
+        let mut occupied = protected_intervals.to_vec();
+        occupied.extend(scheduled.iter().map(|cue| BridgeInterval {
+            start_sec: cue.start_sec,
+            end_sec: cue.start_sec
+                + if cue.extended_pause {
+                    MIN_EXTENDED_ANCHOR_SEC
+                } else {
+                    cue.duration_sec
+                },
+        }));
+        let free = free_intervals(&normalize_intervals(&occupied, duration_sec), duration_sec);
+        if candidate.text.trim().is_empty()
+            || !candidate.start_sec.is_finite()
+            || !visual_start.is_finite()
+            || choose_slot(&free, candidate.start_sec, visual_start, 0.001).is_none()
+        {
+            continue;
+        }
+        let pcm = match synthesize(candidate, original_index, base_rate) {
+            Ok(audio) => audio,
+            Err(error) if error == "cancelled" => return Err(error),
+            Err(error) => {
+                append_podcast_log(&format!(
+                    "Audio description: deferred TTS failed cue={original_index} error={error}"
+                ));
+                continue;
+            }
+        };
+        if !audio_description_pcm_has_signal(&pcm) {
+            continue;
+        }
+        let cue = SynthesizedDescription {
+            tts_rate_override: None,
+            original_index,
+            text: candidate.text.clone(),
+            desired_start_sec: candidate.start_sec,
+            visual_start_sec: visual_start,
+            visual_evidence_time_sec: candidate.visual_evidence_time_sec,
+            mandatory: false,
+            slot_start_sec: None,
+            slot_end_sec: None,
+            duration_sec: pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64),
+            pcm,
+            slot_id: String::new(),
+        };
+        let (accepted, mut rejected) = schedule_descriptions(
+            std::slice::from_ref(&cue),
+            &occupied,
+            duration_sec,
+            false,
+        );
+        scheduled.extend(accepted);
+        recover_descriptions_with_native_rate(
+            std::slice::from_ref(&cue),
+            protected_intervals,
+            duration_sec,
+            base_rate,
+            scheduled,
+            &mut rejected,
+            |_, rate| synthesize(candidate, original_index, rate),
+        )?;
+        append_podcast_log(&format!(
+            "Audio description: deferred TTS cue={original_index} accepted={}",
+            rejected.is_empty()
+        ));
+        dropped.extend(rejected);
+    }
+    scheduled.sort_by(|left, right| left.start_sec.total_cmp(&right.start_sec));
+    Ok(dropped)
 }
 
 // Called only after the normal scheduler has finished. Accepted cues are never moved.
@@ -4429,7 +4522,7 @@ fn create_audio_description_attempt(
             }
         }
         let analysis = analysis_result?;
-        if analysis.descriptions.is_empty() {
+        if analysis.descriptions.is_empty() && analysis.deferred_descriptions.is_empty() {
             return Err("Gemini non ha restituito descrizioni.".to_string());
         }
         {
@@ -4495,6 +4588,16 @@ fn create_audio_description_attempt(
                 rt, &work, cue.original_index, &cancel, || true, None,
             ),
         )?;
+        dropped.extend(recover_deferred_descriptions(
+            &analysis.deferred_descriptions, analysis.descriptions.len(),
+            &analysis.protected_intervals, analysis.duration_sec, job.rate, &mut scheduled,
+            |cue, index, rate| synthesize_text_pcm_while_active(
+                &cue.text,
+                TtsParameters { engine: &job.tts_engine, voice: &job.tts_voice,
+                    rate, pitch: job.pitch, volume: job.volume },
+                rt, &work, index, &cancel, || true, None,
+            ),
+        )?);
         if scheduled.is_empty() {
             return Err("Nessuna descrizione può essere inserita in sicurezza.".into());
         }
@@ -4545,7 +4648,7 @@ fn create_audio_description_attempt(
             output_path: actual_output,
             project_path: project_file,
             catalog_path,
-            generated: analysis.descriptions.len(),
+            generated: analysis.descriptions.len() + analysis.deferred_descriptions.len(),
             inserted: scheduled.len(),
             extended,
             dropped: dropped.len(),

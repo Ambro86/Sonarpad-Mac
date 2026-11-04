@@ -19,6 +19,9 @@ fn main() {
         ("adr. amr. 2dr. édr. 中mr.", "adr. amr. 2dr. édr. 中mr."),
         ("  Dr.\nArinsu\tMr. Rossi  ", "  dr\nArinsu\tmr Rossi  "),
         ("Jon_Snow entra. 3.14, fine!", "Jon Snow entra. 3.14, fine!"),
+        ("b. Devereaux e P. Jonson", "b Devereaux e P Jonson"),
+        ("Richard P. Rubinstein; R. C.", "Richard P Rubinstein; R C"),
+        ("(M. Stewart), É. Rossi. 2. prova", "(M Stewart), É Rossi. 2. prova"),
         ("", ""),
     ];
     for (input, expected) in cases {
@@ -32,4 +35,4 @@ with tempfile.TemporaryDirectory(prefix="sonarpad-pronunciation-") as tmp:
     src.write_text(code, encoding="utf-8")
     subprocess.run(["rustc", "--edition=2021", str(src), "-o", str(exe)], check=True)
     subprocess.run([str(exe)], check=True)
-print("9 production Rust pronunciation cases passed.")
+print("12 production Rust pronunciation cases passed.")

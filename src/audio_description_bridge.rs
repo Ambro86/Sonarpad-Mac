@@ -125,6 +125,8 @@ pub struct AudioDescriptionBridgeResult {
     #[serde(default)]
     pub descriptions: Vec<BridgeDescription>,
     #[serde(default)]
+    pub deferred_descriptions: Vec<BridgeDescription>,
+    #[serde(default)]
     pub character_glossary: Vec<BridgeCharacter>,
     #[serde(default)]
     pub gemini_model: String,
