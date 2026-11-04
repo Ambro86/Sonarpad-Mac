@@ -1414,7 +1414,13 @@ pub fn open_dialog(parent: &Frame) {
     for text in ["1 s", "5 s", "10 s", "30 s", "1 min", "2 min", "5 min", "10 min"] {
         movement_choice.append(text);
     }
-    movement_choice.set_selection(1);
+    let saved_step = crate::Settings::load().media_cutter_seek_step_ms;
+    movement_choice.set_selection([1000,5000,10000,30000,60000,120000,300000,600000].iter().position(|v| *v == saved_step).unwrap_or(1) as u32);
+    movement_choice.on_selection_changed(move |_| {
+        let mut saved = crate::Settings::load();
+        saved.media_cutter_seek_step_ms = (movement_seconds(movement_choice) * 1000.0) as u32;
+        saved.save();
+    });
     movement_row.add(&movement_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&movement_row, 0, SizerFlag::Expand, 0);
 

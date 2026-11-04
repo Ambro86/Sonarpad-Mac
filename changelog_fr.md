@@ -2,6 +2,8 @@ Journal des nouveautés
 
 Version 0.5.3 - 14 octobre 2026
 
+- Ajout de la synchronisation cloud entre Windows, Mac et mobile pour les favoris radio et TV, les sources et dossiers personnels d’actualités, les podcasts et les favoris SonarTube. Association par code temporaire. Les articles favoris sont conservés lorsque cette fonction est prise en charge. Synchronisation manuelle avec suppressions et journaux de diagnostic. Les préférences compatibles des modules sont également synchronisées : type de recherche, ville météo et mode de découpe. Commandes séparées pour les collections et les préférences, limitées à 32 Ko.
+
 1. SonarTube est le nouveau nom de la lecture audio en streaming, avec les mêmes fonctionnalités. La recherche YouTube propose Tous, Vidéos, Playlists, Chaînes, Cours ou Podcasts. Le choix est mémorisé et ne modifie pas les liens directs.
 
 2. Transcription audio et vidéo plus rapide sur les Mac compatibles grâce à un nouveau moteur optimisé pour le processeur. Les Mac Apple Silicon en exécution native utilisent l’accélération Metal, avec retour automatique au processeur en cas de problème. Les Mac Intel et l’exécution sous Rosetta utilisent le processeur. Le choix de la langue et du modèle, les repères temporels, la progression et l’annulation sont conservés. Catalina et les systèmes antérieurs à macOS 13.3 continuent d’utiliser le moteur précédent, également disponible comme solution de repli automatique en cas de problème. Le nouveau moteur télécharge son propre modèle à la première utilisation et le réutilise ensuite.

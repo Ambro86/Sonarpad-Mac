@@ -2,6 +2,8 @@
 
 Version 0.5.3 – 14. Oktober 2026
 
+- Cloud-Synchronisierung zwischen Windows, Mac und Mobilgeräten für Radio- und TV-Favoriten, eigene Nachrichtenquellen und Ordner, Podcasts und SonarTube-Favoriten hinzugefügt. Verbindung über einen temporären Code. Artikel-Favoriten bleiben erhalten, soweit unterstützt. Manuelle Synchronisierung mit Löschungen und Diagnoseprotokollen. Auch kompatible Moduleinstellungen werden synchronisiert, darunter Suchtyp, Wetterort und Schnittmodus. Separate Steuerung für Sammlungen und Einstellungen; Einstellungen sind auf 32 KB begrenzt.
+
 1. SonarTube ist der neue Name von „Audio aus Streams abspielen“ und bietet die vertrauten Funktionen. Bei der YouTube-Suche kann zwischen Alle, Videos, Playlists, Kanäle, Kurse und Podcasts gewählt werden. Die Auswahl bleibt gespeichert und beeinflusst das direkte Öffnen von Links nicht.
 
 2. Schnellere Audio- und Videotranskription auf kompatiblen Macs durch eine neue, für die CPU optimierte Engine. Apple-Silicon-Macs verwenden bei nativer Ausführung Metal-Beschleunigung mit automatischem CPU-Fallback. Intel-Macs und Rosetta verwenden die CPU. Sprach- und Modellauswahl, Zeitmarken, Fortschritt und Abbruch bleiben erhalten. Unter Catalina und vor macOS 13.3 bleibt die bisherige Engine erhalten, die bei Problemen auch als automatischer Fallback dient. Das neue Modell wird beim ersten Einsatz heruntergeladen und anschließend wiederverwendet.

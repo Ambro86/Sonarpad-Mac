@@ -2,6 +2,9 @@ Changelog
 
 Version 0.5.3 - October 14, 2026
 
+- Automatic background sync at startup and while using the app, with batched updates after changes. The cloud window shows the status and last sync time. If the server is unavailable, the app stays usable: no automatic alerts, diagnostic logs and retries with increasing delays.
+- Added cloud sync across Windows, Mac and mobile for favorite radio and TV stations, personal news sources and folders, podcasts and SonarTube favorites, with a temporary pairing code. Favorite articles are preserved where supported. Manual sync handles deletions and includes diagnostic logs. Compatible module preferences also sync, including search type, weather city and cutting mode, with separate controls for collections and preferences and a 32 KB preference limit. Simplified setup: first choose whether to start or enter a code; connected devices show sync actions. Options are kept on a separate page. Fixed sync failures caused by the internal Favorite articles entry, which now stays local and is not treated as an RSS feed.
+
 1. SonarTube is the new name for Play audio from streaming, with the same familiar features. YouTube searches can now show All, Videos, Playlists, Channels, Courses or Podcasts. The selection is remembered and does not affect direct links.
 
 2. Faster audio and video transcription on compatible Macs with a new CPU-optimized engine. Native Apple Silicon Macs use Metal acceleration, with automatic CPU recovery if problems occur. Intel Macs and execution under Rosetta use the CPU. Language and model selection, timestamps, progress and cancellation are preserved. Catalina and systems older than macOS 13.3 continue to use the previous engine, which also provides an automatic fallback if problems occur. The new engine downloads its own model on first use and reuses it for subsequent transcriptions.

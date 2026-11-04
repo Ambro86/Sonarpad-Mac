@@ -1,6 +1,9 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
 mod sonarmusic;
+mod cloud_sync;
+mod cloud_sync_preferences;
+mod cloud_sync_window;
 mod result_labels;
 mod youtube_playback;
 mod sonarmusic_window;
@@ -417,6 +420,31 @@ struct Settings {
     #[serde(default)]
     media_cutter_advanced_mode: bool,
     #[serde(default)]
+    weather_city_query: String,
+    #[serde(default)]
+    podcast_directory_country: String,
+    #[serde(default)]
+    weather_temperature_unit: String,
+    #[serde(default = "default_sync_media_cutter_seek_step_ms")]
+    media_cutter_seek_step_ms: u32,
+    #[serde(default = "default_sync_radio_search_language")]
+    radio_search_language: String,
+    #[serde(default = "default_sync_radio_search_country")]
+    radio_search_country: String,
+    #[serde(default = "default_sync_radio_search_genre")]
+    radio_search_genre: String,
+    #[serde(default = "default_sync_converter_format")]
+    converter_format: String,
+    #[serde(default = "default_sync_converter_bitrate")]
+    converter_bitrate: u32,
+    #[serde(default = "default_sync_converter_wav_depth")]
+    converter_wav_depth: String,
+    #[serde(default = "default_sync_converter_ogg_quality")]
+    converter_ogg_quality: u32,
+    #[serde(default = "default_sync_converter_flac_compression")]
+    converter_flac_compression: u32,
+
+    #[serde(default)]
     media_cutter_goldwave_keys: bool,
     #[serde(default)]
     media_cutter_overwrite_original: bool,
@@ -572,6 +600,19 @@ impl Settings {
             transcription_audio_language: String::new(),
             transcription_include_timestamps: false,
             media_cutter_advanced_mode: false,
+            weather_city_query: String::new(),
+            podcast_directory_country: String::new(),
+            weather_temperature_unit: "celsius".into(),
+            media_cutter_seek_step_ms: default_sync_media_cutter_seek_step_ms(),
+            radio_search_language: default_sync_radio_search_language(),
+            radio_search_country: default_sync_radio_search_country(),
+            radio_search_genre: default_sync_radio_search_genre(),
+            converter_format: default_sync_converter_format(),
+            converter_bitrate: default_sync_converter_bitrate(),
+            converter_wav_depth: default_sync_converter_wav_depth(),
+            converter_ogg_quality: default_sync_converter_ogg_quality(),
+            converter_flac_compression: default_sync_converter_flac_compression(),
+
             media_cutter_goldwave_keys: false,
             media_cutter_overwrite_original: false,
             media_cutter_export_video: 0,
@@ -6583,7 +6624,15 @@ fn open_radio_search_dialog(
         let state = radio_menu_state.lock().unwrap();
         default_radio_language_selection(&languages, &state.stations_by_language) as u32
     };
+    let saved_filters = Settings::load();
+    let initial_selection = languages.iter().position(|(code,_)| code == &saved_filters.radio_search_language).map(|i|i as u32).unwrap_or(initial_selection);
     choice_language.set_selection(initial_selection);
+    let languages_saved = languages.clone();
+    choice_language.on_selection_changed(move |_| {
+        if let Some((code,_)) = languages_saved.get(choice_language.get_selection().unwrap_or(0) as usize) {
+            let mut saved = Settings::load(); saved.radio_search_language = code.clone(); saved.save();
+        }
+    });
     language_row.add(&choice_language, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&language_row, 0, SizerFlag::Expand, 0);
 
@@ -6632,7 +6681,13 @@ fn open_radio_search_dialog(
     for (_, label, _) in country_items.iter() {
         country_choice.append(label);
     }
-    country_choice.set_selection(0);
+    country_choice.set_selection(country_items.iter().position(|(code,_,_)| code == &saved_filters.radio_search_country).unwrap_or(0) as u32);
+    let countries_saved = Rc::clone(&country_items);
+    country_choice.on_selection_changed(move |_| {
+        if let Some((code,_,_)) = countries_saved.get(country_choice.get_selection().unwrap_or(0) as usize) {
+            let mut saved = Settings::load(); saved.radio_search_country = code.clone(); saved.save();
+        }
+    });
     country_row.add(&country_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&country_row, 0, SizerFlag::Expand, 0);
 
@@ -6912,6 +6967,7 @@ fn open_radio_search_dialog(
     let start_time = std::time::Instant::now();
     let result_code = dialog.show_modal();
     let elapsed = start_time.elapsed();
+    refresh_remembered_module_settings(settings);
 
     println!(
         "DEBUG: Radio Search Dialog v5 - Returned code={} in {:?}",
@@ -12651,6 +12707,20 @@ fn open_add_podcast_dialog(
     keyword_row.add(&keyword_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&keyword_row, 0, SizerFlag::Expand, 0);
 
+    let country_choice = Choice::builder(&panel).build();
+    country_choice.set_accessibility_label(match Settings::load().ui_language.as_str() {
+        "it"=>"Nazione", "fr"=>"Pays", "es"=>"País", "pt"=>"País", "de"=>"Land", "pl"=>"Kraj", "cs"=>"Země", _=>"Country",
+    });
+    let countries = radio_country_options();
+    for (_, label, _) in &countries { country_choice.append(label); }
+    let country = podcasts::podcast_country_code();
+    country_choice.set_selection(countries.iter().position(|(code,_,_)| *code == country).unwrap_or(0) as u32);
+    country_choice.on_selection_changed(move |_| {
+        if let Some((code,_,_)) = countries.get(country_choice.get_selection().unwrap_or(0) as usize) {
+            let mut saved = Settings::load(); saved.podcast_directory_country=code.clone(); saved.save();
+        }
+    });
+    root.add(&country_choice, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
     let ok_button = Button::builder(&panel)
         .with_id(ID_OK)
@@ -15441,6 +15511,8 @@ fn weather_forecast_text(
     day: usize,
 ) -> String {
     let ui = current_ui_strings();
+    let fahrenheit = Settings::load().weather_temperature_unit == "fahrenheit";
+    let temperature = |value: Option<f64>| weather_optional_value(value.map(|n| if fahrenheit {n * 1.8 + 32.0} else {n}), if fahrenheit {"°F"} else {"°C"});
     let day = day.min(forecast.daily.time.len().saturating_sub(1));
     let mut lines = Vec::new();
     if let Some(city) = city {
@@ -15456,18 +15528,18 @@ fn weather_forecast_text(
         lines.push(format!(
             "{}: {}",
             ui.weather_current_temperature,
-            weather_optional_value(forecast.current.temperature_2m, "°C")
+            temperature(forecast.current.temperature_2m)
         ));
     }
     lines.push(format!(
         "{}: {}",
         ui.weather_max_temperature,
-        weather_value(&forecast.daily.temperature_2m_max, day, "°C")
+        temperature(forecast.daily.temperature_2m_max.get(day).copied().flatten())
     ));
     lines.push(format!(
         "{}: {}",
         ui.weather_min_temperature,
-        weather_value(&forecast.daily.temperature_2m_min, day, "°C")
+        temperature(forecast.daily.temperature_2m_min.get(day).copied().flatten())
     ));
     lines.push(format!(
         "{}: {}",
@@ -15527,6 +15599,7 @@ fn open_weather_dialog(parent: &Frame) {
     let city_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    city_ctrl.set_value(&Settings::load().weather_city_query);
     search_row.add(&city_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let search_button = Button::builder(&panel).with_label(&ui.search).build();
     search_button.set_default();
@@ -15564,6 +15637,11 @@ fn open_weather_dialog(parent: &Frame) {
     day_row.add(&day_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&day_row, 0, SizerFlag::Expand, 0);
 
+    let unit_choice = Choice::builder(&panel).build();
+    unit_choice.set_accessibility_label("°C / °F");
+    unit_choice.append("Celsius (°C)"); unit_choice.append("Fahrenheit (°F)");
+    unit_choice.set_selection(u32::from(Settings::load().weather_temperature_unit == "fahrenheit"));
+    root.add(&unit_choice, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let result_text = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::MultiLine | TextCtrlStyle::ReadOnly)
         .build();
@@ -15619,6 +15697,11 @@ fn open_weather_dialog(parent: &Frame) {
                     city_open_button_timer.enable(!cities.is_empty());
                     populate_weather_day_choice(&day_choice_timer, &forecast);
                     let city = cities.first();
+                    if let Some(city) = city {
+                        let mut saved = Settings::load();
+                        saved.weather_city_query = city.name.clone();
+                        saved.save();
+                    }
                     result_text_timer.set_value(&weather_forecast_text(city, &forecast, 0));
                     *cities_timer.borrow_mut() = cities;
                     *forecast_timer.borrow_mut() = Some(forecast);
@@ -15628,6 +15711,11 @@ fn open_weather_dialog(parent: &Frame) {
                     let city = city_choice_timer
                         .get_selection()
                         .and_then(|sel| cities_timer.borrow().get(sel as usize).cloned());
+                    if let Some(city) = city.as_ref() {
+                        let mut saved = Settings::load();
+                        saved.weather_city_query = city.name.clone();
+                        saved.save();
+                    }
                     result_text_timer.set_value(&weather_forecast_text(
                         city.as_ref(),
                         &next_forecast,
@@ -15724,6 +15812,17 @@ fn open_weather_dialog(parent: &Frame) {
         ));
     });
 
+    let unit_forecast = Rc::clone(&forecast);
+    let unit_cities = Rc::clone(&cities);
+    unit_choice.on_selection_changed(move |_| {
+        let mut saved = Settings::load();
+        saved.weather_temperature_unit = if unit_choice.get_selection() == Some(1) {"fahrenheit"} else {"celsius"}.into();
+        saved.save();
+        if let Some(forecast) = unit_forecast.borrow().as_ref() {
+            let city = city_choice.get_selection().and_then(|i| unit_cities.borrow().get(i as usize).cloned());
+            result_text.set_value(&weather_forecast_text(city.as_ref(), forecast, day_choice.get_selection().unwrap_or(0) as usize));
+        }
+    });
     let timer_destroy = Rc::clone(&timer);
     let progress_destroy = Rc::clone(&progress);
     dialog.on_destroy(move |event| {
@@ -16731,6 +16830,7 @@ fn choose_convert_media_folder(
 
 fn open_convert_media_dialog(parent: &Frame) {
     let ui = current_ui_strings();
+    let saved_conversion = Settings::load();
     let dialog = Dialog::builder(parent, &ui.convert_media_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 420)
@@ -16816,7 +16916,7 @@ fn open_convert_media_dialog(parent: &Frame) {
     for format in CONVERT_MEDIA_FORMATS {
         format_choice.append(convert_media_format_label(format));
     }
-    format_choice.set_selection(0);
+    format_choice.set_selection(["mp3","aac","m4b","mp4","avi","mov","opus","ogg","flac","wav","aiff"].iter().position(|v|*v == saved_conversion.converter_format).unwrap_or(0) as u32);
     format_row.add(&format_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&format_row, 0, SizerFlag::Expand, 0);
 
@@ -16831,7 +16931,7 @@ fn open_convert_media_dialog(parent: &Frame) {
         5,
     );
     let bitrate_ctrl = TextCtrl::builder(&panel).build();
-    bitrate_ctrl.set_value("192");
+    bitrate_ctrl.set_value(&saved_conversion.converter_bitrate.clamp(64,320).to_string());
     options_row.add(&bitrate_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let ogg_label = StaticText::builder(&panel)
         .with_label(&ui.convert_media_ogg_quality)
@@ -16846,7 +16946,7 @@ fn open_convert_media_dialog(parent: &Frame) {
     for quality in 0..=10 {
         ogg_choice.append(&format!("q{quality}"));
     }
-    ogg_choice.set_selection(5);
+    ogg_choice.set_selection(saved_conversion.converter_ogg_quality.min(10));
     options_row.add(&ogg_choice, 0, SizerFlag::All, 5);
     root.add_sizer(&options_row, 0, SizerFlag::Expand, 0);
 
@@ -16864,7 +16964,7 @@ fn open_convert_media_dialog(parent: &Frame) {
     for compression in 0..=12 {
         flac_choice.append(&compression.to_string());
     }
-    flac_choice.set_selection(5);
+    flac_choice.set_selection(saved_conversion.converter_flac_compression.min(12));
     more_options_row.add(&flac_choice, 0, SizerFlag::All, 5);
     let wav_label = StaticText::builder(&panel)
         .with_label(&ui.convert_media_wav_bit_depth)
@@ -16879,10 +16979,25 @@ fn open_convert_media_dialog(parent: &Frame) {
     for depth in CONVERT_WAV_BIT_DEPTHS {
         wav_choice.append(convert_wav_bit_depth_label(depth));
     }
-    wav_choice.set_selection(0);
+    wav_choice.set_selection(["pcm16","pcm24","pcm32","float32"].iter().position(|v| *v == saved_conversion.converter_wav_depth).unwrap_or(0) as u32);
     more_options_row.add(&wav_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&more_options_row, 0, SizerFlag::Expand, 0);
 
+    let save_choices = Rc::new(move || {
+        let mut saved = Settings::load();
+        saved.converter_format = ["mp3","aac","m4b","mp4","avi","mov","opus","ogg","flac","wav","aiff"][format_choice.get_selection().unwrap_or(0).min(10) as usize].into();
+        if let Ok(n) = bitrate_ctrl.get_value().parse::<u32>() { if (64..=320).contains(&n) { saved.converter_bitrate=n; } }
+        saved.converter_ogg_quality=ogg_choice.get_selection().unwrap_or(5).min(10);
+        saved.converter_flac_compression=flac_choice.get_selection().unwrap_or(5).min(12);
+        saved.converter_wav_depth=["pcm16","pcm24","pcm32","float32"][wav_choice.get_selection().unwrap_or(0).min(3) as usize].into();
+        saved.save();
+    });
+    for choice in [format_choice,ogg_choice,flac_choice,wav_choice] {
+        let save = Rc::clone(&save_choices);
+        choice.on_selection_changed(move |_| save());
+    }
+    let save_bitrate = Rc::clone(&save_choices);
+    bitrate_ctrl.on_text_changed(move |_| save_bitrate());
     let status_text = StaticText::builder(&panel)
         .with_label(&ui.convert_media_ready)
         .build();
@@ -17241,6 +17356,7 @@ fn open_convert_media_dialog(parent: &Frame) {
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
+    save_choices();
     conversion_timer.stop();
     dialog.destroy();
 }
@@ -17475,6 +17591,7 @@ fn run_convert_media_batch(
 
 fn open_convert_media_folder_dialog(parent: &Frame) {
     let ui = current_ui_strings();
+    let saved_conversion = Settings::load();
     let dialog = Dialog::builder(parent, &ui.convert_folder_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(760, 420)
@@ -17540,7 +17657,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     for format in CONVERT_MEDIA_FORMATS {
         format_choice.append(convert_media_format_label(format));
     }
-    format_choice.set_selection(0);
+    format_choice.set_selection(["mp3","aac","m4b","mp4","avi","mov","opus","ogg","flac","wav","aiff"].iter().position(|v|*v == saved_conversion.converter_format).unwrap_or(0) as u32);
     format_row.add(&format_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&format_row, 0, SizerFlag::Expand, 0);
 
@@ -17550,7 +17667,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
         .build();
     options_row.add(&bitrate_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
     let bitrate_ctrl = TextCtrl::builder(&panel).build();
-    bitrate_ctrl.set_value("192");
+    bitrate_ctrl.set_value(&saved_conversion.converter_bitrate.clamp(64,320).to_string());
     options_row.add(&bitrate_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let ogg_label = StaticText::builder(&panel)
         .with_label(&ui.convert_media_ogg_quality)
@@ -17560,7 +17677,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     for quality in 0..=10 {
         ogg_choice.append(&format!("q{quality}"));
     }
-    ogg_choice.set_selection(5);
+    ogg_choice.set_selection(saved_conversion.converter_ogg_quality.min(10));
     options_row.add(&ogg_choice, 0, SizerFlag::All, 5);
     root.add_sizer(&options_row, 0, SizerFlag::Expand, 0);
 
@@ -17573,7 +17690,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     for compression in 0..=12 {
         flac_choice.append(&compression.to_string());
     }
-    flac_choice.set_selection(5);
+    flac_choice.set_selection(saved_conversion.converter_flac_compression.min(12));
     more_options_row.add(&flac_choice, 0, SizerFlag::All, 5);
     let wav_label = StaticText::builder(&panel)
         .with_label(&ui.convert_media_wav_bit_depth)
@@ -17583,10 +17700,25 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     for depth in CONVERT_WAV_BIT_DEPTHS {
         wav_choice.append(convert_wav_bit_depth_label(depth));
     }
-    wav_choice.set_selection(0);
+    wav_choice.set_selection(["pcm16","pcm24","pcm32","float32"].iter().position(|v| *v == saved_conversion.converter_wav_depth).unwrap_or(0) as u32);
     more_options_row.add(&wav_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&more_options_row, 0, SizerFlag::Expand, 0);
 
+    let save_choices = Rc::new(move || {
+        let mut saved = Settings::load();
+        saved.converter_format = ["mp3","aac","m4b","mp4","avi","mov","opus","ogg","flac","wav","aiff"][format_choice.get_selection().unwrap_or(0).min(10) as usize].into();
+        if let Ok(n) = bitrate_ctrl.get_value().parse::<u32>() { if (64..=320).contains(&n) { saved.converter_bitrate=n; } }
+        saved.converter_ogg_quality=ogg_choice.get_selection().unwrap_or(5).min(10);
+        saved.converter_flac_compression=flac_choice.get_selection().unwrap_or(5).min(12);
+        saved.converter_wav_depth=["pcm16","pcm24","pcm32","float32"][wav_choice.get_selection().unwrap_or(0).min(3) as usize].into();
+        saved.save();
+    });
+    for choice in [format_choice,ogg_choice,flac_choice,wav_choice] {
+        let save = Rc::clone(&save_choices);
+        choice.on_selection_changed(move |_| save());
+    }
+    let save_bitrate = Rc::clone(&save_choices);
+    bitrate_ctrl.on_text_changed(move |_| save_bitrate());
     let status_text = StaticText::builder(&panel)
         .with_label(&ui.convert_folder_ready)
         .build();
@@ -17969,6 +18101,7 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     let dialog_close = dialog;
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
+    save_choices();
     conversion_timer.stop();
     dialog.destroy();
 }
@@ -17992,7 +18125,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, &ui.italian_directories_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, 180)
+        .with_size(560, 240)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -18013,9 +18146,11 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     directory_row.add(&directory_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&directory_row, 0, SizerFlag::Expand, 0);
 
+    let reverse_choice = CheckBox::builder(&panel).with_label("Cerca per numero di telefono (località non necessaria)").build();
+    root.add(&reverse_choice, 0, SizerFlag::All, 5);
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
     search_row.add(
-        &StaticText::builder(&panel).with_label(&ui.keyword).build(),
+        &StaticText::builder(&panel).with_label("Nome, attività o numero di telefono").build(),
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -18023,6 +18158,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
+    search_ctrl.set_accessibility_label("Nome, attività o numero di telefono");
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
@@ -18066,8 +18202,15 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let parent_clone = *parent;
     let tc_main_open = tc_main;
     let perform_search = Rc::new(move || {
-        let query = search_ctrl_open.get_value().trim().to_string();
-        let location = location_ctrl_open.get_value().trim().to_string();
+        let reverse = reverse_choice.get_value();
+        let mut query = search_ctrl_open.get_value().trim().to_string();
+        if reverse {
+            match directories::normalize_phone(&query) {
+                Ok(number) => query = number,
+                Err(error) => { show_message_subdialog(&dialog_open, "Ricerca per numero", &error); return; }
+            }
+        }
+        let location = if reverse { String::new() } else { location_ctrl_open.get_value().trim().to_string() };
         if query.is_empty() {
             show_message_subdialog(
                 &dialog_open,
@@ -18100,7 +18243,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
         let location_clone = location.clone();
 
         std::thread::spawn(move || {
-            let res = directories::search_directory(kind, &query_clone, &location_clone, 1);
+            let res = directories::search_directory(kind, &query_clone, &location_clone, 1, reverse);
             *result_thread.lock().unwrap() = Some(res);
         });
 
@@ -18118,6 +18261,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
                             &query,
                             &location,
                             response,
+                            reverse,
                         );
                         dialog_open.end_modal(ID_OK);
                     }
@@ -24765,6 +24909,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         Some(0),
     );
 
+    let cloud_favorite_channels = channels.clone();
     let favorites_open = Rc::clone(&favorites);
     let favorite_choice_open = favorite_choice;
     let dialog_favorite_open = dialog;
@@ -24772,7 +24917,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
         if let Some(sel) = favorite_choice_open.get_selection()
             && let Some(favorite) = favorites_open.borrow().get(sel as usize)
         {
-            let channel = tv::TvChannel {
+            let channel = cloud_favorite_channels.iter().find(|c| favorite.url.trim().is_empty() && c.name.trim().eq_ignore_ascii_case(favorite.name.trim())).cloned().unwrap_or_else(|| tv::TvChannel {
                 name: favorite.name.clone(),
                 url: favorite.url.clone(),
                 category: "Altri".to_string(),
@@ -24787,7 +24932,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
                 resolver_realm: None,
                 resolver_channel_id: None,
                 http_user_agent: None,
-            };
+            });
             if let Err(err) = open_tv_stream_with_mpv(&channel) {
                 show_message_subdialog(&dialog_favorite_open, &current_ui_strings().tv_label, &err);
             }
@@ -30420,6 +30565,21 @@ fn main() {
             .build();
 
         let file_menu = Menu::builder().build();
+        let cloud_sync_item = file_menu.append_command(18970,
+            if settings.lock().unwrap().ui_language == "it" { "Sincronizzazione cloud..." } else { "Cloud sync..." },
+            "Cloud sync", ItemKind::Normal);
+        if let Some(item) = cloud_sync_item {
+            let cloud_settings = Arc::clone(&settings);
+            let cloud_article_state = Arc::clone(&article_menu_state);
+            let cloud_radio_state = Arc::clone(&radio_menu_state);
+            let cloud_podcast_state = Arc::clone(&podcast_menu_state);
+            item.on_click(move |_| {
+                cloud_sync_window::open(&frame, &cloud_settings);
+                mark_articles_menu_dirty(&cloud_article_state);
+                cloud_radio_state.lock().unwrap().dirty = true;
+                cloud_podcast_state.lock().unwrap().dirty = true;
+            });
+        }
         file_menu.append_command(
             documents::ID_NEW_DOCUMENT,
             &format!("{}\tCtrl+N", ui.document_new),
@@ -30756,7 +30916,14 @@ fn main() {
         let tv_audio_description_dialog_open_timer =
             Rc::clone(&tv_audio_description_dialog_open);
 
+        let automatic_sync = Rc::new(RefCell::new(cloud_sync_window::Automatic::new()));
         timer_tick.on_tick(move |_| {
+            automatic_sync.borrow_mut().tick(&settings_timer);
+            if std::mem::take(&mut automatic_sync.borrow_mut().changed) {
+                article_menu_state_timer.lock().unwrap().dirty = true;
+                radio_menu_state_timer.lock().unwrap().dirty = true;
+                podcast_menu_state_timer.lock().unwrap().dirty = true;
+            }
             documents::update_title(&frame_timer, &current_document_timer);
             let tts_status = pb_timer.lock().unwrap().status;
             let (podcast_status, podcast_mode) = {
@@ -31389,14 +31556,17 @@ fn main() {
                 bdciechi::open_bdciechi_dialog(&f_menu, &settings_menu, tc_menu);
             } else if event.get_id() == ID_TOOLS_WEATHER {
                 open_weather_dialog(&f_menu);
+                refresh_remembered_module_settings(&settings_menu);
             } else if event.get_id() == ID_TOOLS_CINEMA {
                 open_cinema_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CALENDAR {
                 open_calendar_dialog(&f_menu);
             } else if event.get_id() == ID_TOOLS_CONVERT_MEDIA {
                 open_convert_media_dialog(&f_menu);
+                refresh_remembered_module_settings(&settings_menu);
             } else if event.get_id() == ID_TOOLS_CONVERT_FOLDER {
                 open_convert_media_folder_dialog(&f_menu);
+                refresh_remembered_module_settings(&settings_menu);
             } else if event.get_id() == ID_TOOLS_BATCH_AUDIOBOOKS {
                 batch_audiobooks::open_dialog(&f_menu, &settings_menu, &rt_audio_description_menu);
                 tc_menu.set_focus();
@@ -31411,6 +31581,7 @@ fn main() {
                 wxdragon::call_after(Box::new(move || tc_menu.set_focus()));
             } else if event.get_id() == ID_TOOLS_MEDIA_CUTTER {
                 media_cutter::open_dialog(&f_menu);
+                refresh_remembered_module_settings(&settings_menu);
                 tc_menu.set_focus();
                 wxdragon::call_after(Box::new(move || tc_menu.set_focus()));
             } else if event.get_id() == ID_TOOLS_ROUTES {
@@ -31697,7 +31868,9 @@ fn main() {
                     }
                 }
             } else if event.get_id() == ID_PODCASTS_ADD {
-                if let Some(result) = open_add_podcast_dialog(&f_menu, &rt_articles_menu) {
+                let selected = open_add_podcast_dialog(&f_menu, &rt_articles_menu);
+                refresh_remembered_module_settings(&settings_menu);
+                if let Some(result) = selected {
                     add_podcast_source(
                         result,
                         &settings_menu,
@@ -34057,4 +34230,36 @@ mod tv_search_tests {
             now
         ));
     }
+}
+
+fn default_sync_media_cutter_seek_step_ms() -> u32 { 5000 }
+fn default_sync_radio_search_language() -> String { String::new() }
+fn default_sync_radio_search_country() -> String { String::new() }
+fn default_sync_radio_search_genre() -> String { String::new() }
+fn default_sync_converter_format() -> String { "mp3".into() }
+fn default_sync_converter_bitrate() -> u32 { 192 }
+fn default_sync_converter_wav_depth() -> String { "pcm16".into() }
+fn default_sync_converter_ogg_quality() -> u32 { 5 }
+fn default_sync_converter_flac_compression() -> u32 { 5 }
+
+fn refresh_remembered_module_settings(shared: &Arc<Mutex<Settings>>) {
+    let saved = Settings::load();
+    let mut current = shared.lock().unwrap();
+    current.media_cutter_seek_step_ms = saved.media_cutter_seek_step_ms;
+    current.radio_search_language = saved.radio_search_language;
+    current.radio_search_country = saved.radio_search_country;
+    current.radio_search_genre = saved.radio_search_genre;
+    current.converter_format = saved.converter_format;
+    current.converter_bitrate = saved.converter_bitrate;
+    current.converter_wav_depth = saved.converter_wav_depth;
+    current.converter_ogg_quality = saved.converter_ogg_quality;
+    current.converter_flac_compression = saved.converter_flac_compression;
+    current.weather_city_query = saved.weather_city_query;
+    current.weather_temperature_unit = saved.weather_temperature_unit;
+    current.podcast_directory_country = saved.podcast_directory_country;
+    current.media_cutter_advanced_mode = saved.media_cutter_advanced_mode;
+    current.media_cutter_goldwave_keys = saved.media_cutter_goldwave_keys;
+    current.media_cutter_overwrite_original = saved.media_cutter_overwrite_original;
+    current.media_cutter_export_video = saved.media_cutter_export_video;
+    current.media_cutter_export_image = saved.media_cutter_export_image;
 }

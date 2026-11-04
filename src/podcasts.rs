@@ -519,8 +519,12 @@ pub fn apple_categories(ui_language: &str) -> Vec<PodcastCategory> {
     }
 }
 
-fn podcast_country_code() -> &'static str {
-    match Settings::load().ui_language.as_str() {
+pub(crate) fn podcast_country_code() -> String {
+    let saved = Settings::load();
+    if saved.podcast_directory_country.len() == 2 && saved.podcast_directory_country.bytes().all(|b| b.is_ascii_alphabetic()) {
+        return saved.podcast_directory_country.to_ascii_lowercase();
+    }
+    match saved.ui_language.as_str() {
         "it" => "it",
         "fr" => "fr",
         "es" => "es",
@@ -529,7 +533,7 @@ fn podcast_country_code() -> &'static str {
         "pl" => "pl",
         "de" => "de",
         _ => "us",
-    }
+    }.into()
 }
 
 pub async fn search_itunes_podcasts(keyword: &str) -> Result<Vec<PodcastSearchResult>, String> {

@@ -79,11 +79,25 @@ fn decode(encoded: &str) -> String {
     String::from_utf8(decoded).unwrap_or_default()
 }
 
+pub(crate) fn normalize_phone(input: &str) -> Result<String, String> {
+    let input = input.trim();
+    if input.chars().enumerate().any(|(i,c)| !c.is_ascii_digit() && !c.is_whitespace() && !"()-./".contains(c) && !(c == '+' && i == 0)) {
+        return Err("Inserisci un numero di telefono italiano valido.".into());
+    }
+    let compact: String = input.chars().filter(|c| c.is_ascii_digit() || *c == '+').collect();
+    let number = if let Some(v) = compact.strip_prefix("+39").or_else(|| compact.strip_prefix("0039")) { v }
+        else if compact.starts_with('+') || compact.starts_with("00") { return Err("Inserisci un numero italiano, con prefisso +39 facoltativo.".into()); }
+        else { &compact };
+    if !(5..=15).contains(&number.len()) { return Err("Inserisci un numero di telefono completo di prefisso.".into()); }
+    Ok(number.into())
+}
+
 pub fn search_directory(
     kind: DirectoryKind,
     what: &str,
     where_loc: &str,
     page: i32,
+    reverse: bool,
 ) -> Result<SearchResponse, String> {
     let base_url = decode("BT9NUUx/HRUjWkodMRoTOlYsGzZeHTVfCiMeAT4c"); // http://mobile.italiaonline.it/
     let client_id = decode("HSlUThQ5Xh0="); // pbmobile
@@ -94,7 +108,7 @@ pub fn search_directory(
         DirectoryKind::PagineGialle => decode("Hi5YUxU4Qh8="),  // searchpg
     };
 
-    let mut mapped_what = what.to_string();
+    let mut mapped_what = if reverse { normalize_phone(what)? } else { what.to_string() };
     if let DirectoryKind::PagineGialle = kind
         && mapped_what.trim().eq_ignore_ascii_case("bar")
     {
@@ -104,7 +118,7 @@ pub fn search_directory(
     let mut url = format!("{base_url}{endpoint}?client={client_id}&version={version}");
     let what_enc = url::form_urlencoded::byte_serialize(mapped_what.as_bytes()).collect::<String>();
     url.push_str(&format!("&what={what_enc}"));
-    if !where_loc.trim().is_empty() {
+    if !reverse && !where_loc.trim().is_empty() {
         let where_enc =
             url::form_urlencoded::byte_serialize(where_loc.as_bytes()).collect::<String>();
         url.push_str(&format!("&where={where_enc}"));
@@ -128,11 +142,12 @@ pub fn search_directory(
         if resp.status().as_u16() == 500 {
             if let DirectoryKind::PagineGialle = kind
                 && let Ok(mut fb_resp) =
-                    search_directory(DirectoryKind::PagineBianche, what, where_loc, page)
+                    search_directory(DirectoryKind::PagineBianche, what, where_loc, page, reverse)
             {
                 fb_resp.actual_directory_index = Some(0);
                 return Ok(fb_resp);
             }
+            if reverse { return Err("Servizio temporaneamente non disponibile. Riprova.".into()); }
             return Ok(SearchResponse {
                 display_where: None,
                 results: vec![],
@@ -155,6 +170,10 @@ pub fn search_directory(
     } else {
         0
     });
+    if reverse {
+        let number = normalize_phone(what)?;
+        parsed.results.retain(|r| r.phones.iter().any(|p| normalize_phone(p).ok().as_deref() == Some(number.as_str())));
+    }
     Ok(parsed)
 }
 
@@ -531,6 +550,7 @@ pub fn show_directory_results(
     query: &str,
     location: &str,
     response: SearchResponse,
+    reverse: bool,
 ) {
     if let Some(idx) = response.actual_directory_index {
         directory_index = idx;
@@ -639,7 +659,7 @@ pub fn show_directory_results(
             let lc = l_clone.clone();
 
             std::thread::spawn(move || {
-                let res = search_directory(kind, &qc, &lc, page);
+                let res = search_directory(kind, &qc, &lc, page, reverse);
                 *result_thread.lock().unwrap() = Some(res);
             });
 
@@ -657,6 +677,7 @@ pub fn show_directory_results(
                                 &q_clone,
                                 &l_clone,
                                 resp,
+                                reverse,
                             );
                         }
                         Err(e) => {
