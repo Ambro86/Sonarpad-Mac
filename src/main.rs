@@ -81,6 +81,14 @@ use wxdragon::prelude::*;
 use wxdragon::translations::TranslationsLoader;
 use wxdragon::timer::Timer;
 
+// wxdragon::call_after requires a Send callback. wxWidgets controls are
+// deliberately !Send: keep them on the UI thread instead of capturing them.
+#[cfg(target_os = "macos")]
+thread_local! {
+    static DEFERRED_VOICEOVER_WIDGETS: RefCell<Option<(Frame, TextCtrl)>> =
+        const { RefCell::new(None) };
+}
+
 const ID_OPEN: i32 = 101;
 #[cfg(target_os = "macos")]
 const ID_EXIT: i32 = wxdragon::ffi::WXD_ID_EXIT as i32;
@@ -33797,10 +33805,18 @@ fn main() {
         #[cfg(target_os = "macos")]
         {
             // Dispatch once the native window and accessibility tree are ready.
-            let frame_focus = frame;
-            let editor_focus = text_ctrl;
-            wxdragon::call_after(Box::new(move || {
-                focus_editor_for_voiceover(&frame_focus, &editor_focus);
+            DEFERRED_VOICEOVER_WIDGETS.with(|widgets| {
+                *widgets.borrow_mut() = Some((frame, text_ctrl));
+            });
+            wxdragon::call_after(Box::new(|| {
+                // call_after runs on the wx UI thread. Copy the stored handles
+                // out before calling wx/AppKit to avoid holding a RefCell borrow.
+                let editor = DEFERRED_VOICEOVER_WIDGETS.with(|widgets| {
+                    widgets.borrow().as_ref().map(|(frame, text)| (*frame, *text))
+                });
+                if let Some((frame_focus, editor_focus)) = editor {
+                    focus_editor_for_voiceover(&frame_focus, &editor_focus);
+                }
             }));
         }
     });

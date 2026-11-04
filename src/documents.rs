@@ -277,15 +277,22 @@ pub fn command(
     let title = document_title(&state.lock().unwrap());
     #[cfg(target_os = "macos")]
     if matches!(id, ID_NEW_DOCUMENT | ID_NEXT_DOCUMENT | ID_PREVIOUS_DOCUMENT) {
-        let editor_frame = *frame;
-        let editor_text = *text;
+        DEFERRED_VOICEOVER_WIDGETS.with(|widgets| {
+            *widgets.borrow_mut() = Some((*frame, *text));
+        });
         let expected_window_title = format!("{title} — Sonarpad");
         // Defer the accessibility notifications until wx/AppKit have applied
         // the replacement text, restored selection and updated the title.
+        // The callback captures only Send strings, not wxDragon window handles.
         wxdragon::call_after(Box::new(move || {
-            if editor_frame.is_shown() && editor_frame.get_title() == expected_window_title {
-                notify_voiceover_document_transition(&editor_frame, &editor_text);
-                announce_voiceover_message(&title);
+            let editor = DEFERRED_VOICEOVER_WIDGETS.with(|widgets| {
+                widgets.borrow().as_ref().map(|(frame, text)| (*frame, *text))
+            });
+            if let Some((editor_frame, editor_text)) = editor {
+                if editor_frame.is_shown() && editor_frame.get_title() == expected_window_title {
+                    notify_voiceover_document_transition(&editor_frame, &editor_text);
+                    announce_voiceover_message(&title);
+                }
             }
         }));
         return;
