@@ -29,7 +29,8 @@
     "open_podcast": "Otevřít podcast",
     "open_collection": "Otevřít sbírku",
     "open_result": "Otevřít výsledek",
-    "use_suggestion": "Použít návrh"
+    "use_suggestion": "Použít návrh",
+    "all_albums": "Všechna alba"
   },
   "de": {
     "query": "Titel, Künstler oder Album",
@@ -61,7 +62,8 @@
     "open_podcast": "Podcast öffnen",
     "open_collection": "Sammlung öffnen",
     "open_result": "Ergebnis öffnen",
-    "use_suggestion": "Vorschlag übernehmen"
+    "use_suggestion": "Vorschlag übernehmen",
+    "all_albums": "Alle Alben"
   },
   "en": {
     "query": "Song, artist or album",
@@ -93,7 +95,8 @@
     "open_podcast": "Open podcast",
     "open_collection": "Open collection",
     "open_result": "Open result",
-    "use_suggestion": "Use suggestion"
+    "use_suggestion": "Use suggestion",
+    "all_albums": "All albums"
   },
   "es": {
     "query": "Canción, artista o álbum",
@@ -125,7 +128,8 @@
     "open_podcast": "Abrir pódcast",
     "open_collection": "Abrir colección",
     "open_result": "Abrir resultado",
-    "use_suggestion": "Usar sugerencia"
+    "use_suggestion": "Usar sugerencia",
+    "all_albums": "Todos los álbumes"
   },
   "fr": {
     "query": "Titre, artiste ou album",
@@ -157,7 +161,8 @@
     "open_podcast": "Ouvrir le podcast",
     "open_collection": "Ouvrir la collection",
     "open_result": "Ouvrir le résultat",
-    "use_suggestion": "Utiliser la suggestion"
+    "use_suggestion": "Utiliser la suggestion",
+    "all_albums": "Tous les albums"
   },
   "it": {
     "query": "Titolo, artista o album",
@@ -189,7 +194,8 @@
     "open_podcast": "Apri podcast",
     "open_collection": "Apri raccolta",
     "open_result": "Apri risultato",
-    "use_suggestion": "Usa suggerimento"
+    "use_suggestion": "Usa suggerimento",
+    "all_albums": "Tutti gli album"
   },
   "pl": {
     "query": "Utwór, artysta lub album",
@@ -221,7 +227,8 @@
     "open_podcast": "Otwórz podcast",
     "open_collection": "Otwórz kolekcję",
     "open_result": "Otwórz wynik",
-    "use_suggestion": "Użyj sugestii"
+    "use_suggestion": "Użyj sugestii",
+    "all_albums": "Wszystkie albumy"
   },
   "pt": {
     "query": "Música, artista ou álbum",
@@ -253,7 +260,8 @@
     "open_podcast": "Abrir podcast",
     "open_collection": "Abrir coleção",
     "open_result": "Abrir resultado",
-    "use_suggestion": "Usar sugestão"
+    "use_suggestion": "Usar sugestão",
+    "all_albums": "Todos os álbuns"
   },
   "pt_BR": {
     "query": "Música, artista ou álbum",
@@ -278,7 +286,8 @@
     "favorites": "Favoritos",
     "add_favorite": "Adicionar aos favoritos",
     "remove_favorite": "Remover dos favoritos",
-    "open_favorite": "Abrir favorito"
+    "open_favorite": "Abrir favorito",
+    "all_albums": "Todos os álbuns"
   },
   "ro": {
     "query": "Melodie, artist sau album",
@@ -303,7 +312,8 @@
     "favorites": "Favorite",
     "add_favorite": "Adaugă la favorite",
     "remove_favorite": "Elimină din favorite",
-    "open_favorite": "Deschide favoritul"
+    "open_favorite": "Deschide favoritul",
+    "all_albums": "Toate albumele"
   },
   "tr": {
     "query": "Şarkı, sanatçı veya albüm",
@@ -328,7 +338,8 @@
     "favorites": "Favoriler",
     "add_favorite": "Favorilere ekle",
     "remove_favorite": "Favorilerden kaldır",
-    "open_favorite": "Favoriyi aç"
+    "open_favorite": "Favoriyi aç",
+    "all_albums": "Tüm albümler"
   },
   "uk": {
     "query": "Пісня, виконавець або альбом",
@@ -353,7 +364,8 @@
     "favorites": "Обране",
     "add_favorite": "Додати до обраного",
     "remove_favorite": "Видалити з обраного",
-    "open_favorite": "Відкрити обране"
+    "open_favorite": "Відкрити обране",
+    "all_albums": "Усі альбоми"
   },
   "zh": {
     "query": "歌曲、艺人或专辑",
@@ -378,7 +390,8 @@
     "favorites": "收藏",
     "add_favorite": "添加到收藏",
     "remove_favorite": "从收藏中移除",
-    "open_favorite": "打开收藏"
+    "open_favorite": "打开收藏",
+    "all_albums": "所有专辑"
   },
   "zh_CN": {
     "query": "歌曲、艺人或专辑",
@@ -403,7 +416,8 @@
     "favorites": "收藏",
     "add_favorite": "添加到收藏",
     "remove_favorite": "从收藏中移除",
-    "open_favorite": "打开收藏"
+    "open_favorite": "打开收藏",
+    "all_albums": "所有专辑"
   },
   "pt-BR": {
     "query": "Música, artista ou álbum",
@@ -428,7 +442,8 @@
     "favorites": "Favoritos",
     "add_favorite": "Adicionar aos favoritos",
     "remove_favorite": "Remover dos favoritos",
-    "open_favorite": "Abrir favorito"
+    "open_favorite": "Abrir favorito",
+    "all_albums": "Todos os álbuns"
   },
   "pt_br": {
     "query": "Música, artista ou álbum",
@@ -453,7 +468,8 @@
     "favorites": "Favoritos",
     "add_favorite": "Adicionar aos favoritos",
     "remove_favorite": "Remover dos favoritos",
-    "open_favorite": "Abrir favorito"
+    "open_favorite": "Abrir favorito",
+    "all_albums": "Todos os álbuns"
   },
   "zh_cn": {
     "query": "歌曲、艺人或专辑",
@@ -478,7 +494,8 @@
     "favorites": "收藏",
     "add_favorite": "添加到收藏",
     "remove_favorite": "从收藏中移除",
-    "open_favorite": "打开收藏"
+    "open_favorite": "打开收藏",
+    "all_albums": "所有专辑"
   },
   "sv": {
     "query": "Titel, artist eller album",
@@ -503,7 +520,8 @@
     "favorites": "Favoriter",
     "add_favorite": "Lägg till i favoriter",
     "remove_favorite": "Ta bort från favoriter",
-    "open_favorite": "Öppna favorit"
+    "open_favorite": "Öppna favorit",
+    "all_albums": "Alla album"
   },
   "vi": {
     "query": "Tên bài hát, nghệ sĩ hoặc album",
@@ -528,7 +546,8 @@
     "favorites": "Yêu thích",
     "add_favorite": "Thêm vào yêu thích",
     "remove_favorite": "Xóa khỏi yêu thích",
-    "open_favorite": "Mở mục yêu thích"
+    "open_favorite": "Mở mục yêu thích",
+    "all_albums": "Tất cả album"
   },
   "sr": {
     "query": "Наслов, извођач или албум",
@@ -553,7 +572,8 @@
     "favorites": "Омиљено",
     "add_favorite": "Додај у омиљено",
     "remove_favorite": "Уклони из омиљеног",
-    "open_favorite": "Отвори омиљено"
+    "open_favorite": "Отвори омиљено",
+    "all_albums": "Сви албуми"
   },
   "lt": {
     "query": "Pavadinimas, atlikėjas arba albumas",
@@ -578,7 +598,8 @@
     "favorites": "Mėgstamiausi",
     "add_favorite": "Pridėti prie mėgstamiausių",
     "remove_favorite": "Pašalinti iš mėgstamiausių",
-    "open_favorite": "Atverti mėgstamą"
+    "open_favorite": "Atverti mėgstamą",
+    "all_albums": "Visi albumai"
   },
   "ru": {
     "query": "Название, исполнитель или альбом",
@@ -603,7 +624,8 @@
     "favorites": "Избранное",
     "add_favorite": "Добавить в избранное",
     "remove_favorite": "Удалить из избранного",
-    "open_favorite": "Открыть избранное"
+    "open_favorite": "Открыть избранное",
+    "all_albums": "Все альбомы"
   },
   "hi": {
     "query": "शीर्षक, कलाकार या एल्बम",
@@ -628,7 +650,8 @@
     "favorites": "पसंदीदा",
     "add_favorite": "पसंदीदा में जोड़ें",
     "remove_favorite": "पसंदीदा से हटाएँ",
-    "open_favorite": "पसंदीदा खोलें"
+    "open_favorite": "पसंदीदा खोलें",
+    "all_albums": "सभी एल्बम"
   },
   "id": {
     "query": "Judul, artis, atau album",
@@ -653,6 +676,7 @@
     "favorites": "Favorit",
     "add_favorite": "Tambahkan ke favorit",
     "remove_favorite": "Hapus dari favorit",
-    "open_favorite": "Buka favorit"
+    "open_favorite": "Buka favorit",
+    "all_albums": "Semua album"
   }
 }

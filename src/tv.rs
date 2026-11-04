@@ -387,6 +387,16 @@ fn ensure_tv_access_code() -> Result<(), String> {
 }
 
 fn decode_encrypted_payload(payload_json: &str, label: &str) -> Result<String, String> {
+    let secret_key = resolve_tv_secret_key()?;
+    decode_encrypted_payload_with_code(payload_json, label, &secret_key)
+}
+
+pub(crate) fn is_activation_code_valid(code: &str) -> bool {
+    !code.trim().is_empty() && code.len() <= 256 && decode_encrypted_payload_with_code(
+        OGGI_IN_TV_TIMELINE_URL_PAYLOAD_JSON, "Oggi in TV", code.trim()).is_ok()
+}
+
+fn decode_encrypted_payload_with_code(payload_json: &str, label: &str, secret_key: &str) -> Result<String, String> {
     let payload: EncryptedPayload = serde_json::from_str(payload_json)
         .map_err(|err| format!("Payload {label} non valido: {err}"))?;
     if payload.algorithm != "gzip-xor-base64-v1" {
@@ -395,7 +405,6 @@ fn decode_encrypted_payload(payload_json: &str, label: &str) -> Result<String, S
             payload.algorithm
         ));
     }
-    let secret_key = resolve_tv_secret_key()?;
     let encrypted = STANDARD
         .decode(payload.payload_b64)
         .map_err(|err| format!("Payload {label} base64 non valido: {err}"))?;

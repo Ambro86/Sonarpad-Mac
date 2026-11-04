@@ -1,4 +1,5 @@
-//! Explicit portable preference adapters. Never serialize credentials or paths.
+//! Explicit portable preferences and validated Sonarpad activation only.
+//! Other credentials and local paths remain excluded.
 use serde_json::{Value, json};
 const SEARCH: &[&str] = &[
     "all",
@@ -15,6 +16,7 @@ fn news_code(name: &str, mac: bool) -> Option<&'static str> {
 }
 fn field(id: &str, mac: bool) -> Option<&'static str> {
     Some(match id {
+        "activation.code" => "rai_luce_code",
         "sonartube.search_type" => "sonartube_search_type",
         "sonarmusic.search_type" => "sonarmusic_search_type",
         "cutter.mode" => "media_cutter_advanced_mode",
@@ -43,6 +45,7 @@ fn field(id: &str, mac: bool) -> Option<&'static str> {
 }
 fn valid(id: &str, v: &Value) -> bool {
     match id {
+        "activation.code" => v.as_str().is_some_and(crate::tv::is_activation_code_valid),
         "sonartube.search_type" => v.as_str().is_some_and(|s| SEARCH.contains(&s)),
         "sonarmusic.search_type" => v.as_str().is_some_and(|s| MUSIC.contains(&s)),
         "cutter.mode" => v
@@ -68,6 +71,7 @@ fn valid(id: &str, v: &Value) -> bool {
 pub fn export(s: &Value, mac: bool) -> Value {
     let mut result = Vec::new();
     for id in [
+        "activation.code",
         "sonartube.search_type",
         "sonarmusic.search_type",
         "cutter.mode",
@@ -131,6 +135,8 @@ pub fn project(rows: &Value, mac: bool) -> Result<Value, String> {
             continue;
         }
         if id == "news.language" && row["data"]["value"].as_str().is_some_and(|v| news_code(v,mac).is_none()) { continue; }
+        // Invalid activation must never break favorites synchronization.
+        if id == "activation.code" && !valid(id, &row["data"]["value"]) { continue; }
         if !valid(id, &row["data"]["value"]) || !seen.insert(id) {
             return Err("invalid_preference".into());
         }
@@ -143,6 +149,7 @@ pub fn apply(s: &mut Value, rows: &Value, mac: bool) -> Result<(), String> {
         let id = row["id"].as_str().ok_or("invalid_preference")?;
         let key = field(id, mac).ok_or("invalid_preference")?;
         let v = &row["data"]["value"];
+        if id == "activation.code" && valid(id, &s[key]) { continue; }
         if id == "weather.city"
             && !mac
             && !s["weather_city"].is_null()
@@ -236,6 +243,24 @@ mod tests {
                 .unwrap(),
                 json!([])
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod activation_sync_tests {
+    use super::*;
+    #[test]
+    fn invalid_or_absent_activation_never_clears_local_code() {
+        for mac in [false, true] {
+            let mut local = json!({"rai_luce_code":"local-sentinel"});
+            apply(&mut local, &json!([]), mac).unwrap();
+            assert!(local["rai_luce_code"].as_str() == Some("local-sentinel"));
+            let invalid = json!([{"id":"activation.code","data":{"value":"invalid"}}]);
+            assert!(project(&invalid, mac).unwrap().as_array().unwrap().is_empty());
+            apply(&mut local, &invalid, mac).unwrap();
+            assert!(local["rai_luce_code"].as_str() == Some("local-sentinel"));
+            assert!(export(&local, mac).as_array().unwrap().iter().all(|r| r["id"] != "activation.code"));
         }
     }
 }
