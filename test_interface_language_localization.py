@@ -21,13 +21,13 @@ def _function_body(name: str) -> str:
 
 def _labels(name: str):
     body = _function_body(name)
-    return dict(re.findall(r'"(it|en|fr|es|pt|cs|pl)"\s*=>\s*"([^"]+)"\.to_string\(\)', body))
+    return dict(re.findall(r'"(it|en|fr|es|pt|cs|pl|de)"\s*=>\s*"([^"]+)"\.to_string\(\)', body))
 
 
 def test_interface_language_choices_use_current_ui_language():
     body = _function_body('interface_language_options')
     assert 'get_language_name_for_ui(code, ui_language)' in body
-    assert '["it", "en", "fr", "es", "pt", "cs", "pl"]' in body
+    assert '["it", "en", "fr", "es", "pt", "cs", "pl", "de"]' in body
     settings_body = _function_body('open_settings_dialog')
     assert 'interface_language_options(&settings_before.ui_language)' in settings_body
     assert '("Italiano", "it")' not in settings_body
@@ -59,3 +59,12 @@ def test_expected_french_interface_language_names():
 def test_voice_language_list_uses_same_localizer_including_french():
     body = _function_body('build_language_list')
     assert 'get_language_name_for_ui(&voice.locale, ui_language)' in body
+
+
+def test_german_interface_language_name_and_selection():
+    labels = _labels('get_language_name_de')
+    assert labels['de'] == 'Deutsch'
+    assert labels['it'] == 'Italienisch'
+    assert labels['en'] == 'Englisch'
+    assert '"de" => get_language_name_de(locale)' in _function_body('get_language_name_for_ui')
+    assert 'i18n/ui_de.json' in _function_body('ui_strings')

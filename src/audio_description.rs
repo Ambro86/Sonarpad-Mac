@@ -533,6 +533,7 @@ fn tr_map() -> &'static HashMap<String, String> {
     static PT: OnceLock<HashMap<String, String>> = OnceLock::new();
     static CS: OnceLock<HashMap<String, String>> = OnceLock::new();
     static PL: OnceLock<HashMap<String, String>> = OnceLock::new();
+    static DE: OnceLock<HashMap<String, String>> = OnceLock::new();
     let lang = Settings::load().ui_language;
     let (slot, raw) = match lang.as_str() {
         "en" => (&EN, include_str!("../i18n/audio_description_en.json")),
@@ -541,6 +542,7 @@ fn tr_map() -> &'static HashMap<String, String> {
         "pt" => (&PT, include_str!("../i18n/audio_description_pt.json")),
         "cs" => (&CS, include_str!("../i18n/audio_description_cs.json")),
         "pl" => (&PL, include_str!("../i18n/audio_description_pl.json")),
+        "de" => (&DE, include_str!("../i18n/audio_description_de.json")),
         _ => (&IT, include_str!("../i18n/audio_description_it.json")),
     };
     slot.get_or_init(|| serde_json::from_str(raw).unwrap_or_default())
@@ -4722,7 +4724,7 @@ fn show_completion(parent: &Dialog, message: &str) {
 fn choose_input(parent: &Dialog) -> Option<PathBuf> {
     let d = FileDialog::builder(parent)
         .with_message(&tr("audio_description.open_title"))
-        .with_wildcard("Video|*.mp4;*.mkv;*.mov;*.m4v;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*")
+        .with_wildcard(&crate::localized_file_filter("Video|*.mp4;*.mkv;*.mov;*.m4v;*.avi;*.webm;*.mpeg;*.mpg|Tutti|*.*"))
         .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
         .build();
     if d.show_modal() == ID_OK {
@@ -5156,7 +5158,7 @@ fn choose_output(parent: &Dialog, input: &Path, create_video_output: bool) -> Op
             "{}_audiodescritto.{extension}",
             sanitize_filename(stem)
         ))
-        .with_wildcard(wildcard)
+        .with_wildcard(&crate::localized_file_filter(wildcard))
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
         .build();
     if d.show_modal() == ID_OK {
@@ -7789,7 +7791,7 @@ fn run_project_voice_validation_with_progress(
 fn project_file_dialog(parent: &Frame) -> Option<PathBuf> {
     let d = FileDialog::builder(parent)
         .with_message(&tr("audio_description.project.open_title"))
-        .with_wildcard("Progetto Sonarpad|*.sonarpad-ad.json|JSON|*.json|Tutti|*.*")
+        .with_wildcard(&crate::localized_file_filter("Progetto Sonarpad|*.sonarpad-ad.json|JSON|*.json|Tutti|*.*"))
         .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist)
         .build();
     if d.show_modal() == ID_OK {
@@ -7884,7 +7886,7 @@ fn choose_project_subtitle_output(
             &[("format", format_name)],
         ))
         .with_default_file(&format!("{stem}.{extension}"))
-        .with_wildcard(wildcard)
+        .with_wildcard(&crate::localized_file_filter(wildcard))
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
         .build();
     if dialog.show_modal() != ID_OK {
@@ -10272,6 +10274,7 @@ mod tests {
         ("pt", include_str!("../i18n/audio_description_pt.json")),
         ("cs", include_str!("../i18n/audio_description_cs.json")),
         ("pl", include_str!("../i18n/audio_description_pl.json")),
+        ("de", include_str!("../i18n/audio_description_de.json")),
     ];
 
     fn test_project_description(id: usize, text: &str) -> ProjectDescription {
@@ -10385,6 +10388,40 @@ mod tests {
                     "missing {translation_key} for UI language {ui_language}"
                 );
             }
+        }
+    }
+
+    #[test]
+    fn german_audio_description_catalog_has_all_keys_and_placeholders() {
+        let en: HashMap<String, String> =
+            serde_json::from_str(include_str!("../i18n/audio_description_en.json"))
+                .expect("valid English audio-description catalog");
+        let de: HashMap<String, String> =
+            serde_json::from_str(include_str!("../i18n/audio_description_de.json"))
+                .expect("valid German audio-description catalog");
+        assert_eq!(de.len(), en.len(), "German catalog must have full coverage");
+        for (key, english) in &en {
+            let german = de.get(key).expect("missing German audio-description entry");
+            assert!(!german.trim().is_empty(), "blank German entry: {key}");
+            let extract = |text: &str| -> Vec<String> {
+                let mut placeholders = Vec::new();
+                let mut rest = text;
+                while let Some(start) = rest.find('{') {
+                    rest = &rest[start + 1..];
+                    let Some(end) = rest.find('}') else { break };
+                    let label = &rest[..end];
+                    if !label.is_empty()
+                        && label.chars().all(|ch| ch.is_ascii_lowercase() || ch == '_')
+                    {
+                        placeholders.push(label.to_owned());
+                    }
+                    rest = &rest[end + 1..];
+                }
+                placeholders.sort();
+                placeholders
+            };
+            assert_eq!(extract(german), extract(english),
+                "German placeholders differ for {key}");
         }
     }
 

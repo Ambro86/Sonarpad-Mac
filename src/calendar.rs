@@ -109,6 +109,43 @@ pub(crate) fn labels(language: &str) -> CalendarLabels {
             not_available: "Non disponibile",
             system_calendar_error: "Impossibile aprire il Calendario del Mac: {err}",
         },
+        "de" => CalendarLabels {
+            menu: "Kalender",
+            title: "Kalender",
+            day: "Tag",
+            details: "Tagesdetails",
+            today: "Heute",
+            add_reminder: "Erinnerung hinzufügen",
+            open_system_calendar: "Mac-Kalender öffnen",
+            close: "Schließen",
+            reminder_title: "Neue Erinnerung",
+            reminder_text: "Text der Erinnerung",
+            time_mode: "Uhrzeit",
+            no_time: "Ohne Uhrzeit",
+            with_time: "Uhrzeit festlegen",
+            hour: "Stunde",
+            minute: "Minute",
+            alert: "Benachrichtigung",
+            alert_at_time: "Zum Zeitpunkt des Ereignisses",
+            alert_5_minutes: "5 Minuten vorher",
+            alert_15_minutes: "15 Minuten vorher",
+            alert_30_minutes: "30 Minuten vorher",
+            alert_1_hour: "1 Stunde vorher",
+            alert_1_day: "1 Tag vorher",
+            save: "Speichern",
+            cancel: "Abbrechen",
+            empty_text: "Geben Sie den Text der Erinnerung ein.",
+            invalid_time: "Die ausgewählte Uhrzeit ist ungültig.",
+            saved: "Erinnerung gespeichert und zum Mac-Kalender hinzugefügt.",
+            saved_local_only: "Erinnerung in Sonarpad gespeichert, konnte aber nicht zum Mac-Kalender hinzugefügt werden: {err}",
+            holiday: "Feiertag",
+            saint: "Heilige des Tages",
+            quote: "Zitat des Tages",
+            reminders: "Erinnerungen",
+            no_reminders: "Keine Erinnerungen",
+            not_available: "Nicht verfügbar",
+            system_calendar_error: "Der Mac-Kalender konnte nicht geöffnet werden: {err}",
+        },
         "fr" => CalendarLabels {
             menu: "Calendrier",
             title: "Calendrier",
@@ -447,6 +484,15 @@ pub(crate) fn localized_date(language: &str, date: NaiveDate) -> String {
         Weekday::Sat => 5,
         Weekday::Sun => 6,
     };
+    if language == "de" {
+        return format!(
+            "{}, {}. {} {}",
+            weekdays[weekday],
+            date.day(),
+            months[date.month0() as usize],
+            date.year()
+        );
+    }
     format!(
         "{} {} {} {}",
         weekdays[weekday],
@@ -566,11 +612,21 @@ fn calendar_data() -> &'static CalendarData {
 
 fn saint_for_date(language: &str, date: NaiveDate) -> Option<String> {
     let key = format!("{}-{}", date.day(), date.month());
-    calendar_data().saints.get(&key)?.get(language).cloned()
+    let names = calendar_data().saints.get(&key)?;
+    names
+        .get(language)
+        .or_else(|| if language == "de" { names.get("en") } else { None })
+        .cloned()
 }
 
 fn quote_for_date(language: &str, date: NaiveDate, fallback: &str) -> String {
-    let list = calendar_data().quotes.get(language);
+    let list = calendar_data().quotes.get(language).or_else(|| {
+        if language == "de" {
+            calendar_data().quotes.get("en")
+        } else {
+            None
+        }
+    });
     let Some(list) = list else {
         return fallback.to_string();
     };
@@ -591,6 +647,14 @@ fn quote_for_date(language: &str, date: NaiveDate, fallback: &str) -> String {
 
 fn holiday_for_date(language: &str, date: NaiveDate) -> Option<String> {
     let value = match language {
+        "de" => match (date.day(), date.month()) {
+            (1, 1) => "Neujahr",
+            (1, 5) => "Tag der Arbeit",
+            (3, 10) => "Tag der Deutschen Einheit",
+            (25, 12) => "1. Weihnachtstag",
+            (26, 12) => "2. Weihnachtstag",
+            _ => return None,
+        },
         "it" => match (date.day(), date.month()) {
             (1, 1) => "Capodanno",
             (6, 1) => "Epifania",
@@ -649,6 +713,15 @@ fn holiday_for_date(language: &str, date: NaiveDate) -> Option<String> {
 
 fn localized_names(language: &str) -> (&'static [&'static str; 7], &'static [&'static str; 12]) {
     match language {
+        "de" => (
+            &[
+                "Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag",
+            ],
+            &[
+                "Januar", "Februar", "März", "April", "Mai", "Juni", "Juli", "August",
+                "September", "Oktober", "November", "Dezember",
+            ],
+        ),
         "it" => (
             &[
                 "lunedì",

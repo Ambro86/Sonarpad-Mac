@@ -14,7 +14,8 @@ class AudioDescriptionLocalizationTests(unittest.TestCase):
         keys = set(re.findall(r'\btrf?\(\s*"([^"]+)"', source))
         catalogs = set(re.findall(r'include_str!\("\.\./(i18n/audio_description_[a-z]+\.json)"\)', source))
         self.assertTrue(keys)
-        self.assertEqual(len(catalogs), 7)
+        self.assertEqual(len(catalogs), 8)
+        self.assertIn("i18n/audio_description_de.json", catalogs)
         for path in sorted(catalogs):
             with self.subTest(catalog=path):
                 data = json.loads((ROOT / path).read_text(encoding="utf-8"))

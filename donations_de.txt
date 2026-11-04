@@ -1,0 +1,23 @@
+Spenden
+
+Sonarpad wurde ursprünglich für persönliche Bedürfnisse entwickelt, ist aber mit der Zeit immer umfangreicher geworden. Seine Weiterentwicklung erfordert fortlaufende Arbeit, um Funktionen zu verbessern, Fehler zu beheben, neue Ideen zu finden und alle Funktionen sorgfältig zu testen.
+Wenn Sie Sonarpad nützlich finden und seine Entwicklung unterstützen möchten, können Sie eine Spende leisten.
+
+PayPal
+Sie können über diesen Link mit PayPal spenden:
+https://www.paypal.me/ambrogio86
+Bitte geben Sie nach Möglichkeit „Sonarpad“ als Verwendungszweck an.
+
+Banküberweisung
+Sie können auch auf das Bankkonto von Ambrogio Riili überweisen.
+IBAN: IT77W0306901020100000064149
+Bitte verwenden Sie nach Möglichkeit einen eindeutigen Verwendungszweck, beispielsweise „Sonarpad“.
+
+Alle, die das Projekt unterstützen, werden im Programm und im GitHub-Repository genannt, sofern sie nicht anonym bleiben oder ein Pseudonym verwenden möchten.
+
+Vielen Dank an Jiri Holzinger und Paola Vagata für ihre Beiträge.
+Für die vietnamesische Übersetzung danken wir Anh Duc Nguyen.
+Für die tschechische Übersetzung danken wir Radek Zalud und Jiri Holzinger.
+Für die spanische Übersetzung danken wir Arturo Fernandez Rivas.
+Für die serbische Übersetzung danken wir Mila Kuran.
+Für die ukrainische Übersetzung danken wir Ivan Shtefuriak.

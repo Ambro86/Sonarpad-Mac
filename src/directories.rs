@@ -39,6 +39,34 @@ pub enum DirectoryKind {
 
 const KEY: &[u8] = b"mK9!vP2xL8#qT4zN7@rW1sY6dF0hJ3uBzUrL1BirM@|\\";
 
+// Translate the Directory/Yellow Pages dialogs independently of site data.
+// Do not translate fetched business names, addresses or search queries.
+fn directory_label(it: &'static str) -> &'static str {
+    if crate::normalize_ui_language(&Settings::load().ui_language) != "de" {
+        return it;
+    }
+    match it {
+        "Nessun risultato trovato." => "Keine Ergebnisse gefunden.",
+        "Ricerca Pagine Bianche/Gialle" => "Suche in den italienischen Telefonverzeichnissen",
+        "Risultati Ricerca" => "Suchergebnisse",
+        "Pagina Precedente" => "Vorherige Seite",
+        "Pagina Successiva" => "Nächste Seite",
+        "Apri" => "Öffnen",
+        "Chiudi" => "Schließen",
+        "Caricamento..." => "Wird geladen…",
+        "Ricerca in corso..." => "Suche läuft…",
+        "Recupero dettagli..." => "Details werden abgerufen…",
+        "Errore" => "Fehler",
+        "Categoria:" => "Kategorie:",
+        "Indirizzo:" => "Adresse:",
+        "Località:" => "Ort:",
+        "Numeri di telefono:" => "Telefonnummern:",
+        "Siti web:" => "Webseiten:",
+        "Scheda web:" => "Webeintrag:",
+        _ => it,
+    }
+}
+
 fn decode(encoded: &str) -> String {
     use base64::{Engine as _, engine::general_purpose};
     let bytes = general_purpose::STANDARD
@@ -427,7 +455,7 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
         body.push_str("\r\n\r\n");
     }
     if !category.is_empty() {
-        body.push_str(&format!("Categoria: {}\r\n\r\n", category));
+        body.push_str(&format!("{} {}\r\n\r\n", directory_label("Categoria:"), category));
     }
     let mut locality = String::new();
     if !city.is_empty() && !province.is_empty() {
@@ -439,7 +467,8 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
     }
 
     if !address.is_empty() {
-        body.push_str("Indirizzo:\r\n");
+        body.push_str(directory_label("Indirizzo:"));
+        body.push_str("\r\n");
         body.push_str(&address);
         body.push_str("\r\n");
         if !locality.is_empty() {
@@ -448,13 +477,15 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
         }
         body.push_str("\r\n");
     } else if !locality.is_empty() {
-        body.push_str("Località:\r\n");
+        body.push_str(directory_label("Località:"));
+        body.push_str("\r\n");
         body.push_str(&locality);
         body.push_str("\r\n\r\n");
     }
 
     if !phones.is_empty() {
-        body.push_str("Numeri di telefono:\r\n");
+        body.push_str(directory_label("Numeri di telefono:"));
+        body.push_str("\r\n");
         for p in &phones {
             body.push_str(p);
             body.push_str("\r\n");
@@ -472,7 +503,8 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
     }
 
     if !websites.is_empty() {
-        body.push_str("Siti web:\r\n");
+        body.push_str(directory_label("Siti web:"));
+        body.push_str("\r\n");
         for w in &websites {
             body.push_str(w);
             body.push_str("\r\n");
@@ -481,7 +513,8 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
     }
 
     if !public_url.is_empty() {
-        body.push_str("Scheda web:\r\n");
+        body.push_str(directory_label("Scheda web:"));
+        body.push_str("\r\n");
         body.push_str(&public_url);
         body.push_str("\r\n");
     }
@@ -506,8 +539,8 @@ pub fn show_directory_results(
     if response.results.is_empty() {
         let msg = MessageDialog::builder(
             parent,
-            "Nessun risultato trovato.",
-            "Ricerca Pagine Bianche/Gialle",
+            directory_label("Nessun risultato trovato."),
+            directory_label("Ricerca Pagine Bianche/Gialle"),
         )
         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
         .build();
@@ -516,7 +549,7 @@ pub fn show_directory_results(
         return;
     }
 
-    let dialog = Dialog::builder(parent, "Risultati Ricerca")
+    let dialog = Dialog::builder(parent, directory_label("Risultati Ricerca"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .with_size(600, 300)
         .build();
@@ -543,14 +576,14 @@ pub fn show_directory_results(
     let buttons = BoxSizer::builder(Orientation::Horizontal).build();
 
     let btn_prev = Button::builder(&panel)
-        .with_label("Pagina Precedente")
+        .with_label(directory_label("Pagina Precedente"))
         .build();
     let btn_next = Button::builder(&panel)
-        .with_label("Pagina Successiva")
+        .with_label(directory_label("Pagina Successiva"))
         .build();
-    let btn_open = Button::builder(&panel).with_label("Apri").build();
+    let btn_open = Button::builder(&panel).with_label(directory_label("Apri")).build();
     let btn_close = Button::builder(&panel)
-        .with_label("Chiudi")
+        .with_label(directory_label("Chiudi"))
         .with_id(ID_CANCEL)
         .build();
 
@@ -596,7 +629,7 @@ pub fn show_directory_results(
             };
 
             let progress =
-                ProgressDialog::builder(&p_clone, "Caricamento...", "Ricerca in corso...", 100)
+                ProgressDialog::builder(&p_clone, directory_label("Caricamento..."), directory_label("Ricerca in corso..."), 100)
                     .with_style(ProgressDialogStyle::Smooth)
                     .build();
 
@@ -627,7 +660,7 @@ pub fn show_directory_results(
                             );
                         }
                         Err(e) => {
-                            show_message_dialog(&p_clone, "Errore", &e);
+                            show_message_dialog(&p_clone, directory_label("Errore"), &e);
                         }
                     }
                     break;
@@ -636,7 +669,7 @@ pub fn show_directory_results(
                 if pv >= 95 {
                     pv = 10;
                 }
-                progress.update(pv, Some("Ricerca in corso..."));
+                progress.update(pv, Some(directory_label("Ricerca in corso...")));
             }
         }
     });
@@ -665,7 +698,7 @@ pub fn show_directory_results(
             let tc_clone = tc_main_c;
 
             let progress =
-                ProgressDialog::builder(&d_clone, "Caricamento...", "Recupero dettagli...", 100)
+                ProgressDialog::builder(&d_clone, directory_label("Caricamento..."), directory_label("Recupero dettagli..."), 100)
                     .with_style(ProgressDialogStyle::Smooth)
                     .build();
 
@@ -689,7 +722,7 @@ pub fn show_directory_results(
                             d_clone.end_modal(ID_OK);
                         }
                         Err(e) => {
-                            show_message_subdialog(&d_clone, "Errore", &e);
+                            show_message_subdialog(&d_clone, directory_label("Errore"), &e);
                         }
                     }
                     break;
@@ -698,7 +731,7 @@ pub fn show_directory_results(
                 if pv >= 95 {
                     pv = 10;
                 }
-                progress.update(pv, Some("Recupero dettagli..."));
+                progress.update(pv, Some(directory_label("Recupero dettagli...")));
             }
         }
     });

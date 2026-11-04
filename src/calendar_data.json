@@ -15,7 +15,8 @@
       "sv": "Jungfru Maria, Guds heliga moder",
       "lt": "Švenčiausioji Mergelė Marija, Dievo Motina",
       "zh": "天主之母至圣童贞玛利亚",
-      "hi": "परमपवित्र मरियम, ईश्वर की माता"
+      "hi": "परमपवित्र मरियम, ईश्वर की माता",
+      "de": "Hochfest der Gottesmutter Maria"
     },
     "2-1": {
       "it": "Santi Basilio Magno e Gregorio Nazianzeno",
@@ -32,7 +33,8 @@
       "sv": "De heliga Basilio den store och Gregorio Nazianzeno",
       "lt": "Šventieji Basilio Didysis ir Gregorio Nazianzeno",
       "zh": "圣人 Basilio大圣与Gregorio Nazianzeno",
-      "hi": "संतगण बसिलिऒ महान और ग्रॆगॊरिऒ नज़िअन्ज़ॆनॊ"
+      "hi": "संतगण बसिलिऒ महान और ग्रॆगॊरिऒ नज़िअन्ज़ॆनॊ",
+      "de": "Hll. Basilius der Große und Gregor von Nazianz"
     },
     "3-1": {
       "it": "Santissimo Nome di Gesù",
@@ -49,7 +51,8 @@
       "sv": "Jesu heliga namn",
       "lt": "Švenčiausiasis Jėzaus Vardas",
       "zh": "耶稣至圣圣名",
-      "hi": "यीशु का परमपवित्र नाम"
+      "hi": "यीशु का परमपवित्र नाम",
+      "de": "Heiligster Name Jesu"
     },
     "4-1": {
       "it": "Sant'Angela da Foligno",
@@ -66,7 +69,8 @@
       "sv": "Sankt Angela från Foligno",
       "lt": "Šventasis Angela iš Foligno",
       "zh": "圣 Angela·Foligno",
-      "hi": "संत अन्गॆल से फ़ॊलिग्नॊ"
+      "hi": "संत अन्गॆल से फ़ॊलिग्नॊ",
+      "de": "Hl. Angela von Foligno"
     },
     "5-1": {
       "it": "Sant' Amelia",
@@ -83,7 +87,8 @@
       "sv": "Sankt Amelia",
       "lt": "Šventasis Amelia",
       "zh": "圣 Amelia",
-      "hi": "संत अमॆलिअ"
+      "hi": "संत अमॆलिअ",
+      "de": "Hl. Amelia"
     },
     "6-1": {
       "it": "Epifania del Signore",
@@ -100,7 +105,8 @@
       "sv": "Herrens uppenbarelse",
       "lt": "Viešpaties Apsireiškimas",
       "zh": "主显节",
-      "hi": "प्रभु प्रकाश पर्व"
+      "hi": "प्रभु प्रकाश पर्व",
+      "de": "Erscheinung des Herrn (Heilige Drei Könige)"
     },
     "7-1": {
       "it": "San Raimondo de Penafort",
@@ -117,7 +123,8 @@
       "sv": "Sankt Raimondo av Penafort",
       "lt": "Šventasis Raimondo iš Penafort",
       "zh": "圣 雷蒙·Penafort",
-      "hi": "संत रैमॊंदॊ के पॆनफ़ॊर्त्"
+      "hi": "संत रैमॊंदॊ के पॆनफ़ॊर्त्",
+      "de": "Hl. Raimund von Penyafort"
     },
     "8-1": {
       "it": "San Massimo di Pavia",
@@ -134,7 +141,8 @@
       "sv": "Sankt Massimo av Pavia",
       "lt": "Šventasis Massimo iš Pavia",
       "zh": "圣 Massimo·Pavia",
-      "hi": "संत मषिमॊ के पविअ"
+      "hi": "संत मषिमॊ के पविअ",
+      "de": "Hl. Maximus von Pavia"
     },
     "9-1": {
       "it": "San Marcellino di Ancona",
@@ -151,7 +159,8 @@
       "sv": "Sankt Marcellino av Ancona",
       "lt": "Šventasis Marcellino iš Ancona",
       "zh": "圣 Marcellino·Ancona",
-      "hi": "संत मर्चॆल्लिनॊ के अन्चॊन"
+      "hi": "संत मर्चॆल्लिनॊ के अन्चॊन",
+      "de": "Hl. Marcellinus von Ancona"
     },
     "10-1": {
       "it": "Sant' Aldo",
@@ -168,7 +177,8 @@
       "sv": "Sankt Aldo",
       "lt": "Šventasis Aldo",
       "zh": "圣 Aldo",
-      "hi": "संत अल्दॊ"
+      "hi": "संत अल्दॊ",
+      "de": "Hl. Aldo"
     },
     "11-1": {
       "it": "Battesimo di Gesù",
@@ -185,7 +195,8 @@
       "sv": "Herrens dop",
       "lt": "Viešpaties Krikštas",
       "zh": "主受洗节",
-      "hi": "प्रभु के बपतिस्मा का पर्व"
+      "hi": "प्रभु के बपतिस्मा का पर्व",
+      "de": "Taufe des Herrn"
     },
     "12-1": {
       "it": "San Bernardo da Corleone",
@@ -202,7 +213,8 @@
       "sv": "Sankt Bernardo från Corleone",
       "lt": "Šventasis Bernardo iš Corleone",
       "zh": "圣 伯尔纳铎·Corleone",
-      "hi": "संत बॆर्नर्दॊ से चॊर्लॆऒनॆ"
+      "hi": "संत बॆर्नर्दॊ से चॊर्लॆऒनॆ",
+      "de": "Hl. Bernhard von Corleone"
     },
     "13-1": {
       "it": "Sant' Ilario di Poitiers",
@@ -219,7 +231,8 @@
       "sv": "Sankt Ilario av Poitiers",
       "lt": "Šventasis Ilario iš Poitiers",
       "zh": "圣 依拉略·Poitiers",
-      "hi": "संत इलरिऒ के पॊइतिऎर्स्"
+      "hi": "संत इलरिऒ के पॊइतिऎर्स्",
+      "de": "Hl. Hilarius von Poitiers"
     },
     "14-1": {
       "it": "San Felice da Nola",
@@ -236,7 +249,8 @@
       "sv": "Sankt Felice från Nola",
       "lt": "Šventasis Felice iš Nola",
       "zh": "圣 斐理斯·Nola",
-      "hi": "संत फ़ॆलिचॆ से नॊल"
+      "hi": "संत फ़ॆलिचॆ से नॊल",
+      "de": "Hl. Felix von Nola"
     },
     "15-1": {
       "it": "San Mauro",
@@ -253,7 +267,8 @@
       "sv": "Sankt Mauro",
       "lt": "Šventasis Mauro",
       "zh": "圣 毛禄",
-      "hi": "संत मौरॊ"
+      "hi": "संत मौरॊ",
+      "de": "Hl. Maurus"
     },
     "16-1": {
       "it": "San Marcello I",
@@ -270,7 +285,8 @@
       "sv": "Sankt Marcello I",
       "lt": "Šventasis Marcello I",
       "zh": "圣 玛尔切洛 I",
-      "hi": "संत मर्चॆल्लॊ I"
+      "hi": "संत मर्चॆल्लॊ I",
+      "de": "Hl. Marcellus I"
     },
     "17-1": {
       "it": "Sant' Antonio",
@@ -287,7 +303,8 @@
       "sv": "Sankt Antonio",
       "lt": "Šventasis Antonio",
       "zh": "圣 安多尼",
-      "hi": "संत अंतॊनिऒ"
+      "hi": "संत अंतॊनिऒ",
+      "de": "Hl. Antonius"
     },
     "18-1": {
       "it": "Santa Margherita d'Ungheria",
@@ -304,7 +321,8 @@
       "sv": "Sankta Margherita av Ungheria",
       "lt": "Šventoji Margherita iš Ungheria",
       "zh": "圣 玛加利大·Ungheria",
-      "hi": "संत मर्घॆरित के उन्घॆरिअ"
+      "hi": "संत मर्घॆरित के उन्घॆरिअ",
+      "de": "Hl. Margareta von Ungarn"
     },
     "19-1": {
       "it": "Santi Mario, Marta, Abaco e Audiface",
@@ -321,7 +339,8 @@
       "sv": "De heliga Mario, Marta, Abaco och Audiface",
       "lt": "Šventieji Mario, Marta, Abaco ir Audiface",
       "zh": "圣人 Mario, 玛尔大, Abaco与Audiface",
-      "hi": "संतगण मरिऒ, मर्त, अबचॊ और औदिफ़चॆ"
+      "hi": "संतगण मरिऒ, मर्त, अबचॊ और औदिफ़चॆ",
+      "de": "Hll. Marius, Martha, Audifax und Abachum"
     },
     "20-1": {
       "it": "Santi Sebastiano e Fabiano",
@@ -338,7 +357,8 @@
       "sv": "De heliga Sebastiano och Fabiano",
       "lt": "Šventieji Sebastiano ir Fabiano",
       "zh": "圣人 Sebastiano与Fabiano",
-      "hi": "संतगण सॆबस्तिअनॊ और फ़बिअनॊ"
+      "hi": "संतगण सॆबस्तिअनॊ और फ़बिअनॊ",
+      "de": "Hll. Sebastian und Fabian"
     },
     "21-1": {
       "it": "Sant' Agnese",
@@ -355,7 +375,8 @@
       "sv": "Sankt Agnese",
       "lt": "Šventasis Agnese",
       "zh": "圣 依搦斯",
-      "hi": "संत अग्नॆसॆ"
+      "hi": "संत अग्नॆसॆ",
+      "de": "Hl. Agnes"
     },
     "22-1": {
       "it": "San Vincenzo di Saragozza",
@@ -372,7 +393,8 @@
       "sv": "Sankt Vincenzo av Saragozza",
       "lt": "Šventasis Vincenzo iš Saragozza",
       "zh": "圣 味增爵·Saragozza",
-      "hi": "संत विन्चॆन्ज़ॊ के सरगॊज़्ज़"
+      "hi": "संत विन्चॆन्ज़ॊ के सरगॊज़्ज़",
+      "de": "Hl. Vinzenz von Saragossa"
     },
     "23-1": {
       "it": "Sposalizio di Maria e Giuseppe",
@@ -389,7 +411,8 @@
       "sv": "Marias och Josefs trolovning",
       "lt": "Marijos ir Juozapo sužadėtuvės",
       "zh": "圣母玛利亚与圣若瑟订婚纪念",
-      "hi": "मरियम और यूसुफ का विवाह-स्मरण"
+      "hi": "मरियम और यूसुफ का विवाह-स्मरण",
+      "de": "Vermählung Mariens mit Josef"
     },
     "24-1": {
       "it": "San Francesco di Sales",
@@ -406,7 +429,8 @@
       "sv": "Sankt Francesco av Sales",
       "lt": "Šventasis Francesco iš Sales",
       "zh": "圣 方济各·Sales",
-      "hi": "संत फ़्रन्चॆस्चॊ के सलॆस्"
+      "hi": "संत फ़्रन्चॆस्चॊ के सलॆस्",
+      "de": "Hl. Franz von Sales"
     },
     "25-1": {
       "it": "Conversione di San Paolo Apostolo",
@@ -423,7 +447,8 @@
       "sv": "Aposteln Paulus omvändelse",
       "lt": "Šventojo apaštalo Pauliaus atsivertimas",
       "zh": "圣保禄宗徒归化",
-      "hi": "संत पौलुस प्रेरित का मन-परिवर्तन"
+      "hi": "संत पौलुस प्रेरित का मन-परिवर्तन",
+      "de": "Bekehrung des Apostels Paulus"
     },
     "26-1": {
       "it": "Santi Timoteo e Tito",
@@ -440,7 +465,8 @@
       "sv": "De heliga Timoteo och Tito",
       "lt": "Šventieji Timoteo ir Tito",
       "zh": "圣人 Timoteo与Tito",
-      "hi": "संतगण तिमॊतॆऒ और तितॊ"
+      "hi": "संतगण तिमॊतॆऒ और तितॊ",
+      "de": "Hll. Timotheus und Titus"
     },
     "27-1": {
       "it": "Sant' Angela Merici",
@@ -457,7 +483,8 @@
       "sv": "Sankt Angela Merici",
       "lt": "Šventasis Angela Merici",
       "zh": "圣 Angela Merici",
-      "hi": "संत अन्गॆल मॆरिचि"
+      "hi": "संत अन्गॆल मॆरिचि",
+      "de": "Hl. Angela Merici"
     },
     "28-1": {
       "it": "San Tommaso d'Aquino",
@@ -474,7 +501,8 @@
       "sv": "Sankt Tommaso av Aquino",
       "lt": "Šventasis Tommaso iš Aquino",
       "zh": "圣 多默·Aquino",
-      "hi": "संत तॊंमसॊ के अक़ुइनॊ"
+      "hi": "संत तॊंमसॊ के अक़ुइनॊ",
+      "de": "Hl. Thomas von Aquin"
     },
     "29-1": {
       "it": "San Costanzo di Perugia",
@@ -491,7 +519,8 @@
       "sv": "Sankt Costanzo av Perugia",
       "lt": "Šventasis Costanzo iš Perugia",
       "zh": "圣 Costanzo·Perugia",
-      "hi": "संत चॊस्तन्ज़ॊ के पॆरुगिअ"
+      "hi": "संत चॊस्तन्ज़ॊ के पॆरुगिअ",
+      "de": "Hl. Constantius von Perugia"
     },
     "30-1": {
       "it": "Santa Martina",
@@ -508,7 +537,8 @@
       "sv": "Sankta Martina",
       "lt": "Šventoji Martina",
       "zh": "圣 Martina",
-      "hi": "संत मर्तिन"
+      "hi": "संत मर्तिन",
+      "de": "Hl. Martina"
     },
     "31-1": {
       "it": "San Giovanni Bosco",
@@ -525,7 +555,8 @@
       "sv": "Sankt Giovanni Bosco",
       "lt": "Šventasis Giovanni Bosco",
       "zh": "圣 若望 Bosco",
-      "hi": "संत गिऒवंनि बॊस्चॊ"
+      "hi": "संत गिऒवंनि बॊस्चॊ",
+      "de": "Hl. Johannes Bosco"
     },
     "1-2": {
       "it": "Santa Brigida d'Irlanda",
@@ -542,7 +573,8 @@
       "sv": "Sankta Brigida av Irlanda",
       "lt": "Šventoji Brigida iš Irlanda",
       "zh": "圣 彼济达·Irlanda",
-      "hi": "संत ब्रिगिद के इर्लंद"
+      "hi": "संत ब्रिगिद के इर्लंद",
+      "de": "Hl. Birgitta von Irland"
     },
     "2-2": {
       "it": "Presentazione del Signore",
@@ -559,7 +591,8 @@
       "sv": "Herrens frambärande i templet",
       "lt": "Kristaus Paaukojimas",
       "zh": "献主节",
-      "hi": "मंदिर में प्रभु के समर्पण का पर्व"
+      "hi": "मंदिर में प्रभु के समर्पण का पर्व",
+      "de": "Darstellung des Herrn (Mariä Lichtmess)"
     },
     "3-2": {
       "it": "San Biagio",
@@ -576,7 +609,8 @@
       "sv": "Sankt Biagio",
       "lt": "Šventasis Biagio",
       "zh": "圣 伯拉削",
-      "hi": "संत बिअगिऒ"
+      "hi": "संत बिअगिऒ",
+      "de": "Hl. Blasius"
     },
     "4-2": {
       "it": "San Giuseppe da Leonessa",
@@ -593,7 +627,8 @@
       "sv": "Sankt Giuseppe från Leonessa",
       "lt": "Šventasis Giuseppe iš Leonessa",
       "zh": "圣 若瑟·Leonessa",
-      "hi": "संत गिउसॆप्पॆ से लॆऒनॆष"
+      "hi": "संत गिउसॆप्पॆ से लॆऒनॆष",
+      "de": "Hl. Josef von Leonessa"
     },
     "5-2": {
       "it": "Sant' Agata",
@@ -610,7 +645,8 @@
       "sv": "Sankt Agata",
       "lt": "Šventasis Agata",
       "zh": "圣 亚加大",
-      "hi": "संत अगत"
+      "hi": "संत अगत",
+      "de": "Hl. Agatha"
     },
     "6-2": {
       "it": "San Paolo Miki e compagni",
@@ -627,7 +663,8 @@
       "sv": "Sankt Paolo Miki och följeslagare",
       "lt": "Šventasis Paolo Miki ir bendražygiai",
       "zh": "圣 保禄 Miki与同伴",
-      "hi": "संत पॊलॊ मिकि और साथी"
+      "hi": "संत पॊलॊ मिकि और साथी",
+      "de": "Hl. Paul Miki und Gefährten"
     },
     "7-2": {
       "it": "San Riccardo",
@@ -644,7 +681,8 @@
       "sv": "Sankt Riccardo",
       "lt": "Šventasis Riccardo",
       "zh": "圣 Riccardo",
-      "hi": "संत रिच्चर्दॊ"
+      "hi": "संत रिच्चर्दॊ",
+      "de": "Hl. Richard"
     },
     "8-2": {
       "it": "San Girolamo Emiliani",
@@ -661,7 +699,8 @@
       "sv": "Sankt Girolamo Emiliani",
       "lt": "Šventasis Girolamo Emiliani",
       "zh": "圣 热罗尼莫 Emiliani",
-      "hi": "संत गिरॊलमॊ ऎमिलिअनि"
+      "hi": "संत गिरॊलमॊ ऎमिलिअनि",
+      "de": "Hl. Hieronymus Emiliani"
     },
     "9-2": {
       "it": "Sant' Apollonia",
@@ -678,7 +717,8 @@
       "sv": "Sankt Apollonia",
       "lt": "Šventasis Apollonia",
       "zh": "圣 Apollonia",
-      "hi": "संत अपॊल्लॊनिअ"
+      "hi": "संत अपॊल्लॊनिअ",
+      "de": "Hl. Apollonia"
     },
     "10-2": {
       "it": "Santa Scolastica",
@@ -695,7 +735,8 @@
       "sv": "Sankta Scolastica",
       "lt": "Šventoji Scolastica",
       "zh": "圣 思嘉",
-      "hi": "संत स्चॊलस्तिच"
+      "hi": "संत स्चॊलस्तिच",
+      "de": "Hl. Scholastika"
     },
     "11-2": {
       "it": "Beata Vergine Maria di Lourdes",
@@ -712,7 +753,8 @@
       "sv": "Jungfru Maria di Lourdes",
       "lt": "Švenčiausioji Mergelė Marija di Lourdes",
       "zh": "荣福童贞玛利亚 di Lourdes",
-      "hi": "धन्य कुँवारी मरियम दि लॊउर्दॆस्"
+      "hi": "धन्य कुँवारी मरियम दि लॊउर्दॆस्",
+      "de": "Unsere Liebe Frau von Lourdes"
     },
     "12-2": {
       "it": "Santi Martiri di Abitina",
@@ -729,7 +771,8 @@
       "sv": "De heliga Martiri av Abitina",
       "lt": "Šventieji Martiri iš Abitina",
       "zh": "圣人 Martiri·Abitina",
-      "hi": "संतगण मर्तिरि के अबितिन"
+      "hi": "संतगण मर्तिरि के अबितिन",
+      "de": "Hll. Märtyrer von Abitina"
     },
     "13-2": {
       "it": "Sante Fosca e Maura",
@@ -746,7 +789,8 @@
       "sv": "De heliga Fosca och Maura",
       "lt": "Šventosios Fosca ir Maura",
       "zh": "圣女 Fosca与Maura",
-      "hi": "संतगण फ़ॊस्च और मौर"
+      "hi": "संतगण फ़ॊस्च और मौर",
+      "de": "Hll. Fosca und Maura"
     },
     "14-2": {
       "it": "San Valentino",
@@ -763,7 +807,8 @@
       "sv": "Sankt Valentino",
       "lt": "Šventasis Valentino",
       "zh": "圣 华伦定",
-      "hi": "संत वलॆंतिनॊ"
+      "hi": "संत वलॆंतिनॊ",
+      "de": "Hl. Valentino"
     },
     "15-2": {
       "it": "Santi Faustino e Giovita",
@@ -780,7 +825,8 @@
       "sv": "De heliga Faustino och Giovita",
       "lt": "Šventieji Faustino ir Giovita",
       "zh": "圣人 Faustino与Giovita",
-      "hi": "संतगण फ़ौस्तिनॊ और गिऒवित"
+      "hi": "संतगण फ़ौस्तिनॊ और गिऒवित",
+      "de": "Hll. Faustinus und Jovita"
     },
     "16-2": {
       "it": "Santa Giuliana di Nicomedia",
@@ -797,7 +843,8 @@
       "sv": "Sankta Giuliana av Nicomedia",
       "lt": "Šventoji Giuliana iš Nicomedia",
       "zh": "圣 Giuliana·Nicomedia",
-      "hi": "संत गिउलिअन के निचॊमॆदिअ"
+      "hi": "संत गिउलिअन के निचॊमॆदिअ",
+      "de": "Hl. Juliana von Nikomedia"
     },
     "17-2": {
       "it": "Santi Sette Fondatori dell'Ordine dei Servi di Maria",
@@ -814,7 +861,8 @@
       "sv": "De heliga Sette Fondatori av Ordine dei Servi av Maria",
       "lt": "Šventieji Sette Fondatori iš Ordine dei Servi iš Maria",
       "zh": "圣人 Sette Fondatori·Ordine dei Servi·玛利亚",
-      "hi": "संतगण सॆत्तॆ फ़ॊंदतॊरि के ऒर्दिनॆ दॆइ सॆर्वि के मरिअ"
+      "hi": "संतगण सॆत्तॆ फ़ॊंदतॊरि के ऒर्दिनॆ दॆइ सॆर्वि के मरिअ",
+      "de": "Die sieben heiligen Gründer des Servitenordens"
     },
     "18-2": {
       "it": "Sacre Ceneri",
@@ -831,7 +879,8 @@
       "sv": "Askonsdagen",
       "lt": "Pelenų trečiadienis",
       "zh": "圣灰礼仪星期三",
-      "hi": "राख बुधवार"
+      "hi": "राख बुधवार",
+      "de": "Aschermittwoch"
     },
     "19-2": {
       "it": "San Corrado Confalonieri",
@@ -848,7 +897,8 @@
       "sv": "Sankt Corrado Confalonieri",
       "lt": "Šventasis Corrado Confalonieri",
       "zh": "圣 Corrado Confalonieri",
-      "hi": "संत चॊर्रदॊ चॊन्फ़लॊनिऎरि"
+      "hi": "संत चॊर्रदॊ चॊन्फ़लॊनिऎरि",
+      "de": "Hl. Konrad von Piacenza"
     },
     "20-2": {
       "it": "Santa Giacinta Marto",
@@ -865,7 +915,8 @@
       "sv": "Sankta Giacinta Marto",
       "lt": "Šventoji Giacinta Marto",
       "zh": "圣 雅钦达 Marto",
-      "hi": "संत गिअचिंत मर्तॊ"
+      "hi": "संत गिअचिंत मर्तॊ",
+      "de": "Hl. Jacinta Marto"
     },
     "21-2": {
       "it": "Sant' Eleonora",
@@ -882,7 +933,8 @@
       "sv": "Sankt Eleonora",
       "lt": "Šventasis Eleonora",
       "zh": "圣 Eleonora",
-      "hi": "संत ऎलॆऒनॊर"
+      "hi": "संत ऎलॆऒनॊर",
+      "de": "Hl. Eleonore"
     },
     "22-2": {
       "it": "Cattedra di San Pietro Apostolo",
@@ -899,7 +951,8 @@
       "sv": "Aposteln Petrus biskopsstol",
       "lt": "Šventojo apaštalo Petro Sostas",
       "zh": "建立圣伯多禄宗座",
-      "hi": "संत पेत्रुस प्रेरित का धर्मासन"
+      "hi": "संत पेत्रुस प्रेरित का धर्मासन",
+      "de": "Kathedra Petri"
     },
     "23-2": {
       "it": "San Policarpo",
@@ -916,7 +969,8 @@
       "sv": "Sankt Policarpo",
       "lt": "Šventasis Policarpo",
       "zh": "圣 Policarpo",
-      "hi": "संत पॊलिचर्पॊ"
+      "hi": "संत पॊलिचर्पॊ",
+      "de": "Hl. Polykarp"
     },
     "24-2": {
       "it": "Sant' Etelberto",
@@ -933,7 +987,8 @@
       "sv": "Sankt Etelberto",
       "lt": "Šventasis Etelberto",
       "zh": "圣 Etelberto",
-      "hi": "संत ऎतॆल्बॆर्तॊ"
+      "hi": "संत ऎतॆल्बॆर्तॊ",
+      "de": "Hl. Æthelberht"
     },
     "25-2": {
       "it": "San Gerlando di Agrigento",
@@ -950,7 +1005,8 @@
       "sv": "Sankt Gerlando av Agrigento",
       "lt": "Šventasis Gerlando iš Agrigento",
       "zh": "圣 Gerlando·Agrigento",
-      "hi": "संत गॆर्लंदॊ के अग्रिगॆंतॊ"
+      "hi": "संत गॆर्लंदॊ के अग्रिगॆंतॊ",
+      "de": "Hl. Gerlandus von Agrigent"
     },
     "26-2": {
       "it": "Sant' Alessandro di Alessandria",
@@ -967,7 +1023,8 @@
       "sv": "Sankt Alessandro av Alessandria",
       "lt": "Šventasis Alessandro iš Alessandria",
       "zh": "圣 亚历山大·Alessandria",
-      "hi": "संत अलॆषंद्रॊ के अलॆषंद्रिअ"
+      "hi": "संत अलॆषंद्रॊ के अलॆषंद्रिअ",
+      "de": "Hl. Alexander von Alexandria"
     },
     "27-2": {
       "it": "San Gabriele dell'Addolorata",
@@ -984,7 +1041,8 @@
       "sv": "Sankt Gabriele av Addolorata",
       "lt": "Šventasis Gabriele iš Addolorata",
       "zh": "圣 加俾额尔·Addolorata",
-      "hi": "संत गब्रिऎलॆ के अद्दॊलॊरत"
+      "hi": "संत गब्रिऎलॆ के अद्दॊलॊरत",
+      "de": "Hl. Gabriel von den Schmerzen Mariens"
     },
     "28-2": {
       "it": "San Romano di Condat",
@@ -1001,7 +1059,8 @@
       "sv": "Sankt Romano av Condat",
       "lt": "Šventasis Romano iš Condat",
       "zh": "圣 Romano·Condat",
-      "hi": "संत रॊमनॊ के चॊंदत्"
+      "hi": "संत रॊमनॊ के चॊंदत्",
+      "de": "Hl. Romanus von Condat"
     },
     "1-3": {
       "it": "Sant' Albino di Angers",
@@ -1018,7 +1077,8 @@
       "sv": "Sankt Albino av Angers",
       "lt": "Šventasis Albino iš Angers",
       "zh": "圣 Albino·Angers",
-      "hi": "संत अल्बिनॊ के अन्गॆर्स्"
+      "hi": "संत अल्बिनॊ के अन्गॆर्स्",
+      "de": "Hl. Albinus von Angers"
     },
     "2-3": {
       "it": "Sant' Agnese di Boemia",
@@ -1035,7 +1095,8 @@
       "sv": "Sankt Agnese av Boemia",
       "lt": "Šventasis Agnese iš Boemia",
       "zh": "圣 依搦斯·Boemia",
-      "hi": "संत अग्नॆसॆ के बॊऎमिअ"
+      "hi": "संत अग्नॆसॆ के बॊऎमिअ",
+      "de": "Hl. Agnes von Böhmen"
     },
     "3-3": {
       "it": "Santa Cunegonda",
@@ -1052,7 +1113,8 @@
       "sv": "Sankta Cunegonda",
       "lt": "Šventoji Cunegonda",
       "zh": "圣 Cunegonda",
-      "hi": "संत चुनॆगॊंद"
+      "hi": "संत चुनॆगॊंद",
+      "de": "Hl. Kunigunde"
     },
     "4-3": {
       "it": "San Casimiro",
@@ -1069,7 +1131,8 @@
       "sv": "Sankt Casimiro",
       "lt": "Šventasis Casimiro",
       "zh": "圣 Casimiro",
-      "hi": "संत चसिमिरॊ"
+      "hi": "संत चसिमिरॊ",
+      "de": "Hl. Kasimir"
     },
     "5-3": {
       "it": "Sant' Adriano di Cesarea",
@@ -1086,7 +1149,8 @@
       "sv": "Sankt Adriano av Cesarea",
       "lt": "Šventasis Adriano iš Cesarea",
       "zh": "圣 Adriano·Cesarea",
-      "hi": "संत अद्रिअनॊ के चॆसरॆअ"
+      "hi": "संत अद्रिअनॊ के चॆसरॆअ",
+      "de": "Hl. Adrian von Caesarea"
     },
     "6-3": {
       "it": "Santa Rosa da Viterbo",
@@ -1103,7 +1167,8 @@
       "sv": "Sankta Rosa från Viterbo",
       "lt": "Šventoji Rosa iš Viterbo",
       "zh": "圣 Rosa·Viterbo",
-      "hi": "संत रॊस से वितॆर्बॊ"
+      "hi": "संत रॊस से वितॆर्बॊ",
+      "de": "Hl. Rosa von Viterbo"
     },
     "7-3": {
       "it": "Sante Perpetua e Felicita",
@@ -1120,7 +1185,8 @@
       "sv": "De heliga Perpetua och Felicita",
       "lt": "Šventosios Perpetua ir Felicita",
       "zh": "圣女 Perpetua与Felicita",
-      "hi": "संतगण पॆर्पॆतुअ और फ़ॆलिचित"
+      "hi": "संतगण पॆर्पॆतुअ और फ़ॆलिचित",
+      "de": "Hll. Perpetua und Felizitas"
     },
     "8-3": {
       "it": "San Giovanni di Dio",
@@ -1137,7 +1203,8 @@
       "sv": "Sankt Giovanni av Dio",
       "lt": "Šventasis Giovanni iš Dio",
       "zh": "圣 若望·Dio",
-      "hi": "संत गिऒवंनि के दिऒ"
+      "hi": "संत गिऒवंनि के दिऒ",
+      "de": "Hl. Johannes von Gott"
     },
     "9-3": {
       "it": "Santa Francesca Romana",
@@ -1154,7 +1221,8 @@
       "sv": "Sankta Francesca Romana",
       "lt": "Šventoji Francesca Romana",
       "zh": "圣 方济加 Romana",
-      "hi": "संत फ़्रन्चॆस्च रॊमन"
+      "hi": "संत फ़्रन्चॆस्च रॊमन",
+      "de": "Hl. Franziska von Rom"
     },
     "10-3": {
       "it": "San Macario di Gerusalemme",
@@ -1171,7 +1239,8 @@
       "sv": "Sankt Macario av Gerusalemme",
       "lt": "Šventasis Macario iš Gerusalemme",
       "zh": "圣 Macario·Gerusalemme",
-      "hi": "संत मचरिऒ के गॆरुसलॆंमॆ"
+      "hi": "संत मचरिऒ के गॆरुसलॆंमॆ",
+      "de": "Hl. Makarius von Jerusalem"
     },
     "11-3": {
       "it": "San Costantino",
@@ -1188,7 +1257,8 @@
       "sv": "Sankt Costantino",
       "lt": "Šventasis Costantino",
       "zh": "圣 Costantino",
-      "hi": "संत चॊस्तंतिनॊ"
+      "hi": "संत चॊस्तंतिनॊ",
+      "de": "Hl. Konstantin"
     },
     "12-3": {
       "it": "San Luigi Orione",
@@ -1205,7 +1275,8 @@
       "sv": "Sankt Luigi Orione",
       "lt": "Šventasis Luigi Orione",
       "zh": "圣 类思 Orione",
-      "hi": "संत लुइगि ऒरिऒनॆ"
+      "hi": "संत लुइगि ऒरिऒनॆ",
+      "de": "Hl. Luigi Orione"
     },
     "13-3": {
       "it": "San Rodrigo di Cordova",
@@ -1222,7 +1293,8 @@
       "sv": "Sankt Rodrigo av Cordova",
       "lt": "Šventasis Rodrigo iš Cordova",
       "zh": "圣 Rodrigo·Cordova",
-      "hi": "संत रॊद्रिगॊ के चॊर्दॊव"
+      "hi": "संत रॊद्रिगॊ के चॊर्दॊव",
+      "de": "Hl. Roderich von Córdoba"
     },
     "14-3": {
       "it": "Santa Matilde di Germania",
@@ -1239,7 +1311,8 @@
       "sv": "Sankta Matilde av Germania",
       "lt": "Šventoji Matilde iš Germania",
       "zh": "圣 玛蒂尔达·Germania",
-      "hi": "संत मतिल्दॆ के गॆर्मनिअ"
+      "hi": "संत मतिल्दॆ के गॆर्मनिअ",
+      "de": "Hl. Mathilde von Deutschland"
     },
     "15-3": {
       "it": "Santa Luisa de Marillac",
@@ -1256,7 +1329,8 @@
       "sv": "Sankta Luisa av Marillac",
       "lt": "Šventoji Luisa iš Marillac",
       "zh": "圣 Luisa·Marillac",
-      "hi": "संत लुइस के मरिल्लच्"
+      "hi": "संत लुइस के मरिल्लच्",
+      "de": "Hl. Luise von Marillac"
     },
     "16-3": {
       "it": "Sant' Eriberto di Colonia",
@@ -1273,7 +1347,8 @@
       "sv": "Sankt Eriberto av Colonia",
       "lt": "Šventasis Eriberto iš Colonia",
       "zh": "圣 Eriberto·Colonia",
-      "hi": "संत ऎरिबॆर्तॊ के चॊलॊनिअ"
+      "hi": "संत ऎरिबॆर्तॊ के चॊलॊनिअ",
+      "de": "Hl. Heribert von Köln"
     },
     "17-3": {
       "it": "San Patrizio",
@@ -1290,7 +1365,8 @@
       "sv": "Sankt Patrizio",
       "lt": "Šventasis Patrizio",
       "zh": "圣 巴特利爵",
-      "hi": "संत पत्रिज़िऒ"
+      "hi": "संत पत्रिज़िऒ",
+      "de": "Hl. Patrick"
     },
     "18-3": {
       "it": "San Cirillo di Gerusalemme",
@@ -1307,7 +1383,8 @@
       "sv": "Sankt Cirillo av Gerusalemme",
       "lt": "Šventasis Cirillo iš Gerusalemme",
       "zh": "圣 济利禄·Gerusalemme",
-      "hi": "संत चिरिल्लॊ के गॆरुसलॆंमॆ"
+      "hi": "संत चिरिल्लॊ के गॆरुसलॆंमॆ",
+      "de": "Hl. Kyrill von Jerusalem"
     },
     "19-3": {
       "it": "San Giuseppe",
@@ -1324,7 +1401,8 @@
       "sv": "Sankt Giuseppe",
       "lt": "Šventasis Giuseppe",
       "zh": "圣 若瑟",
-      "hi": "संत गिउसॆप्पॆ"
+      "hi": "संत गिउसॆप्पॆ",
+      "de": "Hl. Josef"
     },
     "20-3": {
       "it": "Sant' Alessandra di Amiso e compagne",
@@ -1341,7 +1419,8 @@
       "sv": "Sankt Alessandra av Amiso och följeslagare",
       "lt": "Šventasis Alessandra iš Amiso ir bendražygės",
       "zh": "圣 Alessandra·Amiso与女同伴",
-      "hi": "संत अलॆषंद्र के अमिसॊ और सहचरियाँ"
+      "hi": "संत अलॆषंद्र के अमिसॊ और सहचरियाँ",
+      "de": "Hl. Alexandra von Amisos und Gefährtinnen"
     },
     "21-3": {
       "it": "San Serapione di Thmuis",
@@ -1358,7 +1437,8 @@
       "sv": "Sankt Serapione av Thmuis",
       "lt": "Šventasis Serapione iš Thmuis",
       "zh": "圣 Serapione·Thmuis",
-      "hi": "संत सॆरपिऒनॆ के थ्मुइस्"
+      "hi": "संत सॆरपिऒनॆ के थ्मुइस्",
+      "de": "Hl. Serapion von Thmuis"
     },
     "22-3": {
       "it": "Santa Lea di Roma",
@@ -1375,7 +1455,8 @@
       "sv": "Sankta Lea av Roma",
       "lt": "Šventoji Lea iš Roma",
       "zh": "圣 Lea·Roma",
-      "hi": "संत लॆअ के रॊम"
+      "hi": "संत लॆअ के रॊम",
+      "de": "Hl. Lea von Rom"
     },
     "23-3": {
       "it": "San Turibio de Mogrovejo",
@@ -1392,7 +1473,8 @@
       "sv": "Sankt Turibio av Mogrovejo",
       "lt": "Šventasis Turibio iš Mogrovejo",
       "zh": "圣 Turibio·Mogrovejo",
-      "hi": "संत तुरिबिऒ के मॊग्रॊवॆजॊ"
+      "hi": "संत तुरिबिऒ के मॊग्रॊवॆजॊ",
+      "de": "Hl. Turibius von Mogrovejo"
     },
     "24-3": {
       "it": "Santa Caterina di Svezia",
@@ -1409,7 +1491,8 @@
       "sv": "Sankta Caterina av Svezia",
       "lt": "Šventoji Caterina iš Svezia",
       "zh": "圣 加大利纳·Svezia",
-      "hi": "संत चतॆरिन के स्वॆज़िअ"
+      "hi": "संत चतॆरिन के स्वॆज़िअ",
+      "de": "Hl. Katharina von Schweden"
     },
     "25-3": {
       "it": "Annunciazione del Signore",
@@ -1426,7 +1509,8 @@
       "sv": "Herrens bebådelse",
       "lt": "Viešpaties Apreiškimas",
       "zh": "预报救主降生节",
-      "hi": "प्रभु के शुभसंदेश का पर्व"
+      "hi": "प्रभु के शुभसंदेश का पर्व",
+      "de": "Verkündigung des Herrn"
     },
     "26-3": {
       "it": "Sant' Emanuele",
@@ -1443,7 +1527,8 @@
       "sv": "Sankt Emanuele",
       "lt": "Šventasis Emanuele",
       "zh": "圣 Emanuele",
-      "hi": "संत ऎमनुऎलॆ"
+      "hi": "संत ऎमनुऎलॆ",
+      "de": "Hl. Emanuel"
     },
     "27-3": {
       "it": "San Ruperto",
@@ -1460,7 +1545,8 @@
       "sv": "Sankt Ruperto",
       "lt": "Šventasis Ruperto",
       "zh": "圣 Ruperto",
-      "hi": "संत रुपॆर्तॊ"
+      "hi": "संत रुपॆर्तॊ",
+      "de": "Hl. Rupert"
     },
     "28-3": {
       "it": "Santo Stefano Harding",
@@ -1477,7 +1563,8 @@
       "sv": "Sankt Stefano Harding",
       "lt": "Šventasis Stefano Harding",
       "zh": "圣 斯德望 Harding",
-      "hi": "संत स्तॆफ़नॊ हर्दिन्ग्"
+      "hi": "संत स्तॆफ़नॊ हर्दिन्ग्",
+      "de": "Hl. Stephan Harding"
     },
     "29-3": {
       "it": "Domenica delle Palme",
@@ -1494,7 +1581,8 @@
       "sv": "Palmsöndagen",
       "lt": "Verbų sekmadienis",
       "zh": "圣枝主日",
-      "hi": "खजूर रविवार"
+      "hi": "खजूर रविवार",
+      "de": "Palmsonntag"
     },
     "30-3": {
       "it": "Beato Amedeo IX di Savoia",
@@ -1511,7 +1599,8 @@
       "sv": "Salige Amedeo IX av Savoia",
       "lt": "Palaimintasis Amedeo IX iš Savoia",
       "zh": "真福 Amedeo IX·Savoia",
-      "hi": "धन्य अमॆदॆऒ IX के सवॊइअ"
+      "hi": "धन्य अमॆदॆऒ IX के सवॊइअ",
+      "de": "Sel. Amadeus IX von Savoyen"
     },
     "31-3": {
       "it": "San Beniamino",
@@ -1528,7 +1617,8 @@
       "sv": "Sankt Beniamino",
       "lt": "Šventasis Beniamino",
       "zh": "圣 Beniamino",
-      "hi": "संत बॆनिअमिनॊ"
+      "hi": "संत बॆनिअमिनॊ",
+      "de": "Hl. Benjamin"
     },
     "1-4": {
       "it": "Sant' Ugo di Grenoble",
@@ -1545,7 +1635,8 @@
       "sv": "Sankt Ugo av Grenoble",
       "lt": "Šventasis Ugo iš Grenoble",
       "zh": "圣 Ugo·Grenoble",
-      "hi": "संत उगॊ के ग्रॆनॊब्लॆ"
+      "hi": "संत उगॊ के ग्रॆनॊब्लॆ",
+      "de": "Hl. Hugo von Grenoble"
     },
     "2-4": {
       "it": "Giovedì Santo",
@@ -1562,7 +1653,8 @@
       "sv": "Skärtorsdagen",
       "lt": "Didysis ketvirtadienis",
       "zh": "圣周四",
-      "hi": "पवित्र गुरुवार"
+      "hi": "पवित्र गुरुवार",
+      "de": "Gründonnerstag"
     },
     "3-4": {
       "it": "Venerdì Santo",
@@ -1579,7 +1671,8 @@
       "sv": "Långfredagen",
       "lt": "Didysis penktadienis",
       "zh": "圣周五",
-      "hi": "पवित्र शुक्रवार"
+      "hi": "पवित्र शुक्रवार",
+      "de": "Karfreitag"
     },
     "4-4": {
       "it": "Sabato Santo",
@@ -1596,7 +1689,8 @@
       "sv": "Påskafton",
       "lt": "Didysis šeštadienis",
       "zh": "圣周六",
-      "hi": "पवित्र शनिवार"
+      "hi": "पवित्र शनिवार",
+      "de": "Karsamstag"
     },
     "5-4": {
       "it": "Domenica di Pasqua",
@@ -1613,7 +1707,8 @@
       "sv": "Påskdagen",
       "lt": "Velykų sekmadienis",
       "zh": "复活节主日",
-      "hi": "पास्का रविवार"
+      "hi": "पास्का रविवार",
+      "de": "Ostersonntag"
     },
     "6-4": {
       "it": "San Pietro da Verona",
@@ -1630,7 +1725,8 @@
       "sv": "Sankt Pietro från Verona",
       "lt": "Šventasis Pietro iš Verona",
       "zh": "圣 伯多禄·Verona",
-      "hi": "संत पिऎत्रॊ से वॆरॊन"
+      "hi": "संत पिऎत्रॊ से वॆरॊन",
+      "de": "Hl. Petrus von Verona"
     },
     "7-4": {
       "it": "San Giovanni Battista de La Salle",
@@ -1647,7 +1743,8 @@
       "sv": "Sankt Giovanni Battista av La Salle",
       "lt": "Šventasis Giovanni Battista iš La Salle",
       "zh": "圣 若望 Battista·La Salle",
-      "hi": "संत गिऒवंनि बत्तिस्त के ल सल्लॆ"
+      "hi": "संत गिऒवंनि बत्तिस्त के ल सल्लॆ",
+      "de": "Hl. Johannes Baptist de La Salle"
     },
     "8-4": {
       "it": "San Dionigi di Corinto",
@@ -1664,7 +1761,8 @@
       "sv": "Sankt Dionigi av Corinto",
       "lt": "Šventasis Dionigi iš Corinto",
       "zh": "圣 Dionigi·Corinto",
-      "hi": "संत दिऒनिगि के चॊरिंतॊ"
+      "hi": "संत दिऒनिगि के चॊरिंतॊ",
+      "de": "Hl. Dionysius von Korinth"
     },
     "9-4": {
       "it": "San Demetrio di Tessalonica",
@@ -1681,7 +1779,8 @@
       "sv": "Sankt Demetrio av Tessalonica",
       "lt": "Šventasis Demetrio iš Tessalonica",
       "zh": "圣 Demetrio·Tessalonica",
-      "hi": "संत दॆमॆत्रिऒ के तॆषलॊनिच"
+      "hi": "संत दॆमॆत्रिऒ के तॆषलॊनिच",
+      "de": "Hl. Demetrius von Thessaloniki"
     },
     "10-4": {
       "it": "Santa Maddalena di Canossa",
@@ -1698,7 +1797,8 @@
       "sv": "Sankta Maddalena av Canossa",
       "lt": "Šventoji Maddalena iš Canossa",
       "zh": "圣 玛达肋纳·Canossa",
-      "hi": "संत मद्दलॆन के चनॊष"
+      "hi": "संत मद्दलॆन के चनॊष",
+      "de": "Hl. Magdalena von Canossa"
     },
     "11-4": {
       "it": "Santa Gemma Galgani",
@@ -1715,7 +1815,8 @@
       "sv": "Sankta Gemma Galgani",
       "lt": "Šventoji Gemma Galgani",
       "zh": "圣 Gemma Galgani",
-      "hi": "संत गॆंम गल्गनि"
+      "hi": "संत गॆंम गल्गनि",
+      "de": "Hl. Gemma Galgani"
     },
     "12-4": {
       "it": "Domenica della Divina Misericordia",
@@ -1732,7 +1833,8 @@
       "sv": "Den gudomliga barmhärtighetens söndag",
       "lt": "Dievo Gailestingumo sekmadienis",
       "zh": "天主慈悲主日",
-      "hi": "ईश्वरीय दया रविवार"
+      "hi": "ईश्वरीय दया रविवार",
+      "de": "Sonntag der göttlichen Barmherzigkeit"
     },
     "13-4": {
       "it": "San Martino I",
@@ -1749,7 +1851,8 @@
       "sv": "Sankt Martino I",
       "lt": "Šventasis Martino I",
       "zh": "圣 玛尔定 I",
-      "hi": "संत मर्तिनॊ I"
+      "hi": "संत मर्तिनॊ I",
+      "de": "Hl. Martino I"
     },
     "14-4": {
       "it": "Santa Liduina",
@@ -1766,7 +1869,8 @@
       "sv": "Sankta Liduina",
       "lt": "Šventoji Liduina",
       "zh": "圣 Liduina",
-      "hi": "संत लिदुइन"
+      "hi": "संत लिदुइन",
+      "de": "Hl. Liduina"
     },
     "15-4": {
       "it": "San Damiano de Veuster",
@@ -1783,7 +1887,8 @@
       "sv": "Sankt Damiano av Veuster",
       "lt": "Šventasis Damiano iš Veuster",
       "zh": "圣 达弥盎·Veuster",
-      "hi": "संत दमिअनॊ के वॆउस्तॆर्"
+      "hi": "संत दमिअनॊ के वॆउस्तॆर्",
+      "de": "Hl. Damian de Veuster"
     },
     "16-4": {
       "it": "Santa Bernardetta Soubirous",
@@ -1800,7 +1905,8 @@
       "sv": "Sankta Bernardetta Soubirous",
       "lt": "Šventoji Bernardetta Soubirous",
       "zh": "圣 伯尔纳德 Soubirous",
-      "hi": "संत बॆर्नर्दॆत्त सॊउबिरॊउस्"
+      "hi": "संत बॆर्नर्दॆत्त सॊउबिरॊउस्",
+      "de": "Hl. Bernadette Soubirous"
     },
     "17-4": {
       "it": "San Roberto di La Chaise-Dieu",
@@ -1817,7 +1923,8 @@
       "sv": "Sankt Roberto av La Chaise-Dieu",
       "lt": "Šventasis Roberto iš La Chaise-Dieu",
       "zh": "圣 罗伯多·La Chaise-Dieu",
-      "hi": "संत रॊबॆर्तॊ के ल छैसॆ-दिऎउ"
+      "hi": "संत रॊबॆर्तॊ के ल छैसॆ-दिऎउ",
+      "de": "Hl. Robert von La Chaise-Dieu"
     },
     "18-4": {
       "it": "San Galdino",
@@ -1834,7 +1941,8 @@
       "sv": "Sankt Galdino",
       "lt": "Šventasis Galdino",
       "zh": "圣 Galdino",
-      "hi": "संत गल्दिनॊ"
+      "hi": "संत गल्दिनॊ",
+      "de": "Hl. Galdinus"
     },
     "19-4": {
       "it": "Sant' Emma di Sassonia",
@@ -1851,7 +1959,8 @@
       "sv": "Sankt Emma av Sassonia",
       "lt": "Šventasis Emma iš Sassonia",
       "zh": "圣 Emma·Sassonia",
-      "hi": "संत ऎंम के सषॊनिअ"
+      "hi": "संत ऎंम के सषॊनिअ",
+      "de": "Hl. Emma von Sachsen"
     },
     "20-4": {
       "it": "Santa Sara di Antiochia",
@@ -1868,7 +1977,8 @@
       "sv": "Sankta Sara av Antiochia",
       "lt": "Šventoji Sara iš Antiochia",
       "zh": "圣 Sara·Antiochia",
-      "hi": "संत सर के अंतिऒछिअ"
+      "hi": "संत सर के अंतिऒछिअ",
+      "de": "Hl. Sara von Antiochia"
     },
     "21-4": {
       "it": "Sant' Anselmo d'Aosta",
@@ -1885,7 +1995,8 @@
       "sv": "Sankt Anselmo av Aosta",
       "lt": "Šventasis Anselmo iš Aosta",
       "zh": "圣 安瑟莫·Aosta",
-      "hi": "संत अंसॆल्मॊ के अऒस्त"
+      "hi": "संत अंसॆल्मॊ के अऒस्त",
+      "de": "Hl. Anselm von Aosta"
     },
     "22-4": {
       "it": "San Leonida di Alessandria",
@@ -1902,7 +2013,8 @@
       "sv": "Sankt Leonida av Alessandria",
       "lt": "Šventasis Leonida iš Alessandria",
       "zh": "圣 Leonida·Alessandria",
-      "hi": "संत लॆऒनिद के अलॆषंद्रिअ"
+      "hi": "संत लॆऒनिद के अलॆषंद्रिअ",
+      "de": "Hl. Leonidas von Alexandria"
     },
     "23-4": {
       "it": "San Giorgio",
@@ -1919,7 +2031,8 @@
       "sv": "Sankt Giorgio",
       "lt": "Šventasis Giorgio",
       "zh": "圣 乔治",
-      "hi": "संत गिऒर्गिऒ"
+      "hi": "संत गिऒर्गिऒ",
+      "de": "Hl. Georg"
     },
     "24-4": {
       "it": "San Fedele da Sigmaringen",
@@ -1936,7 +2049,8 @@
       "sv": "Sankt Fedele från Sigmaringen",
       "lt": "Šventasis Fedele iš Sigmaringen",
       "zh": "圣 Fedele·Sigmaringen",
-      "hi": "संत फ़ॆदॆलॆ से सिग्मरिन्गॆन्"
+      "hi": "संत फ़ॆदॆलॆ से सिग्मरिन्गॆन्",
+      "de": "Hl. Fidelis von Sigmaringen"
     },
     "25-4": {
       "it": "San Marco",
@@ -1953,7 +2067,8 @@
       "sv": "Sankt Marco",
       "lt": "Šventasis Marco",
       "zh": "圣 马尔谷",
-      "hi": "संत मर्चॊ"
+      "hi": "संत मर्चॊ",
+      "de": "Hl. Markus"
     },
     "26-4": {
       "it": "Madonna del Buon Consiglio",
@@ -1970,7 +2085,8 @@
       "sv": "Vår Fru del Buon Consiglio",
       "lt": "Dievo Motina del Buon Consiglio",
       "zh": "圣母 del Buon Consiglio",
-      "hi": "माता मरियम दॆल् बुऒन् चॊंसिग्लिऒ"
+      "hi": "माता मरियम दॆल् बुऒन् चॊंसिग्लिऒ",
+      "de": "Unsere Liebe Frau vom Guten Rat"
     },
     "27-4": {
       "it": "Santa Zita",
@@ -1987,7 +2103,8 @@
       "sv": "Sankta Zita",
       "lt": "Šventoji Zita",
       "zh": "圣 Zita",
-      "hi": "संत ज़ित"
+      "hi": "संत ज़ित",
+      "de": "Hl. Zita"
     },
     "28-4": {
       "it": "Santa Valeria di Milano",
@@ -2004,7 +2121,8 @@
       "sv": "Sankta Valeria av Milano",
       "lt": "Šventoji Valeria iš Milano",
       "zh": "圣 Valeria·Milano",
-      "hi": "संत वलॆरिअ के मिलनॊ"
+      "hi": "संत वलॆरिअ के मिलनॊ",
+      "de": "Hl. Valeria von Mailand"
     },
     "29-4": {
       "it": "Santa Caterina da Siena",
@@ -2021,7 +2139,8 @@
       "sv": "Sankta Caterina från Siena",
       "lt": "Šventoji Caterina iš Siena",
       "zh": "圣 加大利纳·Siena",
-      "hi": "संत चतॆरिन से सिऎन"
+      "hi": "संत चतॆरिन से सिऎन",
+      "de": "Hl. Katharina von Siena"
     },
     "30-4": {
       "it": "San Pio V",
@@ -2038,7 +2157,8 @@
       "sv": "Sankt Pio V",
       "lt": "Šventasis Pio V",
       "zh": "圣 庇护 V",
-      "hi": "संत पिऒ V"
+      "hi": "संत पिऒ V",
+      "de": "Hl. Pius V"
     },
     "1-5": {
       "it": "San Giuseppe",
@@ -2055,7 +2175,8 @@
       "sv": "Sankt Giuseppe",
       "lt": "Šventasis Giuseppe",
       "zh": "圣 若瑟",
-      "hi": "संत गिउसॆप्पॆ"
+      "hi": "संत गिउसॆप्पॆ",
+      "de": "Hl. Josef der Arbeiter"
     },
     "2-5": {
       "it": "Sant' Atanasio",
@@ -2072,7 +2193,8 @@
       "sv": "Sankt Atanasio",
       "lt": "Šventasis Atanasio",
       "zh": "圣 亚大纳削",
-      "hi": "संत अतनसिऒ"
+      "hi": "संत अतनसिऒ",
+      "de": "Hl. Athanasius"
     },
     "3-5": {
       "it": "Santi Filippo e Giacomo",
@@ -2089,7 +2211,8 @@
       "sv": "De heliga Filippo och Giacomo",
       "lt": "Šventieji Filippo ir Giacomo",
       "zh": "圣人 Filippo与Giacomo",
-      "hi": "संतगण फ़िलिप्पॊ और गिअचॊमॊ"
+      "hi": "संतगण फ़िलिप्पॊ और गिअचॊमॊ",
+      "de": "Hll. Philippus und Jakobus"
     },
     "4-5": {
       "it": "San Ciriaco di Gerusalemme",
@@ -2106,7 +2229,8 @@
       "sv": "Sankt Ciriaco av Gerusalemme",
       "lt": "Šventasis Ciriaco iš Gerusalemme",
       "zh": "圣 Ciriaco·Gerusalemme",
-      "hi": "संत चिरिअचॊ के गॆरुसलॆंमॆ"
+      "hi": "संत चिरिअचॊ के गॆरुसलॆंमॆ",
+      "de": "Hl. Ciriaco von Jerusalem"
     },
     "5-5": {
       "it": "Sant' Angelo da Gerusalemme",
@@ -2123,7 +2247,8 @@
       "sv": "Sankt Angelo från Gerusalemme",
       "lt": "Šventasis Angelo iš Gerusalemme",
       "zh": "圣 Angelo·Gerusalemme",
-      "hi": "संत अन्गॆलॊ से गॆरुसलॆंमॆ"
+      "hi": "संत अन्गॆलॊ से गॆरुसलॆंमॆ",
+      "de": "Hl. Angelus von Jerusalem"
     },
     "6-5": {
       "it": "San Pietro Nolasco",
@@ -2140,7 +2265,8 @@
       "sv": "Sankt Pietro Nolasco",
       "lt": "Šventasis Pietro Nolasco",
       "zh": "圣 伯多禄 Nolasco",
-      "hi": "संत पिऎत्रॊ नॊलस्चॊ"
+      "hi": "संत पिऎत्रॊ नॊलस्चॊ",
+      "de": "Hl. Petrus Nolasco"
     },
     "7-5": {
       "it": "Santa Flavia Domitilla",
@@ -2157,7 +2283,8 @@
       "sv": "Sankta Flavia Domitilla",
       "lt": "Šventoji Flavia Domitilla",
       "zh": "圣 Flavia Domitilla",
-      "hi": "संत फ़्लविअ दॊमितिल्ल"
+      "hi": "संत फ़्लविअ दॊमितिल्ल",
+      "de": "Hl. Flavia Domitilla"
     },
     "8-5": {
       "it": "Madonna del Rosario di Pompei",
@@ -2174,7 +2301,8 @@
       "sv": "Vår Fru del Rosario av Pompei",
       "lt": "Dievo Motina del Rosario iš Pompei",
       "zh": "圣母 del Rosario·Pompei",
-      "hi": "माता मरियम दॆल् रॊसरिऒ के पॊंपॆइ"
+      "hi": "माता मरियम दॆल् रॊसरिऒ के पॊंपॆइ",
+      "de": "Unsere Liebe Frau vom Rosenkranz in Pompeji"
     },
     "9-5": {
       "it": "Sant'Isaia",
@@ -2191,7 +2319,8 @@
       "sv": "Sankt Isaia",
       "lt": "Šventasis Isaia",
       "zh": "圣 Isaia",
-      "hi": "संत इसैअ"
+      "hi": "संत इसैअ",
+      "de": "Hl. Isaia"
     },
     "10-5": {
       "it": "San Cataldo di Rachau",
@@ -2208,7 +2337,8 @@
       "sv": "Sankt Cataldo av Rachau",
       "lt": "Šventasis Cataldo iš Rachau",
       "zh": "圣 Cataldo·Rachau",
-      "hi": "संत चतल्दॊ के रछौ"
+      "hi": "संत चतल्दॊ के रछौ",
+      "de": "Hl. Cataldo von Rachau"
     },
     "11-5": {
       "it": "Sant' Ignazio da Laconi",
@@ -2225,7 +2355,8 @@
       "sv": "Sankt Ignazio från Laconi",
       "lt": "Šventasis Ignazio iš Laconi",
       "zh": "圣 依纳爵·Laconi",
-      "hi": "संत इग्नज़िऒ से लचॊनि"
+      "hi": "संत इग्नज़िऒ से लचॊनि",
+      "de": "Hl. Ignatius von Laconi"
     },
     "12-5": {
       "it": "Santi Nereo e Achilleo",
@@ -2242,7 +2373,8 @@
       "sv": "De heliga Nereo och Achilleo",
       "lt": "Šventieji Nereo ir Achilleo",
       "zh": "圣人 Nereo与Achilleo",
-      "hi": "संतगण नॆरॆऒ और अछिल्लॆऒ"
+      "hi": "संतगण नॆरॆऒ और अछिल्लॆऒ",
+      "de": "Hll. Nereus und Achilleus"
     },
     "13-5": {
       "it": "Beata Vergine Maria di Fatima",
@@ -2259,7 +2391,8 @@
       "sv": "Jungfru Maria di Fatima",
       "lt": "Švenčiausioji Mergelė Marija di Fatima",
       "zh": "荣福童贞玛利亚 di Fatima",
-      "hi": "धन्य कुँवारी मरियम दि फ़तिम"
+      "hi": "धन्य कुँवारी मरियम दि फ़तिम",
+      "de": "Unsere Liebe Frau von Fátima"
     },
     "14-5": {
       "it": "San Mattia",
@@ -2276,7 +2409,8 @@
       "sv": "Sankt Mattia",
       "lt": "Šventasis Mattia",
       "zh": "圣 Mattia",
-      "hi": "संत मत्तिअ"
+      "hi": "संत मत्तिअ",
+      "de": "Hl. Matthias"
     },
     "15-5": {
       "it": "Sant' Isidoro l'agricoltore",
@@ -2293,7 +2427,8 @@
       "sv": "Sankt Isidoro lantbrukaren",
       "lt": "Šventasis Isidoro žemdirbys",
       "zh": "圣 Isidoro农夫",
-      "hi": "संत इसिदॊरॊ कृषक"
+      "hi": "संत इसिदॊरॊ कृषक",
+      "de": "Hl. Isidor der Bauer"
     },
     "16-5": {
       "it": "Sant' Ubaldo di Gubbio",
@@ -2310,7 +2445,8 @@
       "sv": "Sankt Ubaldo av Gubbio",
       "lt": "Šventasis Ubaldo iš Gubbio",
       "zh": "圣 Ubaldo·Gubbio",
-      "hi": "संत उबल्दॊ के गुब्बिऒ"
+      "hi": "संत उबल्दॊ के गुब्बिऒ",
+      "de": "Hl. Ubald von Gubbio"
     },
     "17-5": {
       "it": "Ascensione di Gesù",
@@ -2327,7 +2463,8 @@
       "sv": "Kristi himmelsfärd",
       "lt": "Kristaus Žengimas į dangų",
       "zh": "耶稣升天节",
-      "hi": "प्रभु के स्वर्गारोहण का पर्व"
+      "hi": "प्रभु के स्वर्गारोहण का पर्व",
+      "de": "Christi Himmelfahrt"
     },
     "18-5": {
       "it": "San Giovanni I",
@@ -2344,7 +2481,8 @@
       "sv": "Sankt Giovanni I",
       "lt": "Šventasis Giovanni I",
       "zh": "圣 若望 I",
-      "hi": "संत गिऒवंनि I"
+      "hi": "संत गिऒवंनि I",
+      "de": "Hl. Johannes I"
     },
     "19-5": {
       "it": "San Celestino V",
@@ -2361,7 +2499,8 @@
       "sv": "Sankt Celestino V",
       "lt": "Šventasis Celestino V",
       "zh": "圣 Celestino V",
-      "hi": "संत चॆलॆस्तिनॊ V"
+      "hi": "संत चॆलॆस्तिनॊ V",
+      "de": "Hl. Coelestin V"
     },
     "20-5": {
       "it": "San Bernardino da Siena",
@@ -2378,7 +2517,8 @@
       "sv": "Sankt Bernardino från Siena",
       "lt": "Šventasis Bernardino iš Siena",
       "zh": "圣 Bernardino·Siena",
-      "hi": "संत बॆर्नर्दिनॊ से सिऎन"
+      "hi": "संत बॆर्नर्दिनॊ से सिऎन",
+      "de": "Hl. Bernhardin von Siena"
     },
     "21-5": {
       "it": "San Vittorio di Cesarea",
@@ -2395,7 +2535,8 @@
       "sv": "Sankt Vittorio av Cesarea",
       "lt": "Šventasis Vittorio iš Cesarea",
       "zh": "圣 Vittorio·Cesarea",
-      "hi": "संत वित्तॊरिऒ के चॆसरॆअ"
+      "hi": "संत वित्तॊरिऒ के चॆसरॆअ",
+      "de": "Hl. Viktor von Caesarea"
     },
     "22-5": {
       "it": "Santa Rita da Cascia",
@@ -2412,7 +2553,8 @@
       "sv": "Sankta Rita från Cascia",
       "lt": "Šventoji Rita iš Cascia",
       "zh": "圣 丽达·Cascia",
-      "hi": "संत रित से चस्चिअ"
+      "hi": "संत रित से चस्चिअ",
+      "de": "Hl. Rita von Cascia"
     },
     "23-5": {
       "it": "San Desiderio di Langres",
@@ -2429,7 +2571,8 @@
       "sv": "Sankt Desiderio av Langres",
       "lt": "Šventasis Desiderio iš Langres",
       "zh": "圣 Desiderio·Langres",
-      "hi": "संत दॆसिदॆरिऒ के लन्ग्रॆस्"
+      "hi": "संत दॆसिदॆरिऒ के लन्ग्रॆस्",
+      "de": "Hl. Desiderius von Langres"
     },
     "24-5": {
       "it": "Pentecoste",
@@ -2446,7 +2589,8 @@
       "sv": "Pingstdagen",
       "lt": "Sekminės",
       "zh": "圣神降临节",
-      "hi": "पेंतेकोस्त"
+      "hi": "पेंतेकोस्त",
+      "de": "Pfingstsonntag"
     },
     "25-5": {
       "it": "Maria Madre della Chiesa",
@@ -2463,7 +2607,8 @@
       "sv": "Maria, kyrkans moder",
       "lt": "Marija, Bažnyčios Motina",
       "zh": "教会之母玛利亚",
-      "hi": "मरियम, कलीसिया की माता"
+      "hi": "मरियम, कलीसिया की माता",
+      "de": "Maria, Mutter der Kirche"
     },
     "26-5": {
       "it": "San Filippo Neri",
@@ -2480,7 +2625,8 @@
       "sv": "Sankt Filippo Neri",
       "lt": "Šventasis Filippo Neri",
       "zh": "圣 斐理伯 Neri",
-      "hi": "संत फ़िलिप्पॊ नॆरि"
+      "hi": "संत फ़िलिप्पॊ नॆरि",
+      "de": "Hl. Philipp Neri"
     },
     "27-5": {
       "it": "Sant' Agostino di Canterbury",
@@ -2497,7 +2643,8 @@
       "sv": "Sankt Agostino av Canterbury",
       "lt": "Šventasis Agostino iš Canterbury",
       "zh": "圣 奥思定·Canterbury",
-      "hi": "संत अगॊस्तिनॊ के चंतॆर्बुर्य्"
+      "hi": "संत अगॊस्तिनॊ के चंतॆर्बुर्य्",
+      "de": "Hl. Augustinus von Canterbury"
     },
     "28-5": {
       "it": "San Germano di Parigi",
@@ -2514,7 +2661,8 @@
       "sv": "Sankt Germano av Parigi",
       "lt": "Šventasis Germano iš Parigi",
       "zh": "圣 Germano·Parigi",
-      "hi": "संत गॆर्मनॊ के परिगि"
+      "hi": "संत गॆर्मनॊ के परिगि",
+      "de": "Hl. Germanus von Paris"
     },
     "29-5": {
       "it": "San Paolo VI",
@@ -2531,7 +2679,8 @@
       "sv": "Sankt Paolo VI",
       "lt": "Šventasis Paolo VI",
       "zh": "圣 保禄 VI",
-      "hi": "संत पॊलॊ VI"
+      "hi": "संत पॊलॊ VI",
+      "de": "Hl. Paulus VI"
     },
     "30-5": {
       "it": "Santa Giovanna d'Arco",
@@ -2548,7 +2697,8 @@
       "sv": "Sankta Giovanna av Arco",
       "lt": "Šventoji Giovanna iš Arco",
       "zh": "圣 若翰纳·Arco",
-      "hi": "संत गिऒवन्न के अर्चॊ"
+      "hi": "संत गिऒवन्न के अर्चॊ",
+      "de": "Hl. Johanna von Orléans"
     },
     "31-5": {
       "it": "Santissima Trinità",
@@ -2565,7 +2715,8 @@
       "sv": "Heliga trefaldighets dag",
       "lt": "Švenčiausioji Trejybė",
       "zh": "天主圣三节",
-      "hi": "परमपवित्र त्रित्व"
+      "hi": "परमपवित्र त्रित्व",
+      "de": "Dreifaltigkeitssonntag"
     },
     "1-6": {
       "it": "San Giustino",
@@ -2582,7 +2733,8 @@
       "sv": "Sankt Giustino",
       "lt": "Šventasis Giustino",
       "zh": "圣 Giustino",
-      "hi": "संत गिउस्तिनॊ"
+      "hi": "संत गिउस्तिनॊ",
+      "de": "Hl. Justin"
     },
     "2-6": {
       "it": "Santi Marcellino e Pietro",
@@ -2599,7 +2751,8 @@
       "sv": "De heliga Marcellino och Pietro",
       "lt": "Šventieji Marcellino ir Pietro",
       "zh": "圣人 Marcellino与Pietro",
-      "hi": "संतगण मर्चॆल्लिनॊ और पिऎत्रॊ"
+      "hi": "संतगण मर्चॆल्लिनॊ और पिऎत्रॊ",
+      "de": "Hll. Marcellinus und Petrus"
     },
     "3-6": {
       "it": "Santi Carlo Lwanga e 12 compagni",
@@ -2616,7 +2769,8 @@
       "sv": "De heliga Carlo Lwanga och 12 compagni",
       "lt": "Šventieji Carlo Lwanga ir 12 compagni",
       "zh": "圣人 嘉禄 Lwanga与12 compagni",
-      "hi": "संतगण चर्लॊ ल्वन्ग और १२ चॊंपग्नि"
+      "hi": "संतगण चर्लॊ ल्वन्ग और १२ चॊंपग्नि",
+      "de": "Hl. Karl Lwanga und zwölf Gefährten"
     },
     "4-6": {
       "it": "San Francesco Caracciolo",
@@ -2633,7 +2787,8 @@
       "sv": "Sankt Francesco Caracciolo",
       "lt": "Šventasis Francesco Caracciolo",
       "zh": "圣 方济各 Caracciolo",
-      "hi": "संत फ़्रन्चॆस्चॊ चरच्चिऒलॊ"
+      "hi": "संत फ़्रन्चॆस्चॊ चरच्चिऒलॊ",
+      "de": "Hl. Franziskus Caracciolo"
     },
     "5-6": {
       "it": "San Bonifacio",
@@ -2650,7 +2805,8 @@
       "sv": "Sankt Bonifacio",
       "lt": "Šventasis Bonifacio",
       "zh": "圣 玻尼法爵",
-      "hi": "संत बॊनिफ़चिऒ"
+      "hi": "संत बॊनिफ़चिऒ",
+      "de": "Hl. Bonifatius"
     },
     "6-6": {
       "it": "San Norberto",
@@ -2667,7 +2823,8 @@
       "sv": "Sankt Norberto",
       "lt": "Šventasis Norberto",
       "zh": "圣 Norberto",
-      "hi": "संत नॊर्बॆर्तॊ"
+      "hi": "संत नॊर्बॆर्तॊ",
+      "de": "Hl. Norbert"
     },
     "7-6": {
       "it": "Corpus Domini",
@@ -2684,7 +2841,8 @@
       "sv": "Kristi kropps och blods högtid",
       "lt": "Kristaus Kūno ir Kraujo iškilmė",
       "zh": "基督圣体圣血节",
-      "hi": "मसीह के पवित्र शरीर और रक्त का पर्व"
+      "hi": "मसीह के पवित्र शरीर और रक्त का पर्व",
+      "de": "Fronleichnam"
     },
     "8-6": {
       "it": "San Medardo",
@@ -2701,7 +2859,8 @@
       "sv": "Sankt Medardo",
       "lt": "Šventasis Medardo",
       "zh": "圣 Medardo",
-      "hi": "संत मॆदर्दॊ"
+      "hi": "संत मॆदर्दॊ",
+      "de": "Hl. Medardus"
     },
     "9-6": {
       "it": "Sant' Efrem",
@@ -2718,7 +2877,8 @@
       "sv": "Sankt Efrem",
       "lt": "Šventasis Efrem",
       "zh": "圣 Efrem",
-      "hi": "संत ऎफ़्रॆम्"
+      "hi": "संत ऎफ़्रॆम्",
+      "de": "Hl. Ephräm"
     },
     "10-6": {
       "it": "Beata Diana degli Andalò",
@@ -2735,7 +2895,8 @@
       "sv": "Saliga Diana degli Andalò",
       "lt": "Palaimintoji Diana degli Andalò",
       "zh": "真福 Diana degli Andalò",
-      "hi": "धन्य दिअन दॆग्लि अंदलॊ̀"
+      "hi": "धन्य दिअन दॆग्लि अंदलॊ̀",
+      "de": "Sel. Diana degli Andalò"
     },
     "11-6": {
       "it": "San Barnaba",
@@ -2752,7 +2913,8 @@
       "sv": "Sankt Barnaba",
       "lt": "Šventasis Barnaba",
       "zh": "圣 巴尔纳伯",
-      "hi": "संत बर्नब"
+      "hi": "संत बर्नब",
+      "de": "Hl. Barnabas"
     },
     "12-6": {
       "it": "Sacro Cuore di Gesù",
@@ -2769,7 +2931,8 @@
       "sv": "Jesu heliga hjärta",
       "lt": "Švenčiausioji Jėzaus Širdis",
       "zh": "耶稣圣心节",
-      "hi": "यीशु का परमपवित्र हृदय"
+      "hi": "यीशु का परमपवित्र हृदय",
+      "de": "Heiligstes Herz Jesu"
     },
     "13-6": {
       "it": "Sant' Antonio di Padova",
@@ -2786,7 +2949,8 @@
       "sv": "Sankt Antonio av Padova",
       "lt": "Šventasis Antonio iš Padova",
       "zh": "圣 安多尼·Padova",
-      "hi": "संत अंतॊनिऒ के पदॊव"
+      "hi": "संत अंतॊनिऒ के पदॊव",
+      "de": "Hl. Antonius von Padua"
     },
     "14-6": {
       "it": "Sant' Eliseo",
@@ -2803,7 +2967,8 @@
       "sv": "Sankt Eliseo",
       "lt": "Šventasis Eliseo",
       "zh": "圣 Eliseo",
-      "hi": "संत ऎलिसॆऒ"
+      "hi": "संत ऎलिसॆऒ",
+      "de": "Hl. Elischa"
     },
     "15-6": {
       "it": "San Vito",
@@ -2820,7 +2985,8 @@
       "sv": "Sankt Vito",
       "lt": "Šventasis Vito",
       "zh": "圣 Vito",
-      "hi": "संत वितॊ"
+      "hi": "संत वितॊ",
+      "de": "Hl. Vitus"
     },
     "16-6": {
       "it": "Santi Quirico e Giulitta",
@@ -2837,7 +3003,8 @@
       "sv": "De heliga Quirico och Giulitta",
       "lt": "Šventieji Quirico ir Giulitta",
       "zh": "圣人 Quirico与Giulitta",
-      "hi": "संतगण क़ुइरिचॊ और गिउलित्त"
+      "hi": "संतगण क़ुइरिचॊ और गिउलित्त",
+      "de": "Hll. Quiricus und Julitta"
     },
     "17-6": {
       "it": "San Ranieri di Pisa",
@@ -2854,7 +3021,8 @@
       "sv": "Sankt Ranieri av Pisa",
       "lt": "Šventasis Ranieri iš Pisa",
       "zh": "圣 Ranieri·Pisa",
-      "hi": "संत रनिऎरि के पिस"
+      "hi": "संत रनिऎरि के पिस",
+      "de": "Hl. Rainerius von Pisa"
     },
     "18-6": {
       "it": "Santa Marina",
@@ -2871,7 +3039,8 @@
       "sv": "Sankta Marina",
       "lt": "Šventoji Marina",
       "zh": "圣 Marina",
-      "hi": "संत मरिन"
+      "hi": "संत मरिन",
+      "de": "Hl. Marina"
     },
     "19-6": {
       "it": "San Romualdo",
@@ -2888,7 +3057,8 @@
       "sv": "Sankt Romualdo",
       "lt": "Šventasis Romualdo",
       "zh": "圣 Romualdo",
-      "hi": "संत रॊमुअल्दॊ"
+      "hi": "संत रॊमुअल्दॊ",
+      "de": "Hl. Romuald"
     },
     "20-6": {
       "it": "Beata Vergine Maria Consolatrice",
@@ -2905,7 +3075,8 @@
       "sv": "Jungfru Maria Consolatrice",
       "lt": "Švenčiausioji Mergelė Marija Consolatrice",
       "zh": "荣福童贞玛利亚 Consolatrice",
-      "hi": "धन्य कुँवारी मरियम चॊंसॊलत्रिचॆ"
+      "hi": "धन्य कुँवारी मरियम चॊंसॊलत्रिचॆ",
+      "de": "Unsere Liebe Frau vom Trost"
     },
     "21-6": {
       "it": "San Luigi Gonzaga",
@@ -2922,7 +3093,8 @@
       "sv": "Sankt Luigi Gonzaga",
       "lt": "Šventasis Luigi Gonzaga",
       "zh": "圣 类思 Gonzaga",
-      "hi": "संत लुइगि गॊन्ज़ग"
+      "hi": "संत लुइगि गॊन्ज़ग",
+      "de": "Hl. Aloisius Gonzaga"
     },
     "22-6": {
       "it": "San Paolino di Nola",
@@ -2939,7 +3111,8 @@
       "sv": "Sankt Paolino av Nola",
       "lt": "Šventasis Paolino iš Nola",
       "zh": "圣 Paolino·Nola",
-      "hi": "संत पॊलिनॊ के नॊल"
+      "hi": "संत पॊलिनॊ के नॊल",
+      "de": "Hl. Paolino von Nola"
     },
     "23-6": {
       "it": "San Lanfranco Beccari",
@@ -2956,7 +3129,8 @@
       "sv": "Sankt Lanfranco Beccari",
       "lt": "Šventasis Lanfranco Beccari",
       "zh": "圣 Lanfranco Beccari",
-      "hi": "संत लन्फ़्रन्चॊ बॆच्चरि"
+      "hi": "संत लन्फ़्रन्चॊ बॆच्चरि",
+      "de": "Hl. Lanfranco Beccari"
     },
     "24-6": {
       "it": "Natività di San Giovanni Battista",
@@ -2973,7 +3147,8 @@
       "sv": "Johannes Döparens födelse",
       "lt": "Šventojo Jono Krikštytojo gimimas",
       "zh": "圣若翰洗者诞辰",
-      "hi": "संत योहन बपतिस्ता का जन्मोत्सव"
+      "hi": "संत योहन बपतिस्ता का जन्मोत्सव",
+      "de": "Geburt des hl. Johannes des Täufers"
     },
     "25-6": {
       "it": "San Guglielmo da Vercelli",
@@ -2990,7 +3165,8 @@
       "sv": "Sankt Guglielmo från Vercelli",
       "lt": "Šventasis Guglielmo iš Vercelli",
       "zh": "圣 Guglielmo·Vercelli",
-      "hi": "संत गुग्लिऎल्मॊ से वॆर्चॆल्लि"
+      "hi": "संत गुग्लिऎल्मॊ से वॆर्चॆल्लि",
+      "de": "Hl. Wilhelm von Vercelli"
     },
     "26-6": {
       "it": "San Vigilio",
@@ -3007,7 +3183,8 @@
       "sv": "Sankt Vigilio",
       "lt": "Šventasis Vigilio",
       "zh": "圣 Vigilio",
-      "hi": "संत विगिलिऒ"
+      "hi": "संत विगिलिऒ",
+      "de": "Hl. Vigilius"
     },
     "27-6": {
       "it": "San Cirillo d'Alessandria",
@@ -3024,7 +3201,8 @@
       "sv": "Sankt Cirillo av Alessandria",
       "lt": "Šventasis Cirillo iš Alessandria",
       "zh": "圣 济利禄·Alessandria",
-      "hi": "संत चिरिल्लॊ के अलॆषंद्रिअ"
+      "hi": "संत चिरिल्लॊ के अलॆषंद्रिअ",
+      "de": "Hl. Kyrill von Alexandria"
     },
     "28-6": {
       "it": "Sant' Ireneo di Lione",
@@ -3041,7 +3219,8 @@
       "sv": "Sankt Ireneo av Lione",
       "lt": "Šventasis Ireneo iš Lione",
       "zh": "圣 依勒内·Lione",
-      "hi": "संत इरॆनॆऒ के लिऒनॆ"
+      "hi": "संत इरॆनॆऒ के लिऒनॆ",
+      "de": "Hl. Irenäus von Lyon"
     },
     "29-6": {
       "it": "Santi Pietro e Paolo",
@@ -3058,7 +3237,8 @@
       "sv": "De heliga Pietro och Paolo",
       "lt": "Šventieji Pietro ir Paolo",
       "zh": "圣人 Pietro与Paolo",
-      "hi": "संतगण पिऎत्रॊ और पॊलॊ"
+      "hi": "संतगण पिऎत्रॊ और पॊलॊ",
+      "de": "Hll. Petrus und Paulus"
     },
     "30-6": {
       "it": "Santi Primi martiri della santa Chiesa di Roma",
@@ -3075,7 +3255,8 @@
       "sv": "De heliga Primi martyrerna av santa Chiesa av Roma",
       "lt": "Šventieji Primi kankiniai iš santa Chiesa iš Roma",
       "zh": "圣人 Primi殉道者·santa Chiesa·Roma",
-      "hi": "संतगण प्रिमि शहीद के संत छिऎस के रॊम"
+      "hi": "संतगण प्रिमि शहीद के संत छिऎस के रॊम",
+      "de": "Die ersten heiligen Märtyrer der Kirche von Rom"
     },
     "1-7": {
       "it": "Sant' Aronne",
@@ -3092,7 +3273,8 @@
       "sv": "Sankt Aronne",
       "lt": "Šventasis Aronne",
       "zh": "圣 Aronne",
-      "hi": "संत अरॊंनॆ"
+      "hi": "संत अरॊंनॆ",
+      "de": "Hl. Aaron"
     },
     "2-7": {
       "it": "San Bernardino Realino",
@@ -3109,7 +3291,8 @@
       "sv": "Sankt Bernardino Realino",
       "lt": "Šventasis Bernardino Realino",
       "zh": "圣 Bernardino Realino",
-      "hi": "संत बॆर्नर्दिनॊ रॆअलिनॊ"
+      "hi": "संत बॆर्नर्दिनॊ रॆअलिनॊ",
+      "de": "Hl. Bernhardin Realino"
     },
     "3-7": {
       "it": "San Tommaso",
@@ -3126,7 +3309,8 @@
       "sv": "Sankt Tommaso",
       "lt": "Šventasis Tommaso",
       "zh": "圣 多默",
-      "hi": "संत तॊंमसॊ"
+      "hi": "संत तॊंमसॊ",
+      "de": "Hl. Thomas"
     },
     "4-7": {
       "it": "Sant' Elisabetta del Portogallo",
@@ -3143,7 +3327,8 @@
       "sv": "Sankt Elisabetta av Portogallo",
       "lt": "Šventasis Elisabetta iš Portogallo",
       "zh": "圣 依撒伯尔·Portogallo",
-      "hi": "संत ऎलिसबॆत्त के पॊर्तॊगल्लॊ"
+      "hi": "संत ऎलिसबॆत्त के पॊर्तॊगल्लॊ",
+      "de": "Hl. Elisabetta von Portugal"
     },
     "5-7": {
       "it": "Sant' Antonio Maria Zaccaria",
@@ -3160,7 +3345,8 @@
       "sv": "Sankt Antonio Maria Zaccaria",
       "lt": "Šventasis Antonio Maria Zaccaria",
       "zh": "圣 安多尼 玛利亚 匝加利亚",
-      "hi": "संत अंतॊनिऒ मरिअ ज़च्चरिअ"
+      "hi": "संत अंतॊनिऒ मरिअ ज़च्चरिअ",
+      "de": "Hl. Antonius Maria Zacharias"
     },
     "6-7": {
       "it": "Santa Maria Goretti",
@@ -3177,7 +3363,8 @@
       "sv": "Sankta Maria Goretti",
       "lt": "Šventoji Maria Goretti",
       "zh": "圣 玛利亚 Goretti",
-      "hi": "संत मरिअ गॊरॆत्ति"
+      "hi": "संत मरिअ गॊरॆत्ति",
+      "de": "Hl. Maria Goretti"
     },
     "7-7": {
       "it": "Beato Benedetto XI",
@@ -3194,7 +3381,8 @@
       "sv": "Salige Benedetto XI",
       "lt": "Palaimintasis Benedetto XI",
       "zh": "真福 本笃 XI",
-      "hi": "धन्य बॆनॆदॆत्तॊ XI"
+      "hi": "धन्य बॆनॆदॆत्तॊ XI",
+      "de": "Sel. Benedikt XI"
     },
     "8-7": {
       "it": "Santi Aquila e Priscilla",
@@ -3211,7 +3399,8 @@
       "sv": "De heliga Aquila och Priscilla",
       "lt": "Šventieji Aquila ir Priscilla",
       "zh": "圣人 Aquila与Priscilla",
-      "hi": "संतगण अक़ुइल और प्रिस्चिल्ल"
+      "hi": "संतगण अक़ुइल और प्रिस्चिल्ल",
+      "de": "Hll. Aquila und Priscilla"
     },
     "9-7": {
       "it": "Santa Veronica Giuliani",
@@ -3228,7 +3417,8 @@
       "sv": "Sankta Veronica Giuliani",
       "lt": "Šventoji Veronica Giuliani",
       "zh": "圣 Veronica Giuliani",
-      "hi": "संत वॆरॊनिच गिउलिअनि"
+      "hi": "संत वॆरॊनिच गिउलिअनि",
+      "de": "Hl. Veronika Giuliani"
     },
     "10-7": {
       "it": "Sante Rufina e Seconda",
@@ -3245,7 +3435,8 @@
       "sv": "De heliga Rufina och Seconda",
       "lt": "Šventosios Rufina ir Seconda",
       "zh": "圣女 Rufina与Seconda",
-      "hi": "संतगण रुफ़िन और सॆचॊंद"
+      "hi": "संतगण रुफ़िन और सॆचॊंद",
+      "de": "Hll. Rufina und Secunda"
     },
     "11-7": {
       "it": "San Benedetto da Norcia",
@@ -3262,7 +3453,8 @@
       "sv": "Sankt Benedetto från Norcia",
       "lt": "Šventasis Benedetto iš Norcia",
       "zh": "圣 本笃·Norcia",
-      "hi": "संत बॆनॆदॆत्तॊ से नॊर्चिअ"
+      "hi": "संत बॆनॆदॆत्तॊ से नॊर्चिअ",
+      "de": "Hl. Benedikt von Nursia"
     },
     "12-7": {
       "it": "Santi Ermagora e Fortunato di Aquileia",
@@ -3279,7 +3471,8 @@
       "sv": "De heliga Ermagora och Fortunato av Aquileia",
       "lt": "Šventieji Ermagora ir Fortunato iš Aquileia",
       "zh": "圣人 Ermagora与Fortunato·Aquileia",
-      "hi": "संतगण ऎर्मगॊर और फ़ॊर्तुनतॊ के अक़ुइलॆइअ"
+      "hi": "संतगण ऎर्मगॊर और फ़ॊर्तुनतॊ के अक़ुइलॆइअ",
+      "de": "Hll. Hermagoras und Fortunatus"
     },
     "13-7": {
       "it": "Sant' Enrico II",
@@ -3296,7 +3489,8 @@
       "sv": "Sankt Enrico II",
       "lt": "Šventasis Enrico II",
       "zh": "圣 Enrico II",
-      "hi": "संत ऎंरिचॊ II"
+      "hi": "संत ऎंरिचॊ II",
+      "de": "Hl. Heinrich II."
     },
     "14-7": {
       "it": "San Camillo de Lellis",
@@ -3313,7 +3507,8 @@
       "sv": "Sankt Camillo av Lellis",
       "lt": "Šventasis Camillo iš Lellis",
       "zh": "圣 Camillo·Lellis",
-      "hi": "संत चमिल्लॊ के लॆल्लिस्"
+      "hi": "संत चमिल्लॊ के लॆल्लिस्",
+      "de": "Hl. Kamillus von Lellis"
     },
     "15-7": {
       "it": "San Bonaventura",
@@ -3330,7 +3525,8 @@
       "sv": "Sankt Bonaventura",
       "lt": "Šventasis Bonaventura",
       "zh": "圣 文德",
-      "hi": "संत बॊनवॆंतुर"
+      "hi": "संत बॊनवॆंतुर",
+      "de": "Hl. Bonaventura"
     },
     "16-7": {
       "it": "Beata Vergine Maria del Monte Carmelo",
@@ -3347,7 +3543,8 @@
       "sv": "Jungfru Maria del Monte Carmelo",
       "lt": "Švenčiausioji Mergelė Marija del Monte Carmelo",
       "zh": "荣福童贞玛利亚 del Monte Carmelo",
-      "hi": "धन्य कुँवारी मरियम दॆल् मॊंतॆ चर्मॆलॊ"
+      "hi": "धन्य कुँवारी मरियम दॆल् मॊंतॆ चर्मॆलॊ",
+      "de": "Unsere Liebe Frau vom Berge Karmel"
     },
     "17-7": {
       "it": "Sant' Alessio",
@@ -3364,7 +3561,8 @@
       "sv": "Sankt Alessio",
       "lt": "Šventasis Alessio",
       "zh": "圣 Alessio",
-      "hi": "संत अलॆषिऒ"
+      "hi": "संत अलॆषिऒ",
+      "de": "Hl. Alexius"
     },
     "18-7": {
       "it": "San Federico di Utrecht",
@@ -3381,7 +3579,8 @@
       "sv": "Sankt Federico av Utrecht",
       "lt": "Šventasis Federico iš Utrecht",
       "zh": "圣 Federico·Utrecht",
-      "hi": "संत फ़ॆदॆरिचॊ के उत्रॆछ्त्"
+      "hi": "संत फ़ॆदॆरिचॊ के उत्रॆछ्त्",
+      "de": "Hl. Friedrich von Utrecht"
     },
     "19-7": {
       "it": "Sant' Arsenio il Grande",
@@ -3398,7 +3597,8 @@
       "sv": "Sankt Arsenio den store",
       "lt": "Šventasis Arsenio Didysis",
       "zh": "圣 Arsenio大圣",
-      "hi": "संत अर्सॆनिऒ महान"
+      "hi": "संत अर्सॆनिऒ महान",
+      "de": "Hl. Arsenius der Große"
     },
     "20-7": {
       "it": "Sant' Elia",
@@ -3415,7 +3615,8 @@
       "sv": "Sankt Elia",
       "lt": "Šventasis Elia",
       "zh": "圣 Elia",
-      "hi": "संत ऎलिअ"
+      "hi": "संत ऎलिअ",
+      "de": "Hl. Elija"
     },
     "21-7": {
       "it": "San Lorenzo da Brindisi",
@@ -3432,7 +3633,8 @@
       "sv": "Sankt Lorenzo från Brindisi",
       "lt": "Šventasis Lorenzo iš Brindisi",
       "zh": "圣 老楞佐·Brindisi",
-      "hi": "संत लॊरॆन्ज़ॊ से ब्रिंदिसि"
+      "hi": "संत लॊरॆन्ज़ॊ से ब्रिंदिसि",
+      "de": "Hl. Laurentius von Brindisi"
     },
     "22-7": {
       "it": "Santa Maria Maddalena",
@@ -3449,7 +3651,8 @@
       "sv": "Sankta Maria Maddalena",
       "lt": "Šventoji Maria Maddalena",
       "zh": "圣 玛利亚 玛达肋纳",
-      "hi": "संत मरिअ मद्दलॆन"
+      "hi": "संत मरिअ मद्दलॆन",
+      "de": "Hl. Maria Magdalena"
     },
     "23-7": {
       "it": "Santa Brigida di Svezia",
@@ -3466,7 +3669,8 @@
       "sv": "Sankta Brigida av Svezia",
       "lt": "Šventoji Brigida iš Svezia",
       "zh": "圣 彼济达·Svezia",
-      "hi": "संत ब्रिगिद के स्वॆज़िअ"
+      "hi": "संत ब्रिगिद के स्वॆज़िअ",
+      "de": "Hl. Birgitta von Schweden"
     },
     "24-7": {
       "it": "Santa Cristina di Bolsena",
@@ -3483,7 +3687,8 @@
       "sv": "Sankta Cristina av Bolsena",
       "lt": "Šventoji Cristina iš Bolsena",
       "zh": "圣 基斯定·Bolsena",
-      "hi": "संत च्रिस्तिन के बॊल्सॆन"
+      "hi": "संत च्रिस्तिन के बॊल्सॆन",
+      "de": "Hl. Christina von Bolsena"
     },
     "25-7": {
       "it": "San Giacomo il Maggiore",
@@ -3500,7 +3705,8 @@
       "sv": "Sankt Giacomo il Maggiore",
       "lt": "Šventasis Giacomo il Maggiore",
       "zh": "圣 雅各伯 il Maggiore",
-      "hi": "संत गिअचॊमॊ इल् मग्गिऒरॆ"
+      "hi": "संत गिअचॊमॊ इल् मग्गिऒरॆ",
+      "de": "Hl. Jakobus il Maggiore"
     },
     "26-7": {
       "it": "Santi Anna e Gioacchino",
@@ -3517,7 +3723,8 @@
       "sv": "De heliga Anna och Gioacchino",
       "lt": "Šventieji Anna ir Gioacchino",
       "zh": "圣人 Anna与Gioacchino",
-      "hi": "संतगण अन्न और गिऒअच्छिनॊ"
+      "hi": "संतगण अन्न और गिऒअच्छिनॊ",
+      "de": "Hll. Anna und Joachim"
     },
     "27-7": {
       "it": "San Pantaleone",
@@ -3534,7 +3741,8 @@
       "sv": "Sankt Pantaleone",
       "lt": "Šventasis Pantaleone",
       "zh": "圣 Pantaleone",
-      "hi": "संत पंतलॆऒनॆ"
+      "hi": "संत पंतलॆऒनॆ",
+      "de": "Hl. Pantaleon"
     },
     "28-7": {
       "it": "Santi Nazario e Celso",
@@ -3551,7 +3759,8 @@
       "sv": "De heliga Nazario och Celso",
       "lt": "Šventieji Nazario ir Celso",
       "zh": "圣人 Nazario与Celso",
-      "hi": "संतगण नज़रिऒ और चॆल्सॊ"
+      "hi": "संतगण नज़रिऒ और चॆल्सॊ",
+      "de": "Hll. Nazarius und Celsus"
     },
     "29-7": {
       "it": "Santa Marta di Betania",
@@ -3568,7 +3777,8 @@
       "sv": "Sankta Marta av Betania",
       "lt": "Šventoji Marta iš Betania",
       "zh": "圣 玛尔大·Betania",
-      "hi": "संत मर्त के बॆतनिअ"
+      "hi": "संत मर्त के बॆतनिअ",
+      "de": "Hl. Martha von Bethanien"
     },
     "30-7": {
       "it": "San Pietro Crisologo",
@@ -3585,7 +3795,8 @@
       "sv": "Sankt Pietro Crisologo",
       "lt": "Šventasis Pietro Crisologo",
       "zh": "圣 伯多禄 Crisologo",
-      "hi": "संत पिऎत्रॊ च्रिसॊलॊगॊ"
+      "hi": "संत पिऎत्रॊ च्रिसॊलॊगॊ",
+      "de": "Hl. Petrus Crisologo"
     },
     "31-7": {
       "it": "Sant' Ignazio di Loyola",
@@ -3602,7 +3813,8 @@
       "sv": "Sankt Ignazio av Loyola",
       "lt": "Šventasis Ignazio iš Loyola",
       "zh": "圣 依纳爵·Loyola",
-      "hi": "संत इग्नज़िऒ के लॊयॊल"
+      "hi": "संत इग्नज़िऒ के लॊयॊल",
+      "de": "Hl. Ignatius von Loyola"
     },
     "1-8": {
       "it": "Sant' Alfonso Maria de' Liguori",
@@ -3619,7 +3831,8 @@
       "sv": "Sankt Alfonso Maria de' Liguori",
       "lt": "Šventasis Alfonso Maria de' Liguori",
       "zh": "圣 亚丰索 玛利亚 de' Liguori",
-      "hi": "संत अल्फ़ॊंसॊ मरिअ दॆ लिगुऒरि"
+      "hi": "संत अल्फ़ॊंसॊ मरिअ दॆ लिगुऒरि",
+      "de": "Hl. Alfons Maria de' Liguori"
     },
     "2-8": {
       "it": "Santa Maria degli Angeli",
@@ -3636,7 +3849,8 @@
       "sv": "Sankta Maria degli Angeli",
       "lt": "Šventoji Maria degli Angeli",
       "zh": "圣 玛利亚 degli Angeli",
-      "hi": "संत मरिअ दॆग्लि अन्गॆलि"
+      "hi": "संत मरिअ दॆग्लि अन्गॆलि",
+      "de": "Maria von den Engeln (Portiunkula)"
     },
     "3-8": {
       "it": "Sant' Aspreno di Napoli",
@@ -3653,7 +3867,8 @@
       "sv": "Sankt Aspreno av Napoli",
       "lt": "Šventasis Aspreno iš Napoli",
       "zh": "圣 Aspreno·Napoli",
-      "hi": "संत अस्प्रॆनॊ के नपॊलि"
+      "hi": "संत अस्प्रॆनॊ के नपॊलि",
+      "de": "Hl. Aspreno von Neapel"
     },
     "4-8": {
       "it": "San Giovanni Maria Vianney",
@@ -3670,7 +3885,8 @@
       "sv": "Sankt Giovanni Maria Vianney",
       "lt": "Šventasis Giovanni Maria Vianney",
       "zh": "圣 若望 玛利亚 Vianney",
-      "hi": "संत गिऒवंनि मरिअ विअंनॆय्"
+      "hi": "संत गिऒवंनि मरिअ विअंनॆय्",
+      "de": "Hl. Johannes Maria Vianney"
     },
     "5-8": {
       "it": "Santa Maria della Neve",
@@ -3687,7 +3903,8 @@
       "sv": "Sankta Maria av Neve",
       "lt": "Šventoji Maria iš Neve",
       "zh": "圣 玛利亚·Neve",
-      "hi": "संत मरिअ के नॆवॆ"
+      "hi": "संत मरिअ के नॆवॆ",
+      "de": "Maria Schnee"
     },
     "6-8": {
       "it": "Trasfigurazione del Signore",
@@ -3704,7 +3921,8 @@
       "sv": "Kristi förklaring",
       "lt": "Viešpaties Atsimainymas",
       "zh": "耶稣显圣容节",
-      "hi": "प्रभु के रूपान्तरण का पर्व"
+      "hi": "प्रभु के रूपान्तरण का पर्व",
+      "de": "Verklärung des Herrn"
     },
     "7-8": {
       "it": "San Gaetano Thiene",
@@ -3721,7 +3939,8 @@
       "sv": "Sankt Gaetano Thiene",
       "lt": "Šventasis Gaetano Thiene",
       "zh": "圣 Gaetano Thiene",
-      "hi": "संत गॆतनॊ थिऎनॆ"
+      "hi": "संत गॆतनॊ थिऎनॆ",
+      "de": "Hl. Kajetan Thiene"
     },
     "8-8": {
       "it": "San Domenico di Guzman",
@@ -3738,7 +3957,8 @@
       "sv": "Sankt Domenico av Guzman",
       "lt": "Šventasis Domenico iš Guzman",
       "zh": "圣 道明·Guzman",
-      "hi": "संत दॊमॆनिचॊ के गुज़्मन्"
+      "hi": "संत दॊमॆनिचॊ के गुज़्मन्",
+      "de": "Hl. Dominikus von Guzmán"
     },
     "9-8": {
       "it": "Santa Teresa Benedetta della Croce",
@@ -3755,7 +3975,8 @@
       "sv": "Sankta Teresa Benedetta av Croce",
       "lt": "Šventoji Teresa Benedetta iš Croce",
       "zh": "圣 德肋撒 Benedetta·Croce",
-      "hi": "संत तॆरॆस बॆनॆदॆत्त के च्रॊचॆ"
+      "hi": "संत तॆरॆस बॆनॆदॆत्त के च्रॊचॆ",
+      "de": "Hl. Teresa Benedetta vom Kreuz"
     },
     "10-8": {
       "it": "San Lorenzo",
@@ -3772,7 +3993,8 @@
       "sv": "Sankt Lorenzo",
       "lt": "Šventasis Lorenzo",
       "zh": "圣 老楞佐",
-      "hi": "संत लॊरॆन्ज़ॊ"
+      "hi": "संत लॊरॆन्ज़ॊ",
+      "de": "Hl. Laurentius"
     },
     "11-8": {
       "it": "Santa Chiara",
@@ -3789,7 +4011,8 @@
       "sv": "Sankta Chiara",
       "lt": "Šventoji Chiara",
       "zh": "圣 嘉勒",
-      "hi": "संत छिअर"
+      "hi": "संत छिअर",
+      "de": "Hl. Klara"
     },
     "12-8": {
       "it": "Santa Giovanna Francesca de Chantal",
@@ -3806,7 +4029,8 @@
       "sv": "Sankta Giovanna Francesca av Chantal",
       "lt": "Šventoji Giovanna Francesca iš Chantal",
       "zh": "圣 若翰纳 方济加·Chantal",
-      "hi": "संत गिऒवन्न फ़्रन्चॆस्च के छंतल्"
+      "hi": "संत गिऒवन्न फ़्रन्चॆस्च के छंतल्",
+      "de": "Hl. Johanna Franziska von Chantal"
     },
     "13-8": {
       "it": "Santa Filomena di Roma",
@@ -3823,7 +4047,8 @@
       "sv": "Sankta Filomena av Roma",
       "lt": "Šventoji Filomena iš Roma",
       "zh": "圣 Filomena·Roma",
-      "hi": "संत फ़िलॊमॆन के रॊम"
+      "hi": "संत फ़िलॊमॆन के रॊम",
+      "de": "Hl. Philomena von Rom"
     },
     "14-8": {
       "it": "San Massimiliano Maria Kolbe",
@@ -3840,7 +4065,8 @@
       "sv": "Sankt Massimiliano Maria Kolbe",
       "lt": "Šventasis Massimiliano Maria Kolbe",
       "zh": "圣 马克西米利安 玛利亚 Kolbe",
-      "hi": "संत मषिमिलिअनॊ मरिअ कॊल्बॆ"
+      "hi": "संत मषिमिलिअनॊ मरिअ कॊल्बॆ",
+      "de": "Hl. Maximilian Maria Kolbe"
     },
     "15-8": {
       "it": "Assunzione della Beata Vergine Maria",
@@ -3857,7 +4083,8 @@
       "sv": "Jungfru Marias upptagning i himlen",
       "lt": "Švenčiausiosios Mergelės Marijos Ėmimas į dangų",
       "zh": "圣母蒙召升天节",
-      "hi": "धन्य कुँवारी मरियम का स्वर्गारोहण"
+      "hi": "धन्य कुँवारी मरियम का स्वर्गारोहण",
+      "de": "Mariä Aufnahme in den Himmel"
     },
     "16-8": {
       "it": "San Rocco",
@@ -3874,7 +4101,8 @@
       "sv": "Sankt Rocco",
       "lt": "Šventasis Rocco",
       "zh": "圣 洛克",
-      "hi": "संत रॊच्चॊ"
+      "hi": "संत रॊच्चॊ",
+      "de": "Hl. Rochus"
     },
     "17-8": {
       "it": "Santa Beatrice de Silva",
@@ -3891,7 +4119,8 @@
       "sv": "Sankta Beatrice av Silva",
       "lt": "Šventoji Beatrice iš Silva",
       "zh": "圣 Beatrice·Silva",
-      "hi": "संत बॆअत्रिचॆ के सिल्व"
+      "hi": "संत बॆअत्रिचॆ के सिल्व",
+      "de": "Hl. Beatrix da Silva"
     },
     "18-8": {
       "it": "Sant'Elena Imperatrice",
@@ -3908,7 +4137,8 @@
       "sv": "Sankt Elena kejsarinnan",
       "lt": "Šventasis Elena imperatorienė",
       "zh": "圣 Elena皇后",
-      "hi": "संत ऎलॆन साम्राज्ञी"
+      "hi": "संत ऎलॆन साम्राज्ञी",
+      "de": "Hl. Helena, Kaiserin"
     },
     "19-8": {
       "it": "San Giovanni Eudes",
@@ -3925,7 +4155,8 @@
       "sv": "Sankt Giovanni Eudes",
       "lt": "Šventasis Giovanni Eudes",
       "zh": "圣 若望 Eudes",
-      "hi": "संत गिऒवंनि ऎउदॆस्"
+      "hi": "संत गिऒवंनि ऎउदॆस्",
+      "de": "Hl. Johannes Eudes"
     },
     "20-8": {
       "it": "San Samuele",
@@ -3942,7 +4173,8 @@
       "sv": "Sankt Samuele",
       "lt": "Šventasis Samuele",
       "zh": "圣 Samuele",
-      "hi": "संत समुऎलॆ"
+      "hi": "संत समुऎलॆ",
+      "de": "Hl. Samuel"
     },
     "21-8": {
       "it": "San Pio X",
@@ -3959,7 +4191,8 @@
       "sv": "Sankt Pio X",
       "lt": "Šventasis Pio X",
       "zh": "圣 庇护 X",
-      "hi": "संत पिऒ X"
+      "hi": "संत पिऒ X",
+      "de": "Hl. Pius X"
     },
     "22-8": {
       "it": "Beata Vergine Maria Regina",
@@ -3976,7 +4209,8 @@
       "sv": "Jungfru Maria Regina",
       "lt": "Švenčiausioji Mergelė Marija Regina",
       "zh": "荣福童贞玛利亚 Regina",
-      "hi": "धन्य कुँवारी मरियम रॆगिन"
+      "hi": "धन्य कुँवारी मरियम रॆगिन",
+      "de": "Maria Königin"
     },
     "23-8": {
       "it": "Santa Rosa da Lima",
@@ -3993,7 +4227,8 @@
       "sv": "Sankta Rosa från Lima",
       "lt": "Šventoji Rosa iš Lima",
       "zh": "圣 Rosa·Lima",
-      "hi": "संत रॊस से लिम"
+      "hi": "संत रॊस से लिम",
+      "de": "Hl. Rosa von Lima"
     },
     "24-8": {
       "it": "San Bartolomeo",
@@ -4010,7 +4245,8 @@
       "sv": "Sankt Bartolomeo",
       "lt": "Šventasis Bartolomeo",
       "zh": "圣 巴尔多禄茂",
-      "hi": "संत बर्तॊलॊमॆऒ"
+      "hi": "संत बर्तॊलॊमॆऒ",
+      "de": "Hl. Bartholomäus"
     },
     "25-8": {
       "it": "Santa Patrizia di Costantinopoli",
@@ -4027,7 +4263,8 @@
       "sv": "Sankta Patrizia av Costantinopoli",
       "lt": "Šventoji Patrizia iš Costantinopoli",
       "zh": "圣 Patrizia·Costantinopoli",
-      "hi": "संत पत्रिज़िअ के चॊस्तंतिनॊपॊलि"
+      "hi": "संत पत्रिज़िअ के चॊस्तंतिनॊपॊलि",
+      "de": "Hl. Patricia von Konstantinopel"
     },
     "26-8": {
       "it": "Sant' Alessandro di Bergamo",
@@ -4044,7 +4281,8 @@
       "sv": "Sankt Alessandro av Bergamo",
       "lt": "Šventasis Alessandro iš Bergamo",
       "zh": "圣 亚历山大·Bergamo",
-      "hi": "संत अलॆषंद्रॊ के बॆर्गमॊ"
+      "hi": "संत अलॆषंद्रॊ के बॆर्गमॊ",
+      "de": "Hl. Alexander von Bergamo"
     },
     "27-8": {
       "it": "Santa Monica",
@@ -4061,7 +4299,8 @@
       "sv": "Sankta Monica",
       "lt": "Šventoji Monica",
       "zh": "圣 莫尼加",
-      "hi": "संत मॊनिच"
+      "hi": "संत मॊनिच",
+      "de": "Hl. Monika"
     },
     "28-8": {
       "it": "Sant' Agostino",
@@ -4078,7 +4317,8 @@
       "sv": "Sankt Agostino",
       "lt": "Šventasis Agostino",
       "zh": "圣 奥思定",
-      "hi": "संत अगॊस्तिनॊ"
+      "hi": "संत अगॊस्तिनॊ",
+      "de": "Hl. Augustinus"
     },
     "29-8": {
       "it": "Martirio di San Giovanni Battista",
@@ -4095,7 +4335,8 @@
       "sv": "Johannes Döparens martyrium",
       "lt": "Šventojo Jono Krikštytojo kankinystė",
       "zh": "圣若翰洗者殉道纪念",
-      "hi": "संत योहन बपतिस्ता की शहादत"
+      "hi": "संत योहन बपतिस्ता की शहादत",
+      "de": "Enthauptung Johannes des Täufers"
     },
     "30-8": {
       "it": "Santi Felice e Adautto",
@@ -4112,7 +4353,8 @@
       "sv": "De heliga Felice och Adautto",
       "lt": "Šventieji Felice ir Adautto",
       "zh": "圣人 Felice与Adautto",
-      "hi": "संतगण फ़ॆलिचॆ और अदौत्तॊ"
+      "hi": "संतगण फ़ॆलिचॆ और अदौत्तॊ",
+      "de": "Hll. Felix und Adauctus"
     },
     "31-8": {
       "it": "San Raimondo Nonnato",
@@ -4129,7 +4371,8 @@
       "sv": "Sankt Raimondo Nonnato",
       "lt": "Šventasis Raimondo Nonnato",
       "zh": "圣 雷蒙 Nonnato",
-      "hi": "संत रैमॊंदॊ नॊन्नतॊ"
+      "hi": "संत रैमॊंदॊ नॊन्नतॊ",
+      "de": "Hl. Raimund Nonnato"
     },
     "1-9": {
       "it": "Sant' Egidio",
@@ -4146,7 +4389,8 @@
       "sv": "Sankt Egidio",
       "lt": "Šventasis Egidio",
       "zh": "圣 Egidio",
-      "hi": "संत ऎगिदिऒ"
+      "hi": "संत ऎगिदिऒ",
+      "de": "Hl. Ägidius"
     },
     "2-9": {
       "it": "Sant' Elpidio",
@@ -4163,7 +4407,8 @@
       "sv": "Sankt Elpidio",
       "lt": "Šventasis Elpidio",
       "zh": "圣 Elpidio",
-      "hi": "संत ऎल्पिदिऒ"
+      "hi": "संत ऎल्पिदिऒ",
+      "de": "Hl. Elpidius"
     },
     "3-9": {
       "it": "San Gregorio Magno",
@@ -4180,7 +4425,8 @@
       "sv": "Sankt Gregorio den store",
       "lt": "Šventasis Gregorio Didysis",
       "zh": "圣 Gregorio大圣",
-      "hi": "संत ग्रॆगॊरिऒ महान"
+      "hi": "संत ग्रॆगॊरिऒ महान",
+      "de": "Hl. Gregor der Große"
     },
     "4-9": {
       "it": "Santa Rosalia",
@@ -4197,7 +4443,8 @@
       "sv": "Sankta Rosalia",
       "lt": "Šventoji Rosalia",
       "zh": "圣 洛沙利亚",
-      "hi": "संत रॊसलिअ"
+      "hi": "संत रॊसलिअ",
+      "de": "Hl. Rosalia"
     },
     "5-9": {
       "it": "Santa Teresa di Calcutta",
@@ -4214,7 +4461,8 @@
       "sv": "Sankta Teresa av Calcutta",
       "lt": "Šventoji Teresa iš Calcutta",
       "zh": "圣 德肋撒·Calcutta",
-      "hi": "संत तॆरॆस के चल्चुत्त"
+      "hi": "संत तॆरॆस के चल्चुत्त",
+      "de": "Hl. Teresa von Kalkutta"
     },
     "6-9": {
       "it": "San Zaccaria",
@@ -4231,7 +4479,8 @@
       "sv": "Sankt Zaccaria",
       "lt": "Šventasis Zaccaria",
       "zh": "圣 匝加利亚",
-      "hi": "संत ज़च्चरिअ"
+      "hi": "संत ज़च्चरिअ",
+      "de": "Hl. Zacharias"
     },
     "7-9": {
       "it": "Santa Regina di Alise",
@@ -4248,7 +4497,8 @@
       "sv": "Sankta Regina av Alise",
       "lt": "Šventoji Regina iš Alise",
       "zh": "圣 Regina·Alise",
-      "hi": "संत रॆगिन के अलिसॆ"
+      "hi": "संत रॆगिन के अलिसॆ",
+      "de": "Hl. Regina von Alise"
     },
     "8-9": {
       "it": "Natività della Beata Vergine Maria",
@@ -4265,7 +4515,8 @@
       "sv": "Jungfru Marias födelse",
       "lt": "Švenčiausiosios Mergelės Marijos gimimas",
       "zh": "圣母诞辰",
-      "hi": "धन्य कुँवारी मरियम का जन्मोत्सव"
+      "hi": "धन्य कुँवारी मरियम का जन्मोत्सव",
+      "de": "Mariä Geburt"
     },
     "9-9": {
       "it": "San Pietro Claver",
@@ -4282,7 +4533,8 @@
       "sv": "Sankt Pietro Claver",
       "lt": "Šventasis Pietro Claver",
       "zh": "圣 伯多禄 Claver",
-      "hi": "संत पिऎत्रॊ च्लवॆर्"
+      "hi": "संत पिऎत्रॊ च्लवॆर्",
+      "de": "Hl. Petrus Claver"
     },
     "10-9": {
       "it": "San Nicola da Tolentino",
@@ -4299,7 +4551,8 @@
       "sv": "Sankt Nicola från Tolentino",
       "lt": "Šventasis Nicola iš Tolentino",
       "zh": "圣 尼各老·Tolentino",
-      "hi": "संत निचॊल से तॊलॆंतिनॊ"
+      "hi": "संत निचॊल से तॊलॆंतिनॊ",
+      "de": "Hl. Nikolaus von Tolentino"
     },
     "11-9": {
       "it": "Santi Proto e Giacinto",
@@ -4316,7 +4569,8 @@
       "sv": "De heliga Proto och Giacinto",
       "lt": "Šventieji Proto ir Giacinto",
       "zh": "圣人 Proto与Giacinto",
-      "hi": "संतगण प्रॊतॊ और गिअचिंतॊ"
+      "hi": "संतगण प्रॊतॊ और गिअचिंतॊ",
+      "de": "Hll. Protus und Hyacinthus"
     },
     "12-9": {
       "it": "Santissimo Nome di Maria",
@@ -4333,7 +4587,8 @@
       "sv": "Marias heliga namn",
       "lt": "Švenčiausiasis Marijos Vardas",
       "zh": "玛利亚圣名纪念",
-      "hi": "मरियम का परमपवित्र नाम"
+      "hi": "मरियम का परमपवित्र नाम",
+      "de": "Mariä Namen"
     },
     "13-9": {
       "it": "San Giovanni Crisostomo",
@@ -4350,7 +4605,8 @@
       "sv": "Sankt Giovanni Crisostomo",
       "lt": "Šventasis Giovanni Crisostomo",
       "zh": "圣 若望 Crisostomo",
-      "hi": "संत गिऒवंनि च्रिसॊस्तॊमॊ"
+      "hi": "संत गिऒवंनि च्रिसॊस्तॊमॊ",
+      "de": "Hl. Johannes Crisostomo"
     },
     "14-9": {
       "it": "Esaltazione della Santa Croce",
@@ -4367,7 +4623,8 @@
       "sv": "Det heliga korsets upphöjelse",
       "lt": "Šventojo Kryžiaus Išaukštinimas",
       "zh": "光荣十字圣架节",
-      "hi": "पवित्र क्रूस की महिमा का पर्व"
+      "hi": "पवित्र क्रूस की महिमा का पर्व",
+      "de": "Kreuzerhöhung"
     },
     "15-9": {
       "it": "Beata Vergine Maria Addolorata",
@@ -4384,7 +4641,8 @@
       "sv": "Jungfru Maria Addolorata",
       "lt": "Švenčiausioji Mergelė Marija Addolorata",
       "zh": "荣福童贞玛利亚 Addolorata",
-      "hi": "धन्य कुँवारी मरियम अद्दॊलॊरत"
+      "hi": "धन्य कुँवारी मरियम अद्दॊलॊरत",
+      "de": "Gedächtnis der Schmerzen Mariens"
     },
     "16-9": {
       "it": "Santi Cipriano e Cornelio",
@@ -4401,7 +4659,8 @@
       "sv": "De heliga Cipriano och Cornelio",
       "lt": "Šventieji Cipriano ir Cornelio",
       "zh": "圣人 Cipriano与Cornelio",
-      "hi": "संतगण चिप्रिअनॊ और चॊर्नॆलिऒ"
+      "hi": "संतगण चिप्रिअनॊ और चॊर्नॆलिऒ",
+      "de": "Hll. Cornelius und Cyprian"
     },
     "17-9": {
       "it": "San Roberto Bellarmino",
@@ -4418,7 +4677,8 @@
       "sv": "Sankt Roberto Bellarmino",
       "lt": "Šventasis Roberto Bellarmino",
       "zh": "圣 罗伯多 Bellarmino",
-      "hi": "संत रॊबॆर्तॊ बॆल्लर्मिनॊ"
+      "hi": "संत रॊबॆर्तॊ बॆल्लर्मिनॊ",
+      "de": "Hl. Robert Bellarmino"
     },
     "18-9": {
       "it": "San Giuseppe da Copertino",
@@ -4435,7 +4695,8 @@
       "sv": "Sankt Giuseppe från Copertino",
       "lt": "Šventasis Giuseppe iš Copertino",
       "zh": "圣 若瑟·Copertino",
-      "hi": "संत गिउसॆप्पॆ से चॊपॆर्तिनॊ"
+      "hi": "संत गिउसॆप्पॆ से चॊपॆर्तिनॊ",
+      "de": "Hl. Josef von Copertino"
     },
     "19-9": {
       "it": "San Gennaro",
@@ -4452,7 +4713,8 @@
       "sv": "Sankt Gennaro",
       "lt": "Šventasis Gennaro",
       "zh": "圣 雅纳略",
-      "hi": "संत गॆन्नरॊ"
+      "hi": "संत गॆन्नरॊ",
+      "de": "Hl. Januarius"
     },
     "20-9": {
       "it": "Santi Martiri Coreani",
@@ -4469,7 +4731,8 @@
       "sv": "De heliga Martiri Coreani",
       "lt": "Šventieji Martiri Coreani",
       "zh": "圣人 Martiri Coreani",
-      "hi": "संतगण मर्तिरि चॊरॆअनि"
+      "hi": "संतगण मर्तिरि चॊरॆअनि",
+      "de": "Hll. koreanische Märtyrer"
     },
     "21-9": {
       "it": "San Matteo",
@@ -4486,7 +4749,8 @@
       "sv": "Sankt Matteo",
       "lt": "Šventasis Matteo",
       "zh": "圣 玛窦",
-      "hi": "संत मत्तॆऒ"
+      "hi": "संत मत्तॆऒ",
+      "de": "Hl. Matthäus"
     },
     "22-9": {
       "it": "San Maurizio",
@@ -4503,7 +4767,8 @@
       "sv": "Sankt Maurizio",
       "lt": "Šventasis Maurizio",
       "zh": "圣 莫里斯",
-      "hi": "संत मौरिज़िऒ"
+      "hi": "संत मौरिज़िऒ",
+      "de": "Hl. Mauritius"
     },
     "23-9": {
       "it": "San Pio da Pietrelcina",
@@ -4520,7 +4785,8 @@
       "sv": "Sankt Pio från Pietrelcina",
       "lt": "Šventasis Pio iš Pietrelcina",
       "zh": "圣 庇护·Pietrelcina",
-      "hi": "संत पिऒ से पिऎत्रॆल्चिन"
+      "hi": "संत पिऒ से पिऎत्रॆल्चिन",
+      "de": "Hl. Pio von Pietrelcina"
     },
     "24-9": {
       "it": "Beata Vergine Maria della Mercede",
@@ -4537,7 +4803,8 @@
       "sv": "Jungfru Maria della Mercede",
       "lt": "Švenčiausioji Mergelė Marija della Mercede",
       "zh": "荣福童贞玛利亚 della Mercede",
-      "hi": "धन्य कुँवारी मरियम दॆल्ल मॆर्चॆदॆ"
+      "hi": "धन्य कुँवारी मरियम दॆल्ल मॆर्चॆदॆ",
+      "de": "Unsere Liebe Frau von der Barmherzigkeit"
     },
     "25-9": {
       "it": "San Cleofa",
@@ -4554,7 +4821,8 @@
       "sv": "Sankt Cleofa",
       "lt": "Šventasis Cleofa",
       "zh": "圣 Cleofa",
-      "hi": "संत च्लॆऒफ़"
+      "hi": "संत च्लॆऒफ़",
+      "de": "Hl. Kleophas"
     },
     "26-9": {
       "it": "Santi Cosma e Damiano",
@@ -4571,7 +4839,8 @@
       "sv": "De heliga Cosma och Damiano",
       "lt": "Šventieji Cosma ir Damiano",
       "zh": "圣人 Cosma与Damiano",
-      "hi": "संतगण चॊस्म और दमिअनॊ"
+      "hi": "संतगण चॊस्म और दमिअनॊ",
+      "de": "Hll. Kosmas und Damian"
     },
     "27-9": {
       "it": "San Vincenzo de' Paoli",
@@ -4588,7 +4857,8 @@
       "sv": "Sankt Vincenzo de' Paoli",
       "lt": "Šventasis Vincenzo de' Paoli",
       "zh": "圣 味增爵 de' Paoli",
-      "hi": "संत विन्चॆन्ज़ॊ दॆ पॊलि"
+      "hi": "संत विन्चॆन्ज़ॊ दॆ पॊलि",
+      "de": "Hl. Vinzenz de' Paoli"
     },
     "28-9": {
       "it": "San Venceslao",
@@ -4605,7 +4875,8 @@
       "sv": "Sankt Venceslao",
       "lt": "Šventasis Venceslao",
       "zh": "圣 文策老",
-      "hi": "संत वॆन्चॆस्लॊ"
+      "hi": "संत वॆन्चॆस्लॊ",
+      "de": "Hl. Wenzel"
     },
     "29-9": {
       "it": "Santi Michele, Gabriele e Raffaele",
@@ -4622,7 +4893,8 @@
       "sv": "De heliga Michele, Gabriele och Raffaele",
       "lt": "Šventieji Michele, Gabriele ir Raffaele",
       "zh": "圣人 弥额尔, Gabriele与Raffaele",
-      "hi": "संतगण मिछॆलॆ, गब्रिऎलॆ और रफ़्फ़ऎलॆ"
+      "hi": "संतगण मिछॆलॆ, गब्रिऎलॆ और रफ़्फ़ऎलॆ",
+      "de": "Hll. Michael, Gabriel und Rafael, Erzengel"
     },
     "30-9": {
       "it": "San Girolamo",
@@ -4639,7 +4911,8 @@
       "sv": "Sankt Girolamo",
       "lt": "Šventasis Girolamo",
       "zh": "圣 热罗尼莫",
-      "hi": "संत गिरॊलमॊ"
+      "hi": "संत गिरॊलमॊ",
+      "de": "Hl. Hieronymus"
     },
     "1-10": {
       "it": "Santa Teresa di Lisieux",
@@ -4656,7 +4929,8 @@
       "sv": "Sankta Teresa av Lisieux",
       "lt": "Šventoji Teresa iš Lisieux",
       "zh": "圣 德肋撒·Lisieux",
-      "hi": "संत तॆरॆस के लिसिऎउक्स"
+      "hi": "संत तॆरॆस के लिसिऎउक्स",
+      "de": "Hl. Thérèse von Lisieux"
     },
     "2-10": {
       "it": "Santi Angeli Custodi",
@@ -4673,7 +4947,8 @@
       "sv": "De heliga Angeli Custodi",
       "lt": "Šventieji Angeli Custodi",
       "zh": "圣人 Angeli Custodi",
-      "hi": "संतगण अन्गॆलि चुस्तॊदि"
+      "hi": "संतगण अन्गॆलि चुस्तॊदि",
+      "de": "Heilige Schutzengel"
     },
     "3-10": {
       "it": "San Gerardo di Brogne",
@@ -4690,7 +4965,8 @@
       "sv": "Sankt Gerardo av Brogne",
       "lt": "Šventasis Gerardo iš Brogne",
       "zh": "圣 Gerardo·Brogne",
-      "hi": "संत गॆरर्दॊ के ब्रॊग्नॆ"
+      "hi": "संत गॆरर्दॊ के ब्रॊग्नॆ",
+      "de": "Hl. Gerhard von Brogne"
     },
     "4-10": {
       "it": "San Francesco d'Assisi",
@@ -4707,7 +4983,8 @@
       "sv": "Sankt Francesco av Assisi",
       "lt": "Šventasis Francesco iš Assisi",
       "zh": "圣 方济各·Assisi",
-      "hi": "संत फ़्रन्चॆस्चॊ के अषिसि"
+      "hi": "संत फ़्रन्चॆस्चॊ के अषिसि",
+      "de": "Hl. Franz von Assisi"
     },
     "5-10": {
       "it": "Santa Maria Faustina Kowalska",
@@ -4724,7 +5001,8 @@
       "sv": "Sankta Maria Faustina Kowalska",
       "lt": "Šventoji Maria Faustina Kowalska",
       "zh": "圣 玛利亚 Faustina Kowalska",
-      "hi": "संत मरिअ फ़ौस्तिन कॊवल्स्क"
+      "hi": "संत मरिअ फ़ौस्तिन कॊवल्स्क",
+      "de": "Hl. Maria Faustina Kowalska"
     },
     "6-10": {
       "it": "San Bruno di Colonia",
@@ -4741,7 +5019,8 @@
       "sv": "Sankt Bruno av Colonia",
       "lt": "Šventasis Bruno iš Colonia",
       "zh": "圣 布鲁诺·Colonia",
-      "hi": "संत ब्रुनॊ के चॊलॊनिअ"
+      "hi": "संत ब्रुनॊ के चॊलॊनिअ",
+      "de": "Hl. Bruno von Köln"
     },
     "7-10": {
       "it": "Beata Vergine Maria del Rosario",
@@ -4758,7 +5037,8 @@
       "sv": "Jungfru Maria del Rosario",
       "lt": "Švenčiausioji Mergelė Marija del Rosario",
       "zh": "荣福童贞玛利亚 del Rosario",
-      "hi": "धन्य कुँवारी मरियम दॆल् रॊसरिऒ"
+      "hi": "धन्य कुँवारी मरियम दॆल् रॊसरिऒ",
+      "de": "Unsere Liebe Frau vom Rosenkranz"
     },
     "8-10": {
       "it": "Santa Pelagia di Antiochia",
@@ -4775,7 +5055,8 @@
       "sv": "Sankta Pelagia av Antiochia",
       "lt": "Šventoji Pelagia iš Antiochia",
       "zh": "圣 Pelagia·Antiochia",
-      "hi": "संत पॆलगिअ के अंतिऒछिअ"
+      "hi": "संत पॆलगिअ के अंतिऒछिअ",
+      "de": "Hl. Pelagia von Antiochia"
     },
     "9-10": {
       "it": "San Dionigi e compagni",
@@ -4792,7 +5073,8 @@
       "sv": "Sankt Dionigi och följeslagare",
       "lt": "Šventasis Dionigi ir bendražygiai",
       "zh": "圣 Dionigi与同伴",
-      "hi": "संत दिऒनिगि और साथी"
+      "hi": "संत दिऒनिगि और साथी",
+      "de": "Hl. Dionysius und Gefährten"
     },
     "10-10": {
       "it": "San Daniele Comboni",
@@ -4809,7 +5091,8 @@
       "sv": "Sankt Daniele Comboni",
       "lt": "Šventasis Daniele Comboni",
       "zh": "圣 Daniele Comboni",
-      "hi": "संत दनिऎलॆ चॊंबॊनि"
+      "hi": "संत दनिऎलॆ चॊंबॊनि",
+      "de": "Hl. Daniel Comboni"
     },
     "11-10": {
       "it": "San Giovanni XXIII",
@@ -4826,7 +5109,8 @@
       "sv": "Sankt Giovanni XXIII",
       "lt": "Šventasis Giovanni XXIII",
       "zh": "圣 若望 XXIII",
-      "hi": "संत गिऒवंनि क्सक्सीइ"
+      "hi": "संत गिऒवंनि क्सक्सीइ",
+      "de": "Hl. Johannes XXIII"
     },
     "12-10": {
       "it": "San Carlo Acutis",
@@ -4843,7 +5127,8 @@
       "sv": "Sankt Carlo Acutis",
       "lt": "Šventasis Carlo Acutis",
       "zh": "圣 嘉禄 Acutis",
-      "hi": "संत चर्लॊ अचुतिस्"
+      "hi": "संत चर्लॊ अचुतिस्",
+      "de": "Hl. Karl Acutis"
     },
     "13-10": {
       "it": "San Teofilo di Antiochia",
@@ -4860,7 +5145,8 @@
       "sv": "Sankt Teofilo av Antiochia",
       "lt": "Šventasis Teofilo iš Antiochia",
       "zh": "圣 Teofilo·Antiochia",
-      "hi": "संत तॆऒफ़िलॊ के अंतिऒछिअ"
+      "hi": "संत तॆऒफ़िलॊ के अंतिऒछिअ",
+      "de": "Hl. Theophilus von Antiochia"
     },
     "14-10": {
       "it": "San Callisto I",
@@ -4877,7 +5163,8 @@
       "sv": "Sankt Callisto I",
       "lt": "Šventasis Callisto I",
       "zh": "圣 加理多 I",
-      "hi": "संत चल्लिस्तॊ I"
+      "hi": "संत चल्लिस्तॊ I",
+      "de": "Hl. Kallistus I"
     },
     "15-10": {
       "it": "Santa Teresa d'Avila",
@@ -4894,7 +5181,8 @@
       "sv": "Sankta Teresa av Avila",
       "lt": "Šventoji Teresa iš Avila",
       "zh": "圣 德肋撒·Avila",
-      "hi": "संत तॆरॆस के अविल"
+      "hi": "संत तॆरॆस के अविल",
+      "de": "Hl. Teresa von Ávila"
     },
     "16-10": {
       "it": "Santa Margherita Maria Alacoque",
@@ -4911,7 +5199,8 @@
       "sv": "Sankta Margherita Maria Alacoque",
       "lt": "Šventoji Margherita Maria Alacoque",
       "zh": "圣 玛加利大 玛利亚 Alacoque",
-      "hi": "संत मर्घॆरित मरिअ अलचॊक़ुऎ"
+      "hi": "संत मर्घॆरित मरिअ अलचॊक़ुऎ",
+      "de": "Hl. Margareta Maria Alacoque"
     },
     "17-10": {
       "it": "Sant' Ignazio di Antiochia",
@@ -4928,7 +5217,8 @@
       "sv": "Sankt Ignazio av Antiochia",
       "lt": "Šventasis Ignazio iš Antiochia",
       "zh": "圣 依纳爵·Antiochia",
-      "hi": "संत इग्नज़िऒ के अंतिऒछिअ"
+      "hi": "संत इग्नज़िऒ के अंतिऒछिअ",
+      "de": "Hl. Ignatius von Antiochia"
     },
     "18-10": {
       "it": "San Luca",
@@ -4945,7 +5235,8 @@
       "sv": "Sankt Luca",
       "lt": "Šventasis Luca",
       "zh": "圣 路加",
-      "hi": "संत लुच"
+      "hi": "संत लुच",
+      "de": "Hl. Lukas"
     },
     "19-10": {
       "it": "San Paolo della Croce",
@@ -4962,7 +5253,8 @@
       "sv": "Sankt Paolo av Croce",
       "lt": "Šventasis Paolo iš Croce",
       "zh": "圣 保禄·Croce",
-      "hi": "संत पॊलॊ के च्रॊचॆ"
+      "hi": "संत पॊलॊ के च्रॊचॆ",
+      "de": "Hl. Paulus vom Kreuz"
     },
     "20-10": {
       "it": "Santa Maria Bertilla Boscardin",
@@ -4979,7 +5271,8 @@
       "sv": "Sankta Maria Bertilla Boscardin",
       "lt": "Šventoji Maria Bertilla Boscardin",
       "zh": "圣 玛利亚 Bertilla Boscardin",
-      "hi": "संत मरिअ बॆर्तिल्ल बॊस्चर्दिन्"
+      "hi": "संत मरिअ बॆर्तिल्ल बॊस्चर्दिन्",
+      "de": "Hl. Maria Bertilla Boscardin"
     },
     "21-10": {
       "it": "Beato Giuseppe Puglisi",
@@ -4996,7 +5289,8 @@
       "sv": "Salige Giuseppe Puglisi",
       "lt": "Palaimintasis Giuseppe Puglisi",
       "zh": "真福 若瑟 Puglisi",
-      "hi": "धन्य गिउसॆप्पॆ पुग्लिसि"
+      "hi": "धन्य गिउसॆप्पॆ पुग्लिसि",
+      "de": "Sel. Josef Puglisi"
     },
     "22-10": {
       "it": "San Giovanni Paolo II",
@@ -5013,7 +5307,8 @@
       "sv": "Sankt Giovanni Paolo II",
       "lt": "Šventasis Giovanni Paolo II",
       "zh": "圣 若望 保禄 II",
-      "hi": "संत गिऒवंनि पॊलॊ II"
+      "hi": "संत गिऒवंनि पॊलॊ II",
+      "de": "Hl. Johannes Paul II"
     },
     "23-10": {
       "it": "San Giovanni da Capestrano",
@@ -5030,7 +5325,8 @@
       "sv": "Sankt Giovanni från Capestrano",
       "lt": "Šventasis Giovanni iš Capestrano",
       "zh": "圣 若望·Capestrano",
-      "hi": "संत गिऒवंनि से चपॆस्त्रनॊ"
+      "hi": "संत गिऒवंनि से चपॆस्त्रनॊ",
+      "de": "Hl. Johannes von Capestrano"
     },
     "24-10": {
       "it": "Sant' Antonio Maria Claret",
@@ -5047,7 +5343,8 @@
       "sv": "Sankt Antonio Maria Claret",
       "lt": "Šventasis Antonio Maria Claret",
       "zh": "圣 安多尼 玛利亚 Claret",
-      "hi": "संत अंतॊनिऒ मरिअ च्लरॆत्"
+      "hi": "संत अंतॊनिऒ मरिअ च्लरॆत्",
+      "de": "Hl. Antonius Maria Claret"
     },
     "25-10": {
       "it": "Santi Crisante e Daria",
@@ -5064,7 +5361,8 @@
       "sv": "De heliga Crisante och Daria",
       "lt": "Šventieji Crisante ir Daria",
       "zh": "圣人 Crisante与Daria",
-      "hi": "संतगण च्रिसंतॆ और दरिअ"
+      "hi": "संतगण च्रिसंतॆ और दरिअ",
+      "de": "Hll. Chrysanthus und Daria"
     },
     "26-10": {
       "it": "San Folco Scotti",
@@ -5081,7 +5379,8 @@
       "sv": "Sankt Folco Scotti",
       "lt": "Šventasis Folco Scotti",
       "zh": "圣 Folco Scotti",
-      "hi": "संत फ़ॊल्चॊ स्चॊत्ति"
+      "hi": "संत फ़ॊल्चॊ स्चॊत्ति",
+      "de": "Hl. Fulko Scotti"
     },
     "27-10": {
       "it": "Sant' Evaristo",
@@ -5098,7 +5397,8 @@
       "sv": "Sankt Evaristo",
       "lt": "Šventasis Evaristo",
       "zh": "圣 Evaristo",
-      "hi": "संत ऎवरिस्तॊ"
+      "hi": "संत ऎवरिस्तॊ",
+      "de": "Hl. Evaristus"
     },
     "28-10": {
       "it": "Santi Simone e Giuda",
@@ -5115,7 +5415,8 @@
       "sv": "De heliga Simone och Giuda",
       "lt": "Šventieji Simone ir Giuda",
       "zh": "圣人 Simone与Giuda",
-      "hi": "संतगण सिमॊनॆ और गिउद"
+      "hi": "संतगण सिमॊनॆ और गिउद",
+      "de": "Hll. Simon und Judas"
     },
     "29-10": {
       "it": "Beata Chiara Luce Badano",
@@ -5132,7 +5433,8 @@
       "sv": "Saliga Chiara Luce Badano",
       "lt": "Palaimintoji Chiara Luce Badano",
       "zh": "真福 嘉勒 Luce Badano",
-      "hi": "धन्य छिअर लुचॆ बदनॊ"
+      "hi": "धन्य छिअर लुचॆ बदनॊ",
+      "de": "Sel. Klara Luce Badano"
     },
     "30-10": {
       "it": "San Germano di Capua",
@@ -5149,7 +5451,8 @@
       "sv": "Sankt Germano av Capua",
       "lt": "Šventasis Germano iš Capua",
       "zh": "圣 Germano·Capua",
-      "hi": "संत गॆर्मनॊ के चपुअ"
+      "hi": "संत गॆर्मनॊ के चपुअ",
+      "de": "Hl. Germanus von Capua"
     },
     "31-10": {
       "it": "Santa Lucilla di Roma",
@@ -5166,7 +5469,8 @@
       "sv": "Sankta Lucilla av Roma",
       "lt": "Šventoji Lucilla iš Roma",
       "zh": "圣 Lucilla·Roma",
-      "hi": "संत लुचिल्ल के रॊम"
+      "hi": "संत लुचिल्ल के रॊम",
+      "de": "Hl. Lucilla von Rom"
     },
     "1-11": {
       "it": "Tutti i Santi",
@@ -5183,7 +5487,8 @@
       "sv": "Alla helgons dag",
       "lt": "Visi Šventieji",
       "zh": "诸圣节",
-      "hi": "सभी संतों का पर्व"
+      "hi": "सभी संतों का पर्व",
+      "de": "Allerheiligen"
     },
     "2-11": {
       "it": "Commemorazione di tutti i fedeli defunti",
@@ -5200,7 +5505,8 @@
       "sv": "Alla själars dag",
       "lt": "Visų mirusių tikinčiųjų minėjimas",
       "zh": "追思已亡诸信者",
-      "hi": "सभी दिवंगत विश्वासियों का स्मरण"
+      "hi": "सभी दिवंगत विश्वासियों का स्मरण",
+      "de": "Allerseelen (Gedenken aller Verstorbenen)"
     },
     "3-11": {
       "it": "Santa Silvia",
@@ -5217,7 +5523,8 @@
       "sv": "Sankta Silvia",
       "lt": "Šventoji Silvia",
       "zh": "圣 Silvia",
-      "hi": "संत सिल्विअ"
+      "hi": "संत सिल्विअ",
+      "de": "Hl. Silvia"
     },
     "4-11": {
       "it": "San Carlo Borromeo",
@@ -5234,7 +5541,8 @@
       "sv": "Sankt Carlo Borromeo",
       "lt": "Šventasis Carlo Borromeo",
       "zh": "圣 嘉禄 Borromeo",
-      "hi": "संत चर्लॊ बॊर्रॊमॆऒ"
+      "hi": "संत चर्लॊ बॊर्रॊमॆऒ",
+      "de": "Hl. Karl Borromeo"
     },
     "5-11": {
       "it": "San Guido Maria Conforti",
@@ -5251,7 +5559,8 @@
       "sv": "Sankt Guido Maria Conforti",
       "lt": "Šventasis Guido Maria Conforti",
       "zh": "圣 Guido 玛利亚 Conforti",
-      "hi": "संत गुइदॊ मरिअ चॊन्फ़ॊर्ति"
+      "hi": "संत गुइदॊ मरिअ चॊन्फ़ॊर्ति",
+      "de": "Hl. Guido Maria Conforti"
     },
     "6-11": {
       "it": "San Leonardo di Noblac",
@@ -5268,7 +5577,8 @@
       "sv": "Sankt Leonardo av Noblac",
       "lt": "Šventasis Leonardo iš Noblac",
       "zh": "圣 Leonardo·Noblac",
-      "hi": "संत लॆऒनर्दॊ के नॊब्लच्"
+      "hi": "संत लॆऒनर्दॊ के नॊब्लच्",
+      "de": "Hl. Leonhard von Noblac"
     },
     "7-11": {
       "it": "San Prosdocimo di Padova",
@@ -5285,7 +5595,8 @@
       "sv": "Sankt Prosdocimo av Padova",
       "lt": "Šventasis Prosdocimo iš Padova",
       "zh": "圣 Prosdocimo·Padova",
-      "hi": "संत प्रॊस्दॊचिमॊ के पदॊव"
+      "hi": "संत प्रॊस्दॊचिमॊ के पदॊव",
+      "de": "Hl. Prosdocimus von Padua"
     },
     "8-11": {
       "it": "San Goffredo di Amiens",
@@ -5302,7 +5613,8 @@
       "sv": "Sankt Goffredo av Amiens",
       "lt": "Šventasis Goffredo iš Amiens",
       "zh": "圣 Goffredo·Amiens",
-      "hi": "संत गॊफ़्फ़्रॆदॊ के अमिऎंस्"
+      "hi": "संत गॊफ़्फ़्रॆदॊ के अमिऎंस्",
+      "de": "Hl. Gottfried von Amiens"
     },
     "9-11": {
       "it": "Dedicazione della Basilica Lateranense",
@@ -5319,7 +5631,8 @@
       "sv": "Lateranbasilikans invigning",
       "lt": "Laterano bazilikos pašventinimas",
       "zh": "拉特朗大殿奉献日",
-      "hi": "लातेरन महामंदिर का समर्पण"
+      "hi": "लातेरन महामंदिर का समर्पण",
+      "de": "Weihetag der Lateranbasilika"
     },
     "10-11": {
       "it": "San Leone Magno",
@@ -5336,7 +5649,8 @@
       "sv": "Sankt Leone den store",
       "lt": "Šventasis Leone Didysis",
       "zh": "圣 Leone大圣",
-      "hi": "संत लॆऒनॆ महान"
+      "hi": "संत लॆऒनॆ महान",
+      "de": "Hl. Leo der Große"
     },
     "11-11": {
       "it": "San Martino di Tours",
@@ -5353,7 +5667,8 @@
       "sv": "Sankt Martino av Tours",
       "lt": "Šventasis Martino iš Tours",
       "zh": "圣 玛尔定·Tours",
-      "hi": "संत मर्तिनॊ के तॊउर्स्"
+      "hi": "संत मर्तिनॊ के तॊउर्स्",
+      "de": "Hl. Martin von Tours"
     },
     "12-11": {
       "it": "San Giosafat Kuncewycz",
@@ -5370,7 +5685,8 @@
       "sv": "Sankt Giosafat Kuncewycz",
       "lt": "Šventasis Giosafat Kuncewycz",
       "zh": "圣 Giosafat Kuncewycz",
-      "hi": "संत गिऒसफ़त् कुन्चॆव्य्च्ज़्"
+      "hi": "संत गिऒसफ़त् कुन्चॆव्य्च्ज़्",
+      "de": "Hl. Josaphat Kuncewycz"
     },
     "13-11": {
       "it": "San Diego di Alcalà",
@@ -5387,7 +5703,8 @@
       "sv": "Sankt Diego av Alcalà",
       "lt": "Šventasis Diego iš Alcalà",
       "zh": "圣 Diego·Alcalà",
-      "hi": "संत दिऎगॊ के अल्चल̀"
+      "hi": "संत दिऎगॊ के अल्चल̀",
+      "de": "Hl. Didakus von Alcalá"
     },
     "14-11": {
       "it": "San Lorenzo O'Toole",
@@ -5404,7 +5721,8 @@
       "sv": "Sankt Lorenzo O'Toole",
       "lt": "Šventasis Lorenzo O'Toole",
       "zh": "圣 老楞佐 O'Toole",
-      "hi": "संत लॊरॆन्ज़ॊ ऒतॊऒलॆ"
+      "hi": "संत लॊरॆन्ज़ॊ ऒतॊऒलॆ",
+      "de": "Hl. Laurentius O'Toole"
     },
     "15-11": {
       "it": "Sant' Alberto Magno",
@@ -5421,7 +5739,8 @@
       "sv": "Sankt Alberto den store",
       "lt": "Šventasis Alberto Didysis",
       "zh": "圣 Alberto大圣",
-      "hi": "संत अल्बॆर्तॊ महान"
+      "hi": "संत अल्बॆर्तॊ महान",
+      "de": "Hl. Albertus der Große"
     },
     "16-11": {
       "it": "Santa Margherita di Scozia",
@@ -5438,7 +5757,8 @@
       "sv": "Sankta Margherita av Scozia",
       "lt": "Šventoji Margherita iš Scozia",
       "zh": "圣 玛加利大·Scozia",
-      "hi": "संत मर्घॆरित के स्चॊज़िअ"
+      "hi": "संत मर्घॆरित के स्चॊज़िअ",
+      "de": "Hl. Margareta von Schottland"
     },
     "17-11": {
       "it": "Sant' Elisabetta d'Ungheria",
@@ -5455,7 +5775,8 @@
       "sv": "Sankt Elisabetta av Ungheria",
       "lt": "Šventasis Elisabetta iš Ungheria",
       "zh": "圣 依撒伯尔·Ungheria",
-      "hi": "संत ऎलिसबॆत्त के उन्घॆरिअ"
+      "hi": "संत ऎलिसबॆत्त के उन्घॆरिअ",
+      "de": "Hl. Elisabetta von Ungarn"
     },
     "18-11": {
       "it": "Dedicazione delle basiliche dei Santi Pietro e Paolo",
@@ -5472,7 +5793,8 @@
       "sv": "Petrus- och Paulusbasilikornas invigning",
       "lt": "Šventųjų Petro ir Pauliaus bazilikų pašventinimas",
       "zh": "圣伯多禄及圣保禄大殿奉献日",
-      "hi": "संत पेत्रुस और संत पौलुस महामंदिरों का समर्पण"
+      "hi": "संत पेत्रुस और संत पौलुस महामंदिरों का समर्पण",
+      "de": "Weihetag der Basiliken St. Peter und St. Paul"
     },
     "19-11": {
       "it": "Santa Matilde di Hackeborn",
@@ -5489,7 +5811,8 @@
       "sv": "Sankta Matilde av Hackeborn",
       "lt": "Šventoji Matilde iš Hackeborn",
       "zh": "圣 玛蒂尔达·Hackeborn",
-      "hi": "संत मतिल्दॆ के हच्कॆबॊर्न्"
+      "hi": "संत मतिल्दॆ के हच्कॆबॊर्न्",
+      "de": "Hl. Mechthild von Hackeborn"
     },
     "20-11": {
       "it": "Sant' Edmondo",
@@ -5506,7 +5829,8 @@
       "sv": "Sankt Edmondo",
       "lt": "Šventasis Edmondo",
       "zh": "圣 Edmondo",
-      "hi": "संत ऎद्मॊंदॊ"
+      "hi": "संत ऎद्मॊंदॊ",
+      "de": "Hl. Edmund"
     },
     "21-11": {
       "it": "Presentazione della Beata Vergine Maria",
@@ -5523,7 +5847,8 @@
       "sv": "Jungfru Marias frambärande i templet",
       "lt": "Švenčiausiosios Mergelės Marijos Paaukojimas",
       "zh": "圣母奉献纪念",
-      "hi": "धन्य कुँवारी मरियम का मंदिर में समर्पण"
+      "hi": "धन्य कुँवारी मरियम का मंदिर में समर्पण",
+      "de": "Gedenktag Unserer Lieben Frau in Jerusalem"
     },
     "22-11": {
       "it": "Solennità di Cristo Re",
@@ -5540,7 +5865,8 @@
       "sv": "Kristus konungens högtid",
       "lt": "Kristaus Karaliaus iškilmė",
       "zh": "基督普世君王节",
-      "hi": "मसीह राजा का महापर्व"
+      "hi": "मसीह राजा का महापर्व",
+      "de": "Christkönigssonntag"
     },
     "23-11": {
       "it": "San Clemente I Romano",
@@ -5557,7 +5883,8 @@
       "sv": "Sankt Clemente I Romano",
       "lt": "Šventasis Clemente I Romano",
       "zh": "圣 克莱孟 I Romano",
-      "hi": "संत च्लॆमॆंतॆ I रॊमनॊ"
+      "hi": "संत च्लॆमॆंतॆ I रॊमनॊ",
+      "de": "Hl. Clemens I., Papst"
     },
     "24-11": {
       "it": "Santa Flora di Cordova",
@@ -5574,7 +5901,8 @@
       "sv": "Sankta Flora av Cordova",
       "lt": "Šventoji Flora iš Cordova",
       "zh": "圣 Flora·Cordova",
-      "hi": "संत फ़्लॊर के चॊर्दॊव"
+      "hi": "संत फ़्लॊर के चॊर्दॊव",
+      "de": "Hl. Flora von Córdoba"
     },
     "25-11": {
       "it": "Santa Caterina d'Alessandria",
@@ -5591,7 +5919,8 @@
       "sv": "Sankta Caterina av Alessandria",
       "lt": "Šventoji Caterina iš Alessandria",
       "zh": "圣 加大利纳·Alessandria",
-      "hi": "संत चतॆरिन के अलॆषंद्रिअ"
+      "hi": "संत चतॆरिन के अलॆषंद्रिअ",
+      "de": "Hl. Katharina von Alexandria"
     },
     "26-11": {
       "it": "San Leonardo da Porto Maurizio",
@@ -5608,7 +5937,8 @@
       "sv": "Sankt Leonardo från Porto Maurizio",
       "lt": "Šventasis Leonardo iš Porto Maurizio",
       "zh": "圣 Leonardo·Porto 莫里斯",
-      "hi": "संत लॆऒनर्दॊ से पॊर्तॊ मौरिज़िऒ"
+      "hi": "संत लॆऒनर्दॊ से पॊर्तॊ मौरिज़िऒ",
+      "de": "Hl. Leonhard von Porto Maurizio"
     },
     "27-11": {
       "it": "Beata Vergine della Medaglia Miracolosa",
@@ -5625,7 +5955,8 @@
       "sv": "Saliga Vergine av Medaglia Miracolosa",
       "lt": "Palaimintoji Vergine iš Medaglia Miracolosa",
       "zh": "真福 Vergine·Medaglia Miracolosa",
-      "hi": "धन्य वॆर्गिनॆ के मॆदग्लिअ मिरचॊलॊस"
+      "hi": "धन्य वॆर्गिनॆ के मॆदग्लिअ मिरचॊलॊस",
+      "de": "Unsere Liebe Frau von der Wundertätigen Medaille"
     },
     "28-11": {
       "it": "San Giacomo della Marca",
@@ -5642,7 +5973,8 @@
       "sv": "Sankt Giacomo av Marca",
       "lt": "Šventasis Giacomo iš Marca",
       "zh": "圣 雅各伯·Marca",
-      "hi": "संत गिअचॊमॊ के मर्च"
+      "hi": "संत गिअचॊमॊ के मर्च",
+      "de": "Hl. Jakobus von der Mark"
     },
     "29-11": {
       "it": "San Saturnino di Tolosa",
@@ -5659,7 +5991,8 @@
       "sv": "Sankt Saturnino av Tolosa",
       "lt": "Šventasis Saturnino iš Tolosa",
       "zh": "圣 Saturnino·Tolosa",
-      "hi": "संत सतुर्निनॊ के तॊलॊस"
+      "hi": "संत सतुर्निनॊ के तॊलॊस",
+      "de": "Hl. Saturnino von Toulouse"
     },
     "30-11": {
       "it": "Sant' Andrea",
@@ -5676,7 +6009,8 @@
       "sv": "Sankt Andrea",
       "lt": "Šventasis Andrea",
       "zh": "圣 安德肋",
-      "hi": "संत अंद्रॆअ"
+      "hi": "संत अंद्रॆअ",
+      "de": "Hl. Andreas"
     },
     "1-12": {
       "it": "Sant' Eligio",
@@ -5693,7 +6027,8 @@
       "sv": "Sankt Eligio",
       "lt": "Šventasis Eligio",
       "zh": "圣 Eligio",
-      "hi": "संत ऎलिगिऒ"
+      "hi": "संत ऎलिगिऒ",
+      "de": "Hl. Eligius"
     },
     "2-12": {
       "it": "Santa Bibiana",
@@ -5710,7 +6045,8 @@
       "sv": "Sankta Bibiana",
       "lt": "Šventoji Bibiana",
       "zh": "圣 Bibiana",
-      "hi": "संत बिबिअन"
+      "hi": "संत बिबिअन",
+      "de": "Hl. Bibiana"
     },
     "3-12": {
       "it": "San Francesco Saverio",
@@ -5727,7 +6063,8 @@
       "sv": "Sankt Francesco Saverio",
       "lt": "Šventasis Francesco Saverio",
       "zh": "圣 方济各 Saverio",
-      "hi": "संत फ़्रन्चॆस्चॊ सवॆरिऒ"
+      "hi": "संत फ़्रन्चॆस्चॊ सवॆरिऒ",
+      "de": "Hl. Franz Xaver"
     },
     "4-12": {
       "it": "Santa Barbara",
@@ -5744,7 +6081,8 @@
       "sv": "Sankta Barbara",
       "lt": "Šventoji Barbara",
       "zh": "圣 白芭蕾",
-      "hi": "संत बर्बर"
+      "hi": "संत बर्बर",
+      "de": "Hl. Barbara"
     },
     "5-12": {
       "it": "San Saba Archimandrita",
@@ -5761,7 +6099,8 @@
       "sv": "Sankt Saba Archimandrita",
       "lt": "Šventasis Saba Archimandrita",
       "zh": "圣 Saba Archimandrita",
-      "hi": "संत सब अर्छिमंद्रित"
+      "hi": "संत सब अर्छिमंद्रित",
+      "de": "Hl. Sabas Archimandrita"
     },
     "6-12": {
       "it": "San Nicola di Bari",
@@ -5778,7 +6117,8 @@
       "sv": "Sankt Nicola av Bari",
       "lt": "Šventasis Nicola iš Bari",
       "zh": "圣 尼各老·Bari",
-      "hi": "संत निचॊल के बरि"
+      "hi": "संत निचॊल के बरि",
+      "de": "Hl. Nikolaus von Bari"
     },
     "7-12": {
       "it": "Sant' Ambrogio",
@@ -5795,7 +6135,8 @@
       "sv": "Sankt Ambrogio",
       "lt": "Šventasis Ambrogio",
       "zh": "圣 安博",
-      "hi": "संत अंब्रॊगिऒ"
+      "hi": "संत अंब्रॊगिऒ",
+      "de": "Hl. Ambrosius"
     },
     "8-12": {
       "it": "Immacolata Concezione della Beata Vergine Maria",
@@ -5812,7 +6153,8 @@
       "sv": "Jungfru Marias obefläckade avlelse",
       "lt": "Švenčiausiosios Mergelės Marijos Nekaltasis Prasidėjimas",
       "zh": "圣母无原罪始胎节",
-      "hi": "धन्य कुँवारी मरियम का निष्कलंक गर्भाधान"
+      "hi": "धन्य कुँवारी मरियम का निष्कलंक गर्भाधान",
+      "de": "Hochfest der ohne Erbsünde empfangenen Jungfrau Maria"
     },
     "9-12": {
       "it": "San Siro di Pavia",
@@ -5829,7 +6171,8 @@
       "sv": "Sankt Siro av Pavia",
       "lt": "Šventasis Siro iš Pavia",
       "zh": "圣 Siro·Pavia",
-      "hi": "संत सिरॊ के पविअ"
+      "hi": "संत सिरॊ के पविअ",
+      "de": "Hl. Syrus von Pavia"
     },
     "10-12": {
       "it": "Beata Vergine Maria di Loreto",
@@ -5846,7 +6189,8 @@
       "sv": "Jungfru Maria di Loreto",
       "lt": "Švenčiausioji Mergelė Marija di Loreto",
       "zh": "荣福童贞玛利亚 di Loreto",
-      "hi": "धन्य कुँवारी मरियम दि लॊरॆतॊ"
+      "hi": "धन्य कुँवारी मरियम दि लॊरॆतॊ",
+      "de": "Unsere Liebe Frau von Loreto"
     },
     "11-12": {
       "it": "San Damaso I",
@@ -5863,7 +6207,8 @@
       "sv": "Sankt Damaso I",
       "lt": "Šventasis Damaso I",
       "zh": "圣 Damaso I",
-      "hi": "संत दमसॊ I"
+      "hi": "संत दमसॊ I",
+      "de": "Hl. Damasus I"
     },
     "12-12": {
       "it": "Beata Maria Vergine di Guadalupe",
@@ -5880,7 +6225,8 @@
       "sv": "Jungfru Maria di Guadalupe",
       "lt": "Švenčiausioji Mergelė Marija di Guadalupe",
       "zh": "荣福童贞玛利亚 di Guadalupe",
-      "hi": "धन्य कुँवारी मरियम दि गुअदलुपॆ"
+      "hi": "धन्य कुँवारी मरियम दि गुअदलुपॆ",
+      "de": "Unsere Liebe Frau von Guadalupe"
     },
     "13-12": {
       "it": "Santa Lucia",
@@ -5897,7 +6243,8 @@
       "sv": "Sankta Lucia",
       "lt": "Šventoji Lucia",
       "zh": "圣 路济亚",
-      "hi": "संत लुचिअ"
+      "hi": "संत लुचिअ",
+      "de": "Hl. Luzia"
     },
     "14-12": {
       "it": "San Giovanni della Croce",
@@ -5914,7 +6261,8 @@
       "sv": "Sankt Giovanni av Croce",
       "lt": "Šventasis Giovanni iš Croce",
       "zh": "圣 若望·Croce",
-      "hi": "संत गिऒवंनि के च्रॊचॆ"
+      "hi": "संत गिऒवंनि के च्रॊचॆ",
+      "de": "Hl. Johannes vom Kreuz"
     },
     "15-12": {
       "it": "Santa Virginia Centurione Bracelli",
@@ -5931,7 +6279,8 @@
       "sv": "Sankta Virginia Centurione Bracelli",
       "lt": "Šventoji Virginia Centurione Bracelli",
       "zh": "圣 Virginia Centurione Bracelli",
-      "hi": "संत विर्गिनिअ चॆंतुरिऒनॆ ब्रचॆल्लि"
+      "hi": "संत विर्गिनिअ चॆंतुरिऒनॆ ब्रचॆल्लि",
+      "de": "Hl. Virginia Centurione Bracelli"
     },
     "16-12": {
       "it": "Sant' Adelaide",
@@ -5948,7 +6297,8 @@
       "sv": "Sankt Adelaide",
       "lt": "Šventasis Adelaide",
       "zh": "圣 Adelaide",
-      "hi": "संत अदॆलैदॆ"
+      "hi": "संत अदॆलैदॆ",
+      "de": "Hl. Adelheid"
     },
     "17-12": {
       "it": "San Giovanni de Matha",
@@ -5965,7 +6315,8 @@
       "sv": "Sankt Giovanni av Matha",
       "lt": "Šventasis Giovanni iš Matha",
       "zh": "圣 若望·Matha",
-      "hi": "संत गिऒवंनि के मथ"
+      "hi": "संत गिऒवंनि के मथ",
+      "de": "Hl. Johannes von Matha"
     },
     "18-12": {
       "it": "San Gaziano di Tours",
@@ -5982,7 +6333,8 @@
       "sv": "Sankt Gaziano av Tours",
       "lt": "Šventasis Gaziano iš Tours",
       "zh": "圣 Gaziano·Tours",
-      "hi": "संत गज़िअनॊ के तॊउर्स्"
+      "hi": "संत गज़िअनॊ के तॊउर्स्",
+      "de": "Hl. Gatianus von Tours"
     },
     "19-12": {
       "it": "San Dario",
@@ -5999,7 +6351,8 @@
       "sv": "Sankt Dario",
       "lt": "Šventasis Dario",
       "zh": "圣 Dario",
-      "hi": "संत दरिऒ"
+      "hi": "संत दरिऒ",
+      "de": "Hl. Darius"
     },
     "20-12": {
       "it": "San Liberato (Liberale)",
@@ -6016,7 +6369,8 @@
       "sv": "Sankt Liberato (Liberale)",
       "lt": "Šventasis Liberato (Liberale)",
       "zh": "圣 Liberato (Liberale)",
-      "hi": "संत लिबॆरतॊ (लिबॆरलॆ)"
+      "hi": "संत लिबॆरतॊ (लिबॆरलॆ)",
+      "de": "Hl. Liberatus (Liberale)"
     },
     "21-12": {
       "it": "San Pietro Canisio",
@@ -6033,7 +6387,8 @@
       "sv": "Sankt Pietro Canisio",
       "lt": "Šventasis Pietro Canisio",
       "zh": "圣 伯多禄 Canisio",
-      "hi": "संत पिऎत्रॊ चनिसिऒ"
+      "hi": "संत पिऎत्रॊ चनिसिऒ",
+      "de": "Hl. Petrus Canisio"
     },
     "22-12": {
       "it": "Santa Francesca Saverio Cabrini",
@@ -6050,7 +6405,8 @@
       "sv": "Sankta Francesca Saverio Cabrini",
       "lt": "Šventoji Francesca Saverio Cabrini",
       "zh": "圣 方济加 Saverio Cabrini",
-      "hi": "संत फ़्रन्चॆस्च सवॆरिऒ चब्रिनि"
+      "hi": "संत फ़्रन्चॆस्च सवॆरिऒ चब्रिनि",
+      "de": "Hl. Franziska Xaveria Cabrini"
     },
     "23-12": {
       "it": "Santa Vittoria",
@@ -6067,7 +6423,8 @@
       "sv": "Sankta Vittoria",
       "lt": "Šventoji Vittoria",
       "zh": "圣 Vittoria",
-      "hi": "संत वित्तॊरिअ"
+      "hi": "संत वित्तॊरिअ",
+      "de": "Hl. Viktoria"
     },
     "24-12": {
       "it": "San Delfino di Bordeaux",
@@ -6084,7 +6441,8 @@
       "sv": "Sankt Delfino av Bordeaux",
       "lt": "Šventasis Delfino iš Bordeaux",
       "zh": "圣 Delfino·Bordeaux",
-      "hi": "संत दॆल्फ़िनॊ के बॊर्दॆऔक्स"
+      "hi": "संत दॆल्फ़िनॊ के बॊर्दॆऔक्स",
+      "de": "Hl. Delphinus von Bordeaux"
     },
     "25-12": {
       "it": "Natale del Signore",
@@ -6101,7 +6459,8 @@
       "sv": "Juldagen",
       "lt": "Kristaus Gimimas",
       "zh": "圣诞节",
-      "hi": "प्रभु जन्मोत्सव"
+      "hi": "प्रभु जन्मोत्सव",
+      "de": "Weihnachten – Geburt des Herrn"
     },
     "26-12": {
       "it": "Santo Stefano",
@@ -6118,7 +6477,8 @@
       "sv": "Sankt Stefano",
       "lt": "Šventasis Stefano",
       "zh": "圣 斯德望",
-      "hi": "संत स्तॆफ़नॊ"
+      "hi": "संत स्तॆफ़नॊ",
+      "de": "Hl. Stephan"
     },
     "27-12": {
       "it": "Santa Famiglia di Gesù, Maria e Giuseppe",
@@ -6135,7 +6495,8 @@
       "sv": "Sankta Famiglia av Gesù, Maria och Giuseppe",
       "lt": "Šventoji Famiglia iš Gesù, Maria ir Giuseppe",
       "zh": "圣 Famiglia·Gesù, Maria与Giuseppe",
-      "hi": "संत फ़मिग्लिअ के गॆसु̀, मरिअ और गिउसॆप्पॆ"
+      "hi": "संत फ़मिग्लिअ के गॆसु̀, मरिअ और गिउसॆप्पॆ",
+      "de": "Fest der Heiligen Familie"
     },
     "28-12": {
       "it": "Santi Innocenti",
@@ -6152,7 +6513,8 @@
       "sv": "De heliga Innocenti",
       "lt": "Šventieji Innocenti",
       "zh": "圣人 Innocenti",
-      "hi": "संतगण इंनॊचॆंति"
+      "hi": "संतगण इंनॊचॆंति",
+      "de": "Fest der Unschuldigen Kinder"
     },
     "29-12": {
       "it": "San Davide",
@@ -6169,7 +6531,8 @@
       "sv": "Sankt Davide",
       "lt": "Šventasis Davide",
       "zh": "圣 达味",
-      "hi": "संत दविदॆ"
+      "hi": "संत दविदॆ",
+      "de": "Hl. David"
     },
     "30-12": {
       "it": "Sant' Eugenio di Milano",
@@ -6186,7 +6549,8 @@
       "sv": "Sankt Eugenio av Milano",
       "lt": "Šventasis Eugenio iš Milano",
       "zh": "圣 Eugenio·Milano",
-      "hi": "संत ऎउगॆनिऒ के मिलनॊ"
+      "hi": "संत ऎउगॆनिऒ के मिलनॊ",
+      "de": "Hl. Eugenius von Mailand"
     },
     "31-12": {
       "it": "San Silvestro I",
@@ -6203,7 +6567,8 @@
       "sv": "Sankt Silvestro I",
       "lt": "Šventasis Silvestro I",
       "zh": "圣 西尔维斯特 I",
-      "hi": "संत सिल्वॆस्त्रॊ I"
+      "hi": "संत सिल्वॆस्त्रॊ I",
+      "de": "Hl. Silvester I"
     }
   },
   "quotes": {
@@ -8156,6 +8521,136 @@
       "जो विद्यालय का द्वार खोलता है, वह कारागार का द्वार बंद करता है। - विक्टर ह्यूगो",
       "शिक्षा की जड़ें कड़वी होती हैं, लेकिन फल मीठा होता है। - अरस्तू",
       "जहाँ प्रेम है, वहाँ जीवन है। - महात्मा गांधी"
+    ],
+    "de": [
+      "Glück bedeutet nicht, alles zu haben, was man will, sondern das zu wollen, was man hat. - Oscar Wilde",
+      "Erfolg ist die Summe kleiner Anstrengungen, die Tag für Tag wiederholt werden. - Robert Collier",
+      "Es ist nie zu spät, das zu werden, was man hätte sein können. - George Eliot",
+      "Das Leben ist das, was passiert, während du eifrig andere Pläne machst. - John Lennon",
+      "Die Zukunft lässt sich am besten vorhersagen, indem man sie selbst gestaltet. - Alan Kay",
+      "Die wirkliche Entdeckungsreise besteht nicht darin, neue Landschaften zu suchen, sondern mit neuen Augen zu sehen. - Marcel Proust",
+      "Großartige Arbeit gelingt nur, wenn man liebt, was man tut. - Steve Jobs",
+      "Das Wesentliche ist für die Augen unsichtbar. - Antoine de Saint-Exupéry",
+      "Auch eine Reise von tausend Meilen beginnt mit einem einzigen Schritt. - Laozi",
+      "Die Hoffnung ist ein Traum im Wachzustand. - Aristoteles",
+      "Die Geduld ist bitter, doch ihre Frucht ist süß. - Jean-Jacques Rousseau",
+      "Man muss noch Chaos in sich haben, um einen tanzenden Stern gebären zu können. - Friedrich Nietzsche",
+      "Die Schönheit wird die Welt retten. - Fjodor Dostojewski",
+      "Ich weiß, dass ich nichts weiß. - Sokrates",
+      "Steter Tropfen höhlt den Stein, nicht durch Gewalt, sondern durch Beharrlichkeit. - Ovid",
+      "Die Natur tut nichts vergebens. - Aristoteles",
+      "Das Glück ist mit den Mutigen. - Vergil",
+      "Wissen ist Macht. - Francis Bacon",
+      "Wer nicht weiß, wohin er segeln will, für den ist kein Wind günstig. - Seneca",
+      "Tue alles mit Ruhe und in guter Ordnung. - Mark Aurel",
+      "Einfachheit ist die höchste Form der Raffinesse. - Leonardo da Vinci",
+      "Das Herz hat seine Gründe, die der Verstand nicht kennt. - Blaise Pascal",
+      "Die Zeit bringt alles ans Licht. - Tertullian",
+      "Werde, der du bist. - Friedrich Nietzsche",
+      "Wer ein Warum zum Leben hat, erträgt fast jedes Wie. - Friedrich Nietzsche",
+      "Nichts ist so beständig wie der Wandel. - Heraklit",
+      "Alles fließt. - Heraklit",
+      "Es erscheint immer unmöglich, bis es vollbracht ist. - Nelson Mandela",
+      "Maßhalten ist der größte Schatz. - Hesiod",
+      "Im Leben ist nichts zu fürchten, man muss es nur verstehen. - Marie Curie",
+      "Fantasie ist wichtiger als Wissen. - Albert Einstein",
+      "Keine freundliche Tat, so klein sie auch sein mag, ist jemals vergeblich. - Äsop",
+      "Gut begonnen ist halb gewonnen. - Aristoteles",
+      "Wir liegen alle in der Gosse, aber manche von uns betrachten die Sterne. - Oscar Wilde",
+      "Nicht weil die Dinge schwierig sind, wagen wir sie nicht, sondern weil wir sie nicht wagen, sind sie schwierig. - Seneca",
+      "Menschen sind wie Fahrräder: Sie halten nur das Gleichgewicht, solange sie in Bewegung bleiben. - Albert Einstein",
+      "Intelligenz zeigt sich in der Fähigkeit, sich zu verändern. - Albert Einstein",
+      "Ihr seid nicht geschaffen, um wie Tiere zu leben, sondern um Tugend und Erkenntnis zu suchen. - Dante Alighieri",
+      "Liebe, die keinem Geliebten das Wiederlieben erspart. - Dante Alighieri",
+      "In der Mitte unseres Lebenswegs fand ich mich in einem dunklen Wald wieder. - Dante Alighieri",
+      "Sein oder Nichtsein, das ist hier die Frage. - William Shakespeare",
+      "Wir wissen, was wir sind, aber nicht, was wir sein könnten. - William Shakespeare",
+      "Niemand kann dir ohne deine Zustimmung das Gefühl geben, minderwertig zu sein. - Eleanor Roosevelt",
+      "Wir leben alle unter demselben Himmel, aber wir haben nicht alle denselben Horizont. - Konrad Adenauer",
+      "Liebe alle, vertraue wenigen und tue niemandem Unrecht. - William Shakespeare",
+      "In der Kürze liegt die Würze. - William Shakespeare",
+      "Nicht die Dinge selbst beunruhigen uns, sondern unsere Urteile über die Dinge. - Epiktet",
+      "Inmitten jeder Schwierigkeit liegt eine Chance. - Albert Einstein",
+      "Niemand ist frei, der nicht Herr seiner selbst ist. - Epiktet",
+      "Beständigkeit verwandelt Ziele in Ergebnisse. - Jim Rohn",
+      "Das Glück deines Lebens hängt von der Beschaffenheit deiner Gedanken ab. - Mark Aurel",
+      "Unser Leben ist das, was unsere Gedanken daraus machen. - Mark Aurel",
+      "Zeit ist das Kostbarste, was ein Mensch ausgeben kann. - Theophrast",
+      "Wer wenig denkt, irrt oft. - Leonardo da Vinci",
+      "Weisheit ist die Tochter der Erfahrung. - Leonardo da Vinci",
+      "Man sieht nur mit dem Herzen gut. - Antoine de Saint-Exupéry",
+      "Alle Erwachsenen waren einmal Kinder. - Antoine de Saint-Exupéry",
+      "Die Sterne leuchten, damit jeder eines Tages seinen eigenen finden kann. - Antoine de Saint-Exupéry",
+      "Freiheit beginnt mit Ironie. - Victor Hugo",
+      "Das Gewissen ist die Stimme der Seele. - Jean-Jacques Rousseau",
+      "Der Mensch wird frei geboren und liegt überall in Ketten. - Jean-Jacques Rousseau",
+      "Zweifel ist der Anfang der Weisheit. - René Descartes",
+      "Ich denke, also bin ich. - René Descartes",
+      "Staunen ist der Anfang aller Erkenntnis. - Platon",
+      "Musik gibt dem Universum eine Seele, dem Geist Flügel und der Fantasie Schwung. - Platon",
+      "Der Mensch ist ein soziales Wesen. - Aristoteles",
+      "Das Glück hängt von uns selbst ab. - Aristoteles",
+      "Wähle eine Arbeit, die du liebst, und du musst keinen Tag in deinem Leben arbeiten. - Konfuzius",
+      "Wohin du auch gehst, geh mit deinem ganzen Herzen. - Konfuzius",
+      "Es ist nicht wichtig, wie langsam du gehst, solange du nicht stehen bleibst. - Konfuzius",
+      "Studiere die Vergangenheit, wenn du die Zukunft verstehen willst. - Konfuzius",
+      "Wer andere kennt, ist klug; wer sich selbst kennt, ist erleuchtet. - Laozi",
+      "Wer zufrieden ist, ist reich. - Laozi",
+      "Freundliche Worte sind kurz und leicht auszusprechen, aber ihr Echo ist endlos. - Mutter Teresa",
+      "Wir können keine großen Dinge tun, nur kleine Dinge mit großer Liebe. - Mutter Teresa",
+      "Frieden beginnt mit einem Lächeln. - Mutter Teresa",
+      "Auge um Auge lässt die ganze Welt erblinden. - Mahatma Gandhi",
+      "Stärke kommt nicht aus körperlicher Kraft, sondern aus einem unbeugsamen Willen. - Mahatma Gandhi",
+      "Das Leben ist ein Geheimnis, das gelebt werden will, kein Problem, das gelöst werden muss. - Søren Kierkegaard",
+      "Das Leben kann nur rückwärts verstanden, muss aber vorwärts gelebt werden. - Søren Kierkegaard",
+      "Wer kämpft, kann verlieren; wer nicht kämpft, hat schon verloren. - Bertolt Brecht",
+      "Wo aber Gefahr ist, wächst das Rettende auch. - Friedrich Hölderlin",
+      "Zwei Dinge erfüllen das Gemüt mit Bewunderung: der bestirnte Himmel über mir und das moralische Gesetz in mir. - Immanuel Kant",
+      "Habe Mut, dich deines eigenen Verstandes zu bedienen. - Immanuel Kant",
+      "Der Mensch ist das, woran er glaubt. - Anton Tschechow",
+      "Schönheit ist ein Versprechen des Glücks. - Stendhal",
+      "Die Zukunft gehört denen, die an die Schönheit ihrer Träume glauben. - Eleanor Roosevelt",
+      "Man kommt nicht als Frau zur Welt, man wird es. - Simone de Beauvoir",
+      "Kultur ist das einzige Gut der Menschheit, das größer wird, wenn alle daran teilhaben. - Hans-Georg Gadamer",
+      "Wenn Verstehen unmöglich ist, ist Erkennen notwendig. - Primo Levi",
+      "Erinnerung ist notwendig; wir müssen uns erinnern. - Primo Levi",
+      "Nimm das Leben leicht, denn Leichtigkeit ist nicht Oberflächlichkeit. - Italo Calvino",
+      "Die Hölle der Lebenden ist nichts, was erst kommen wird; wenn es sie gibt, ist sie schon hier. - Italo Calvino",
+      "Die Fantasie ist ein Ort, an dem es drinnen regnet. - Italo Calvino",
+      "Die Wirklichkeit ist nie so, wie wir sie sehen: Wahrheit ist vor allem Vorstellungskraft. - René Magritte",
+      "Das Leben ahmt die Kunst weit mehr nach als die Kunst das Leben. - Oscar Wilde",
+      "Sei du selbst; alle anderen gibt es schon. - Oscar Wilde",
+      "Keine Nacht ist so lang, dass sie den Sonnenaufgang verhindern könnte. - Khalil Gibran",
+      "Arbeit ist sichtbar gewordene Liebe. - Khalil Gibran",
+      "Zärtlichkeit und Güte sind keine Zeichen von Schwäche, sondern Ausdruck von Stärke. - Khalil Gibran",
+      "Weine nicht, weil es vorbei ist, sondern lächle, weil es geschehen ist. - Dr. Seuss",
+      "Bildung ist die mächtigste Waffe, mit der man die Welt verändern kann. - Nelson Mandela",
+      "Was wir wissen, ist ein Tropfen; was wir nicht wissen, ein Ozean. - Isaac Newton",
+      "Wenn ich weiter gesehen habe, dann weil ich auf den Schultern von Riesen stand. - Isaac Newton",
+      "Ein Tag ohne Lachen ist ein verlorener Tag. - Charlie Chaplin",
+      "Das Leben ist zu wichtig, um es ernst zu nehmen. - Oscar Wilde",
+      "Wir müssen unseren Garten bestellen. - Voltaire",
+      "Der Schlaf der Vernunft gebiert Ungeheuer. - Francisco Goya",
+      "Ohne Musik wäre das Leben ein Irrtum. - Friedrich Nietzsche",
+      "Was mich nicht umbringt, macht mich stärker. - Friedrich Nietzsche",
+      "Die Grenzen meiner Sprache bedeuten die Grenzen meiner Welt. - Ludwig Wittgenstein",
+      "Wovon man nicht sprechen kann, darüber muss man schweigen. - Ludwig Wittgenstein",
+      "Der Mensch ist dazu verurteilt, frei zu sein. - Jean-Paul Sartre",
+      "Alles, was du dir vorstellen kannst, ist wirklich. - Pablo Picasso",
+      "Jedes Kind ist ein Künstler. Die Schwierigkeit besteht darin, als Erwachsener einer zu bleiben. - Pablo Picasso",
+      "Kunst wäscht den Staub des Alltags von der Seele. - Pablo Picasso",
+      "Ein ungeprüftes Leben ist nicht lebenswert. - Sokrates",
+      "Wichtig ist nicht zu leben, sondern gut zu leben. - Sokrates",
+      "Die Wahrheit ist eine Tochter der Zeit. - Francis Bacon",
+      "Wer es wagt, eine Stunde Zeit zu verschwenden, hat den Wert des Lebens nicht entdeckt. - Charles Darwin",
+      "Die Geschichte ist die Lehrmeisterin des Lebens. - Cicero",
+      "Solange Leben ist, ist Hoffnung. - Cicero",
+      "Die Zukunft hängt davon ab, was wir heute tun. - Mahatma Gandhi",
+      "Freiheit ist wie Luft: Ihren Wert erkennt man, wenn sie knapp wird. - Piero Calamandrei",
+      "Wenn alles bleiben soll, wie es ist, muss sich alles ändern. - Giuseppe Tomasi di Lampedusa",
+      "Wer eine Schultür öffnet, schließt ein Gefängnis. - Victor Hugo",
+      "Die Wurzeln der Bildung sind bitter, ihre Früchte aber süß. - Aristoteles",
+      "Wo Liebe ist, ist Leben. - Mahatma Gandhi"
     ]
   }
 }

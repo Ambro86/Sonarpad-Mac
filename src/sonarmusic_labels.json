@@ -54,7 +54,14 @@
     "favorites": "Favoriten",
     "add_favorite": "Zu Favoriten hinzufügen",
     "remove_favorite": "Aus Favoriten entfernen",
-    "open_favorite": "Favorit öffnen"
+    "open_favorite": "Favorit öffnen",
+    "open_artist": "Künstler öffnen",
+    "open_album": "Album öffnen",
+    "open_playlist": "Playlist öffnen",
+    "open_podcast": "Podcast öffnen",
+    "open_collection": "Sammlung öffnen",
+    "open_result": "Ergebnis öffnen",
+    "use_suggestion": "Vorschlag übernehmen"
   },
   "en": {
     "query": "Song, artist or album",

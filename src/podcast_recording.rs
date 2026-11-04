@@ -19,6 +19,7 @@ fn strings() -> serde_json::Value {
         "pt" => include_str!("../i18n/ui_pt.json"),
         "cs" => include_str!("../i18n/ui_cs.json"),
         "pl" => include_str!("../i18n/ui_pl.json"),
+        "de" => include_str!("../i18n/ui_de.json"),
         _ => include_str!("../i18n/ui_en.json"),
     })
     .expect("valid bundled UI translations")

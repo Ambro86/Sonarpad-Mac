@@ -612,9 +612,10 @@ jobs:
           TRANSCRIPTION_DIR="${RESOURCES_DIR}/transcription"
           EN_LPROJ_DIR="${RESOURCES_DIR}/en.lproj"
           IT_LPROJ_DIR="${RESOURCES_DIR}/it.lproj"
+          DE_LPROJ_DIR="${RESOURCES_DIR}/de.lproj"
 
           rm -rf "${APP_DIR}" "${FFMPEG_DIR}" "${MPV_APP_DEST}"
-          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${AUDIO_DESCRIPTION_DIR}" "${TRANSCRIPTION_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}"
+          mkdir -p "${MACOS_DIR}" "${FRAMEWORKS_DIR}" "${RESOURCES_DIR}" "${FFMPEG_BIN_DIR}" "${FFMPEG_LIB_DIR}" "${AUDIO_DESCRIPTION_DIR}" "${TRANSCRIPTION_DIR}" "${EN_LPROJ_DIR}" "${IT_LPROJ_DIR}" "${DE_LPROJ_DIR}"
           cp "target/${{ matrix.rust_target }}/release/${BIN_NAME}" "${MACOS_DIR}/${APP_NAME}"
           chmod +x "${MACOS_DIR}/${APP_NAME}"
           CAPTURE_ARCH="${{ matrix.rust_target }}"
@@ -659,6 +660,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:4 string pt" "${MPV_INFO_PLIST}"
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:5 string cs" "${MPV_INFO_PLIST}"
           /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:6 string pl" "${MPV_INFO_PLIST}"
+          /usr/libexec/PlistBuddy -c "Add :CFBundleLocalizations:7 string de" "${MPV_INFO_PLIST}"
           /usr/libexec/PlistBuddy -c "Delete :CFBundleAllowMixedLocalizations" "${MPV_INFO_PLIST}" || true
           /usr/libexec/PlistBuddy -c "Add :CFBundleAllowMixedLocalizations bool true" "${MPV_INFO_PLIST}"
           cp -R "mpv-config/localizations/." "${MPV_APP_DEST}/Contents/Resources/"
@@ -695,6 +697,10 @@ jobs:
           CFBundleDisplayName = "Sonarpad";
           CFBundleName = "Sonarpad";
           EOF
+          cat > "${DE_LPROJ_DIR}/InfoPlist.strings" <<'EOF'
+          CFBundleDisplayName = "Sonarpad";
+          CFBundleName = "Sonarpad";
+          EOF
 
           cat > "${CONTENTS_DIR}/Info.plist" <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -707,6 +713,7 @@ jobs:
             <array>
               <string>en</string>
               <string>it</string>
+              <string>de</string>
             </array>
             <key>CFBundleAllowMixedLocalizations</key>
             <true/>

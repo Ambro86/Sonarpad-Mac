@@ -19,6 +19,7 @@ fn strings() -> serde_json::Value {
         "pt" => include_str!("../i18n/ui_pt.json"),
         "cs" => include_str!("../i18n/ui_cs.json"),
         "pl" => include_str!("../i18n/ui_pl.json"),
+        "de" => include_str!("../i18n/ui_de.json"),
         _ => include_str!("../i18n/ui_en.json"),
     };
     serde_json::from_str(source).expect("valid UI translations")
@@ -212,7 +213,7 @@ pub fn open_dialog(
         );
         let picker = FileDialog::builder(&dialog)
             .with_message(&tr(&l, "batch_add_files"))
-            .with_wildcard(&wildcard)
+            .with_wildcard(&crate::localized_file_filter(&wildcard))
             .with_style(
                 FileDialogStyle::Open | FileDialogStyle::FileMustExist | FileDialogStyle::Multiple,
             )

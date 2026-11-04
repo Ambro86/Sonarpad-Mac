@@ -244,8 +244,21 @@ struct Labels {
     part_deleted_marker: &'static str,
 }
 
+fn german_cutter_label(english: &'static str) -> &'static str {
+    // The bundled German catalog is parsed once, and its strings remain alive
+    // for the whole application lifetime, just like the other static labels.
+    static DE: std::sync::OnceLock<std::collections::HashMap<String, String>> =
+        std::sync::OnceLock::new();
+    let catalog = DE.get_or_init(|| {
+        serde_json::from_str(include_str!("../i18n/media_cutter_de.json"))
+            .expect("valid German media cutter catalog")
+    });
+    catalog.get(english).map(String::as_str).unwrap_or(english)
+}
+
 fn t(lang: &str, it: &'static str, en: &'static str, fr: &'static str, es: &'static str, pt: &'static str, cs: &'static str, pl: &'static str) -> &'static str {
     match lang {
+        "de" => german_cutter_label(en),
         "en" => en,
         "fr" => fr,
         "es" => es,
@@ -387,6 +400,7 @@ thread_local! {
 fn format_duration_natural(seconds: f64) -> String {
     let lang = CUTTER_LANGUAGE.with(|lang| lang.borrow().clone());
     let units = match lang.as_str() {
+        "de" => ["Stunde", "Stunden", "Minute", "Minuten", "Sekunde", "Sekunden"],
         "en" => ["hour", "hours", "minute", "minutes", "second", "seconds"],
         "fr" => ["heure", "heures", "minute", "minutes", "seconde", "secondes"],
         "es" => ["hora", "horas", "minuto", "minutos", "segundo", "segundos"],

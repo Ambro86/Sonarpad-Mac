@@ -15,6 +15,7 @@ const DEFAULT_ES_FEEDS: &str = include_str!("../i18n/feed_es.txt");
 const DEFAULT_PT_FEEDS: &str = include_str!("../i18n/feed_pt.txt");
 const DEFAULT_CS_FEEDS: &str = include_str!("../i18n/feed_cs.txt");
 const DEFAULT_PL_FEEDS: &str = include_str!("../i18n/feed_pl.txt");
+const DEFAULT_DE_FEEDS: &str = include_str!("../i18n/feed_de.txt");
 pub const CORRIERE_HOME_FEED_URL: &str =
     "https://xml2.corriereobjects.it/feed-hp/homepage-restyle-2025.xml";
 pub const IL_GIORNALE_FEED_URL: &str = "https://www.ilgiornale.it/rss.xml";
@@ -89,6 +90,10 @@ pub fn default_polish_sources() -> Vec<ArticleSource> {
     parse_default_sources(DEFAULT_PL_FEEDS)
 }
 
+pub fn default_german_sources() -> Vec<ArticleSource> {
+    parse_default_sources(DEFAULT_DE_FEEDS)
+}
+
 pub fn normalize_news_language(value: &str) -> String {
     match value.trim().to_ascii_lowercase().as_str() {
         "fr" | "french" | "francese" | "français" => "fr".to_string(),
@@ -96,6 +101,7 @@ pub fn normalize_news_language(value: &str) -> String {
         "pt" | "portuguese" | "portoghese" | "português" => "pt".to_string(),
         "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" => "cs".to_string(),
         "pl" | "polish" | "polacco" | "polski" => "pl".to_string(),
+        "de" | "de-de" | "german" | "tedesco" | "deutsch" => "de".to_string(),
         _ => "it".to_string(),
     }
 }
@@ -107,6 +113,7 @@ pub fn default_sources_for_news_language(news_language: &str) -> Vec<ArticleSour
         "pt" => default_portuguese_sources(),
         "cs" => default_czech_sources(),
         "pl" => default_polish_sources(),
+        "de" => default_german_sources(),
         _ => default_italian_sources(),
     }
 }
@@ -121,6 +128,7 @@ pub fn is_default_source_url_any_news_language(url: &str) -> bool {
         DEFAULT_PT_FEEDS,
         DEFAULT_CS_FEEDS,
         DEFAULT_PL_FEEDS,
+        DEFAULT_DE_FEEDS,
     ]
     .iter()
     .flat_map(|feeds| parse_default_sources(feeds))
@@ -383,6 +391,7 @@ fn google_news_locale(news_language: &str) -> (&'static str, &'static str, &'sta
         "pt" | "portuguese" | "portoghese" | "português" => ("pt-PT", "PT", "pt-150"),
         "cs" | "cz" | "czech" | "ceco" | "cieco" | "čeština" => ("cs", "CZ", "cs"),
         "pl" | "polish" | "polacco" | "polski" => ("pl", "PL", "pl"),
+        "de" | "de-de" | "german" | "tedesco" | "deutsch" => ("de", "DE", "de"),
         _ => ("it", "IT", "it"),
     }
 }
@@ -1543,6 +1552,34 @@ mod tests {
 
         assert_eq!(items.first().map(|item| item.title.as_str()), Some("Nuovo"));
     }
+    #[test]
+    fn german_news_sources_match_supplied_rss_catalog() {
+        let feeds = default_sources_for_news_language("Deutsch");
+        assert_eq!(feeds.len(), 14);
+        assert_eq!(feeds[0].title, "Tagesschau");
+        assert_eq!(feeds[0].url, "https://www.tagesschau.de/xml/rss2/");
+        assert_eq!(feeds[3].title, "Deutsche Welle Deutsch");
+        assert_eq!(feeds[3].url, "https://rss.dw.com/xml/rss-de-all");
+        assert_eq!(feeds[12].url, "https://netzpolitik.org/feed/");
+        assert_eq!(feeds[13].title, "Spektrum.de");
+        assert_eq!(feeds[13].url, "https://www.spektrum.de/alias/rss/spektrum-de-rss-feed/996406");
+        assert_eq!(normalize_news_language("de-DE"), "de");
+        for source in &feeds {
+            assert!(is_default_source_url_any_news_language(&source.url));
+        }
+    }
+
+    #[test]
+    fn german_google_news_fallback_preserves_language() {
+        let url = google_news_fallback_url("https://www.faz.net/rss/aktuell/", "de")
+            .expect("German fallback");
+        let parsed = Url::parse(&url).expect("valid URL");
+        let params: std::collections::HashMap<_, _> = parsed.query_pairs().into_owned().collect();
+        assert_eq!(params.get("hl").map(String::as_str), Some("de"));
+        assert_eq!(params.get("gl").map(String::as_str), Some("DE"));
+        assert_eq!(params.get("ceid").map(String::as_str), Some("DE:de"));
+    }
+
     #[test]
     fn google_news_fallback_uses_the_selected_news_language() {
         let url = google_news_fallback_url(

@@ -356,6 +356,85 @@ pub fn apple_categories(ui_language: &str) -> Vec<PodcastCategory> {
                 name: "TV et cinéma".to_string(),
             },
         ]
+    } else if ui_language.eq_ignore_ascii_case("de") {
+        vec![
+            PodcastCategory {
+                id: 1301,
+                name: "Kunst".to_string(),
+            },
+            PodcastCategory {
+                id: 1321,
+                name: "Wirtschaft".to_string(),
+            },
+            PodcastCategory {
+                id: 1303,
+                name: "Comedy".to_string(),
+            },
+            PodcastCategory {
+                id: 1304,
+                name: "Bildung".to_string(),
+            },
+            PodcastCategory {
+                id: 1483,
+                name: "Fiktion".to_string(),
+            },
+            PodcastCategory {
+                id: 1511,
+                name: "Politik und Regierung".to_string(),
+            },
+            PodcastCategory {
+                id: 1512,
+                name: "Gesundheit und Fitness".to_string(),
+            },
+            PodcastCategory {
+                id: 1487,
+                name: "Geschichte".to_string(),
+            },
+            PodcastCategory {
+                id: 1305,
+                name: "Kinder und Familie".to_string(),
+            },
+            PodcastCategory {
+                id: 1502,
+                name: "Freizeit".to_string(),
+            },
+            PodcastCategory {
+                id: 1310,
+                name: "Musik".to_string(),
+            },
+            PodcastCategory {
+                id: 1489,
+                name: "Nachrichten".to_string(),
+            },
+            PodcastCategory {
+                id: 1314,
+                name: "Religion und Spiritualität".to_string(),
+            },
+            PodcastCategory {
+                id: 1533,
+                name: "Wissenschaft".to_string(),
+            },
+            PodcastCategory {
+                id: 1324,
+                name: "Gesellschaft und Kultur".to_string(),
+            },
+            PodcastCategory {
+                id: 1545,
+                name: "Sport".to_string(),
+            },
+            PodcastCategory {
+                id: 1318,
+                name: "Technologie".to_string(),
+            },
+            PodcastCategory {
+                id: 1488,
+                name: "True Crime".to_string(),
+            },
+            PodcastCategory {
+                id: 1309,
+                name: "TV und Film".to_string(),
+            },
+        ]
     } else if ui_language.eq_ignore_ascii_case("en") {
         vec![
             PodcastCategory {
@@ -448,6 +527,7 @@ fn podcast_country_code() -> &'static str {
         "pt" => "pt",
         "cs" => "cz",
         "pl" => "pl",
+        "de" => "de",
         _ => "us",
     }
 }

@@ -61,6 +61,7 @@ fn tr_map() -> &'static HashMap<String, String> {
     static PT: OnceLock<HashMap<String, String>> = OnceLock::new();
     static CS: OnceLock<HashMap<String, String>> = OnceLock::new();
     static PL: OnceLock<HashMap<String, String>> = OnceLock::new();
+    static DE: OnceLock<HashMap<String, String>> = OnceLock::new();
     let lang = Settings::load().ui_language;
     let (slot, raw) = match lang.as_str() {
         "en" => (&EN, include_str!("../i18n/media_transcription_en.json")),
@@ -69,6 +70,7 @@ fn tr_map() -> &'static HashMap<String, String> {
         "pt" => (&PT, include_str!("../i18n/media_transcription_pt.json")),
         "cs" => (&CS, include_str!("../i18n/media_transcription_cs.json")),
         "pl" => (&PL, include_str!("../i18n/media_transcription_pl.json")),
+        "de" => (&DE, include_str!("../i18n/media_transcription_de.json")),
         _ => (&IT, include_str!("../i18n/media_transcription_it.json")),
     };
     slot.get_or_init(|| serde_json::from_str(raw).unwrap_or_default())
@@ -135,7 +137,7 @@ fn choose_output(parent: &Dialog, input: Option<&Path>) -> Option<PathBuf> {
     let dialog = FileDialog::builder(parent)
         .with_message(&tr("media_transcription.save_title"))
         .with_default_file(&default_file)
-        .with_wildcard("Testo|*.txt")
+        .with_wildcard(&crate::localized_file_filter("Testo|*.txt"))
         .with_style(FileDialogStyle::Save | FileDialogStyle::OverwritePrompt)
         .build();
     if dialog.show_modal() == ID_OK {

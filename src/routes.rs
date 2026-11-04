@@ -106,6 +106,7 @@ fn route_language_code() -> &'static str {
         "pt" => "pt",
         "cs" => "cs",
         "pl" => "pl",
+        "de" => "de",
         _ => "en",
     }
 }
@@ -118,6 +119,7 @@ fn route_country_alpha3() -> &'static str {
         "pt" => "PRT",
         "cs" => "CZE",
         "pl" => "POL",
+        "de" => "DEU",
         _ => "USA",
     }
 }

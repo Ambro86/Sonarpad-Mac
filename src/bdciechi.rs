@@ -9,6 +9,10 @@ const ID_BDCIECHI_OPEN_WITH_SONARPAD: i32 = 4201;
 
 type BdciechiSearchResultState = Arc<Mutex<Option<Result<Vec<String>, String>>>>;
 
+fn bdciechi_is_german_ui() -> bool {
+    Settings::load().ui_language == "de"
+}
+
 fn bdciechi_is_italian_ui() -> bool {
     Settings::load().ui_language == "it"
 }
@@ -16,6 +20,8 @@ fn bdciechi_is_italian_ui() -> bool {
 fn bdciechi_error_title() -> &'static str {
     if bdciechi_is_italian_ui() {
         "Errore"
+    } else if bdciechi_is_german_ui() {
+        "Fehler"
     } else {
         "Error"
     }
@@ -24,6 +30,8 @@ fn bdciechi_error_title() -> &'static str {
 fn bdciechi_warning_title() -> &'static str {
     if bdciechi_is_italian_ui() {
         "Avviso"
+    } else if bdciechi_is_german_ui() {
+        "Warnung"
     } else {
         "Warning"
     }
@@ -32,6 +40,8 @@ fn bdciechi_warning_title() -> &'static str {
 fn bdciechi_info_title() -> &'static str {
     if bdciechi_is_italian_ui() {
         "Informazione"
+    } else if bdciechi_is_german_ui() {
+        "Information"
     } else {
         "Info"
     }
@@ -40,6 +50,8 @@ fn bdciechi_info_title() -> &'static str {
 fn bdciechi_network_error(err: impl std::fmt::Display) -> String {
     if bdciechi_is_italian_ui() {
         format!("Errore di rete: {}", err)
+    } else if bdciechi_is_german_ui() {
+        format!("Netzwerkfehler: {}", err)
     } else {
         format!("Network error: {}", err)
     }
@@ -48,6 +60,8 @@ fn bdciechi_network_error(err: impl std::fmt::Display) -> String {
 fn bdciechi_read_error(err: impl std::fmt::Display) -> String {
     if bdciechi_is_italian_ui() {
         format!("Errore di lettura: {}", err)
+    } else if bdciechi_is_german_ui() {
+        format!("Lesefehler: {}", err)
     } else {
         format!("Read error: {}", err)
     }
@@ -117,7 +131,7 @@ fn ask_bdciechi_open_saved_book(parent: &impl WxWidget, message: &str) -> bool {
         .build();
     let open_button = Button::builder(&panel)
         .with_id(ID_BDCIECHI_OPEN_WITH_SONARPAD)
-        .with_label("Apri con Sonarpad")
+        .with_label(if bdciechi_is_german_ui() { "Mit Sonarpad öffnen" } else if bdciechi_is_italian_ui() { "Apri con Sonarpad" } else { "Open with Sonarpad" })
         .build();
 
     buttons.add_spacer(1);
@@ -313,6 +327,8 @@ fn bdciechi_search_key(text: &str) -> String {
 fn bdciechi_search_loading_message() -> &'static str {
     if bdciechi_is_italian_ui() {
         "Ricerca in corso..."
+    } else if bdciechi_is_german_ui() {
+        "Suche läuft…"
     } else {
         "Searching..."
     }
@@ -650,7 +666,7 @@ fn show_bdciechi_dashboard(
         .with_label(&ui.bdciechi_go_button)
         .build();
     let next_page_btn = Button::builder(&panel).with_label(">").build();
-    let page_label = StaticText::builder(&panel).with_label("Pagina 1").build();
+    let page_label = StaticText::builder(&panel).with_label(if bdciechi_is_german_ui() { "Seite 1" } else if bdciechi_is_italian_ui() { "Pagina 1" } else { "Page 1" }).build();
     pagination_sizer.add(
         &page_label,
         0,
@@ -775,7 +791,13 @@ fn show_bdciechi_dashboard(
             combo.set_selection(0);
             *dr.lock().unwrap() = page_res;
 
-            pl.set_label(&format!("Pagina {} di {}", *page + 1, total_pages));
+            pl.set_label(&if bdciechi_is_german_ui() {
+                format!("Seite {} von {}", *page + 1, total_pages)
+            } else if bdciechi_is_italian_ui() {
+                format!("Pagina {} di {}", *page + 1, total_pages)
+            } else {
+                format!("Page {} of {}", *page + 1, total_pages)
+            });
             pc.clear();
             for i in 0..total_pages {
                 pc.append(&format!("{}", i + 1));

@@ -18,6 +18,7 @@ fn strings() -> serde_json::Value {
         "pt" => include_str!("../i18n/ui_pt.json"),
         "cs" => include_str!("../i18n/ui_cs.json"),
         "pl" => include_str!("../i18n/ui_pl.json"),
+        "de" => include_str!("../i18n/ui_de.json"),
         _ => include_str!("../i18n/ui_en.json"),
     };
     serde_json::from_str(text).expect("valid bundled UI translations")
@@ -157,7 +158,7 @@ pub fn open_dialog(parent: &Frame) {
     add.on_click(move |_| {
         let picker = FileDialog::builder(&dialog).with_message(&text(&labels, "media_join_add"))
             .with_style(FileDialogStyle::Open | FileDialogStyle::FileMustExist | FileDialogStyle::Multiple)
-            .with_wildcard("Media|*.mp3;*.m4a;*.mp4;*.mkv;*.avi;*.mov;*.wav;*.flac;*.ogg;*.opus;*.aac;*.aiff;*.webm;*.wma;*.m4b;*.mpg;*.mpeg;*.ts;*.m2ts;*.wmv;*.flv|*.*|*.*").build();
+            .with_wildcard(&crate::localized_file_filter("Media|*.mp3;*.m4a;*.mp4;*.mkv;*.avi;*.mov;*.wav;*.flac;*.ogg;*.opus;*.aac;*.aiff;*.webm;*.wma;*.m4b;*.mpg;*.mpeg;*.ts;*.m2ts;*.wmv;*.flv|*.*|*.*")).build();
         crate::set_mac_native_file_dialog_open(true);
         let result = picker.show_modal();
         crate::set_mac_native_file_dialog_open(false);
