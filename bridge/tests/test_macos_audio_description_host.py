@@ -752,7 +752,8 @@ class MacAudioDescriptionHostTests(unittest.TestCase):
 
     def test_all_mac_audio_description_locales_have_same_keys(self):
         files = sorted((ROOT / "i18n").glob("audio_description_*.json"))
-        self.assertEqual(7, len(files))
+        self.assertEqual(8, len(files))
+        self.assertIn("audio_description_de.json", {path.name for path in files})
         payloads = [json.loads(path.read_text(encoding="utf-8")) for path in files]
         expected = set(payloads[0])
         self.assertGreater(len(expected), 80)

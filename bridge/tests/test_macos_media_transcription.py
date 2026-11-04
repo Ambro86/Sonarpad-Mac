@@ -268,7 +268,8 @@ class MacOSMediaTranscriptionTests(unittest.TestCase):
         self.assertIn("is_supported_transcription_language", settings_source)
 
     def test_media_transcription_locale_key_sets_match(self):
-        self.assertEqual(len(LOCALES), 7)
+        self.assertEqual(len(LOCALES), 8)
+        self.assertIn("media_transcription_de.json", {path.name for path in LOCALES})
         locale_maps = [json.loads(text(path)) for path in LOCALES]
         keys = set(locale_maps[0])
         self.assertTrue(keys)
