@@ -41,6 +41,8 @@ Version 0.5.3 - October 14, 2026
 
 18. Added the complete German translation of Sonarpad for macOS, including the interface, menus, calendar, audio descriptions, news, multimedia tools and changelog. German is selectable in Settings.
 
+19. Added Find places and businesses in all languages, with international results, descriptions, ratings, review counts, opening hours and websites when available. In the Italian interface it replaces White and Yellow Pages while retaining their results, name search and phone-number search. Other languages offer place and business search only.
+
 Version 0.5.2 - October 12, 2026
 
 Edge voices, audio descriptions and reliability

@@ -40,6 +40,8 @@ Version 0.5.3 - 14 octobre 2026
 
 18. Ajout de la traduction intégrale en allemand de Sonarpad pour macOS : interface, menus, calendrier, audiodescriptions, actualités, outils multimédias et historique des modifications. L’allemand peut être choisi dans les paramètres.
 
+19. Ajout de la recherche de lieux et d’activités dans toutes les langues, avec des résultats internationaux, descriptions, notes, nombre d’avis, horaires et sites web lorsqu’ils sont disponibles. Dans l’interface italienne, elle remplace les Pages blanches et jaunes tout en conservant leurs résultats et les recherches par nom ou numéro de téléphone. Les autres langues proposent uniquement la recherche de lieux et d’activités.
+
 Version 0.5.2 - 12 octobre 2026
 
 Voix Edge, audiodescriptions et fiabilité

@@ -40,6 +40,8 @@ Version 0.5.3 – 14. Oktober 2026
 
 18. Vollständige deutsche Übersetzung von Sonarpad für macOS hinzugefügt: Benutzeroberfläche, Menüs, Kalender, Audiodeskription, Nachrichtenquellen, Multimediawerkzeuge und Änderungsprotokoll. Deutsch kann in den Spracheinstellungen ausgewählt werden.
 
+19. Die Suche nach Orten und Unternehmen ist jetzt in allen Sprachen verfügbar, mit internationalen Ergebnissen, Beschreibungen, Bewertungen, Anzahl der Rezensionen, Öffnungszeiten und Websites, soweit vorhanden. In der italienischen Oberfläche ersetzt sie die Weißen und Gelben Seiten; deren Ergebnisse sowie die Namens- und Telefonnummernsuche bleiben erhalten. In anderen Sprachen ist nur die Suche nach Orten und Unternehmen verfügbar.
+
 Version 0.5.2 – 12. Oktober 2026
 
 Edge-Stimmen, Audiodeskription und Zuverlässigkeit

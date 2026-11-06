@@ -1,3 +1,6 @@
+#[path = "places.rs"]
+mod places;
+
 use crate::*;
 use reqwest::blocking::Client;
 use std::rc::Rc;
@@ -15,6 +18,7 @@ pub struct SearchResult {
     pub province: Option<String>,
     pub category: Option<String>,
     pub phones: Vec<String>,
+    pub detail: Option<DetailResponse>,
 }
 
 #[allow(dead_code)]
@@ -81,18 +85,159 @@ fn decode(encoded: &str) -> String {
 
 pub(crate) fn normalize_phone(input: &str) -> Result<String, String> {
     let input = input.trim();
-    if input.chars().enumerate().any(|(i,c)| !c.is_ascii_digit() && !c.is_whitespace() && !"()-./".contains(c) && !(c == '+' && i == 0)) {
+    if input.chars().enumerate().any(|(i, c)| {
+        !c.is_ascii_digit() && !c.is_whitespace() && !"()-./".contains(c) && !(c == '+' && i == 0)
+    }) {
         return Err("Inserisci un numero di telefono italiano valido.".into());
     }
-    let compact: String = input.chars().filter(|c| c.is_ascii_digit() || *c == '+').collect();
-    let number = if let Some(v) = compact.strip_prefix("+39").or_else(|| compact.strip_prefix("0039")) { v }
-        else if compact.starts_with('+') || compact.starts_with("00") { return Err("Inserisci un numero italiano, con prefisso +39 facoltativo.".into()); }
-        else { &compact };
-    if !(5..=15).contains(&number.len()) { return Err("Inserisci un numero di telefono completo di prefisso.".into()); }
+    let compact: String = input
+        .chars()
+        .filter(|c| c.is_ascii_digit() || *c == '+')
+        .collect();
+    let number = if let Some(v) = compact
+        .strip_prefix("+39")
+        .or_else(|| compact.strip_prefix("0039"))
+    {
+        v
+    } else if compact.starts_with('+') || compact.starts_with("00") {
+        return Err("Inserisci un numero italiano, con prefisso +39 facoltativo.".into());
+    } else {
+        &compact
+    };
+    if !(5..=15).contains(&number.len()) {
+        return Err("Inserisci un numero di telefono completo di prefisso.".into());
+    }
     Ok(number.into())
 }
 
 pub fn search_directory(
+    kind: DirectoryKind,
+    what: &str,
+    location: &str,
+    page: i32,
+    reverse: bool,
+) -> Result<SearchResponse, String> {
+    let settings = Settings::load();
+    let language = crate::normalize_ui_language(&settings.ui_language);
+    let country = if settings.places_country.is_empty() {
+        crate::default_radio_country_code_for_ui_language(&settings.ui_language)
+    } else {
+        settings.places_country.as_str()
+    };
+    if language != "it"
+        || (!reverse && matches!(kind, DirectoryKind::PagineGialle) && country != "it")
+    {
+        let primary = places::search(what, location, country, &language)?;
+        return merge_activities(
+            Ok(primary),
+            Ok(SearchResponse {
+                display_where: Some(location.into()),
+                current_page: 1,
+                is_last_page: true,
+                results: Vec::new(),
+                actual_directory_index: Some(1),
+            }),
+            location,
+            1,
+        );
+    }
+    if reverse || !matches!(kind, DirectoryKind::PagineGialle) || page > 1 {
+        return search_directory_legacy(kind, what, location, page, reverse);
+    }
+    let (primary, legacy) = std::thread::scope(|scope| {
+        let worker = scope.spawn(|| places::search(what, location, country, &language));
+        let legacy = search_directory_legacy(kind, what, location, page, false);
+        (
+            worker
+                .join()
+                .unwrap_or_else(|_| Err("Ricerca luoghi interrotta.".into())),
+            legacy,
+        )
+    });
+    merge_activities(primary, legacy, location, page)
+}
+
+fn merge_activities(
+    primary: Result<Vec<places::Place>, String>,
+    legacy: Result<SearchResponse, String>,
+    location: &str,
+    page: i32,
+) -> Result<SearchResponse, String> {
+    let primary = match primary {
+        Ok(items) if !items.is_empty() => items,
+        _ => return legacy,
+    };
+    let mut response = legacy.unwrap_or_else(|_| SearchResponse {
+        display_where: Some(location.into()),
+        current_page: page,
+        is_last_page: true,
+        results: Vec::new(),
+        actual_directory_index: Some(1),
+    });
+    // Keep the source for legacy details even if the existing PB fallback was used.
+    let prefix = if response.actual_directory_index == Some(0) {
+        "pb:"
+    } else {
+        "pg:"
+    };
+    response.results.retain(|item| {
+        !primary.iter().any(|place| {
+            places::same_place(
+                place,
+                &item.name,
+                item.address.as_deref(),
+                item.city.as_deref(),
+                &item.phones,
+            )
+        })
+    });
+    for item in &mut response.results {
+        item.id = format!("{prefix}{}", item.id);
+    }
+    let mut results: Vec<_> = primary
+        .into_iter()
+        .map(|place| {
+            let detail = DetailResponse {
+                body: place.body(&places::PlaceText::new(|key| {
+                    let ui = current_ui_strings();
+                    match key {
+                        "category" => ui.places_category.clone(),
+                        "address" => ui.places_address.clone(),
+                        "phone" => ui.places_phone.clone(),
+                        "website" => ui.places_website.clone(),
+                        "rating" => ui.places_rating.clone(),
+                        "reviews" => ui.places_reviews.clone(),
+                        "unavailable" => ui.places_unavailable.clone(),
+                        "status" => ui.places_status.clone(),
+                        "hours" => ui.places_hours.clone(),
+                        "hours_missing" => ui.places_hours_missing.clone(),
+                        "today" => ui.places_today.clone(),
+                        "tomorrow" => ui.places_tomorrow.clone(),
+                        "range" => ui.places_range.clone(),
+                        "next_day" => ui.places_next_day.clone(),
+                        _ => key.into(),
+                    }
+                })),
+            };
+            SearchResult {
+                id: format!("place:{}", place.id),
+                name: place.nome,
+                address: place.indirizzo,
+                city: None,
+                province: None,
+                category: (!place.categorie.is_empty()).then(|| place.categorie.join(", ")),
+                phones: place.telefoni,
+                detail: Some(detail),
+            }
+        })
+        .collect();
+    results.extend(response.results);
+    response.results = results;
+    // Keep actual_directory_index for subsequent pages of the legacy provider.
+    Ok(response)
+}
+
+fn search_directory_legacy(
     kind: DirectoryKind,
     what: &str,
     where_loc: &str,
@@ -108,7 +253,11 @@ pub fn search_directory(
         DirectoryKind::PagineGialle => decode("Hi5YUxU4Qh8="),  // searchpg
     };
 
-    let mut mapped_what = if reverse { normalize_phone(what)? } else { what.to_string() };
+    let mut mapped_what = if reverse {
+        normalize_phone(what)?
+    } else {
+        what.to_string()
+    };
     if let DirectoryKind::PagineGialle = kind
         && mapped_what.trim().eq_ignore_ascii_case("bar")
     {
@@ -147,7 +296,9 @@ pub fn search_directory(
                 fb_resp.actual_directory_index = Some(0);
                 return Ok(fb_resp);
             }
-            if reverse { return Err("Servizio temporaneamente non disponibile. Riprova.".into()); }
+            if reverse {
+                return Err("Servizio temporaneamente non disponibile. Riprova.".into());
+            }
             return Ok(SearchResponse {
                 display_where: None,
                 results: vec![],
@@ -172,9 +323,51 @@ pub fn search_directory(
     });
     if reverse {
         let number = normalize_phone(what)?;
-        parsed.results.retain(|r| r.phones.iter().any(|p| normalize_phone(p).ok().as_deref() == Some(number.as_str())));
+        parsed.results.retain(|r| {
+            r.phones
+                .iter()
+                .any(|p| normalize_phone(p).ok().as_deref() == Some(number.as_str()))
+        });
     }
     Ok(parsed)
+}
+
+pub fn search_phone(what: &str, page: i32) -> Result<SearchResponse, String> {
+    let number = normalize_phone(what)?;
+    let mut combined = SearchResponse {
+        display_where: None,
+        current_page: page,
+        is_last_page: true,
+        results: Vec::new(),
+        actual_directory_index: None,
+    };
+    let mut succeeded = false;
+    let mut errors = Vec::new();
+    let mut seen = std::collections::HashSet::new();
+    for kind in [DirectoryKind::PagineBianche, DirectoryKind::PagineGialle] {
+        match search_directory(kind, &number, "", page, true) {
+            Ok(response) => {
+                succeeded = true;
+                combined.is_last_page &= response.is_last_page;
+                let prefix = if response.actual_directory_index == Some(1) {
+                    "pg:"
+                } else {
+                    "pb:"
+                };
+                for mut item in response.results {
+                    item.id = format!("{prefix}{}", item.id);
+                    if seen.insert(item.id.clone()) {
+                        combined.results.push(item);
+                    }
+                }
+            }
+            Err(error) => errors.push(error),
+        }
+    }
+    if !succeeded || (combined.results.is_empty() && !errors.is_empty()) {
+        return Err(errors.join("\n"));
+    }
+    Ok(combined)
 }
 
 pub fn detail_directory(
@@ -183,6 +376,14 @@ pub fn detail_directory(
     where_loc: &str,
     id: &str,
 ) -> Result<DetailResponse, String> {
+    for (prefix, source) in [
+        ("pb:", DirectoryKind::PagineBianche),
+        ("pg:", DirectoryKind::PagineGialle),
+    ] {
+        if let Some(id) = id.strip_prefix(prefix) {
+            return detail_directory(source, what, "", id);
+        }
+    }
     let base_url = decode("BT9NUUx/HRUjWkodMRoTOlYsGzZeHTVfCiMeAT4c");
     let client_id = decode("HSlUThQ5Xh0=");
     let version = decode("XmUAD0M=");
@@ -328,6 +529,7 @@ fn parse_search_response(xml_str: &str) -> Result<SearchResponse, String> {
                                 Some(current_category.clone())
                             },
                             phones: current_phones.clone(),
+                            detail: None,
                         });
                     }
                 } else if name == "phone" {
@@ -474,7 +676,11 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
         body.push_str("\r\n\r\n");
     }
     if !category.is_empty() {
-        body.push_str(&format!("{} {}\r\n\r\n", directory_label("Categoria:"), category));
+        body.push_str(&format!(
+            "{} {}\r\n\r\n",
+            directory_label("Categoria:"),
+            category
+        ));
     }
     let mut locality = String::new();
     if !city.is_empty() && !province.is_empty() {
@@ -543,6 +749,66 @@ fn parse_detail_response(xml_str: &str) -> Result<DetailResponse, String> {
     })
 }
 
+#[cfg(test)]
+mod places_merge_tests {
+    use super::*;
+
+    fn place() -> places::Place {
+        serde_json::from_value(serde_json::json!({"id":"new", "nome":"Bar Uno", "indirizzo":"Via Roma 12, Torino",
+            "telefoni":[], "categorie":["Bar"], "descrizione":null, "stelle":4.5,"numero_recensioni":23})).unwrap()
+    }
+
+    fn legacy() -> SearchResponse {
+        let mut response = parse_search_response("<response><status>200</status><current_page>1</current_page><isLastPage>0</isLastPage><results><result><id>one</id><name>Bar Uno</name><address>Via Roma 12</address><city>Torino</city></result><result><id>two</id><name>Bar Due</name></result></results></response>").unwrap();
+        response.actual_directory_index = Some(1);
+        response
+    }
+
+    #[test]
+    fn new_results_precede_legacy_and_keep_detail_source_and_pagination() {
+        let response = merge_activities(Ok(vec![place()]), Ok(legacy()), "Torino", 1).unwrap();
+        assert_eq!(
+            response
+                .results
+                .iter()
+                .map(|r| r.id.as_str())
+                .collect::<Vec<_>>(),
+            ["place:new", "pg:two"]
+        );
+        assert!(!response.is_last_page);
+        assert!(
+            response.results[0]
+                .detail
+                .as_ref()
+                .unwrap()
+                .body
+                .contains("23 recensioni")
+        );
+        assert!(response.results[1].detail.is_none());
+    }
+
+    #[test]
+    fn source_failures_do_not_discard_available_results() {
+        let response = merge_activities(Err("offline".into()), Ok(legacy()), "Torino", 1).unwrap();
+        assert_eq!(response.results.len(), 2);
+        let response =
+            merge_activities(Ok(vec![place()]), Err("offline".into()), "Torino", 1).unwrap();
+        assert_eq!(response.results[0].id, "place:new");
+        assert!(
+            merge_activities(Err("offline".into()), Err("offline".into()), "Torino", 1).is_err()
+        );
+    }
+
+    #[test]
+    fn old_white_pages_fallback_keeps_its_detail_source() {
+        let mut old = legacy();
+        old.actual_directory_index = Some(0);
+        let response = merge_activities(Ok(vec![place()]), Ok(old), "Torino", 1).unwrap();
+        assert_eq!(response.results[1].id, "pb:two");
+        assert_eq!(response.actual_directory_index, Some(0));
+    }
+}
+
 pub fn show_directory_results(
     parent: &Frame,
     tc_main: TextCtrl,
@@ -560,7 +826,7 @@ pub fn show_directory_results(
         let msg = MessageDialog::builder(
             parent,
             directory_label("Nessun risultato trovato."),
-            directory_label("Ricerca Pagine Bianche/Gialle"),
+            directory_label("Cerca luoghi e attività"),
         )
         .with_style(MessageDialogStyle::OK | MessageDialogStyle::IconInformation)
         .build();
@@ -601,7 +867,9 @@ pub fn show_directory_results(
     let btn_next = Button::builder(&panel)
         .with_label(directory_label("Pagina Successiva"))
         .build();
-    let btn_open = Button::builder(&panel).with_label(directory_label("Apri")).build();
+    let btn_open = Button::builder(&panel)
+        .with_label(directory_label("Apri"))
+        .build();
     let btn_close = Button::builder(&panel)
         .with_label(directory_label("Chiudi"))
         .with_id(ID_CANCEL)
@@ -648,10 +916,14 @@ pub fn show_directory_results(
                 DirectoryKind::PagineBianche
             };
 
-            let progress =
-                ProgressDialog::builder(&p_clone, directory_label("Caricamento..."), directory_label("Ricerca in corso..."), 100)
-                    .with_style(ProgressDialogStyle::Smooth)
-                    .build();
+            let progress = ProgressDialog::builder(
+                &p_clone,
+                directory_label("Caricamento..."),
+                directory_label("Ricerca in corso..."),
+                100,
+            )
+            .with_style(ProgressDialogStyle::Smooth)
+            .build();
 
             let result_state = Arc::new(Mutex::new(None));
             let result_thread = Arc::clone(&result_state);
@@ -659,7 +931,11 @@ pub fn show_directory_results(
             let lc = l_clone.clone();
 
             std::thread::spawn(move || {
-                let res = search_directory(kind, &qc, &lc, page, reverse);
+                let res = if reverse {
+                    search_phone(&qc, page)
+                } else {
+                    search_directory(kind, &qc, &lc, page, false)
+                };
                 *result_thread.lock().unwrap() = Some(res);
             });
 
@@ -708,6 +984,7 @@ pub fn show_directory_results(
         }
         if let Some(res) = results_for_open.get(sel.unwrap() as usize) {
             let id = res.id.clone();
+            let inline_detail = res.detail.clone();
             let d_clone = dialog_c;
             let kind = if directory_index == 1 {
                 DirectoryKind::PagineGialle
@@ -718,16 +995,23 @@ pub fn show_directory_results(
             let lc = location_c.clone();
             let tc_clone = tc_main_c;
 
-            let progress =
-                ProgressDialog::builder(&d_clone, directory_label("Caricamento..."), directory_label("Recupero dettagli..."), 100)
-                    .with_style(ProgressDialogStyle::Smooth)
-                    .build();
+            let progress = ProgressDialog::builder(
+                &d_clone,
+                directory_label("Caricamento..."),
+                directory_label("Recupero dettagli..."),
+                100,
+            )
+            .with_style(ProgressDialogStyle::Smooth)
+            .build();
 
             let result_state = Arc::new(Mutex::new(None));
             let result_thread = Arc::clone(&result_state);
 
             std::thread::spawn(move || {
-                let r = detail_directory(kind, &qc, &lc, &id);
+                let r = match inline_detail {
+                    Some(detail) => Ok(detail),
+                    None => detail_directory(kind, &qc, &lc, &id),
+                };
                 *result_thread.lock().unwrap() = Some(r);
             });
 

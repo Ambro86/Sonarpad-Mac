@@ -40,6 +40,8 @@ Verze 0.5.3 - 14. října 2026
 
 18. Přidán kompletní německý překlad Sonarpadu pro macOS: rozhraní, nabídky, kalendář, audiopopisy, zprávy, multimediální nástroje a seznam změn. Němčinu lze vybrat v nastavení.
 
+19. Přidáno hledání míst a firem ve všech jazycích, s mezinárodními výsledky, popisy, hodnocením, počtem recenzí, otevírací dobou a weby, pokud jsou dostupné. V italském rozhraní nahrazuje Bílé a Zlaté stránky a zachovává jejich výsledky i hledání podle jména a telefonního čísla. V ostatních jazycích je dostupné pouze hledání míst a firem.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost

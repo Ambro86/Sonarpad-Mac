@@ -42,6 +42,8 @@ Versione 0.5.3 - 14 ottobre 2026
 
 20. Nella sezione Pagine Bianche aggiunta la ricerca per numero.
 
+21. Cerca luoghi e attività è ora disponibile in tutte le lingue, con risultati internazionali, descrizioni, valutazioni, numero di recensioni, orari di apertura e sito web, quando disponibili. Nell’interfaccia italiana sostituisce Pagine Bianche e Gialle, mantenendone anche i risultati, la ricerca nominativi e la ricerca per numero di telefono. Nelle altre lingue è disponibile solo la ricerca di luoghi e attività.
+
 Versione 0.5.2 - 12 ottobre 2026
 
 Voci Edge, audiodescrizioni e affidabilità

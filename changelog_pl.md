@@ -40,6 +40,8 @@ Wersja 0.5.3 - 14 października 2026
 
 18. Dodano pełne tłumaczenie Sonarpada dla macOS na język niemiecki: interfejs, menu, kalendarz, audiodeskrypcje, wiadomości, narzędzia multimedialne i dziennik zmian. Niemiecki można wybrać w ustawienia.
 
+19. Dodano wyszukiwanie miejsc i firm we wszystkich językach, z wynikami międzynarodowymi, opisami, ocenami, liczbą opinii, godzinami otwarcia i stronami internetowymi, gdy są dostępne. We włoskim interfejsie zastępuje ono Białe i Żółte Strony, zachowując ich wyniki oraz wyszukiwanie nazwisk i numerów telefonu. W pozostałych językach dostępne jest tylko wyszukiwanie miejsc i firm.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

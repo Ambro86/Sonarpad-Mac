@@ -424,6 +424,8 @@ struct Settings {
     #[serde(default)]
     podcast_directory_country: String,
     #[serde(default)]
+    places_country: String,
+    #[serde(default)]
     weather_temperature_unit: String,
     #[serde(default = "default_sync_media_cutter_seek_step_ms")]
     media_cutter_seek_step_ms: u32,
@@ -602,6 +604,7 @@ impl Settings {
             media_cutter_advanced_mode: false,
             weather_city_query: String::new(),
             podcast_directory_country: String::new(),
+            places_country: String::new(),
             weather_temperature_unit: "celsius".into(),
             media_cutter_seek_step_ms: default_sync_media_cutter_seek_step_ms(),
             radio_search_language: default_sync_radio_search_language(),
@@ -1133,6 +1136,22 @@ struct UiStrings {
     italian_directories_title: String,
     italian_directories_directory_label: String,
     italian_directories_location_label: String,
+    places_country_label: String,
+    places_category: String,
+    places_address: String,
+    places_phone: String,
+    places_website: String,
+    places_rating: String,
+    places_reviews: String,
+    places_unavailable: String,
+    places_status: String,
+    places_hours: String,
+    places_hours_missing: String,
+    places_today: String,
+    places_tomorrow: String,
+    places_range: String,
+    places_next_day: String,
+
     italian_directories_white_pages: String,
     italian_directories_yellow_pages: String,
     italian_directories_empty_query: String,
@@ -18106,26 +18125,12 @@ fn open_convert_media_folder_dialog(parent: &Frame) {
     dialog.destroy();
 }
 
-fn italian_directories_code_available(parent: &Frame) -> bool {
-    if load_saved_rai_luce_code().is_some() {
-        return true;
-    }
-    let _ = handle_rai_missing_code(
-        parent,
-        "Chiave Luce mancante: Pagine bianche e gialle richiede il codice Sonarpad.",
-    );
-    false
-}
-
 fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
-    if !italian_directories_code_available(parent) {
-        return;
-    }
-
+    let italian = normalize_ui_language(&Settings::load().ui_language) == "it";
     let ui = current_ui_strings();
     let dialog = Dialog::builder(parent, &ui.italian_directories_title)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
-        .with_size(560, 240)
+        .with_size(560, 320)
         .build();
     let panel = Panel::builder(&dialog).build();
     let root = BoxSizer::builder(Orientation::Vertical).build();
@@ -18140,17 +18145,32 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
         5,
     );
     let directory_choice = Choice::builder(&panel).build();
-    directory_choice.append(&ui.italian_directories_white_pages);
     directory_choice.append(&ui.italian_directories_yellow_pages);
+    if italian {
+        directory_choice.append(&ui.italian_directories_white_pages);
+        directory_choice.append("Cerca un numero di telefono");
+    }
     directory_choice.set_selection(0);
     directory_row.add(&directory_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&directory_row, 0, SizerFlag::Expand, 0);
 
-    let reverse_choice = CheckBox::builder(&panel).with_label("Cerca per numero di telefono (località non necessaria)").build();
-    root.add(&reverse_choice, 0, SizerFlag::All, 5);
+    let country_label = StaticText::builder(&panel).with_label(&ui.places_country_label).build();
+    let country_choice = Choice::builder(&panel).build();
+    country_choice.set_accessibility_label(&ui.places_country_label);
+    let saved = Settings::load();
+    let countries = fallback_radio_country_options(&saved.ui_language);
+    let default_country = default_radio_country_code_for_ui_language(&saved.ui_language);
+    let selected_country = countries.iter().position(|(code, _, _)| code.eq_ignore_ascii_case(&saved.places_country))
+        .or_else(|| countries.iter().position(|(code, _, _)| code.eq_ignore_ascii_case(default_country))).unwrap_or(0);
+    for (_, label, _) in &countries { country_choice.append(label); }
+    country_choice.set_selection(selected_country as u32);
+    root.add(&country_label, 0, SizerFlag::All, 5);
+    root.add(&country_choice, 0, SizerFlag::Expand | SizerFlag::All, 5);
+
     let search_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let search_label = StaticText::builder(&panel).with_label(if italian { "Inserisci luogo o attività" } else { &ui.italian_directories_yellow_pages }).build();
     search_row.add(
-        &StaticText::builder(&panel).with_label("Nome, attività o numero di telefono").build(),
+        &search_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -18158,15 +18178,14 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let search_ctrl = TextCtrl::builder(&panel)
         .with_style(TextCtrlStyle::ProcessEnter)
         .build();
-    search_ctrl.set_accessibility_label("Nome, attività o numero di telefono");
+    search_ctrl.set_accessibility_label(if italian { "Inserisci luogo o attività" } else { &ui.italian_directories_yellow_pages });
     search_row.add(&search_ctrl, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&search_row, 0, SizerFlag::Expand, 0);
 
     let location_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let location_label = StaticText::builder(&panel).with_label(&ui.italian_directories_location_label).build();
     location_row.add(
-        &StaticText::builder(&panel)
-            .with_label(&ui.italian_directories_location_label)
-            .build(),
+        &location_label,
         0,
         SizerFlag::AlignCenterVertical | SizerFlag::All,
         5,
@@ -18195,6 +18214,20 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     panel.set_sizer(root, true);
     dialog.set_escape_id(ID_CANCEL);
 
+    let places_label = ui.italian_directories_yellow_pages.clone();
+    directory_choice.on_selection_changed(move |_| {
+        let index = directory_choice.get_selection().unwrap_or(0);
+        let label = if !italian { places_label.as_str() } else { match index { 2 => "Inserisci il numero di telefono", 0 => "Inserisci luogo o attività", _ => "Inserisci nome o cognome" } };
+        search_label.set_label(label);
+        search_ctrl.set_accessibility_label(label);
+        country_label.show(index == 0);
+        country_choice.show(index == 0);
+        location_label.show(index != 2);
+        location_ctrl.show(index != 2);
+        panel.layout();
+        dialog.layout();
+    });
+
     let search_ctrl_open = search_ctrl;
     let location_ctrl_open = location_ctrl;
     let directory_choice_open = directory_choice;
@@ -18202,7 +18235,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let parent_clone = *parent;
     let tc_main_open = tc_main;
     let perform_search = Rc::new(move || {
-        let reverse = reverse_choice.get_value();
+        let reverse = directory_choice_open.get_selection() == Some(2);
         let mut query = search_ctrl_open.get_value().trim().to_string();
         if reverse {
             match directories::normalize_phone(&query) {
@@ -18220,7 +18253,12 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
             return;
         }
 
-        let directory_index = directory_choice_open.get_selection().unwrap_or(0) as usize;
+        if directory_choice_open.get_selection() == Some(0) {
+            if let Some((code, _, _)) = countries.get(country_choice.get_selection().unwrap_or(0) as usize) {
+                let mut saved = Settings::load(); saved.places_country = code.to_ascii_lowercase(); saved.save();
+            }
+        }
+        let directory_index = if directory_choice_open.get_selection() == Some(0) { 1 } else { 0 };
         let kind = if directory_index == 1 {
             directories::DirectoryKind::PagineGialle
         } else {
@@ -18243,7 +18281,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
         let location_clone = location.clone();
 
         std::thread::spawn(move || {
-            let res = directories::search_directory(kind, &query_clone, &location_clone, 1, reverse);
+            let res = if reverse { directories::search_phone(&query_clone, 1) } else { directories::search_directory(kind, &query_clone, &location_clone, 1, false) };
             *result_thread.lock().unwrap() = Some(res);
         });
 
@@ -30249,14 +30287,12 @@ fn append_tools_utilities(menu: &Menu, settings: &Settings, ui: &UiStrings) {
         &ui.routes_title,
         ItemKind::Normal,
     );
-    if settings.ui_language == "it" {
         let _ = menu.append_command(
             ID_TOOLS_ITALIAN_DIRECTORIES,
             &ui.tools_italian_directories_label,
             &ui.tools_italian_directories_label,
             ItemKind::Normal,
         );
-    }
 }
 
 fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
@@ -30417,13 +30453,14 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
                 ItemKind::Normal,
             );
             let _ = tools_menu.append_command(ID_TV, &ui.tv_label, &ui.tv_label, ItemKind::Normal);
+
+        }
             let _ = tools_menu.append_command(
                 ID_TOOLS_ITALIAN_DIRECTORIES,
                 &ui.tools_italian_directories_label,
                 &ui.tools_italian_directories_label,
                 ItemKind::Normal,
             );
-        }
     }
 }
 
