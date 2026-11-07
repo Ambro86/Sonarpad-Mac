@@ -86,13 +86,8 @@ pub fn local_changes(meta: &Value, settings: &Value, mac: bool) -> Result<bool, 
     Ok(local != selected(meta, &export(&expected, mac)))
 }
 pub fn status(meta: &Value, dirty: bool, busy: bool, failed: bool, italian: bool) -> String {
-    let message = if meta.get("deletion_review").is_some() {
-        if italian {
-            "Rimozione inattesa bloccata: i dati sono protetti."
-        } else {
-            "Unexpected removal blocked: data is protected."
-        }
-    } else if busy {
+    // Old removal reviews are diagnostic only; the guard repairs them silently.
+    let message = if busy {
         if italian {
             "Sincronizzazione in corso…"
         } else {
@@ -1259,6 +1254,19 @@ mod tests {
         meta["sync_collections"] = json!(false);
         assert!(!schedule.due(&meta, true, 2000));
     }
+    #[test]
+    fn legacy_removal_reviews_never_replace_normal_sync_status() {
+        for italian in [true, false] {
+            for (dirty, busy, failed) in [(false,false,false),(true,false,false),(true,true,false),(true,false,true)] {
+                let meta = json!({"last_sync":1000,"pending":{}});
+                let expected = status(&meta, dirty, busy, failed, italian);
+                let mut legacy = meta;
+                legacy["deletion_review"] = json!({"direction":"outgoing"});
+                assert_eq!(status(&legacy, dirty, busy, failed, italian), expected);
+            }
+        }
+    }
+
     #[test]
     fn automatic_change_detection_uses_portable_values_and_selected_scopes() {
         let mut settings = json!({"rss_news_language":"it","news_language":"it",

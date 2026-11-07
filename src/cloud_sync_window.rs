@@ -294,7 +294,9 @@ pub fn open(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
                     },
                     Err(error)=>{
                         append_podcast_log(&format!("CloudSync completion error={error}"));
-                        show_message_subdialog(&dialog,title,label("Operazione non riuscita. Controlla connessione e codice e riprova. I dati locali sono conservati.","Operation failed. Check your connection and code and retry. Local data is preserved."));
+                        if error != "deletion_confirmation_required" {
+                            show_message_subdialog(&dialog,title,label("Operazione non riuscita. Controlla connessione e codice e riprova. I dati locali sono conservati.","Operation failed. Check your connection and code and retry. Local data is preserved."));
+                        }
                     }
                 }
                 dialog.end_modal(if action>=5 {2001} else {2000});
@@ -379,12 +381,6 @@ fn run(
         if let Ok(mut scheduler) = scheduler().lock() {
             scheduler.completed(result.is_ok(), cloud_sync::now_seconds());
         }
-    }
-    if result
-        .as_ref()
-        .is_err_and(|error| error == "deletion_confirmation_required")
-    {
-        return Err(label("Rimozione inattesa bloccata. Nessuna eliminazione propagata senza un comando esplicito.", "Unexpected removal blocked. Deletions require an explicit removal command.").into());
     }
     let (session, invitation) = result?;
     Ok(if let Some(code) = invitation {
@@ -517,6 +513,7 @@ fn finish(
             "write_verified",
             crate::append_podcast_log,
         );
+        updated.remember_storage_snapshot();
         *locked = updated;
         session.finish(remote)?;
     }

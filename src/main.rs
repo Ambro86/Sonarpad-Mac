@@ -400,6 +400,8 @@ struct TvFavorite {
 
 #[derive(Serialize, Deserialize, Clone)]
 struct Settings {
+    #[serde(skip)]
+    storage_snapshot: app_storage::SettingsSnapshot,
     #[serde(default = "default_ui_language")]
     ui_language: String,
     #[serde(default = "default_news_language")]
@@ -591,9 +593,11 @@ impl Settings {
             settings.ui_language = normalize_ui_language(&settings.ui_language);
             settings.news_language = normalize_news_language(&settings.news_language);
             normalize_settings_data(&mut settings);
+            settings.remember_storage_snapshot();
             return settings;
         }
         let mut settings = Settings {
+            storage_snapshot: app_storage::SettingsSnapshot::default(),
             ui_language: default_ui_language(),
             news_language: default_news_language(),
             language: "Italiano".to_string(),
@@ -679,15 +683,39 @@ impl Settings {
             audio_description_recent_project_folders: Vec::new(),
         };
         normalize_settings_data(&mut settings);
+        settings.remember_storage_snapshot();
         settings
     }
 
     fn save(&self) {
-        if let Ok(data) = serde_json::to_string_pretty(self)
-            && let Err(err) = write_app_storage_text("settings.json", &data)
-        {
+        let result = (|| -> Result<(), String> {
+            let edited = serde_json::to_value(self).map_err(|_| "settings_serialize_error")?;
+            let baseline = self.storage_snapshot.read()?;
+            let data = serde_json::to_string_pretty(&edited).map_err(|_| "settings_serialize_error")?;
+            write_app_storage_text_with_snapshot("settings.json", &data, Some(&baseline))?;
+            // Remember this object's values, not fields only present in the newer
+            // disk copy, so another save of the same window cannot undo them.
+            self.storage_snapshot.remember(edited)
+        })();
+        if let Err(err) = result {
+            append_podcast_log(&format!("Settings save failed: {err}"));
             println!("ERROR: Salvataggio impostazioni fallito: {}", err);
         }
+    }
+
+    fn remember_storage_snapshot(&self) {
+        if let Ok(value) = serde_json::to_value(self) {
+            let _ = self.storage_snapshot.remember(value);
+        }
+    }
+
+    fn with_changes_from(&self, before: &Self, edited: &Self) -> Result<Self, String> {
+        let value = |settings: &Self| serde_json::to_value(settings)
+            .map_err(|_| "settings_serialize_error".to_string());
+        let merged = app_storage::merge_settings(&value(self)?, &value(before)?, &value(edited)?);
+        let mut result: Self = serde_json::from_value(merged).map_err(|_| "settings_parse_error")?;
+        result.storage_snapshot = self.storage_snapshot.clone();
+        Ok(result)
     }
 }
 
@@ -8424,6 +8452,15 @@ fn read_app_storage_text(file_name: &str) -> Option<String> {
 
 #[track_caller]
 fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
+    write_app_storage_text_with_snapshot(file_name, data, None)
+}
+
+#[track_caller]
+fn write_app_storage_text_with_snapshot(
+    file_name: &str,
+    data: &str,
+    baseline: Option<&serde_json::Value>,
+) -> Result<(), String> {
     static WRITES: Mutex<()> = Mutex::new(());
     let _write_guard = WRITES.lock().map_err(|_| "storage_lock_error")?;
     if file_name == "settings.json" {
@@ -8433,6 +8470,22 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
             serde_json::from_str::<Settings>(&raw).map_err(|_| "settings_parse_error")?;
         }
     }
+    let merged_data;
+    let data = if file_name == "settings.json" && let Some(baseline) = baseline {
+        let current = match read_app_storage_text(file_name) {
+            Some(raw) => serde_json::from_str::<serde_json::Value>(&raw)
+                .map_err(|_| "settings_parse_error")?,
+            None => serde_json::json!({}),
+        };
+        let edited = serde_json::from_str::<serde_json::Value>(data)
+            .map_err(|_| "settings_parse_error")?;
+        merged_data = serde_json::to_string_pretty(&app_storage::merge_settings(
+            &current, baseline, &edited,
+        )).map_err(|_| "settings_serialize_error")?;
+        merged_data.as_str()
+    } else {
+        data
+    };
     if file_name == "settings.json" {
         if let Some(raw) = read_app_storage_text(file_name) {
             if let (Ok(before), Ok(after)) = (serde_json::from_str::<serde_json::Value>(&raw), serde_json::from_str::<serde_json::Value>(data)) {
@@ -14986,8 +15039,12 @@ fn open_settings_dialog(
 
         if changed {
             let mut locked = settings.lock().unwrap();
-            *locked = updated;
-            locked.save();
+            // A cloud sync or another window may have saved favorites while
+            // this dialog was open. Apply only the controls the user changed.
+            match Settings::load().with_changes_from(&settings_before, &updated) {
+                Ok(merged) => { *locked = merged; locked.save(); }
+                Err(error) => append_podcast_log(&format!("Settings dialog save failed: {error}")),
+            }
         }
         if refresh_needed {
             refresh_playback_if_needed(playback);

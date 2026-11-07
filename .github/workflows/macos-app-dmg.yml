@@ -19,7 +19,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - runs_on: macos-14
+          - runs_on: macos-15
             rust_target: aarch64-apple-darwin
             build_flavor: apple-silicon
             ffmpeg_macos_min: "11.0"
