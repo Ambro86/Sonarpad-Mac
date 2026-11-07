@@ -1,4 +1,20 @@
 {
+  "places_phone_search": "Rechercher un numéro de téléphone",
+  "places_phone_query": "Saisissez le numéro de téléphone",
+  "places_phone_invalid": "Saisissez un numéro de téléphone valide avec son indicatif.",
+  "routes_departure_label": "Départ",
+  "routes_departure_now": "Partir maintenant",
+  "routes_departure_at": "Partir à",
+  "routes_departure_zone": "Fuseau horaire du départ",
+  "routes_departure_hour": "Heures",
+  "routes_departure_minute": "Minutes",
+
+  "routes_recent_routes": "Itinéraires récents",
+  "routes_clear_history": "Effacer l'historique",
+  "routes_recent_empty": "Aucun itinéraire récent",
+
+  "routes_include_municipalities": "Inclure les communes traversées",
+  "routes_profile_transit": "Transports en commun",
   "places_category": "Catégorie",
   "places_address": "Adresse",
   "places_phone": "Téléphone",

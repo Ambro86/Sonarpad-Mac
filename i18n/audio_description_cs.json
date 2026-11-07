@@ -1,4 +1,6 @@
 {
+  "audio_description.allow_dialogue_overlap": "Povolit audiopopis během dialogů a komentáře",
+  "audio_description.error.dialogue_overlap_bridge": "Aktualizujte modul audiopopisu, aby bylo možné popisovat během dialogů a komentáře.",
   "audio_description.browse": "Procházet...",
   "audio_description.cancel": "Zrušit",
   "audio_description.audio_track.title": "Vybrat zvukovou stopu",

@@ -1,4 +1,20 @@
 {
+  "places_phone_search": "Cerca un numero di telefono",
+  "places_phone_query": "Inserisci il numero di telefono",
+  "places_phone_invalid": "Inserisci un numero di telefono valido, completo di prefisso.",
+  "routes_departure_label": "Partenza",
+  "routes_departure_now": "Partenza ora",
+  "routes_departure_at": "Parti alle",
+  "routes_departure_zone": "Fuso orario della partenza",
+  "routes_departure_hour": "Ore",
+  "routes_departure_minute": "Minuti",
+
+  "routes_recent_routes": "Percorsi recenti",
+  "routes_clear_history": "Cancella cronologia",
+  "routes_recent_empty": "Nessun percorso recente",
+
+  "routes_include_municipalities": "Inserisci i comuni attraversati",
+  "routes_profile_transit": "Mezzi pubblici",
   "places_category": "Categoria",
   "places_address": "Indirizzo",
   "places_phone": "Telefono",

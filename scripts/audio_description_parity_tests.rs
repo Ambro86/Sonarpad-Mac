@@ -59,6 +59,7 @@ fn legacy_checkpoint() -> serde_json::Value {
 fn legacy_checkpoint_preserves_normal_defaults_and_refuses_unknown_layout() {
     let checkpoint: AudioDescriptionPartialCheckpoint = serde_json::from_value(legacy_checkpoint()).unwrap();
     assert!(!checkpoint.allow_nonverbal_vocals);
+    assert!(!checkpoint.allow_dialogue_overlap);
     assert_eq!(checkpoint.source_volume, 1.0);
     assert_eq!(checkpoint.resume_for_chunks(&chunks(&[0.0, 180.0, 360.0])).unwrap().completed_chunks, 1);
     assert!(checkpoint.resume_for_chunks(&chunks(&[0.0, 90.0, 180.0, 360.0])).is_err());
@@ -70,12 +71,14 @@ fn checkpoint_round_trip_keeps_compatibility_mode_and_vocal_verifications() {
     checkpoint.chunk_layout = Some(AudioDescriptionChunkLayout::from_chunks(
         AudioDescriptionChunkMode::Mp4, &chunks(&[0.0, 180.0, 360.0])));
     checkpoint.allow_nonverbal_vocals = true;
+    checkpoint.allow_dialogue_overlap = true;
     checkpoint.source_volume = 0.35;
     checkpoint.verified_nonverbal_ids = vec!["NV-1000".into()];
     let restored: AudioDescriptionPartialCheckpoint = serde_json::from_slice(&serde_json::to_vec(&checkpoint).unwrap()).unwrap();
     assert_eq!(restored.chunk_layout.as_ref().unwrap().mode, AudioDescriptionChunkMode::Mp4);
     assert_eq!(restored.source_volume, 0.35);
     assert!(restored.allow_nonverbal_vocals);
+    assert!(restored.allow_dialogue_overlap);
     assert_eq!(restored.resume_for_chunks(&chunks(&[0.0, 60.0, 120.0, 180.0, 360.0])).unwrap().completed_chunks, 3);
     assert_eq!(restored.verified_nonverbal_ids, ["NV-1000"]);
 }
@@ -324,4 +327,31 @@ fn deferred_tts_fallback_handles_errors_cancellation_and_empty_legacy_results() 
         |_, _, _| Err("cancelled".into()),
     );
     assert_eq!(result.unwrap_err(), "cancelled");
+}
+
+#[test]
+fn project_dialogue_overlap_is_opt_in_and_keeps_cue_boundaries() {
+    let mut first = test_project_description(1, "One");
+    first.source_start_sec = 2.0;
+    let mut next = test_project_description(2, "Two");
+    next.source_start_sec = 5.0;
+    let mut project: AudioDescriptionProject = serde_json::from_value(serde_json::json!({
+        "format":"sonarpad-audio-description-project", "version":1,
+        "created_at_utc":"", "updated_at_utc":"", "source_path":"film.mp4",
+        "output_mp3_path":"film.mp3", "source_duration_sec":20.0, "output_duration_sec":20.0,
+        "language":"it", "language_code":"it", "verbosity":"standard", "allow_extended_pauses":false,
+        "gemini_model":"test", "tts_engine":"edge", "tts_voice":"voice", "tts_rate":0,
+        "tts_pitch":0, "tts_volume":100, "bitrate_kbps":192, "ducking_db":-12.0, "fade_ms":280,
+        "protected_intervals":[{"start_sec":0.0,"end_sec":20.0}],
+        "descriptions":[first,next], "excluded_descriptions":[]
+    })).unwrap();
+    assert!(!project.allow_dialogue_overlap);
+    assert_eq!(project_edit_available_duration(&project, 0).unwrap(), Some(0.0));
+    project.allow_dialogue_overlap = true;
+    let restored: AudioDescriptionProject = serde_json::from_slice(&serde_json::to_vec(&project).unwrap()).unwrap();
+    assert!(restored.allow_dialogue_overlap);
+    assert_eq!(project_edit_available_duration(&restored, 0).unwrap(), Some(3.0));
+    assert_eq!(project_edit_available_duration(&restored, 1).unwrap(), Some(15.0));
+    project.allow_dialogue_overlap = false;
+    assert_eq!(project_edit_available_duration(&project, 0).unwrap(), Some(0.0));
 }

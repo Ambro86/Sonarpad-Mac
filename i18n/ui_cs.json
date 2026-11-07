@@ -1,4 +1,20 @@
 {
+  "places_phone_search": "Vyhledat telefonní číslo",
+  "places_phone_query": "Zadejte telefonní číslo",
+  "places_phone_invalid": "Zadejte platné telefonní číslo včetně předvolby.",
+  "routes_departure_label": "Odjezd",
+  "routes_departure_now": "Odjet nyní",
+  "routes_departure_at": "Odjezd v",
+  "routes_departure_zone": "Časové pásmo odjezdu",
+  "routes_departure_hour": "Hodiny",
+  "routes_departure_minute": "Minuty",
+
+  "routes_recent_routes": "Nedávné trasy",
+  "routes_clear_history": "Vymazat historii",
+  "routes_recent_empty": "Žádné nedávné trasy",
+
+  "routes_include_municipalities": "Zahrnout projeté obce",
+  "routes_profile_transit": "Veřejná doprava",
   "places_category": "Kategorie",
   "places_address": "Adresa",
   "places_phone": "Telefon",

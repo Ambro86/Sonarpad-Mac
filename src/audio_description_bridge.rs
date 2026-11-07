@@ -50,6 +50,7 @@ pub struct AudioDescriptionBridgeRequest {
     pub verbosity: String,
     pub allow_extended_pauses: bool,
     pub allow_nonverbal_vocals: bool,
+    pub allow_dialogue_overlap: bool,
     pub recognize_characters: bool,
     pub recognize_screen_text: bool,
     pub initial_character_glossary: Vec<BridgeCharacter>,
@@ -120,6 +121,8 @@ pub struct AudioDescriptionBridgeResult {
     pub chunk_duration_sec: u32,
     #[serde(default)]
     pub analysis_engine: String,
+    #[serde(default)]
+    pub allow_dialogue_overlap: bool,
     #[serde(default)]
     pub protected_intervals: Vec<BridgeInterval>,
     #[serde(default)]

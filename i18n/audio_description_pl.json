@@ -1,4 +1,6 @@
 {
+  "audio_description.allow_dialogue_overlap": "Zezwalaj na audiodeskrypcję podczas dialogów i komentarza",
+  "audio_description.error.dialogue_overlap_bridge": "Zaktualizuj moduł audiodeskrypcji, aby zezwolić na opisy podczas dialogów i komentarza.",
   "audio_description.browse": "Przeglądaj...",
   "audio_description.cancel": "Anuluj",
   "audio_description.audio_track.title": "Wybierz ścieżkę audio",

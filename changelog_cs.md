@@ -42,6 +42,8 @@ Verze 0.5.3 - 14. října 2026
 
 19. Přidáno hledání míst a firem ve všech jazycích, s mezinárodními výsledky, popisy, hodnocením, počtem recenzí, otevírací dobou a weby, pokud jsou dostupné. V italském rozhraní nahrazuje Bílé a Zlaté stránky a zachovává jejich výsledky i hledání podle jména a telefonního čísla. V ostatních jazycích je dostupné pouze hledání míst a firem.
 
+20. AI audiopopis: přidána volba „Povolit audiopopis během dialogů a komentáře“, která je ve výchozím nastavení vypnutá. Hodí se zejména pro fotbalové zápasy, wrestling a další sportovní přenosy, kde nepřetržitý komentář nechával málo nebo žádný prostor pro popisy Sonarpadu, ale také pro hudební videoklipy. Po zapnutí mohou popisy zaznívat i během řeči nebo zpěvu, aniž by se navzájem překrývaly. Volba se ukládá do projektu pro pozdější úpravy a opětovné generování. Při vypnutí zůstává běžná ochrana dialogů beze změny.
+
 Verze 0.5.2 - 12. října 2026
 
 Hlasy Edge, audiopopisy a spolehlivost

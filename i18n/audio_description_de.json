@@ -1,4 +1,6 @@
 {
+  "audio_description.allow_dialogue_overlap": "Audiodeskriptionen während Dialogen und Kommentaren zulassen",
+  "audio_description.error.dialogue_overlap_bridge": "Aktualisieren Sie die Audiodeskriptions-Bridge, um Beschreibungen während Dialogen und Kommentaren zuzulassen.",
   "audio_description.browse": "Durchsuchen ...",
   "audio_description.cancel": "Abbrechen",
   "audio_description.audio_track.title": "Audiospur auswählen",

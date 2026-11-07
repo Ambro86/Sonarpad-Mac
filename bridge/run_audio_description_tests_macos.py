@@ -23,6 +23,7 @@ MODULES = (
     "test_language_detection",
     "test_speech_detector",
     "test_optional_nonverbal_vocals",
+    "test_dialogue_overlap_option",
     "test_macos_audio_description_host",
     "test_macos_audio_description_resume_selector",
     "test_macos_audio_description_transport",

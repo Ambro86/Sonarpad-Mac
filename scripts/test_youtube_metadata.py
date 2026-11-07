@@ -5,7 +5,7 @@ ROOT = Path(__file__).resolve().parents[1]
 source = (ROOT / 'src/main.rs').read_text(encoding='utf8')
 work = ROOT / 'target/youtube-metadata-tests'
 (work / 'src').mkdir(parents=True, exist_ok=True)
-(work / 'Cargo.toml').write_text('[package]\nname="youtube-metadata-tests"\nversion="0.0.0"\nedition="2024"\n[workspace]\n[dependencies]\nserde_json="1"\n', encoding='utf8')
+(work / 'Cargo.toml').write_text('[package]\nname="youtube-metadata-tests"\nversion="0.0.0"\nedition="2024"\n[workspace]\n[dependencies]\nserde_json="1"\nurl="2"\n', encoding='utf8')
 code = '#![allow(dead_code)]\nuse std::collections::HashSet;\n#[derive(Debug)] struct YoutubeSearchResult {title:String,url:String,is_collection:bool,duration:Option<String>}\n'
 code += '#[path="' + (ROOT/'src/youtube_search_types.rs').as_posix() + '"] mod youtube_search_types;\n'
 code += source[source.index('fn youtube_text_value('):source.index('fn is_youtube_url(')]

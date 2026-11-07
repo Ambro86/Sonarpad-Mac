@@ -1,5 +1,6 @@
 #![cfg_attr(all(windows, not(debug_assertions)), windows_subsystem = "windows")]
 
+mod app_storage;
 mod sonarmusic;
 mod cloud_sync;
 mod cloud_sync_preferences;
@@ -533,6 +534,8 @@ struct Settings {
     audio_description_extended_pauses: bool,
     #[serde(default = "default_true")]
     audio_description_allow_nonverbal_vocals: bool,
+    #[serde(default)]
+    audio_description_allow_dialogue_overlap: bool,
     #[serde(default = "default_true")]
     audio_description_recognize_characters: bool,
     #[serde(default = "default_true")]
@@ -661,6 +664,7 @@ impl Settings {
             audio_description_verbosity: default_audio_description_verbosity(),
             audio_description_extended_pauses: false,
             audio_description_allow_nonverbal_vocals: true,
+            audio_description_allow_dialogue_overlap: false,
             audio_description_recognize_characters: true,
             audio_description_recognize_screen_text: true,
             audio_description_save_project: false,
@@ -1137,6 +1141,9 @@ struct UiStrings {
     italian_directories_directory_label: String,
     italian_directories_location_label: String,
     places_country_label: String,
+    places_phone_search: String,
+    places_phone_query: String,
+    places_phone_invalid: String,
     places_category: String,
     places_address: String,
     places_phone: String,
@@ -1384,6 +1391,9 @@ struct UiStrings {
     tv_search_label: String,
     tv_favorites_label: String,
     tv_add_favorite: String,
+    routes_recent_routes: String,
+    routes_recent_empty: String,
+    routes_clear_history: String,
     routes_title: String,
     routes_from_label: String,
     routes_to_label: String,
@@ -1393,6 +1403,15 @@ struct UiStrings {
     routes_profile_cycling: String,
     routes_profile_driving: String,
     routes_profile_wheelchair: String,
+    routes_profile_transit: String,
+    routes_departure_label: String,
+    routes_departure_now: String,
+    routes_departure_at: String,
+    routes_departure_zone: String,
+    routes_departure_hour: String,
+    routes_departure_minute: String,
+
+    routes_include_municipalities: String,
     routes_preference_label: String,
     routes_preference_fastest: String,
     routes_preference_shortest: String,
@@ -8332,6 +8351,7 @@ fn decode_podcast_category_podcast_menu_id(menu_id: i32) -> Option<(usize, usize
 }
 
 fn app_storage_dir() -> Option<PathBuf> {
+    if cfg!(test) { return Some(app_storage::test_directory()); }
     #[cfg(target_os = "macos")]
     {
         std::env::var_os("HOME").map(|home| {
@@ -8395,14 +8415,35 @@ fn read_app_storage_text(file_name: &str) -> Option<String> {
     }
 
     let legacy_path = PathBuf::from(file_name);
-    if legacy_path != storage_path {
+    if !cfg!(test) && legacy_path != storage_path {
         return std::fs::read_to_string(legacy_path).ok();
     }
 
     None
 }
 
+#[track_caller]
 fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
+    static WRITES: Mutex<()> = Mutex::new(());
+    let _write_guard = WRITES.lock().map_err(|_| "storage_lock_error")?;
+    if file_name == "settings.json" {
+        let path = app_storage_path(file_name);
+        if path.exists() {
+            let raw = std::fs::read_to_string(&path).map_err(|_| "settings_read_error")?;
+            serde_json::from_str::<Settings>(&raw).map_err(|_| "settings_parse_error")?;
+        }
+    }
+    if file_name == "settings.json" {
+        if let Some(raw) = read_app_storage_text(file_name) {
+            if let (Ok(before), Ok(after)) = (serde_json::from_str::<serde_json::Value>(&raw), serde_json::from_str::<serde_json::Value>(data)) {
+                let storage_path = app_storage_path(file_name);
+                let dir = storage_path.parent().ok_or("recovery_storage_error")?;
+                cloud_sync::preserve_collection_write(dir, &cloud_sync::export(&before, true), &cloud_sync::export(&after, true))?;
+                cloud_sync::log_collection_reductions(&cloud_sync::export(&before, true), &cloud_sync::export(&after, true),
+                    &format!("settings_write:{}", std::panic::Location::caller()), append_podcast_log);
+            }
+        }
+    }
     let storage_path = app_storage_path(file_name);
     if let Some(parent) = storage_path.parent()
         && !parent.as_os_str().is_empty()
@@ -8411,7 +8452,7 @@ fn write_app_storage_text(file_name: &str, data: &str) -> Result<(), String> {
             .map_err(|err| format!("creazione cartella {} fallita: {}", parent.display(), err))?;
     }
 
-    std::fs::write(&storage_path, data)
+    app_storage::write_atomically(&storage_path, data.as_bytes())
         .map_err(|err| format!("scrittura file {} fallita: {}", storage_path.display(), err))
 }
 
@@ -12520,6 +12561,7 @@ fn delete_article_sources(
     article_menu_state: &Arc<Mutex<ArticleMenuState>>,
 ) {
     let mut locked = settings.lock().unwrap();
+    let before_cloud_delete = locked.clone();
     source_indices.sort_unstable();
     source_indices.dedup();
     let mut removed = false;
@@ -12532,6 +12574,7 @@ fn delete_article_sources(
     if !removed {
         return;
     }
+    record_explicit_cloud_deletions(&before_cloud_delete, &locked);
     locked.save();
     article_menu_state.lock().unwrap().dirty = true;
 }
@@ -12685,6 +12728,7 @@ fn delete_podcast_sources(
     podcast_menu_state: &Arc<Mutex<PodcastMenuState>>,
 ) {
     let mut locked = settings.lock().unwrap();
+    let before_cloud_delete = locked.clone();
     source_indices.sort_unstable();
     source_indices.dedup();
     let mut removed = false;
@@ -12697,6 +12741,7 @@ fn delete_podcast_sources(
     if !removed {
         return;
     }
+    record_explicit_cloud_deletions(&before_cloud_delete, &locked);
     locked.save();
     podcast_menu_state.lock().unwrap().dirty = true;
 }
@@ -18148,8 +18193,9 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     directory_choice.append(&ui.italian_directories_yellow_pages);
     if italian {
         directory_choice.append(&ui.italian_directories_white_pages);
-        directory_choice.append("Cerca un numero di telefono");
     }
+    let phone_index = if italian { 2 } else { 1 };
+    directory_choice.append(&ui.places_phone_search);
     directory_choice.set_selection(0);
     directory_row.add(&directory_choice, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&directory_row, 0, SizerFlag::Expand, 0);
@@ -18215,15 +18261,17 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     dialog.set_escape_id(ID_CANCEL);
 
     let places_label = ui.italian_directories_yellow_pages.clone();
+    let phone_label = ui.places_phone_query.clone();
     directory_choice.on_selection_changed(move |_| {
         let index = directory_choice.get_selection().unwrap_or(0);
-        let label = if !italian { places_label.as_str() } else { match index { 2 => "Inserisci il numero di telefono", 0 => "Inserisci luogo o attività", _ => "Inserisci nome o cognome" } };
+        let reverse = index == phone_index;
+        let label = if reverse { phone_label.as_str() } else if !italian { places_label.as_str() } else if index == 0 { "Inserisci luogo o attività" } else { "Inserisci nome o cognome" };
         search_label.set_label(label);
         search_ctrl.set_accessibility_label(label);
-        country_label.show(index == 0);
-        country_choice.show(index == 0);
-        location_label.show(index != 2);
-        location_ctrl.show(index != 2);
+        country_label.show(index == 0 || reverse);
+        country_choice.show(index == 0 || reverse);
+        location_label.show(!reverse);
+        location_ctrl.show(!reverse);
         panel.layout();
         dialog.layout();
     });
@@ -18235,12 +18283,16 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let parent_clone = *parent;
     let tc_main_open = tc_main;
     let perform_search = Rc::new(move || {
-        let reverse = directory_choice_open.get_selection() == Some(2);
+        let reverse = directory_choice_open.get_selection() == Some(phone_index);
         let mut query = search_ctrl_open.get_value().trim().to_string();
         if reverse {
-            match directories::normalize_phone(&query) {
-                Ok(number) => query = number,
-                Err(error) => { show_message_subdialog(&dialog_open, "Ricerca per numero", &error); return; }
+            match directories::normalize_place_phone(&query) {
+                Some(number) => query = number,
+                None => {
+                    let ui = current_ui_strings();
+                    show_message_subdialog(&dialog_open, &ui.places_phone_search, &ui.places_phone_invalid);
+                    return;
+                }
             }
         }
         let location = if reverse { String::new() } else { location_ctrl_open.get_value().trim().to_string() };
@@ -18253,7 +18305,7 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
             return;
         }
 
-        if directory_choice_open.get_selection() == Some(0) {
+        if reverse || directory_choice_open.get_selection() == Some(0) {
             if let Some((code, _, _)) = countries.get(country_choice.get_selection().unwrap_or(0) as usize) {
                 let mut saved = Settings::load(); saved.places_country = code.to_ascii_lowercase(); saved.save();
             }
@@ -21400,6 +21452,9 @@ fn youtube_search_page_ytdlp(query: &str, page: usize, search_type: u8) -> Resul
                 || url.contains("/c/")
                 || url.contains("/user/")
                 || url.contains("/@");
+            if !youtube_search_types::matches_fallback(search_type, &url, is_collection) {
+                return None;
+            }
             let duration = if is_collection {
                 None
             } else {
@@ -21580,9 +21635,16 @@ fn configure_youtube_mpv_command_with_input(
         command.arg(format!("--input-ipc-server={}", ipc_path.display()));
     }
     attach_mpv_accessibility_script(command, &accessibility_script);
+    if let Some(watch) = youtube_playback::direct_watch_url(url, false) {
+        let script = mpv_config_dir.join("sonarpad-youtube-recovery.lua");
+        std::fs::write(&script, include_str!("youtube_recovery.lua")).map_err(|e| e.to_string())?;
+        command.arg(format!("--script={}", script.display()))
+            .arg(format!("--script-opts-append=sonarpad-youtube-recovery-url={watch}"));
+    }
+
     if ytdlp.exists() {
         command.arg(format!(
-            "--script-opts=ytdl_hook-ytdl_path={}",
+            "--script-opts-append=ytdl_hook-ytdl_path={}",
             ytdlp.to_string_lossy()
         ));
         let raw_options = format!("extractor-args={YOUTUBE_PLAYER_EXTRACTOR_ARGS}");
@@ -21624,6 +21686,12 @@ fn spawn_youtube_mpv_with_input(
     ipc_path: Option<&Path>,
     direct: Option<&str>,
 ) -> Result<std::process::Child, String> {
+    spawn_youtube_mpv_with_mode(url, title, ipc_path, direct, false)
+}
+
+fn spawn_youtube_mpv_with_mode(
+    url: &str, title: &str, ipc_path: Option<&Path>, direct: Option<&str>, hls: bool,
+) -> Result<std::process::Child, String> {
     let mpv_executable =
         podcast_player::bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
     let mut command = Command::new(&mpv_executable);
@@ -21631,6 +21699,17 @@ fn spawn_youtube_mpv_with_input(
         configure_youtube_mpv_command_with_input(&mut command, url, title, ipc_path, direct)?;
     } else {
         configure_youtube_mpv_command(&mut command, url, title, ipc_path)?;
+    }
+    if hls {
+        command.arg("--ytdl=yes")
+            .arg(format!("--ytdl-format={}", youtube_playback::HLS_FORMAT));
+        // Drop the forced Android client, but preserve the bundled JS runtime.
+        let raw_options = String::new();
+        #[cfg(target_os = "macos")]
+        let raw_options = bundled_deno_candidate(&ytdlp_executable_path())
+            .map(|deno| format!("js-runtimes=deno:{}", deno.display())).unwrap_or(raw_options);
+        command.arg(format!("--ytdl-raw-options={raw_options}"));
+        append_podcast_log("youtube.mpv.hls automatic extractor clients");
     }
     append_podcast_log(&format!(
         "youtube.mpv.spawn title={} url={} mpv={}",
@@ -21696,11 +21775,15 @@ fn wait_for_youtube_mpv_start(
         let _ = child.kill();
         let _ = child.wait();
         cleanup();
-        return Err(youtube_playback_failed_message().to_string());
+        return Err(youtube_playback::START_TIMEOUT.to_string());
     };
     stream
         .set_read_timeout(Some(Duration::from_millis(250)))
         .map_err(|err| err.to_string())?;
+    stream.write_all(b"{\"command\":[\"request_log_messages\",\"v\"]}\n")
+        .map_err(|err| err.to_string())?;
+    let mut media_error = None;
+    let mut restarted_at: Option<Instant> = None;
     let deadline = Instant::now() + Duration::from_secs(60);
     let mut pending = Vec::new();
     let mut buffer = [0_u8; 4096];
@@ -21722,14 +21805,21 @@ fn wait_for_youtube_mpv_start(
                     };
                     match event.get("event").and_then(serde_json::Value::as_str) {
                         Some("file-loaded") => {
-                            cleanup();
                             append_podcast_log("youtube.mpv.file_loaded");
-                            return Ok(());
+                        }
+                        Some("playback-restart") => { restarted_at = Some(Instant::now()); }
+                        Some("log-message") => {
+                            let text = event["text"].as_str().unwrap_or("");
+                            if youtube_playback::retryable_media_error(text) {
+                                media_error = Some(if text.to_ascii_lowercase().contains("got eof") {
+                                    "empty audio stream".to_string()
+                                } else { text.to_string() });
+                            }
                         }
                         Some("end-file") => {
                             cleanup();
                             append_podcast_log(&format!("youtube.mpv.load_failed event={event}"));
-                            return Err(youtube_playback_failed_message().to_string());
+                            return Err(media_error.unwrap_or_else(|| youtube_playback_failed_message().to_string()));
                         }
                         _ => {}
                     }
@@ -21745,6 +21835,13 @@ fn wait_for_youtube_mpv_start(
                 return Err(format!("lettura stato MPV fallita: {err}"));
             }
         }
+        if let Some(error) = media_error { cleanup(); return Err(error); }
+        if restarted_at.is_some_and(|at| at.elapsed() >= Duration::from_millis(500)) {
+            stream.write_all(b"{\"command\":[\"script-message\",\"sonarpad-youtube-recovery-ready\"]}\n")
+                .map_err(|err| err.to_string())?;
+            cleanup();
+            return Ok(());
+        }
         if let Some(status) = child.try_wait().map_err(|err| err.to_string())? {
             cleanup();
             append_podcast_log(&format!("youtube.mpv.exit_before_load status={status}"));
@@ -21754,7 +21851,7 @@ fn wait_for_youtube_mpv_start(
     let _ = child.kill();
     let _ = child.wait();
     cleanup();
-    Err(youtube_playback_failed_message().to_string())
+    Err(youtube_playback::START_TIMEOUT.to_string())
 }
 
 fn open_youtube_with_mpv(
@@ -21771,12 +21868,20 @@ fn open_youtube_with_mpv_input(
     cancel_requested: &AtomicBool,
     direct: Option<&str>,
 ) -> Result<(), String> {
+    open_youtube_with_mpv_mode(url, title, cancel_requested, direct, false)
+}
+
+fn open_youtube_with_mpv_mode(
+    url: &str, title: &str, cancel_requested: &AtomicBool, direct: Option<&str>, hls: bool,
+) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         let ipc_path =
             Path::new("/tmp").join(format!("spd-youtube-{}.sock", Uuid::new_v4().simple()));
         let _ = std::fs::remove_file(&ipc_path);
-        let mut child = if direct.is_some() {
+        let mut child = if hls {
+            spawn_youtube_mpv_with_mode(url, title, Some(&ipc_path), None, true)?
+        } else if direct.is_some() {
             spawn_youtube_mpv_with_input(url, title, Some(&ipc_path), direct)?
         } else {
             spawn_youtube_mpv(url, title, Some(&ipc_path))?
@@ -21792,7 +21897,7 @@ fn open_youtube_with_mpv_input(
     }
     #[cfg(not(target_os = "macos"))]
     {
-        let _child = spawn_youtube_mpv_with_input(url, title, None, direct)?;
+        let _child = spawn_youtube_mpv_with_mode(url, title, None, direct, hls)?;
         Ok(())
     }
 }
@@ -21813,14 +21918,16 @@ fn open_youtube_with_windows_flow(
             let result = match source {
                 youtube_playback::Source::Internal => sonarmusic::resolve_playback(watch),
                 youtube_playback::Source::Php => youtube_playback::resolve_php(watch, SONARPAD_ROUTE_CLIENT_TOKEN),
-                youtube_playback::Source::Ytdlp => unreachable!(),
+                youtube_playback::Source::Ytdlp | youtube_playback::Source::Hls => unreachable!(),
             };
             append_podcast_log(&format!("youtube.resolve source={source:?} ok={} ms={}", result.is_ok(), started.elapsed().as_millis()));
             result
         },
         |source, direct| {
             let started = Instant::now();
-            let result = if direct.is_some() {
+            let result = if source == youtube_playback::Source::Hls {
+                open_youtube_with_mpv_mode(url, title, &cancel_requested, None, true)
+            } else if direct.is_some() {
                 open_youtube_with_mpv_input(url, title, &cancel_requested, direct)
             } else {
                 open_youtube_with_mpv(url, title, &cancel_requested)
@@ -21828,7 +21935,11 @@ fn open_youtube_with_windows_flow(
             append_podcast_log(&format!("youtube.open source={source:?} ok={} ms={}",result.is_ok(),started.elapsed().as_millis()));
             result
         },
-    )
+    ).map_err(|error| {
+        if error == youtube_playback::START_TIMEOUT {
+            youtube_playback_failed_message().to_string()
+        } else { error }
+    })
 }
 
 fn find_youtube_temp_download(downloads_dir: &Path, prefix: &str) -> Result<PathBuf, String> {
@@ -22840,9 +22951,11 @@ fn open_youtube_results_dialog_with_title(
         let removed_favorite = favorites_remove.borrow_mut().remove(index);
         {
             let mut locked = settings_remove.lock().unwrap();
+            let before_cloud_delete = locked.clone();
             locked
                 .youtube_favorites
                 .retain(|favorite| favorite.url != removed_favorite.url);
+            record_explicit_cloud_deletions(&before_cloud_delete, &locked);
             locked.save();
         }
         favorite_choice_remove.clear();
@@ -23462,9 +23575,11 @@ fn open_youtube_dialog_ready(
             };
             {
                 let mut locked = settings_remove.lock().unwrap();
+                let before_cloud_delete = locked.clone();
                 locked
                     .youtube_favorites
                     .retain(|favorite| favorite.url != removed_favorite.url);
+                record_explicit_cloud_deletions(&before_cloud_delete, &locked);
                 locked.save();
             }
             favorite_choice_remove.clear();
@@ -24987,7 +25102,9 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             let index = sel as usize;
             let mut settings = Settings::load();
             if index < settings.tv_favorites.len() {
+                let before_cloud_delete = settings.clone();
                 settings.tv_favorites.remove(index);
+                record_explicit_cloud_deletions(&before_cloud_delete, &settings);
                 normalize_settings_data(&mut settings);
                 settings.save();
                 *favorites_remove.borrow_mut() = settings.tv_favorites.clone();
@@ -32006,7 +32123,9 @@ fn main() {
                     let removed = {
                         let mut settings = settings_menu.lock().unwrap();
                         if index < settings.radio_favorites.len() {
+                            let before_cloud_delete = settings.clone();
                             let removed = settings.radio_favorites.remove(index);
+                            record_explicit_cloud_deletions(&before_cloud_delete, &settings);
                             normalize_settings_data(&mut settings);
                             settings.save();
                             Some(removed)
@@ -34299,4 +34418,14 @@ fn refresh_remembered_module_settings(shared: &Arc<Mutex<Settings>>) {
     current.media_cutter_overwrite_original = saved.media_cutter_overwrite_original;
     current.media_cutter_export_video = saved.media_cutter_export_video;
     current.media_cutter_export_image = saved.media_cutter_export_image;
+}
+
+fn record_explicit_cloud_deletions(before: &Settings, after: &Settings) {
+    let result = (|| -> Result<(), String> {
+        let path = app_storage_path("cloud_sync.json");
+        cloud_sync::record_explicit_deletions(path.parent().ok_or("storage_error")?,
+            &cloud_sync::export(&cloud_sync_window::snapshot(before)?, true),
+            &cloud_sync::export(&cloud_sync_window::snapshot(after)?, true))
+    })();
+    if let Err(error) = result { append_podcast_log(&format!("CloudSync explicit deletion not recorded: {error}")); }
 }

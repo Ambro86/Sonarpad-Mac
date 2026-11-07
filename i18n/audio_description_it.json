@@ -1,4 +1,6 @@
 {
+  "audio_description.allow_dialogue_overlap": "Consenti audiodescrizioni durante i dialoghi e la telecronaca",
+  "audio_description.error.dialogue_overlap_bridge": "Aggiorna il bridge delle audiodescrizioni per consentire descrizioni durante dialoghi e telecronaca.",
   "audio_description.browse": "Sfoglia...",
   "audio_description.cancel": "Annulla",
   "audio_description.audio_track.title": "Scegli traccia audio",

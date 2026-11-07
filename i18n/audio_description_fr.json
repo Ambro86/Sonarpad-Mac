@@ -1,4 +1,6 @@
 {
+  "audio_description.allow_dialogue_overlap": "Autoriser les audiodescriptions pendant les dialogues et les commentaires",
+  "audio_description.error.dialogue_overlap_bridge": "Mettez à jour le bridge d’audiodescription pour autoriser les descriptions pendant les dialogues et les commentaires.",
   "audio_description.browse": "Parcourir...",
   "audio_description.cancel": "Annuler",
   "audio_description.audio_track.title": "Choisir la piste audio",

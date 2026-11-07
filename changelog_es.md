@@ -42,6 +42,8 @@ Versión 0.5.3 - 14 de octubre de 2026
 
 19. Añadida la búsqueda de lugares y negocios en todos los idiomas, con resultados internacionales, descripciones, valoraciones, número de reseñas, horarios y sitios web cuando están disponibles. En la interfaz italiana sustituye a las Páginas Blancas y Amarillas, conservando sus resultados y las búsquedas por nombre y teléfono. En los demás idiomas solo se ofrece la búsqueda de lugares y negocios.
 
+20. Audiodescripciones con IA: añadida la opción «Permitir audiodescripciones durante los diálogos y los comentarios», desactivada de forma predeterminada. Es especialmente útil para partidos de fútbol, combates de lucha libre y otros eventos deportivos en los que la narración continua dejaba poco o ningún espacio para las descripciones de Sonarpad, así como para vídeos musicales. Al activarla, las descripciones pueden sonar durante el habla o el canto sin superponerse entre sí. La elección se guarda en el proyecto para posteriores ediciones y regeneraciones. Si está desactivada, la protección habitual de los diálogos no cambia.
+
 Versión 0.5.2 - 12 de octubre de 2026
 
 Voces Edge, audiodescripciones y estabilidad

@@ -110,6 +110,7 @@ struct CreateJob {
     verbosity: Verbosity,
     allow_extended_pauses: bool,
     allow_nonverbal_vocals: bool,
+    allow_dialogue_overlap: bool,
     recognize_characters: bool,
     recognize_screen_text: bool,
     save_project: bool,
@@ -251,6 +252,8 @@ struct AudioDescriptionPartialCheckpoint {
     allow_extended_pauses: bool,
     #[serde(default)]
     allow_nonverbal_vocals: bool,
+    #[serde(default)]
+    allow_dialogue_overlap: bool,
     recognize_characters: bool,
     #[serde(default = "default_true")]
     recognize_screen_text: bool,
@@ -466,6 +469,8 @@ pub struct AudioDescriptionProject {
     pub allow_extended_pauses: bool,
     #[serde(default)]
     pub allow_nonverbal_vocals: bool,
+    #[serde(default)]
+    pub allow_dialogue_overlap: bool,
     #[serde(default = "default_true")]
     pub recognize_characters: bool,
     #[serde(default = "default_true")]
@@ -3828,6 +3833,7 @@ fn save_partial_checkpoint(
         verbosity: job.verbosity.as_bridge().to_string(),
         allow_extended_pauses: job.allow_extended_pauses,
         allow_nonverbal_vocals: job.allow_nonverbal_vocals,
+        allow_dialogue_overlap: job.allow_dialogue_overlap,
         source_volume: job.source_volume,
         recognize_characters: job.recognize_characters,
         recognize_screen_text: job.recognize_screen_text,
@@ -3897,6 +3903,7 @@ fn job_from_checkpoint(
         verbosity: Verbosity::from_settings(&checkpoint.verbosity),
         allow_extended_pauses: checkpoint.allow_extended_pauses,
         allow_nonverbal_vocals: checkpoint.allow_nonverbal_vocals,
+        allow_dialogue_overlap: checkpoint.allow_dialogue_overlap,
         source_volume: checkpoint.source_volume,
         recognize_characters: checkpoint.recognize_characters,
         recognize_screen_text: checkpoint.recognize_screen_text,
@@ -4010,6 +4017,7 @@ fn build_project(
         verbosity: job.verbosity.as_bridge().into(),
         allow_extended_pauses: job.allow_extended_pauses,
         allow_nonverbal_vocals: job.allow_nonverbal_vocals,
+        allow_dialogue_overlap: job.allow_dialogue_overlap,
         source_volume: job.source_volume,
         recognize_characters: job.recognize_characters,
         recognize_screen_text: job.recognize_screen_text,
@@ -4025,6 +4033,7 @@ fn build_project(
         protected_intervals: analysis
             .protected_intervals
             .iter()
+            .filter(|_| !job.allow_dialogue_overlap)
             .map(|x| ProjectInterval {
                 start_sec: x.start_sec,
                 end_sec: x.end_sec,
@@ -4330,6 +4339,7 @@ fn create_audio_description_attempt(
             verbosity: job.verbosity.as_bridge().into(),
             allow_extended_pauses: job.allow_extended_pauses,
             allow_nonverbal_vocals: job.allow_nonverbal_vocals,
+            allow_dialogue_overlap: job.allow_dialogue_overlap,
             recognize_characters: job.recognize_characters,
             recognize_screen_text: job.recognize_screen_text,
             initial_character_glossary: job
@@ -4524,6 +4534,9 @@ fn create_audio_description_attempt(
             }
         }
         let analysis = analysis_result?;
+        if job.allow_dialogue_overlap && !analysis.allow_dialogue_overlap {
+            return Err(tr("audio_description.error.dialogue_overlap_bridge"));
+        }
         if analysis.descriptions.is_empty() && analysis.deferred_descriptions.is_empty() {
             return Err("Gemini non ha restituito descrizioni.".to_string());
         }
@@ -5571,6 +5584,7 @@ fn execute_audio_description_job(
         st.audio_description_verbosity = job.verbosity.as_bridge().to_string();
         st.audio_description_extended_pauses = job.allow_extended_pauses;
         st.audio_description_allow_nonverbal_vocals = job.allow_nonverbal_vocals;
+        st.audio_description_allow_dialogue_overlap = job.allow_dialogue_overlap;
         st.audio_description_recognize_characters = job.recognize_characters;
         st.audio_description_recognize_screen_text = job.recognize_screen_text;
         st.audio_description_save_project = job.save_project;
@@ -6325,6 +6339,11 @@ fn open_create_dialog_impl(
         .build();
     nonverbal.set_value(saved.audio_description_allow_nonverbal_vocals);
     root.add(&nonverbal, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let dialogue_overlap = CheckBox::builder(&p)
+        .with_label(&tr("audio_description.allow_dialogue_overlap"))
+        .build();
+    dialogue_overlap.set_value(saved.audio_description_allow_dialogue_overlap);
+    root.add(&dialogue_overlap, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let recognize = CheckBox::builder(&p)
         .with_label(&tr("audio_description.recognize_characters"))
         .build();
@@ -7326,6 +7345,7 @@ fn open_create_dialog_impl(
             verbosity: verbosity_value,
             allow_extended_pauses: extended.get_value() && !create_video_output.get_value(),
             allow_nonverbal_vocals: nonverbal.get_value(),
+            allow_dialogue_overlap: dialogue_overlap.get_value(),
             source_volume: source_volume.get_selection().unwrap_or(20) as f32 / 20.0,
             recognize_characters: recognize.get_value(),
             recognize_screen_text: recognize_screen_text.get_value(),
@@ -7431,6 +7451,7 @@ fn project_edit_available_duration(
     let protected: Vec<BridgeInterval> = project
         .protected_intervals
         .iter()
+        .filter(|_| !project.allow_dialogue_overlap)
         .map(|interval| BridgeInterval {
             start_sec: interval.start_sec,
             end_sec: interval.end_sec,
@@ -7577,6 +7598,7 @@ fn change_project_voice(
         let protected = project
             .protected_intervals
             .iter()
+            .filter(|_| !project.allow_dialogue_overlap)
             .map(|interval| BridgeInterval {
                 start_sec: interval.start_sec,
                 end_sec: interval.end_sec,
@@ -7952,6 +7974,7 @@ fn audio_description_job_from_project(
         verbosity: Verbosity::from_settings(&project.verbosity),
         allow_extended_pauses: project.allow_extended_pauses,
         allow_nonverbal_vocals: project.allow_nonverbal_vocals,
+        allow_dialogue_overlap: project.allow_dialogue_overlap,
         source_volume: project.source_volume,
         recognize_characters: project.recognize_characters,
         recognize_screen_text: project.recognize_screen_text,
@@ -8605,6 +8628,7 @@ fn rebuild_project(
         let protected = project
             .protected_intervals
             .iter()
+            .filter(|_| !project.allow_dialogue_overlap)
             .map(|x| BridgeInterval {
                 start_sec: x.start_sec,
                 end_sec: x.end_sec,

@@ -1,4 +1,20 @@
 {
+  "places_phone_search": "Telefonnummer suchen",
+  "places_phone_query": "Telefonnummer eingeben",
+  "places_phone_invalid": "Geben Sie eine gültige Telefonnummer mit Vorwahl ein.",
+  "routes_departure_label": "Abfahrt",
+  "routes_departure_now": "Jetzt abfahren",
+  "routes_departure_at": "Abfahrt um",
+  "routes_departure_zone": "Zeitzone der Abfahrt",
+  "routes_departure_hour": "Stunden",
+  "routes_departure_minute": "Minuten",
+
+  "routes_recent_routes": "Letzte Routen",
+  "routes_clear_history": "Verlauf löschen",
+  "routes_recent_empty": "Keine letzten Routen",
+
+  "routes_include_municipalities": "Durchquerte Gemeinden einbeziehen",
+  "routes_profile_transit": "Öffentliche Verkehrsmittel",
   "places_category": "Kategorie",
   "places_address": "Adresse",
   "places_phone": "Telefon",

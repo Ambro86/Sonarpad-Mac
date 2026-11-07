@@ -490,6 +490,7 @@ pub(super) fn create_dialogue_overlap(
                 duration_sec: checkpoint.source_duration_sec,
                 chunk_duration_sec: CHUNK_SECONDS as u32,
                 analysis_engine: "completed-brief-checkpoint".into(),
+                allow_dialogue_overlap: job.allow_dialogue_overlap,
                 protected_intervals: Vec::new(),
                 descriptions: checkpoint.descriptions.clone(),
                 deferred_descriptions: Vec::new(),

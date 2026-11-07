@@ -21,6 +21,7 @@ def main():
               "use std::{path::{Path, PathBuf}, sync::{Arc, atomic::{AtomicBool, Ordering}}};",
               "use hound::{WavReader, WavWriter, WavSpec, SampleFormat};",
               "fn default_true() -> bool { true }",
+              "fn tr(key: &str) -> String { key.into() }",
               "fn append_podcast_log(_: &str) {}",
               "fn audio_description_pcm_has_signal(pcm: &[i16]) -> bool { pcm.iter().any(|v| *v != 0) }"]
     for name in ("AudioDescriptionPreparedChunk", "BridgeCharacter", "BridgeDescription",
@@ -30,7 +31,7 @@ def main():
                  "AudioDescriptionAnalysisProgress", "AudioDescriptionPartialCheckpoint",
                  "ScheduledDescription", "SynthesizedDescription", "DroppedDescription"):
         pieces.append(item(audio, "struct " + name, True))
-    for name in ("ProjectDescription",):
+    for name in ("ProjectDescription", "ProjectInterval", "ProjectExcluded", "AudioDescriptionProject"):
         pieces.append(item(audio, "struct " + name, True))
     pieces.append(item(audio, "enum AudioDescriptionChunkMode", True))
     for name in ("AudioDescriptionChunkLayout", "AudioDescriptionAnalysisProgress",
@@ -39,7 +40,7 @@ def main():
     for name in ("default_source_volume", "normalize_source_volume", "mix_sample",
                  "smooth_duck_fade", "merge_duck_intervals", "duck_gain_for", "render_mix",
                  "normalize_intervals", "free_intervals", "subtract_reserved", "restrict_slot",
-                 "choose_slot", "choose_pause_anchor", "schedule_descriptions"):
+                 "choose_slot", "choose_pause_anchor", "schedule_descriptions", "project_edit_available_duration"):
         pieces.append(item(audio, "fn " + name + "("))
     pieces.append(item(audio, "fn recover_descriptions_with_native_rate"))
     pieces.append(item(audio, "fn recover_deferred_descriptions"))

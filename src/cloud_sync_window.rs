@@ -63,7 +63,7 @@ impl Automatic {
         if !meta["group_id"].is_string() {
             return;
         }
-        let Ok(before) = snapshot(&Settings::load()) else {
+        let Ok(before) = snapshot_for_sync() else {
             return;
         };
         let dirty = cloud_sync::local_changes(&meta, &before, true).unwrap_or(true);
@@ -90,7 +90,16 @@ fn label(it: &'static str, en: &'static str) -> &'static str {
         en
     }
 }
-fn snapshot(settings: &Settings) -> Result<Value, String> {
+fn snapshot_for_sync() -> Result<Value, String> {
+    let data = read_app_storage_text("settings.json").ok_or("storage_error")?;
+    let mut settings: Settings = serde_json::from_str(&data).map_err(|_| "storage_error")?;
+    settings.ui_language = normalize_ui_language(&settings.ui_language);
+    settings.news_language = normalize_news_language(&settings.news_language);
+    normalize_settings_data(&mut settings);
+    snapshot(&settings)
+}
+
+pub(crate) fn snapshot(settings: &Settings) -> Result<Value, String> {
     let mut value = serde_json::to_value(settings).map_err(|_| "storage_error")?;
     value["_cloud_default_urls"] = json!(
         articles::default_sources_for_news_language(&settings.news_language)
@@ -130,7 +139,7 @@ pub fn open(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
             }
         };
         let connected = meta["group_id"].is_string();
-        let dirty = snapshot(&Settings::load())
+        let dirty = snapshot_for_sync()
             .and_then(|s| cloud_sync::local_changes(&meta, &s, true))
             .unwrap_or(true);
         let status = cloud_sync::status(
@@ -324,7 +333,7 @@ fn run(
         return Err("busy".into());
     }
     let _guard = FlagGuard(&BUSY);
-    let before = snapshot(&Settings::load())?;
+    let before = snapshot_for_sync()?;
     let dir = app_storage_path("cloud_sync.json")
         .parent()
         .ok_or("storage_error")?
@@ -370,6 +379,12 @@ fn run(
         if let Ok(mut scheduler) = scheduler().lock() {
             scheduler.completed(result.is_ok(), cloud_sync::now_seconds());
         }
+    }
+    if result
+        .as_ref()
+        .is_err_and(|error| error == "deletion_confirmation_required")
+    {
+        return Err(label("Rimozione inattesa bloccata. Nessuna eliminazione propagata senza un comando esplicito.", "Unexpected removal blocked. Deletions require an explicit removal command.").into());
     }
     let (session, invitation) = result?;
     Ok(if let Some(code) = invitation {
@@ -463,12 +478,11 @@ fn finish(
     let (mut session, remote, invitation) = outcome;
     if let Some(mut remote) = remote {
         let mut locked = settings.lock().map_err(|_| "storage_error")?;
-        let mut current = snapshot(&Settings::load())?;
-        let merged = cloud_sync::merge(
+        let mut current = snapshot_for_sync()?;
+        let merged = session.merge_response(
             &remote,
-            &session.meta["pending"]["state"],
             &session.select(&cloud_sync::export(&current, true)),
-        );
+        )?;
         let old_language = cloud_sync::language(&current, true);
         cloud_sync::apply(&mut current, &merged, true)?;
         let mut updated: Settings =
@@ -493,6 +507,16 @@ fn finish(
             &serde_json::to_string_pretty(&updated).map_err(|_| "storage_error")?,
         )
         .map_err(|_| "storage_error")?;
+        let persisted = snapshot_for_sync()?;
+        if cloud_sync::export(&persisted, true) != cloud_sync::export(&snapshot(&updated)?, true) {
+            return Err("storage_error".into());
+        }
+        cloud_sync::log_collection_reductions(
+            &session.select(&cloud_sync::export(&snapshot(&locked)?, true)),
+            &session.select(&cloud_sync::export(&persisted, true)),
+            "write_verified",
+            crate::append_podcast_log,
+        );
         *locked = updated;
         session.finish(remote)?;
     }

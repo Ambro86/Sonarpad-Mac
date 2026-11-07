@@ -1,4 +1,20 @@
 {
+  "places_phone_search": "Wyszukaj numer telefonu",
+  "places_phone_query": "Wpisz numer telefonu",
+  "places_phone_invalid": "Wpisz prawidłowy numer telefonu wraz z numerem kierunkowym.",
+  "routes_departure_label": "Odjazd",
+  "routes_departure_now": "Odjedź teraz",
+  "routes_departure_at": "Odjazd o",
+  "routes_departure_zone": "Strefa czasowa odjazdu",
+  "routes_departure_hour": "Godziny",
+  "routes_departure_minute": "Minuty",
+
+  "routes_recent_routes": "Ostatnie trasy",
+  "routes_clear_history": "Wyczyść historię",
+  "routes_recent_empty": "Brak ostatnich tras",
+
+  "routes_include_municipalities": "Uwzględnij mijane gminy",
+  "routes_profile_transit": "Transport publiczny",
   "places_category": "Kategoria",
   "places_address": "Adres",
   "places_phone": "Telefon",

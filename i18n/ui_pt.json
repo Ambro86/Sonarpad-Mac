@@ -1,4 +1,20 @@
 {
+  "places_phone_search": "Procurar um número de telefone",
+  "places_phone_query": "Introduza o número de telefone",
+  "places_phone_invalid": "Introduza um número de telefone válido com indicativo.",
+  "routes_departure_label": "Partida",
+  "routes_departure_now": "Partir agora",
+  "routes_departure_at": "Partir às",
+  "routes_departure_zone": "Fuso horário da partida",
+  "routes_departure_hour": "Horas",
+  "routes_departure_minute": "Minutos",
+
+  "routes_recent_routes": "Rotas recentes",
+  "routes_clear_history": "Limpar histórico",
+  "routes_recent_empty": "Nenhuma rota recente",
+
+  "routes_include_municipalities": "Incluir os municípios atravessados",
+  "routes_profile_transit": "Transportes públicos",
   "places_category": "Categoria",
   "places_address": "Morada",
   "places_phone": "Telefone",

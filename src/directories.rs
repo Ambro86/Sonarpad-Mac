@@ -1,5 +1,8 @@
+#[path = "pg_phone.rs"]
+mod pg_phone;
 #[path = "places.rs"]
 mod places;
+pub(crate) use places::normalize_phone as normalize_place_phone;
 
 use crate::*;
 use reqwest::blocking::Client;
@@ -192,7 +195,9 @@ fn merge_activities(
         })
     });
     for item in &mut response.results {
-        item.id = format!("{prefix}{}", item.id);
+        if !item.id.starts_with("pb:") && !item.id.starts_with("pg:") {
+            item.id = format!("{prefix}{}", item.id);
+        }
     }
     let mut results: Vec<_> = primary
         .into_iter()
@@ -244,6 +249,39 @@ fn search_directory_legacy(
     page: i32,
     reverse: bool,
 ) -> Result<SearchResponse, String> {
+    if reverse && matches!(kind, DirectoryKind::PagineGialle) {
+        let number = normalize_phone(what)?;
+        let response = Client::builder()
+            .timeout(Duration::from_secs(20))
+            .user_agent("Mozilla/5.0")
+            .build()
+            .map_err(|e| e.to_string())?
+            .get(pg_phone::search_url(&number, page.max(1) as usize))
+            .send()
+            .and_then(reqwest::blocking::Response::error_for_status)
+            .map_err(|e| e.to_string())?;
+        let parsed = pg_phone::parse(&response.text().map_err(|e| e.to_string())?, &number)?;
+        return Ok(SearchResponse {
+            display_where: None,
+            current_page: page,
+            is_last_page: parsed.is_last_page,
+            actual_directory_index: Some(1),
+            results: parsed
+                .results
+                .into_iter()
+                .map(|item| SearchResult {
+                    id: item.id,
+                    name: item.name,
+                    address: item.address,
+                    city: None,
+                    province: None,
+                    category: item.category,
+                    phones: item.phones,
+                    detail: None,
+                })
+                .collect(),
+        });
+    }
     let base_url = decode("BT9NUUx/HRUjWkodMRoTOlYsGzZeHTVfCiMeAT4c"); // http://mobile.italiaonline.it/
     let client_id = decode("HSlUThQ5Xh0="); // pbmobile
     let version = decode("XmUAD0M="); // 3.9.5
@@ -290,8 +328,13 @@ fn search_directory_legacy(
     if !resp.status().is_success() {
         if resp.status().as_u16() == 500 {
             if let DirectoryKind::PagineGialle = kind
-                && let Ok(mut fb_resp) =
-                    search_directory(DirectoryKind::PagineBianche, what, where_loc, page, reverse)
+                && let Ok(mut fb_resp) = search_directory_legacy(
+                    DirectoryKind::PagineBianche,
+                    what,
+                    where_loc,
+                    page,
+                    reverse,
+                )
             {
                 fb_resp.actual_directory_index = Some(0);
                 return Ok(fb_resp);
@@ -333,6 +376,45 @@ fn search_directory_legacy(
 }
 
 pub fn search_phone(what: &str, page: i32) -> Result<SearchResponse, String> {
+    let settings = crate::Settings::load();
+    let language = crate::normalize_ui_language(&settings.ui_language);
+    let country = if settings.places_country.is_empty() {
+        crate::default_radio_country_code_for_ui_language(&settings.ui_language)
+    } else {
+        settings.places_country.as_str()
+    };
+    if country != "it" || normalize_phone(what).is_err() {
+        let primary = places::search_phone(what, country, &language)?;
+        return merge_activities(
+            Ok(primary),
+            Ok(SearchResponse {
+                display_where: None,
+                current_page: 1,
+                is_last_page: true,
+                results: Vec::new(),
+                actual_directory_index: None,
+            }),
+            "",
+            1,
+        );
+    }
+    if page > 1 {
+        return search_phone_directories(what, page);
+    }
+    let (primary, legacy) = std::thread::scope(|scope| {
+        let worker = scope.spawn(|| places::search_phone(what, country, &language));
+        let legacy = search_phone_directories(what, page);
+        (
+            worker
+                .join()
+                .unwrap_or_else(|_| Err("Ricerca luoghi interrotta.".into())),
+            legacy,
+        )
+    });
+    merge_activities(primary, legacy, "", page)
+}
+
+fn search_phone_directories(what: &str, page: i32) -> Result<SearchResponse, String> {
     let number = normalize_phone(what)?;
     let mut combined = SearchResponse {
         display_where: None,
@@ -345,7 +427,7 @@ pub fn search_phone(what: &str, page: i32) -> Result<SearchResponse, String> {
     let mut errors = Vec::new();
     let mut seen = std::collections::HashSet::new();
     for kind in [DirectoryKind::PagineBianche, DirectoryKind::PagineGialle] {
-        match search_directory(kind, &number, "", page, true) {
+        match search_directory_legacy(kind, &number, "", page, true) {
             Ok(response) => {
                 succeeded = true;
                 combined.is_last_page &= response.is_last_page;

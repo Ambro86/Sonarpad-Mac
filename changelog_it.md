@@ -44,6 +44,8 @@ Versione 0.5.3 - 14 ottobre 2026
 
 21. Cerca luoghi e attività è ora disponibile in tutte le lingue, con risultati internazionali, descrizioni, valutazioni, numero di recensioni, orari di apertura e sito web, quando disponibili. Nell’interfaccia italiana sostituisce Pagine Bianche e Gialle, mantenendone anche i risultati, la ricerca nominativi e la ricerca per numero di telefono. Nelle altre lingue è disponibile solo la ricerca di luoghi e attività.
 
+22. Audiodescrizioni AI: aggiunta l’opzione «Consenti audiodescrizioni durante i dialoghi e la telecronaca», disattivata per impostazione predefinita. È utile soprattutto per partite di calcio, incontri di wrestling e altri eventi sportivi in cui la telecronaca continua lasciava poco o nessuno spazio alle descrizioni di Sonarpad, ma anche per i video musicali. Attivandola, le descrizioni possono essere inserite anche durante il parlato o il canto, senza sovrapporsi tra loro. La scelta viene conservata nel progetto anche per le modifiche e le rigenerazioni successive. Se disattivata, rimane invariata la normale protezione dei dialoghi.
+
 Versione 0.5.2 - 12 ottobre 2026
 
 Voci Edge, audiodescrizioni e affidabilità

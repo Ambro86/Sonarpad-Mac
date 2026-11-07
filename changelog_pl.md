@@ -42,6 +42,8 @@ Wersja 0.5.3 - 14 października 2026
 
 19. Dodano wyszukiwanie miejsc i firm we wszystkich językach, z wynikami międzynarodowymi, opisami, ocenami, liczbą opinii, godzinami otwarcia i stronami internetowymi, gdy są dostępne. We włoskim interfejsie zastępuje ono Białe i Żółte Strony, zachowując ich wyniki oraz wyszukiwanie nazwisk i numerów telefonu. W pozostałych językach dostępne jest tylko wyszukiwanie miejsc i firm.
 
+20. Audiodeskrypcja AI: dodano opcję „Zezwalaj na audiodeskrypcję podczas dialogów i komentarza”, domyślnie wyłączoną. Jest szczególnie przydatna podczas meczów piłki nożnej, wrestlingu i innych wydarzeń sportowych, w których ciągły komentarz pozostawiał niewiele miejsca lub wcale nie pozostawiał miejsca na opisy Sonarpad, a także w teledyskach. Po jej włączeniu opisy mogą być odtwarzane podczas mowy lub śpiewu, bez nakładania się na siebie. Wybór jest zapisywany w projekcie na potrzeby późniejszych zmian i ponownego generowania. Gdy opcja jest wyłączona, dotychczasowa ochrona dialogów pozostaje bez zmian.
+
 Wersja 0.5.2 - 12 października 2026
 
 Głosy Edge, audiodeskrypcje i niezawodność

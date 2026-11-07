@@ -1,4 +1,20 @@
 {
+  "places_phone_search": "Find a phone number",
+  "places_phone_query": "Enter the phone number",
+  "places_phone_invalid": "Enter a valid phone number, including its area or country code.",
+  "routes_departure_label": "Departure",
+  "routes_departure_now": "Leave now",
+  "routes_departure_at": "Leave at",
+  "routes_departure_zone": "Departure time zone",
+  "routes_departure_hour": "Hours",
+  "routes_departure_minute": "Minutes",
+
+  "routes_recent_routes": "Recent routes",
+  "routes_clear_history": "Clear history",
+  "routes_recent_empty": "No recent routes",
+
+  "routes_include_municipalities": "Include municipalities crossed",
+  "routes_profile_transit": "Public transport",
   "places_category": "Category",
   "places_address": "Address",
   "places_phone": "Phone",

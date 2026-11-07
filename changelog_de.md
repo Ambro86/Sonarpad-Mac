@@ -42,6 +42,8 @@ Version 0.5.3 – 14. Oktober 2026
 
 19. Die Suche nach Orten und Unternehmen ist jetzt in allen Sprachen verfügbar, mit internationalen Ergebnissen, Beschreibungen, Bewertungen, Anzahl der Rezensionen, Öffnungszeiten und Websites, soweit vorhanden. In der italienischen Oberfläche ersetzt sie die Weißen und Gelben Seiten; deren Ergebnisse sowie die Namens- und Telefonnummernsuche bleiben erhalten. In anderen Sprachen ist nur die Suche nach Orten und Unternehmen verfügbar.
 
+20. KI-Audiodeskription: Die Option „Audiodeskriptionen während Dialogen und Kommentaren zulassen“ wurde hinzugefügt und ist standardmäßig deaktiviert. Sie eignet sich besonders für Fußballspiele, Wrestling und andere Sportübertragungen, bei denen durchgehende Kommentare kaum oder keinen Raum für Sonarpads Beschreibungen ließen, sowie für Musikvideos. Wenn sie aktiviert ist, können Beschreibungen auch während Sprache oder Gesang wiedergegeben werden, ohne sich gegenseitig zu überlagern. Die Auswahl wird im Projekt für spätere Bearbeitungen und erneute Generierung gespeichert. Bei deaktivierter Option bleibt der bisherige Dialogschutz unverändert.
+
 Version 0.5.2 – 12. Oktober 2026
 
 Edge-Stimmen, Audiodeskription und Zuverlässigkeit

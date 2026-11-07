@@ -39,6 +39,27 @@ pub enum Source {
     Internal,
     Php,
     Ytdlp,
+    Hls,
+}
+
+pub const START_TIMEOUT: &str = "__SONARPAD_YOUTUBE_START_TIMEOUT__";
+pub const HLS_FORMAT: &str =
+    "bestvideo[protocol^=m3u8][height<=360]+bestaudio[protocol^=m3u8]/best[protocol^=m3u8]";
+
+pub fn retryable_media_error(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    [
+        "http error 403",
+        "http error 500",
+        "http 403",
+        "http 500",
+        "no video formats found",
+        "requested format is not available",
+        "empty audio stream",
+        "got eof with no data before it",
+    ]
+    .iter()
+    .any(|text| error.contains(text))
 }
 
 pub fn open_with_fallback(
@@ -74,6 +95,20 @@ pub fn open_with_fallback(
         match open(source, direct.as_deref()) {
             Ok(()) => return Ok(()),
             Err(error) => last_error = error,
+        }
+    }
+    if canonical.is_some() && retryable_media_error(&last_error) {
+        for attempt in 0..2 {
+            if cancel.load(Ordering::SeqCst) {
+                return Err(cancelled.into());
+            }
+            match open(Source::Hls, None) {
+                Ok(()) => return Ok(()),
+                Err(error) => last_error = error,
+            }
+            if last_error != START_TIMEOUT || attempt == 1 {
+                break;
+            }
         }
     }
     if cancel.load(Ordering::SeqCst) {
@@ -132,6 +167,76 @@ mod tests {
     use serde_json::json;
     use std::cell::RefCell;
     const URL: &str = "https://www.youtube.com/watch?v=Jpz9AC_QJig";
+    #[test]
+    fn empty_stream_uses_hls_and_retries_timeout_once() {
+        let calls = RefCell::new(Vec::new());
+        open_with_fallback(
+            URL,
+            &AtomicBool::new(false),
+            "cancel",
+            |_, _| Err("unavailable".into()),
+            |source, _| {
+                calls.borrow_mut().push(source);
+                match calls.borrow().len() {
+                    1 => Err("empty audio stream".into()),
+                    2 => Err(START_TIMEOUT.into()),
+                    _ => Ok(()),
+                }
+            },
+        )
+        .unwrap();
+        assert_eq!(*calls.borrow(), [Source::Ytdlp, Source::Hls, Source::Hls]);
+    }
+
+    #[test]
+    fn hls_recovery_is_bounded_and_cancelable() {
+        for canceled in [false, true] {
+            let cancel = AtomicBool::new(false);
+            let mut hls_calls = 0;
+            let result = open_with_fallback(
+                URL,
+                &cancel,
+                "cancel",
+                |_, _| Err("failed".into()),
+                |source, _| {
+                    if source == Source::Hls {
+                        hls_calls += 1;
+                        cancel.store(canceled, Ordering::SeqCst);
+                        Err(START_TIMEOUT.into())
+                    } else {
+                        Err("HTTP error 403".into())
+                    }
+                },
+            );
+            assert_eq!(hls_calls, if canceled { 1 } else { 2 });
+            assert_eq!(
+                result.unwrap_err(),
+                if canceled { "cancel" } else { START_TIMEOUT }
+            );
+        }
+    }
+
+    #[test]
+    fn restrictions_do_not_enable_hls() {
+        for error in [
+            "members-only",
+            "private video",
+            "DRM",
+            "cancel",
+            "not found",
+        ] {
+            assert!(!retryable_media_error(error));
+        }
+        for error in [
+            "HTTP error 403",
+            "HTTP 500",
+            "requested format is not available",
+            "Got EOF with no data before it",
+        ] {
+            assert!(retryable_media_error(error));
+        }
+    }
+
     #[test]
     fn internal_success_stops_chain() {
         let calls = RefCell::new(Vec::new());
