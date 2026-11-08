@@ -346,9 +346,12 @@ jobs:
           popd
           bash scripts/build_cutter_x264_macos.sh
           if [ ! -f "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" ]; then
-            curl -L --fail \
+            until curl -L --fail --connect-timeout 20 --max-time 300 \
               "https://ffmpeg.org/releases/ffmpeg-${FFMPEG_VERSION}.tar.xz" \
-              -o "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz"
+              -o "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz"; do
+              echo "FFmpeg download failed; retrying in 15 seconds."
+              sleep 15
+            done
           fi
           tar -xf "dist/ffmpeg-src/ffmpeg-${FFMPEG_VERSION}.tar.xz" -C dist/ffmpeg-build
           cd "dist/ffmpeg-build/ffmpeg-${FFMPEG_VERSION}"
