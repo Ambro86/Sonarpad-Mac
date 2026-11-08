@@ -23,12 +23,14 @@ struct Controls {
     panel: Panel,
     query: TextCtrl,
     kind: Choice,
+    results_label: StaticText,
     results: Choice,
     status: StaticText,
     search: Button,
     suggest: Button,
     open: Button,
     back: Button,
+    favorites_label: StaticText,
     favorites: Choice,
     open_favorite: Button,
     remove_favorite: Button,
@@ -94,6 +96,22 @@ impl Controls {
         self.back.enable(!busy && can_go_back);
         self.dialog
             .set_escape_id(if can_go_back { ID_BACK } else { ID_CANCEL });
+        let has_results = suggestions
+            .as_ref()
+            .map_or(!view.page.items.is_empty(), |values| !values.is_empty());
+        self.results_label.show(has_results);
+        self.results.show(has_results);
+        self.open.show(has_results);
+        self.add_favorite.show(has_results && suggestions.is_none());
+        self.back.show(can_go_back);
+        let has_favorites = self.favorites.get_selection().is_some();
+        self.favorites_label.show(has_favorites);
+        self.favorites.show(has_favorites);
+        self.open_favorite.show(has_favorites);
+        self.remove_favorite.show(has_favorites);
+        self.status.show(!self.status.get_label().is_empty());
+        self.panel.layout();
+        self.dialog.layout();
     }
     fn render(self, view: &View, locale: &str) {
         self.results.clear();
@@ -169,14 +187,10 @@ pub(crate) fn open(
     root.add(&kind, 0, SizerFlag::Expand | SizerFlag::All, 5);
     let search = Button::builder(&panel).with_label(&text("search")).build();
     root.add(&search, 0, SizerFlag::All, 5);
-    root.add(
-        &StaticText::builder(&panel)
-            .with_label(&text("results"))
-            .build(),
-        0,
-        SizerFlag::All,
-        5,
-    );
+    let results_label = StaticText::builder(&panel)
+        .with_label(&text("results"))
+        .build();
+    root.add(&results_label, 0, SizerFlag::All, 5);
     let results = Choice::builder(&panel).build();
     results.set_accessibility_label(&text("results"));
     root.add(&results, 0, SizerFlag::Expand | SizerFlag::All, 5);
@@ -185,14 +199,10 @@ pub(crate) fn open(
         .with_label(&text("open_result"))
         .build();
     root.add(&open, 0, SizerFlag::All, 5);
-    root.add(
-        &StaticText::builder(&panel)
-            .with_label(&text("favorites"))
-            .build(),
-        0,
-        SizerFlag::All,
-        5,
-    );
+    let favorites_label = StaticText::builder(&panel)
+        .with_label(&text("favorites"))
+        .build();
+    root.add(&favorites_label, 0, SizerFlag::All, 5);
     let favorites = Choice::builder(&panel).build();
     favorites.set_accessibility_label(&text("favorites"));
     root.add(&favorites, 0, SizerFlag::Expand | SizerFlag::All, 5);
@@ -235,12 +245,14 @@ pub(crate) fn open(
         panel,
         query,
         kind,
+        results_label,
         results,
         status,
         search,
         suggest,
         open,
         back,
+        favorites_label,
         favorites,
         open_favorite,
         remove_favorite,
@@ -349,8 +361,8 @@ pub(crate) fn open(
         if query.trim().is_empty() || b.replace(true) {
             return;
         }
-        c.update(true, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
         status.set_label(&music::label(&lang, "loading"));
+        c.update(true, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
         let tx = tx.clone();
         let client = client.clone();
         std::thread::spawn(move || {
@@ -376,7 +388,11 @@ pub(crate) fn open(
         }
         c.render(&v.borrow(), &lang);
         c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
-        results.set_focus();
+        if results.is_shown() {
+            results.set_focus();
+        } else {
+            query.set_focus();
+        }
     });
     let v = view.clone();
     let h = history.clone();
@@ -450,6 +466,12 @@ pub(crate) fn open(
                 "SonarMusic",
             );
             results.set_focus();
+            crate::append_podcast_log(&format!(
+                "SonarMusic results restored after playback opening: page={} index={} items={}",
+                v.borrow().number,
+                results.get_selection().unwrap_or(0),
+                v.borrow().page.items.len()
+            ));
         } else if let Some(request) = item.browse_request() {
             let mut previous = v.borrow().clone();
             previous.selection = index;
@@ -534,7 +556,13 @@ pub(crate) fn open(
             }
             refresh();
             c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
-            favorites.set_focus();
+            if favorites.is_shown() {
+                favorites.set_focus();
+            } else if results.is_shown() {
+                results.set_focus();
+            } else {
+                query.set_focus();
+            }
         }
     });
     let v = view.clone();
@@ -644,7 +672,7 @@ pub(crate) fn open(
             }
             c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
             // Native controls must be enabled before VoiceOver can focus them.
-            if failed {
+            if failed || !results.is_shown() {
                 query.set_focus();
             } else {
                 results.set_focus();

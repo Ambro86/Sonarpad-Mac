@@ -2309,7 +2309,9 @@ fn focus_editor_for_voiceover(frame: &Frame, text_ctrl: &TextCtrl) {
 }
 
 #[cfg(target_os = "macos")]
-fn notify_voiceover_document_transition(frame: &Frame, text_ctrl: &TextCtrl) {
+fn notify_voiceover_document_transition(frame: &Frame, text_ctrl: &TextCtrl, title: &str) {
+    use objc2_foundation::{NSDictionary, NSNumber, NSString};
+
     if !frame.is_shown() {
         return;
     }
@@ -2320,6 +2322,7 @@ fn notify_voiceover_document_transition(frame: &Frame, text_ctrl: &TextCtrl) {
     let native_view = text_ctrl.get_handle();
     if native_view.is_null() {
         append_podcast_log("document.voiceover native_view_unavailable");
+        announce_voiceover_message(title);
         return;
     }
     // SAFETY: wxDragon's macOS GetHandle returns the native Cocoa view for
@@ -2338,8 +2341,24 @@ fn notify_voiceover_document_transition(frame: &Frame, text_ctrl: &TextCtrl) {
             element,
             objc2_app_kit::NSAccessibilityFocusedUIElementChangedNotification,
         );
+        // Announce the document through the same native accessibility channel,
+        // after restoring the editor, without relying on VoiceOver scripting.
+        let announcement = NSString::from_str(title);
+        let priority = NSNumber::new_isize(objc2_app_kit::NSAccessibilityPriorityLevel::High.0);
+        let user_info = NSDictionary::<NSString, objc2::runtime::AnyObject>::from_slices(
+            &[
+                objc2_app_kit::NSAccessibilityAnnouncementKey,
+                objc2_app_kit::NSAccessibilityPriorityKey,
+            ],
+            &[&announcement, &priority],
+        );
+        objc2_app_kit::NSAccessibilityPostNotificationWithUserInfo(
+            element,
+            objc2_app_kit::NSAccessibilityAnnouncementRequestedNotification,
+            Some(&user_info),
+        );
     }
-    append_podcast_log("document.voiceover native_transition_notified");
+    append_podcast_log("document.voiceover native_transition_notified title_announcement_requested");
 }
 
 #[cfg(target_os = "macos")]
@@ -22858,6 +22877,9 @@ fn open_youtube_results_dialog_with_title(
         Rc::clone(&youtube_audio_description_progress);
     let youtube_more_progress_timer = Rc::clone(&youtube_more_progress);
     let dialog_timer = dialog;
+    // SonarMusic already owns the complete result list. Its single-track child
+    // only bridges the automatic opening, so do not leave it as MPV's return target.
+    let return_to_music_results = auto_open_direct_url && title == "SonarMusic";
     youtube_result_timer_tick.on_tick(move |_| {
         let result = youtube_pending_result_timer.lock().unwrap().take();
         if let Some(result) = result {
@@ -22886,6 +22908,7 @@ fn open_youtube_results_dialog_with_title(
         }
         let playback_result = youtube_pending_playback_timer.lock().unwrap().take();
         if let Some(playback_result) = playback_result {
+            let playback_started = playback_result.is_ok();
             if let Some(progress_dialog) = youtube_open_progress_timer.borrow_mut().take() {
                 progress_dialog.destroy();
             }
@@ -22894,6 +22917,13 @@ fn open_youtube_results_dialog_with_title(
                 && err != YOUTUBE_OPEN_CANCELLED
             {
                 show_message_subdialog(&dialog_timer, &current_ui_strings().youtube_title, &err);
+            }
+            if return_to_music_results && playback_started {
+                append_podcast_log(
+                    "SonarMusic playback started: returning to the original result list",
+                );
+                dialog_timer.end_modal(ID_OK);
+                return;
             }
             choice_open_focus_timer.set_focus();
         }

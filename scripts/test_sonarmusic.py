@@ -23,6 +23,7 @@ reqwest={version="0.12",features=["blocking","json","rustls-tls"]}
 wxdragon="0.9.18"
 ''', encoding='utf8')
 shutil.copyfile(ROOT / 'Cargo.lock', WORK / 'Cargo.lock')
+shutil.copyfile(ROOT / 'src/youtube_recovery.lua', WORK / 'src/youtube_recovery.lua')
 harness = r'''
 #![allow(dead_code)]
 use std::sync::{Arc,Mutex};
@@ -59,6 +60,7 @@ main_source = (ROOT / 'src/main.rs').read_text(encoding='utf8')
 command_source = main_source[main_source.index('fn configure_youtube_mpv_command('):main_source.index('fn spawn_youtube_mpv(')]
 harness += r"""
 mod playback_command_tests {
+use crate::youtube_playback;
 use std::path::{Path,PathBuf};
 use std::process::Command;
 const YOUTUBE_MPV_STREAM_FORMAT:&str="18/best[height<=360][ext=mp4]/best[height<=480]/best";
@@ -66,7 +68,11 @@ const YOUTUBE_PLAYER_EXTRACTOR_ARGS:&str="youtube:player_client=android";
 mod podcast_player {pub fn bundled_mpv_executable_path()->Option<std::path::PathBuf>{None}}
 fn ytdlp_executable_path()->PathBuf {std::env::current_exe().unwrap()}
 fn media_bookmarks_enabled()->bool{false}
-fn prepare_mpv_runtime_dirs(_:bool)->Result<PathBuf,String>{Ok(PathBuf::from("config"))}
+fn prepare_mpv_runtime_dirs(_:bool)->Result<PathBuf,String>{
+ let path=PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("config");
+ std::fs::create_dir_all(&path).map_err(|e|e.to_string())?;
+ Ok(path)
+}
 fn bundled_mpv_input_conf_path()->PathBuf{PathBuf::from("input.conf")}
 fn write_mpv_accessibility_script(_:&Path,_:&str,_:Option<&str>)->Result<PathBuf,String>{Ok(PathBuf::from("access.lua"))}
 fn append_podcast_log(_:&str){}

@@ -89,6 +89,7 @@ struct RouteResponse {
 #[derive(Clone)]
 struct RouteResult {
     notices: Vec<String>,
+    transit_details: Vec<String>,
     distance_text: Option<String>,
     duration_text: Option<String>,
     distance_meters: f64,
@@ -285,6 +286,7 @@ fn calculate_route_at(
         for path in routes {
             results.push(RouteResult {
                 notices: Vec::new(),
+                transit_details: Vec::new(),
                 distance_text: None,
                 duration_text: None,
                 distance_meters: path.distance_meters.unwrap_or(0.0),
@@ -306,6 +308,7 @@ fn calculate_route_at(
     ));
     Ok(vec![RouteResult {
         notices: Vec::new(),
+        transit_details: Vec::new(),
         distance_text: None,
         duration_text: None,
         distance_meters: data.distance_meters.unwrap_or(0.0),
@@ -335,6 +338,8 @@ struct PrimaryRoutePath {
     istruzioni: Vec<String>,
     #[serde(default)]
     avvisi: Vec<String>,
+    #[serde(default)]
+    mezzi: Vec<String>,
 }
 
 impl RouteResult {
@@ -347,6 +352,23 @@ impl RouteResult {
         self.duration_text
             .clone()
             .unwrap_or_else(|| format_duration(self.duration_seconds))
+    }
+
+    fn selection_label(&self, name: &str, index: usize) -> String {
+        let mut label = format!(
+            "{} {} ({} - {})",
+            name,
+            index + 1,
+            self.distance_label(),
+            self.duration_label()
+        );
+        for transit in &self.transit_details {
+            if !transit.trim().is_empty() {
+                label.push_str("; ");
+                label.push_str(transit);
+            }
+        }
+        label
     }
 }
 
@@ -429,6 +451,7 @@ fn primary_route(
         .into_iter()
         .map(|p| RouteResult {
             notices: p.avvisi,
+            transit_details: p.mezzi,
             distance_meters: p.distanza_metri,
             duration_seconds: p.durata_secondi,
             distance_text: Some(p.distanza),
@@ -533,13 +556,7 @@ fn select_route(parent: &Dialog, title: &str, routes: Vec<RouteResult>) -> Optio
 
     let choice = Choice::builder(&p).build();
     for (i, r) in routes.iter().enumerate() {
-        let label = format!(
-            "{} {} ({} - {})",
-            ui.routes_route_name,
-            i + 1,
-            r.distance_label(),
-            r.duration_label()
-        );
+        let label = r.selection_label(&ui.routes_route_name, i);
         choice.append(&label);
     }
     choice.set_selection(0);
@@ -1084,7 +1101,7 @@ mod primary_route_tests {
             longitude: Some(-0.1419),
         }
     }
-    const PRIMARY: &str = r#"{"ok":true,"data":{"percorsi":[{"distanza":"1.2 mi","durata":"20 min","istruzioni":["Take Bus 12 at 12:30"],"distanza_metri":1900,"durata_secondi":1200},{"distanza":"1.4 mi","durata":"24 min","istruzioni":["Take Underground Central"],"distanza_metri":2300,"durata_secondi":1440}],"preferenza":"fastest","evita":""}}"#;
+    const PRIMARY: &str = r#"{"ok":true,"data":{"percorsi":[{"distanza":"1.2 mi","durata":"20 min","istruzioni":["Take Bus 12 at 12:30"],"mezzi":["Take Bus 12 at 12:30"],"distanza_metri":1900,"durata_secondi":1200},{"distanza":"1.4 mi","durata":"24 min","istruzioni":["Take Underground Central"],"distanza_metri":2300,"durata_secondi":1440}],"preferenza":"fastest","evita":""}}"#;
     const LOCALITIES: &str = r#"{"ok":true,"data":{"percorsi":[{"distanza":"1.2 mi","durata":"20 min","istruzioni":["Locality detected along the route: London.","Take Bus 12 at 12:30"],"distanza_metri":1900,"durata_secondi":1200},{"distanza":"1.4 mi","durata":"24 min","istruzioni":["Take Underground Central"],"distanza_metri":2300,"durata_secondi":1440}],"preferenza":"fastest","evita":"","includi_comuni":true}}"#;
     const SHORTEST: &str = r#"{"ok":true,"data":{"percorsi":[{"distanza":"1.2 mi","durata":"20 min","istruzioni":["Take Bus 12 at 12:30"],"distanza_metri":1900,"durata_secondi":1200},{"distanza":"1.4 mi","durata":"24 min","istruzioni":["Take Underground Central"],"distanza_metri":2300,"durata_secondi":1440}],"preferenza":"shortest","evita":""}}"#;
 
@@ -1110,6 +1127,16 @@ mod primary_route_tests {
             assert_eq!(result.len(), 2);
             assert_eq!(result[0].distance_label(), "1.2 mi");
             assert_eq!(result[0].duration_label(), "20 min");
+            assert_eq!(result[0].transit_details, ["Take Bus 12 at 12:30"]);
+            assert_eq!(
+                result[0].selection_label("Route", 0),
+                "Route 1 (1.2 mi - 20 min); Take Bus 12 at 12:30"
+            );
+            assert!(result[1].transit_details.is_empty());
+            assert_eq!(
+                result[1].selection_label("Route", 1),
+                "Route 2 (1.4 mi - 24 min)"
+            );
             assert_eq!(
                 result[0].steps[0].instruction.as_deref(),
                 Some("Take Bus 12 at 12:30")

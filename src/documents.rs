@@ -290,8 +290,7 @@ pub fn command(
             });
             if let Some((editor_frame, editor_text)) = editor {
                 if editor_frame.is_shown() && editor_frame.get_title() == expected_window_title {
-                    notify_voiceover_document_transition(&editor_frame, &editor_text);
-                    announce_voiceover_message(&title);
+                    notify_voiceover_document_transition(&editor_frame, &editor_text, &title);
                 }
             }
         }));
