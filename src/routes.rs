@@ -649,6 +649,22 @@ fn select_recent_route(parent: &Dialog) -> Option<route_history::RecentRoute> {
     result
 }
 
+fn label_route_control(control: &impl WxWidget, label: &StaticText) {
+    control.set_accessibility_label(&label.get_label());
+    #[cfg(target_os = "macos")]
+    {
+        use objc2_app_kit::{NSAccessibility, NSView};
+
+        let native_label = label.get_handle();
+        if !native_label.is_null() {
+            // Keep the visible label, but let VoiceOver read it on the control
+            // instead of visiting a separate static-text element first.
+            // SAFETY: this live wxStaticText exposes its NSView on the UI thread.
+            unsafe { (&*native_label.cast::<NSView>()).setAccessibilityElement(false) };
+        }
+    }
+}
+
 pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
     let ui = ui_strings();
     let dialog = Dialog::builder(parent, &ui.routes_title).build();
@@ -659,11 +675,13 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_from_label)
         .build();
     let from_ctrl = TextCtrl::builder(&panel).build();
+    label_route_control(&from_ctrl, &from_label);
 
     let to_label = StaticText::builder(&panel)
         .with_label(&ui.routes_to_label)
         .build();
     let to_ctrl = TextCtrl::builder(&panel).build();
+    label_route_control(&to_ctrl, &to_label);
 
     sizer.add(&from_label, 0, SizerFlag::All, 5);
     sizer.add(&from_ctrl, 0, SizerFlag::Expand | SizerFlag::All, 5);
@@ -674,6 +692,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_profile_label)
         .build();
     let profile_choice = Choice::builder(&panel).build();
+    label_route_control(&profile_choice, &profile_label);
     profile_choice.append(&ui.routes_profile_driving);
     profile_choice.append(&ui.routes_profile_walking);
     profile_choice.append(&ui.routes_profile_cycling);
@@ -685,6 +704,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_preference_label)
         .build();
     let pref_choice = Choice::builder(&panel).build();
+    label_route_control(&pref_choice, &pref_label);
     pref_choice.append(&ui.routes_preference_fastest);
     pref_choice.append(&ui.routes_preference_shortest);
     pref_choice.set_selection(0);
@@ -710,6 +730,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_departure_label)
         .build();
     let departure_choice = Choice::builder(&panel).build();
+    label_route_control(&departure_choice, &departure_label);
     departure_choice.append(&ui.routes_departure_now);
     departure_choice.append(&ui.routes_departure_at);
     departure_choice.set_selection(0);
@@ -717,6 +738,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_departure_hour)
         .build();
     let hour_choice = Choice::builder(&panel).build();
+    label_route_control(&hour_choice, &hour_label);
     for hour in 0..24 {
         hour_choice.append(&format!("{hour:02}"));
     }
@@ -725,6 +747,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_departure_minute)
         .build();
     let minute_choice = Choice::builder(&panel).build();
+    label_route_control(&minute_choice, &minute_label);
     for minute in 0..60 {
         minute_choice.append(&format!("{minute:02}"));
     }
@@ -733,6 +756,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
         .with_label(&ui.routes_departure_zone)
         .build();
     let zone_ctrl = TextCtrl::builder(&panel).build();
+    label_route_control(&zone_ctrl, &zone_label);
     zone_ctrl.set_value(default_departure_zone());
     sizer.add(&departure_label, 0, SizerFlag::All, 5);
     sizer.add(&departure_choice, 0, SizerFlag::Expand | SizerFlag::All, 5);
@@ -1028,6 +1052,7 @@ pub fn open_routes_dialog(parent: &Frame, editor: TextCtrl) {
     });
 
     dialog.set_size(Size::new(600, 600));
+    from_ctrl.set_focus();
     dialog.show_modal();
     dialog.destroy();
 }
