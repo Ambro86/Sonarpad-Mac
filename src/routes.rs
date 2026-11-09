@@ -657,10 +657,16 @@ fn label_route_control(control: &impl WxWidget, label: &StaticText) {
 
         let native_label = label.get_handle();
         if !native_label.is_null() {
-            // Keep the visible label, but let VoiceOver read it on the control
-            // instead of visiting a separate static-text element first.
+            // Keep the visual label, but remove its native static-text view
+            // from VoiceOver navigation. setAccessibilityElement(false) alone
+            // can leave the label exposed through the parent accessibility tree.
+            // The corresponding input already has the complete spoken label.
             // SAFETY: this live wxStaticText exposes its NSView on the UI thread.
-            unsafe { (&*native_label.cast::<NSView>()).setAccessibilityElement(false) };
+            unsafe {
+                let view = &*native_label.cast::<NSView>();
+                view.setAccessibilityElement(false);
+                view.setAccessibilityHidden(true);
+            }
         }
     }
 }
