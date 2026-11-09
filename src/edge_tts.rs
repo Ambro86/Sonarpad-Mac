@@ -31,13 +31,14 @@ const EDGE_TTS_TURN_TIMEOUT: Duration = Duration::from_secs(60);
 const EDGE_TTS_CANCEL_POLL: Duration = Duration::from_millis(100);
 const EDGE_TTS_MIN_AUDIO_BYTES: usize = 1000;
 const EDGE_TTS_MAX_AUDIO_BYTES: usize = 16 * 1024 * 1024;
-// Edge 155 is the primary read-aloud service. Sonarpad Windows confirmed
-// the v1-compatible signature by receiving complete MP3 audio from it.
-// Keep the earlier endpoint as a working fallback, not as another pipeline.
+// Edge 157 Sec-MS-GEC v2 is the primary read-aloud service, confirmed with
+// a complete MP3 response. Preserve Edge 155 v1 and Bing legacy as fallbacks.
 const EDGE_TTS_MODERN_WSS_URL: &str =
     "wss://api.msedgeservices.com/tts/cognitiveservices/websocket/v1";
+const EDGE_TTS_MODERN_V2_CLIENT_VERSION: &str = "2-157.0.4341.42";
 const EDGE_TTS_MODERN_CLIENT_VERSION: &str = "1-155.0.4283.45";
 const EDGE_TTS_LEGACY_CLIENT_VERSION: &str = "1-132.0.2917.39";
+const EDGE_TTS_MODERN_V2_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36 Edg/157.0.0.0";
 const EDGE_TTS_MODERN_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36 Edg/155.0.0.0";
 const EDGE_TTS_LEGACY_USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36 Edg/132.0.0.0";
 // The old voices/list endpoint is retained to avoid unrelated behavior changes.
@@ -45,6 +46,7 @@ const EDGE_TTS_USER_AGENT: &str = EDGE_TTS_LEGACY_USER_AGENT;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum EdgeEndpoint {
+    ModernV2,
     Modern,
     Legacy,
 }
@@ -52,27 +54,29 @@ enum EdgeEndpoint {
 impl EdgeEndpoint {
     fn label(self) -> &'static str {
         match self {
-            Self::Modern => "Edge 155 (api.msedgeservices.com)",
+            Self::ModernV2 => "Edge 157 v2 (api.msedgeservices.com)",
+            Self::Modern => "Edge 155 v1 (api.msedgeservices.com)",
             Self::Legacy => "legacy (speech.platform.bing.com)",
         }
     }
 
     fn url(self) -> &'static str {
         match self {
-            Self::Modern => EDGE_TTS_MODERN_WSS_URL,
+            Self::ModernV2 | Self::Modern => EDGE_TTS_MODERN_WSS_URL,
             Self::Legacy => WSS_URL_BASE,
         }
     }
 
     fn query_key(self) -> &'static str {
         match self {
-            Self::Modern => "Ocp-Apim-Subscription-Key",
+            Self::ModernV2 | Self::Modern => "Ocp-Apim-Subscription-Key",
             Self::Legacy => "TrustedClientToken",
         }
     }
 
     fn client_version(self) -> &'static str {
         match self {
+            Self::ModernV2 => EDGE_TTS_MODERN_V2_CLIENT_VERSION,
             Self::Modern => EDGE_TTS_MODERN_CLIENT_VERSION,
             Self::Legacy => EDGE_TTS_LEGACY_CLIENT_VERSION,
         }
@@ -80,6 +84,7 @@ impl EdgeEndpoint {
 
     fn user_agent(self) -> &'static str {
         match self {
+            Self::ModernV2 => EDGE_TTS_MODERN_V2_USER_AGENT,
             Self::Modern => EDGE_TTS_MODERN_USER_AGENT,
             Self::Legacy => EDGE_TTS_LEGACY_USER_AGENT,
         }
@@ -534,7 +539,10 @@ fn edge_socket_request(
         endpoint.query_key(),
         TRUSTED_CLIENT_TOKEN,
         connection_id,
-        generate_sec_ms_gec(),
+        match endpoint {
+            EdgeEndpoint::ModernV2 => generate_sec_ms_gec_v2(),
+            EdgeEndpoint::Modern | EdgeEndpoint::Legacy => generate_sec_ms_gec(),
+        },
         endpoint.client_version()
     );
     let mut request = url.as_str().into_client_request()?;
@@ -566,52 +574,54 @@ async fn connect_edge_socket_route(endpoint: EdgeEndpoint) -> Result<EdgeSocket>
 }
 
 async fn connect_edge_socket() -> Result<(EdgeSocket, EdgeEndpoint)> {
-    match connect_edge_socket_route(EdgeEndpoint::Modern).await {
-        Ok(socket) => {
-            crate::append_podcast_log(&format!(
-                "Edge TTS: WebSocket connected (HTTP 101), endpoint={} [PRIMARY]",
-                EdgeEndpoint::Modern.label()
-            ));
-            Ok((socket, EdgeEndpoint::Modern))
-        }
-        Err(primary_error) => {
-            crate::append_podcast_log(&format!(
-                "Edge TTS: primary endpoint={} failed: {}; trying fallback={}",
-                EdgeEndpoint::Modern.label(), primary_error, EdgeEndpoint::Legacy.label()
-            ));
-            match connect_edge_socket_route(EdgeEndpoint::Legacy).await {
-                Ok(socket) => {
-                    crate::append_podcast_log(&format!(
-                        "Edge TTS: WebSocket connected (HTTP 101), endpoint={} [FALLBACK]",
-                        EdgeEndpoint::Legacy.label()
-                    ));
-                    Ok((socket, EdgeEndpoint::Legacy))
+    let routes = [
+        EdgeEndpoint::ModernV2,
+        EdgeEndpoint::Modern,
+        EdgeEndpoint::Legacy,
+    ];
+    let mut failures: Vec<anyhow::Error> = Vec::new();
+    for (index, endpoint) in routes.into_iter().enumerate() {
+        match connect_edge_socket_route(endpoint).await {
+            Ok(socket) => {
+                crate::append_podcast_log(&format!(
+                    "Edge TTS: WebSocket connected (HTTP 101), endpoint={} [{}]",
+                    endpoint.label(),
+                    if index == 0 { "PRIMARY" } else { "FALLBACK" }
+                ));
+                return Ok((socket, endpoint));
+            }
+            Err(error) => {
+                let limited = is_edge_rate_limited(&error);
+                crate::append_podcast_log(&format!(
+                    "Edge TTS: endpoint={} connection failed: {}; rate_limited={}; fallback_allowed={}",
+                    endpoint.label(),
+                    error,
+                    limited,
+                    !limited && index + 1 < routes.len()
+                ));
+                // Respect HTTP 429 and Retry-After. Trying v1 or legacy in
+                // the same attempt would bypass Microsoft's throttling.
+                if limited {
+                    return Err(error);
                 }
-                Err(fallback_error) => {
-                    crate::append_podcast_log(&format!(
-                        "Edge TTS: both endpoints failed: primary={} error={}; fallback={} error={}",
-                        EdgeEndpoint::Modern.label(), primary_error,
-                        EdgeEndpoint::Legacy.label(), fallback_error
-                    ));
-                    // Preserve structured Retry-After and error classification.
-                    // In particular, do not lose a rate limit from the primary
-                    // endpoint just because the legacy handshake also failed.
-                    if is_edge_rate_limited(&primary_error)
-                        && !is_edge_rate_limited(&fallback_error)
-                        && is_transient_edge_error(&fallback_error)
-                    {
-                        Err(primary_error)
-                    } else if is_transient_edge_error(&fallback_error) {
-                        Err(fallback_error)
-                    } else if is_transient_edge_error(&primary_error) {
-                        Err(primary_error)
-                    } else {
-                        Err(fallback_error)
-                    }
-                }
+                failures.push(error);
             }
         }
     }
+    // Keep a transient error when a later fallback is permanently unavailable,
+    // so the existing retry loop can recover without repeating completed audio.
+    let last = failures.pop().ok_or_else(|| anyhow!("Edge TTS: no endpoint available"))?;
+    if is_transient_edge_error(&last) {
+        return Err(last);
+    }
+    if let Some(transient) = failures
+        .into_iter()
+        .rev()
+        .find(is_transient_edge_error)
+    {
+        return Err(transient);
+    }
+    Err(last)
 }
 
 fn map_connect_error_for_endpoint(
@@ -1062,6 +1072,23 @@ fn is_forbidden_edge_error(error: &anyhow::Error) -> bool {
     ["403 forbidden", "http 403", "http status code: 403"]
         .iter()
         .any(|needle| message.contains(needle))
+}
+
+// Uses the same server-clock correction as the existing v1 fallback.
+// Microsoft v2 signs Windows FILETIME ticks rounded down to five minutes.
+fn generate_sec_ms_gec_v2() -> String {
+    generate_sec_ms_gec_v2_at(
+        Utc::now()
+            .timestamp()
+            .saturating_add(EDGE_TTS_CLOCK_OFFSET_SECONDS.load(Ordering::Relaxed)),
+    )
+}
+
+fn generate_sec_ms_gec_v2_at(unix_seconds: i64) -> String {
+    let seconds = unix_seconds.saturating_add(11_644_473_600);
+    let rounded_seconds = seconds.saturating_sub(seconds.rem_euclid(300));
+    let ticks = (rounded_seconds.max(0) as u128) * 10_000_000;
+    crate::edge_gec_v2::generate_sec_ms_gec_v2(ticks)
 }
 
 fn generate_sec_ms_gec() -> String {
@@ -1876,6 +1903,41 @@ mod tests {
         );
         assert_eq!(parse_retry_after(date, now + 20), Some(Duration::ZERO));
         assert_eq!(parse_retry_after("invalid", now), None);
+    }
+
+    #[test]
+    fn edge_157_v2_matches_independent_mobile_signature_vectors() {
+        // Deterministic vectors independently validated by Mobile Flutter.
+        // No captured browser sessions, cookies or signed URLs in the source.
+        let vectors = [
+            (132223104000000000u128, "D10F23DC48295BD2-E6E2AA64410971AA6513AD619500D20FA1A1B839D141A5CCF28D5D738D0019B4"),
+            (133485408000000000u128, "9586E5FBB4BD2CFF-DE636BA8369C7431ED826BDEEB00ECA1CC52826A6BB736DCB150A2AF37DFC498"),
+            (134116128000000000u128, "9DCBE9F8FA4AB77D-CA04286C2DDD2253475C966035FB821DD5ACEB920A3AE69E3F976EE02FD92C37"),
+        ];
+        for (ticks, expected) in vectors {
+            assert_eq!(crate::edge_gec_v2::generate_sec_ms_gec_v2(ticks), expected);
+        }
+    }
+
+    #[test]
+    fn edge_157_v2_has_81_character_signed_token_and_preserves_v1_fallback() {
+        let v2 = edge_socket_request(EdgeEndpoint::ModernV2, "TESTCONNECTION").unwrap();
+        let v1 = edge_socket_request(EdgeEndpoint::Modern, "TESTCONNECTION").unwrap();
+        let legacy = edge_socket_request(EdgeEndpoint::Legacy, "TESTCONNECTION").unwrap();
+        let v2_uri = v2.uri().to_string();
+        assert!(v2_uri.starts_with(EDGE_TTS_MODERN_WSS_URL));
+        assert!(v2_uri.contains("Sec-MS-GEC-Version=2-157.0.4341.42"));
+        assert!(v2_uri.contains("Ocp-Apim-Subscription-Key="));
+        assert!(!v2_uri.contains("TrustedClientToken="));
+        assert!(v2.headers()["User-Agent"].to_str().unwrap().contains("Edg/157"));
+        let gec = v2_uri.split("Sec-MS-GEC=").nth(1).unwrap().split('&').next().unwrap();
+        assert_eq!(gec.len(), 81);
+        assert_eq!(gec.as_bytes()[16], b'-');
+        assert!(gec.chars().all(|c| c == '-' || c.is_ascii_hexdigit()));
+        assert!(v1.uri().to_string().contains("Sec-MS-GEC-Version=1-155.0.4283.45"));
+        assert!(legacy.uri().to_string().contains("Sec-MS-GEC-Version=1-132.0.2917.39"));
+        assert_eq!(generate_sec_ms_gec_v2_at(0), generate_sec_ms_gec_v2_at(299));
+        assert_ne!(generate_sec_ms_gec_v2_at(299), generate_sec_ms_gec_v2_at(300));
     }
 
     #[test]

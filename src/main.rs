@@ -23,6 +23,7 @@ mod curl_client;
 mod developer_report;
 mod developer_report_dialog;
 mod directories;
+mod edge_gec_v2;
 mod edge_tts;
 mod edge_tts_support;
 mod file_loader;
