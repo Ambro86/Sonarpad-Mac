@@ -1,6 +1,6 @@
 Lista zmian
 
-Wersja 0.5.3 - 14 października 2026
+Wersja 0.5.4 - 11 listopada 2026
 
 - Dodano synchronizację w chmurze między Windows, Mac i urządzeniami mobilnymi: ulubione radia i TV, własne źródła i foldery wiadomości, podcasty oraz ulubione SonarTube. Łączenie kodem tymczasowym. Ulubione artykuły są zachowywane tam, gdzie są obsługiwane. Synchronizacja ręczna uwzględnia usunięcia i dzienniki diagnostyczne. Synchronizowane są również zgodne preferencje modułów: typ wyszukiwania, miasto pogody i tryb przycinania. Oddzielne ustawienia dla kolekcji i preferencji, z limitem 32 KB dla preferencji.
 

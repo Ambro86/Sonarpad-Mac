@@ -62,7 +62,7 @@ def test_secondary_features_select_german_catalogs():
 def test_complete_historical_german_changelog_is_loaded():
     english=(ROOT/'changelog_en.md').read_text(encoding='utf8')
     german=(ROOT/'changelog_de.md').read_text(encoding='utf8')
-    versions=['0.5.3','0.5.2','0.5.0','0.4.0','0.3.1','0.2.9','0.2.8','0.2.7','0.2.6','0.2.5','0.2.4','0.2.2','0.2.1','0.2.0']
+    versions=['0.5.4','0.5.2','0.5.0','0.4.0','0.3.1','0.2.9','0.2.8','0.2.7','0.2.6','0.2.5','0.2.4','0.2.2','0.2.1','0.2.0']
     for v in versions:
         assert f'Version {v}' in german,v
     assert len(re.findall(r'^\d+\. ',german,re.M))==len(re.findall(r'^\d+\. ',english,re.M))

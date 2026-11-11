@@ -16,6 +16,8 @@ struct View {
 enum Reply {
     Page(Request, Page, bool),
     Suggestions(Vec<String>),
+    Saved(std::path::PathBuf),
+    Transcription(crate::YoutubeTranscriptionDownload),
 }
 #[derive(Clone, Copy)]
 struct Controls {
@@ -29,6 +31,12 @@ struct Controls {
     search: Button,
     suggest: Button,
     open: Button,
+    format_label: StaticText,
+    format: Choice,
+    quality_label: StaticText,
+    quality: Choice,
+    save: Button,
+    transcribe: Button,
     back: Button,
     favorites_label: StaticText,
     favorites: Choice,
@@ -87,6 +95,16 @@ impl Controls {
             music::label(&crate::Settings::load().ui_language, key)
         };
         self.open.set_label(&open_label);
+        self.format_label.show(playable);
+        self.format.show(playable);
+        self.quality_label.show(playable);
+        self.quality.show(playable);
+        self.save.show(playable);
+        self.transcribe.show(playable);
+        self.format.enable(!busy && playable);
+        self.quality.enable(!busy && playable);
+        self.save.enable(!busy && playable);
+        self.transcribe.enable(!busy && playable);
         self.add_favorite.enable(
             !busy && suggestions.is_none() && matches!(row, Some(ResultRow::Item(_))) && available,
         );
@@ -140,7 +158,7 @@ pub(crate) fn open(
         }
     };
     let dialog = Dialog::builder(parent, "SonarMusic")
-        .with_size(780, 590)
+        .with_size(780, 690)
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
         .build();
     let panel = Panel::builder(&dialog).build();
@@ -199,6 +217,44 @@ pub(crate) fn open(
         .with_label(&text("open_result"))
         .build();
     root.add(&open, 0, SizerFlag::All, 5);
+    let ui = crate::current_ui_strings();
+    let options = BoxSizer::builder(Orientation::Horizontal).build();
+    let format_label = StaticText::builder(&panel)
+        .with_label(&ui.youtube_format_label)
+        .build();
+    let format = Choice::builder(&panel).build();
+    format.set_accessibility_label(&ui.youtube_format_label);
+    for value in crate::YOUTUBE_SAVE_FORMATS {
+        format.append(&value.to_ascii_uppercase());
+    }
+    let saved_format = settings.lock().unwrap().last_youtube_save_format.clone();
+    format.set_selection(
+        crate::YOUTUBE_SAVE_FORMATS
+            .iter()
+            .position(|value| value.eq_ignore_ascii_case(saved_format.trim()))
+            .unwrap_or(0) as u32,
+    );
+    let quality_label = StaticText::builder(&panel)
+        .with_label(&ui.youtube_quality_label)
+        .build();
+    let quality = Choice::builder(&panel).build();
+    quality.set_accessibility_label(&ui.youtube_quality_label);
+    quality.append(&ui.youtube_quality_best);
+    quality.append(&ui.youtube_quality_standard);
+    quality.set_selection(0);
+    options.add(&format_label, 0, SizerFlag::All, 5);
+    options.add(&format, 0, SizerFlag::All, 5);
+    options.add(&quality_label, 0, SizerFlag::All, 5);
+    options.add(&quality, 0, SizerFlag::All, 5);
+    root.add_sizer(&options, 0, SizerFlag::Expand, 0);
+    let actions = BoxSizer::builder(Orientation::Horizontal).build();
+    let save = Button::builder(&panel).with_label(&ui.youtube_save).build();
+    let transcribe = Button::builder(&panel)
+        .with_label(&crate::media_transcription::action_label())
+        .build();
+    actions.add(&save, 0, SizerFlag::All, 5);
+    actions.add(&transcribe, 0, SizerFlag::All, 5);
+    root.add_sizer(&actions, 0, SizerFlag::Expand, 0);
     let favorites_label = StaticText::builder(&panel)
         .with_label(&text("favorites"))
         .build();
@@ -251,6 +307,12 @@ pub(crate) fn open(
         search,
         suggest,
         open,
+        format_label,
+        format,
+        quality_label,
+        quality,
+        save,
+        transcribe,
         back,
         favorites_label,
         favorites,
@@ -289,6 +351,82 @@ pub(crate) fn open(
     let suggestions = Rc::new(RefCell::new(None::<Vec<String>>));
     let busy = Rc::new(Cell::new(false));
     let (tx, rx) = mpsc::channel::<Result<Reply, String>>();
+    let media_progress = Rc::new(RefCell::new(None::<crate::YoutubeSearchProgressDialog>));
+    for (button, transcription) in [(save, false), (transcribe, true)] {
+        let view = view.clone();
+        let suggestions = suggestions.clone();
+        let history = history.clone();
+        let busy = busy.clone();
+        let settings = Arc::clone(settings);
+        let tx = tx.clone();
+        let progress = media_progress.clone();
+        button.on_click(move |_| {
+            if busy.get() || suggestions.borrow().is_some() {
+                return;
+            }
+            let item = {
+                let view = view.borrow();
+                match view
+                    .pagination
+                    .row(&view.page, results.get_selection().unwrap_or(0) as usize)
+                {
+                    Some(ResultRow::Item(index)) => view.page.items.get(index).cloned(),
+                    _ => None,
+                }
+            };
+            let Some(item) = item else {
+                return;
+            };
+            let Some(url) = item.watch_url() else {
+                return;
+            };
+            let selected_format = crate::YOUTUBE_SAVE_FORMATS
+                .get(format.get_selection().unwrap_or(0) as usize)
+                .copied()
+                .unwrap_or("mp3");
+            let selected_quality = if quality.get_selection().unwrap_or(0) == 0 {
+                "best"
+            } else {
+                "standard"
+            };
+            let output = if transcription {
+                None
+            } else {
+                match crate::prompt_youtube_save_path(&dialog, &item.title, selected_format) {
+                    Ok(Some(path)) => Some(path),
+                    Ok(None) => return,
+                    Err(error) => {
+                        crate::show_message_subdialog(&dialog, "SonarMusic", &error);
+                        return;
+                    }
+                }
+            };
+            if !transcription {
+                let mut settings = settings.lock().unwrap();
+                settings.last_youtube_save_format = selected_format.to_owned();
+                settings.save();
+            }
+            busy.set(true);
+            c.update(
+                true,
+                &view.borrow(),
+                &suggestions.borrow(),
+                !history.borrow().is_empty(),
+            );
+            *progress.borrow_mut() = Some(crate::open_youtube_save_progress_dialog(&dialog));
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                let reply = if let Some(output) = output {
+                    crate::save_youtube_to_path(&url, selected_format, selected_quality, output)
+                        .map(Reply::Saved)
+                } else {
+                    crate::download_youtube_for_transcription(&url, &item.title)
+                        .map(Reply::Transcription)
+                };
+                let _ = tx.send(reply);
+            });
+        });
+    }
     let visible = Cell::new(false);
     query.on_text_updated(move |_| {
         let show = !query.get_value().trim().is_empty();
@@ -612,9 +750,12 @@ pub(crate) fn open(
     let h = history.clone();
     let sg = suggestions.clone();
     let b = busy.clone();
+    let progress_timer = media_progress.clone();
     timer.on_tick(move |_| {
         if let Ok(reply) = rx.try_recv() {
-            b.set(false);
+            if let Some(progress) = progress_timer.borrow_mut().take() {
+                progress.destroy();
+            }
             let failed = reply.is_err();
             match reply {
                 Ok(Reply::Page(request, page, more)) => {
@@ -665,11 +806,25 @@ pub(crate) fn open(
                     ));
                     *sg.borrow_mut() = Some(values);
                 }
+                Ok(Reply::Saved(path)) => {
+                    crate::show_message_subdialog(
+                        &dialog,
+                        "SonarMusic",
+                        &crate::youtube_save_completed_message(&path),
+                    );
+                }
+                Ok(Reply::Transcription(download)) => {
+                    crate::media_transcription::open_dialog_with_input(
+                        &dialog,
+                        Some(download.path.clone()),
+                    );
+                }
                 Err(error) => {
                     crate::append_podcast_log(&error);
                     status.set_label(&error);
                 }
             }
+            b.set(false);
             c.update(false, &v.borrow(), &sg.borrow(), !h.borrow().is_empty());
             // Native controls must be enabled before VoiceOver can focus them.
             if failed || !results.is_shown() {
@@ -690,5 +845,8 @@ pub(crate) fn open(
     timer.start(100, false);
     dialog.show_modal();
     timer.stop();
+    if let Some(progress) = media_progress.borrow_mut().take() {
+        progress.destroy();
+    }
     dialog.destroy();
 }

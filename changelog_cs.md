@@ -1,6 +1,6 @@
 Seznam změn
 
-Verze 0.5.3 - 14. října 2026
+Verze 0.5.4 - 11. listopadu 2026
 
 - Přidána cloudová synchronizace mezi Windows, Macem a mobilem pro oblíbená rádia a TV, vlastní zpravodajské zdroje a složky, podcasty a oblíbené položky SonarTube. Propojení dočasným kódem. Oblíbené články se zachovávají tam, kde jsou podporovány. Ruční synchronizace zahrnuje odstranění a diagnostické protokoly. Synchronizují se také kompatibilní předvolby modulů: typ hledání, město počasí a režim střihu. Samostatné ovládání sbírek a předvoleb s limitem 32 KB pro předvolby.
 

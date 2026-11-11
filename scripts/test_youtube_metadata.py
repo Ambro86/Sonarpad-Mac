@@ -34,6 +34,36 @@ fn fixture()->serde_json::Value {serde_json::from_str(include_str!("FIXTURE")).u
  youtube_collect_direct_results(&fixture(),true,false,&mut results,&mut HashSet::new());
  assert!(results.is_empty());
 }
+#[test] fn mix_keeps_its_actual_seed_instead_of_a_playlist_page() {
+ let data=serde_json::json!({"lockupViewModel":{
+  "contentId":"RDEMDHx1mzcs_wPqWOntgHDScQ", "contentType":"LOCKUP_CONTENT_TYPE_PLAYLIST",
+  "metadata":{"lockupMetadataViewModel":{"title":{"content":"Mix - Eros Ramazzotti"}}},
+  "rendererContext":{"commandContext":{"onTap":{"innertubeCommand":{
+   "commandMetadata":{"webCommandMetadata":{"url":"/watch?v=UojBaKX5Vz4&list=RDEMDHx1mzcs_wPqWOntgHDScQ&start_radio=1"}}
+  }}}}
+ }});
+ let mut results=Vec::new();
+ youtube_collect_direct_results(&data,true,true,&mut results,&mut HashSet::new());
+ assert_eq!(results.len(),1);
+ assert!(results[0].is_collection);
+ assert_eq!(results[0].url,"https://www.youtube.com/watch?v=UojBaKX5Vz4&list=RDEMDHx1mzcs_wPqWOntgHDScQ&start_radio=1");
+}
+#[test] fn ordinary_playlist_without_endpoint_keeps_playlist_url() {
+ let data=serde_json::json!({"lockupViewModel":{
+  "contentId":"PLnormal", "contentType":"LOCKUP_CONTENT_TYPE_PLAYLIST",
+  "metadata":{"lockupMetadataViewModel":{"title":{"content":"Playlist"}}}
+ }});
+ let mut results=Vec::new();
+ youtube_collect_direct_results(&data,true,true,&mut results,&mut HashSet::new());
+ assert_eq!(results.len(),1);
+ assert_eq!(results[0].url,"https://www.youtube.com/playlist?list=PLnormal");
+}
+#[test] fn inline_mix_endpoint_is_preserved() {
+ let renderer=serde_json::json!({"itemPlayback":{"inlinePlayerData":{"onSelect":{"innertubeCommand":{
+  "commandMetadata":{"webCommandMetadata":{"url":"/watch?v=UojBaKX5Vz4&list=RDtest"}}
+ }}}}});
+ assert_eq!(youtube_renderer_url(&renderer,None).as_deref(),Some("https://www.youtube.com/watch?v=UojBaKX5Vz4&list=RDtest"));
+}
 #[test] fn legacy_video_still_works() {
  let mut results=Vec::new();
  let data=serde_json::json!({"videoRenderer":{"videoId":"legacy00123","title":{"simpleText":"Legacy"},"lengthText":{"simpleText":"12:34"}}});

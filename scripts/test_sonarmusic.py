@@ -33,20 +33,34 @@ use wxdragon::prelude::*;
 #[path="UI"] mod sonarmusic_window;
 #[path="LABELS"] mod result_labels;
 const SONARPAD_ROUTE_CLIENT_TOKEN:&str="";
-struct Settings {ui_language:String, sonarmusic_search_type:String, sonarmusic_favorites:Vec<serde_json::Value>}
+struct Settings {ui_language:String, sonarmusic_search_type:String, last_youtube_save_format:String, sonarmusic_favorites:Vec<serde_json::Value>}
 impl Settings {
  fn save(&self) {}
- fn load()->Self{Self{ui_language:"en".into(),sonarmusic_search_type:String::new(),sonarmusic_favorites:vec![]}}
+ fn load()->Self{Self{ui_language:"en".into(),sonarmusic_search_type:String::new(),last_youtube_save_format:"mp3".into(),sonarmusic_favorites:vec![]}}
 }
 #[derive(Clone)] struct AudioDescriptionLaunchContext;
 struct YoutubeSearchResult {title:String,url:String,is_collection:bool,duration:Option<String>}
 fn normalize_ui_language(s:&str)->String{s.into()}
 fn show_message_dialog(_: &Frame,_:&str,_:&str){}
 fn append_podcast_log(_:&str){}
-struct UiStrings {youtube_open_video:String, open:String}
+struct UiStrings {youtube_open_video:String, open:String, youtube_format_label:String, youtube_quality_label:String, youtube_quality_best:String, youtube_quality_standard:String, youtube_save:String}
 fn current_ui_strings()->&'static UiStrings{
  static STRINGS:std::sync::OnceLock<UiStrings>=std::sync::OnceLock::new();
- STRINGS.get_or_init(||UiStrings{youtube_open_video:"Open video".into(),open:"Open".into()})
+ STRINGS.get_or_init(||UiStrings{youtube_open_video:"Open video".into(),open:"Open".into(),youtube_format_label:"Format".into(),youtube_quality_label:"Quality".into(),youtube_quality_best:"Best".into(),youtube_quality_standard:"Standard".into(),youtube_save:"Save video".into()})
+}
+const YOUTUBE_SAVE_FORMATS:&[&str]=&["mp3","mp4"];
+struct YoutubeSearchProgressDialog;
+impl YoutubeSearchProgressDialog {fn destroy(self){}}
+struct YoutubeTranscriptionDownload {path:std::path::PathBuf}
+fn open_youtube_save_progress_dialog(_: &Dialog)->YoutubeSearchProgressDialog{YoutubeSearchProgressDialog}
+fn prompt_youtube_save_path(_: &Dialog,_:&str,_:&str)->Result<Option<std::path::PathBuf>,String>{Ok(None)}
+fn show_message_subdialog(_: &Dialog,_:&str,_:&str){}
+fn youtube_save_completed_message(_: &std::path::Path)->String{String::new()}
+fn save_youtube_to_path(_:&str,_:&str,_:&str,path:std::path::PathBuf)->Result<std::path::PathBuf,String>{Ok(path)}
+fn download_youtube_for_transcription(_:&str,_:&str)->Result<YoutubeTranscriptionDownload,String>{Err(String::new())}
+mod media_transcription {
+ pub fn action_label()->String{"Transcribe video".into()}
+ pub fn open_dialog_with_input(_: &wxdragon::prelude::Dialog,_:Option<std::path::PathBuf>){}
 }
 fn open_youtube_results_dialog_with_title(_: &Dialog,_:&Arc<Mutex<Settings>>,_:Vec<YoutubeSearchResult>,_:Option<()>,_:&AudioDescriptionLaunchContext,_:bool,_:&str){}
 '''

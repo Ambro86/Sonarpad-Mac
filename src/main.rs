@@ -11585,7 +11585,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
 const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.3 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.4 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {
@@ -20927,6 +20927,8 @@ fn youtube_text_value(value: &serde_json::Value) -> Option<String> {
 fn youtube_renderer_url(renderer: &serde_json::Value, fallback: Option<String>) -> Option<String> {
     renderer
         .get("navigationEndpoint")
+        .or_else(|| renderer.pointer("/rendererContext/commandContext/onTap/innertubeCommand"))
+        .or_else(|| renderer.pointer("/itemPlayback/inlinePlayerData/onSelect/innertubeCommand"))
         .and_then(|endpoint| {
             endpoint
                 .get("commandMetadata")
@@ -21132,7 +21134,8 @@ fn youtube_collect_direct_results(
                 && let Some(id) = renderer["contentId"].as_str()
                 && let Some(title) = renderer["metadata"]["lockupMetadataViewModel"]["title"]["content"].as_str()
             {
-                let url = format!("https://www.youtube.com/playlist?list={id}");
+                let fallback = format!("https://www.youtube.com/playlist?list={id}");
+                let url = youtube_renderer_url(renderer, Some(fallback)).unwrap();
                 if seen.insert(url.clone()) {
                     results.push(YoutubeSearchResult { title: title.to_string(), url, is_collection: true, duration: None });
                 }
@@ -21573,6 +21576,14 @@ fn youtube_collection_videos_url(url: &str) -> String {
 }
 
 fn youtube_collection_entries(url: &str) -> Result<YoutubeResultsPayload, String> {
+    // Like Windows, keep mix navigation on yt-dlp and preserve its seed video.
+    // A watch page's recommendations are not the mix's playlist entries.
+    if Url::parse(url).ok().is_some_and(|url| {
+        url.query_pairs()
+            .any(|(key, value)| key == "list" && value.starts_with("RD"))
+    }) {
+        return youtube_collection_entries_ytdlp(url).map(|results| (results, None));
+    }
     match youtube_direct_collection(url) {
         Ok((results, context)) if !results.is_empty() => Ok((results, context)),
         Ok(_) | Err(_) => youtube_collection_entries_ytdlp(url).map(|results| (results, None)),
@@ -30369,7 +30380,7 @@ fn append_tools_reading_content(menu: &Menu, settings: &Settings, ui: &UiStrings
     if settings.ui_language == "it" {
         let _ = menu.append_command(
             ID_TOOLS_TRECCANI,
-            "Cerca e importa da Treccani",
+            "Enciclopedia treccani",
             "Cerca e importa voci dall’Enciclopedia Treccani",
             ItemKind::Normal,
         );
@@ -30615,7 +30626,7 @@ fn rebuild_tools_menu(tools_menu: &Menu, settings: &Settings, ui: &UiStrings) {
             let _ = tools_menu.append_separator();
             let _ = tools_menu.append_command(
                 ID_TOOLS_TRECCANI,
-                "Cerca e importa da Treccani",
+                "Enciclopedia treccani",
                 "Cerca e importa voci dall’Enciclopedia Treccani",
                 ItemKind::Normal,
             );
