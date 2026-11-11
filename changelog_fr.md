@@ -1,5 +1,9 @@
 Journal des nouveautés
 
+Version 0.5.5 - 11 novembre 2026
+
+Correction de l'action Ouvrir dans la recherche de lieux et d'établissements : le lieu sélectionné s'ouvre désormais dans l'éditeur dès la première tentative, avec le curseur au début. Gestion des fenêtres de recherche, des résultats et de la pagination également améliorée.
+
 Version 0.5.4 - 11 novembre 2026
 
 - Ajout de la synchronisation cloud entre Windows, Mac et mobile pour les favoris radio et TV, les sources et dossiers personnels d’actualités, les podcasts et les favoris SonarTube. Association par code temporaire. Les articles favoris sont conservés lorsque cette fonction est prise en charge. Synchronisation manuelle avec suppressions et journaux de diagnostic. Les préférences compatibles des modules sont également synchronisées : type de recherche, ville météo et mode de découpe. Commandes séparées pour les collections et les préférences, limitées à 32 Ko.

@@ -1,5 +1,9 @@
 Seznam změn
 
+Verze 0.5.5 - 11. listopadu 2026
+
+Opraveno tlačítko Otevřít při hledání míst a podniků: vybrané místo se nyní otevře v editoru hned napoprvé a kurzor se přesune na začátek. Vylepšena také správa dialogů vyhledávání a výsledků i přecházení mezi stránkami.
+
 Verze 0.5.4 - 11. listopadu 2026
 
 - Přidána cloudová synchronizace mezi Windows, Macem a mobilem pro oblíbená rádia a TV, vlastní zpravodajské zdroje a složky, podcasty a oblíbené položky SonarTube. Propojení dočasným kódem. Oblíbené články se zachovávají tam, kde jsou podporovány. Ruční synchronizace zahrnuje odstranění a diagnostické protokoly. Synchronizují se také kompatibilní předvolby modulů: typ hledání, město počasí a režim střihu. Samostatné ovládání sbírek a předvoleb s limitem 32 KB pro předvolby.

@@ -6,6 +6,7 @@ pub(crate) use places::normalize_phone as normalize_place_phone;
 
 use crate::*;
 use reqwest::blocking::Client;
+use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -980,18 +981,17 @@ pub fn show_directory_results(
     let parent_c = *parent;
     let dialog_c = dialog;
     let choice_c = choice;
-    let tc_main_c = tc_main;
+    let next_page_result: Rc<RefCell<Option<SearchResponse>>> = Rc::new(RefCell::new(None));
+    let opened_detail: Rc<RefCell<Option<String>>> = Rc::new(RefCell::new(None));
 
-    // Event handlers...
-
+    // Display the next page or write to the editor only after this modal closes.
     let load_page = Rc::new({
         let p_clone = parent_c;
         let q_clone = query_c.clone();
         let l_clone = location_c.clone();
         let d_clone = dialog_c;
-        let tc_c = tc_main_c;
+        let next_page_result_c = Rc::clone(&next_page_result);
         move |page: i32| {
-            d_clone.end_modal(ID_OK);
             let kind = if directory_index == 1 {
                 DirectoryKind::PagineGialle
             } else {
@@ -1028,15 +1028,8 @@ pub fn show_directory_results(
                     progress.destroy();
                     match res {
                         Ok(resp) => {
-                            show_directory_results(
-                                &p_clone,
-                                tc_c,
-                                directory_index,
-                                &q_clone,
-                                &l_clone,
-                                resp,
-                                reverse,
-                            );
+                            *next_page_result_c.borrow_mut() = Some(resp);
+                            d_clone.end_modal(ID_OK);
                         }
                         Err(e) => {
                             show_message_dialog(&p_clone, directory_label("Errore"), &e);
@@ -1059,6 +1052,7 @@ pub fn show_directory_results(
     btn_next.on_click(move |_| lp_next(current_page + 1));
 
     let results_for_open = Arc::clone(&results_arc);
+    let opened_detail_c = Rc::clone(&opened_detail);
     btn_open.on_click(move |_| {
         let sel = choice_c.get_selection();
         if sel.is_none() {
@@ -1075,8 +1069,6 @@ pub fn show_directory_results(
             };
             let qc = query_c.clone();
             let lc = location_c.clone();
-            let tc_clone = tc_main_c;
-
             let progress = ProgressDialog::builder(
                 &d_clone,
                 directory_label("Caricamento..."),
@@ -1104,8 +1096,7 @@ pub fn show_directory_results(
                     progress.destroy();
                     match res {
                         Ok(detail) => {
-                            tc_clone.set_value(&detail.body);
-                            tc_clone.set_insertion_point(0);
+                            *opened_detail_c.borrow_mut() = Some(detail.body);
                             d_clone.end_modal(ID_OK);
                         }
                         Err(e) => {
@@ -1128,4 +1119,14 @@ pub fn show_directory_results(
 
     dialog.show_modal();
     dialog.destroy();
+
+    if let Some(body) = opened_detail.borrow_mut().take() {
+        tc_main.set_value(&body);
+        tc_main.set_insertion_point(0);
+        tc_main.set_focus();
+    } else if let Some(response) = next_page_result.borrow_mut().take() {
+        show_directory_results(
+            parent, tc_main, directory_index, &query_c, &location_c, response, reverse,
+        );
+    }
 }

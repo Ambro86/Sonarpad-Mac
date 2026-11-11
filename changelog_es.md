@@ -1,5 +1,9 @@
 Registro de cambios
 
+Versión 0.5.5 - 11 de noviembre de 2026
+
+Corregida la acción Abrir en la búsqueda de lugares y negocios: el lugar seleccionado se abre en el editor al primer intento, con el cursor al principio. También se ha mejorado la gestión de las ventanas de búsqueda y resultados y la paginación.
+
 Versión 0.5.4 - 11 de noviembre de 2026
 
 - Añadida la sincronización en la nube entre Windows, Mac y móvil: favoritos de radio y TV, fuentes y carpetas personales de noticias, podcasts y favoritos de SonarTube. Conexión mediante código temporal. Los artículos favoritos se conservan donde son compatibles. Sincronización manual con eliminaciones y registros de diagnóstico. También se sincronizan las preferencias compatibles: tipo de búsqueda, ciudad del tiempo y modo de corte. Controles separados para colecciones y preferencias, con un límite de 32 KB para estas últimas.

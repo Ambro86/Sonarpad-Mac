@@ -11585,7 +11585,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
 const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.4 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.5 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {
@@ -18357,8 +18357,11 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     let location_ctrl_open = location_ctrl;
     let directory_choice_open = directory_choice;
     let dialog_open = dialog;
-    let parent_clone = *parent;
-    let tc_main_open = tc_main;
+    // Let the search modal close before showing results, to avoid two
+    // overlapping frame-owned modal windows on macOS.
+    let pending_results: Rc<RefCell<Option<(usize, String, String, directories::SearchResponse, bool)>>> =
+        Rc::new(RefCell::new(None));
+    let pending_results_open = Rc::clone(&pending_results);
     let perform_search = Rc::new(move || {
         let reverse = directory_choice_open.get_selection() == Some(phone_index);
         let mut query = search_ctrl_open.get_value().trim().to_string();
@@ -18421,15 +18424,8 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
                 progress.destroy();
                 match res {
                     Ok(response) => {
-                        directories::show_directory_results(
-                            &parent_clone,
-                            tc_main_open,
-                            directory_index,
-                            &query,
-                            &location,
-                            response,
-                            reverse,
-                        );
+                        *pending_results_open.borrow_mut() =
+                            Some((directory_index, query.clone(), location.clone(), response, reverse));
                         dialog_open.end_modal(ID_OK);
                     }
                     Err(e) => {
@@ -18455,6 +18451,14 @@ fn open_italian_directories_dialog(parent: &Frame, tc_main: TextCtrl) {
     close_button.on_click(move |_| dialog_close.end_modal(ID_CANCEL));
     dialog.show_modal();
     dialog.destroy();
+
+    // Only show results after the original search dialog has been destroyed.
+    let ready_results = pending_results.borrow_mut().take();
+    if let Some((directory_index, query, location, response, reverse)) = ready_results {
+        directories::show_directory_results(
+            parent, tc_main, directory_index, &query, &location, response, reverse,
+        );
+    }
 }
 
 fn rai_item_label(title: &str, subtitle: Option<&str>) -> String {

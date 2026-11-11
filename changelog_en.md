@@ -1,5 +1,9 @@
 Changelog
 
+Version 0.5.5 - November 11, 2026
+
+Fixed Open in Find places and businesses: the selected place now opens in the editor on the first attempt, with the cursor at the beginning. Also improved search and results dialog handling and pagination.
+
 Version 0.5.4 - November 11, 2026
 
 - Automatic background sync at startup and while using the app, with batched updates after changes. The cloud window shows the status and last sync time. If the server is unavailable, the app stays usable: no automatic alerts, diagnostic logs and retries with increasing delays.

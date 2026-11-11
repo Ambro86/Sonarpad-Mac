@@ -1,5 +1,9 @@
 Änderungsprotokoll
 
+Version 0.5.5 – 11. November 2026
+
+Die Aktion Öffnen in der Suche nach Orten und Unternehmen wurde korrigiert: Der ausgewählte Ort wird nun beim ersten Versuch direkt im Editor geöffnet, mit dem Cursor am Anfang. Die Verwaltung der Such- und Ergebnisdialoge sowie der Seitenwechsel wurde ebenfalls verbessert.
+
 Version 0.5.4 – 11. November 2026
 
 - Cloud-Synchronisierung zwischen Windows, Mac und Mobilgeräten für Radio- und TV-Favoriten, eigene Nachrichtenquellen und Ordner, Podcasts und SonarTube-Favoriten hinzugefügt. Verbindung über einen temporären Code. Artikel-Favoriten bleiben erhalten, soweit unterstützt. Manuelle Synchronisierung mit Löschungen und Diagnoseprotokollen. Auch kompatible Moduleinstellungen werden synchronisiert, darunter Suchtyp, Wetterort und Schnittmodus. Separate Steuerung für Sammlungen und Einstellungen; Einstellungen sind auf 32 KB begrenzt.
