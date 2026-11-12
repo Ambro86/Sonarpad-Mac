@@ -1126,7 +1126,7 @@ pub fn show_directory_results(
         tc_main.set_focus();
     } else if let Some(response) = next_page_result.borrow_mut().take() {
         show_directory_results(
-            parent, tc_main, directory_index, &query_c, &location_c, response, reverse,
+            parent, tc_main, directory_index, query, location, response, reverse,
         );
     }
 }

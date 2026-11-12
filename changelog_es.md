@@ -1,8 +1,10 @@
 Registro de cambios
 
-Versión 0.5.5 - 11 de noviembre de 2026
+Versión 0.5.5 - 12 de noviembre de 2026
 
 Corregida la acción Abrir en la búsqueda de lugares y negocios: el lugar seleccionado se abre en el editor al primer intento, con el cursor al principio. También se ha mejorado la gestión de las ventanas de búsqueda y resultados y la paginación.
+
+Corregida la apertura de Sincronización en la nube desde el menú Archivo: ahora se abre correctamente la ventana de sincronización.
 
 Versión 0.5.4 - 11 de noviembre de 2026
 

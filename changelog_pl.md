@@ -1,8 +1,10 @@
 Lista zmian
 
-Wersja 0.5.5 - 11 listopada 2026
+Wersja 0.5.5 - 12 listopada 2026
 
 Poprawiono polecenie Otwórz w wyszukiwaniu miejsc i firm: wybrane miejsce otwiera się teraz w edytorze za pierwszym razem, a kursor jest ustawiany na początku. Usprawniono również obsługę okien wyszukiwania i wyników oraz przechodzenie między stronami.
+
+Poprawiono otwieranie synchronizacji w chmurze z menu Plik: okno synchronizacji jest teraz wywoływane prawidłowo.
 
 Wersja 0.5.4 - 11 listopada 2026
 

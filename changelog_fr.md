@@ -1,8 +1,10 @@
 Journal des nouveautés
 
-Version 0.5.5 - 11 novembre 2026
+Version 0.5.5 - 12 novembre 2026
 
 Correction de l'action Ouvrir dans la recherche de lieux et d'établissements : le lieu sélectionné s'ouvre désormais dans l'éditeur dès la première tentative, avec le curseur au début. Gestion des fenêtres de recherche, des résultats et de la pagination également améliorée.
+
+Correction de l’ouverture de la synchronisation cloud depuis le menu Fichier : la fenêtre de synchronisation est désormais appelée correctement.
 
 Version 0.5.4 - 11 novembre 2026
 

@@ -30822,21 +30822,9 @@ fn main() {
             .build();
 
         let file_menu = Menu::builder().build();
-        let cloud_sync_item = file_menu.append_command(18970,
+        file_menu.append_command(18970,
             if settings.lock().unwrap().ui_language == "it" { "Sincronizzazione cloud..." } else { "Cloud sync..." },
             "Cloud sync", ItemKind::Normal);
-        if let Some(item) = cloud_sync_item {
-            let cloud_settings = Arc::clone(&settings);
-            let cloud_article_state = Arc::clone(&article_menu_state);
-            let cloud_radio_state = Arc::clone(&radio_menu_state);
-            let cloud_podcast_state = Arc::clone(&podcast_menu_state);
-            item.on_click(move |_| {
-                cloud_sync_window::open(&frame, &cloud_settings);
-                mark_articles_menu_dirty(&cloud_article_state);
-                cloud_radio_state.lock().unwrap().dirty = true;
-                cloud_podcast_state.lock().unwrap().dirty = true;
-            });
-        }
         file_menu.append_command(
             documents::ID_NEW_DOCUMENT,
             &format!("{}\tCtrl+N", ui.document_new),
@@ -31622,6 +31610,14 @@ fn main() {
             // Italian interface, even if a menu ID is dispatched directly.
             // The general AI audio-description tool is intentionally excluded.
             let event_id = event.get_id();
+            if event_id == 18970 {
+                append_podcast_log("cloud_sync.window.open_requested");
+                cloud_sync_window::open(&f_menu, &settings_menu);
+                mark_articles_menu_dirty(&article_menu_state_menu);
+                radio_menu_state_menu.lock().unwrap().dirty = true;
+                podcast_menu_state_menu.lock().unwrap().dirty = true;
+                return;
+            }
             if matches!(
                 event_id,
                 ID_SONARPAD_AUDIO_DESCRIPTIONS

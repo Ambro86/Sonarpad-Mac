@@ -1,8 +1,10 @@
 Seznam změn
 
-Verze 0.5.5 - 11. listopadu 2026
+Verze 0.5.5 - 12. listopadu 2026
 
 Opraveno tlačítko Otevřít při hledání míst a podniků: vybrané místo se nyní otevře v editoru hned napoprvé a kurzor se přesune na začátek. Vylepšena také správa dialogů vyhledávání a výsledků i přecházení mezi stránkami.
+
+Opraveno otevírání cloudové synchronizace z nabídky Soubor: okno synchronizace se nyní vyvolá správně.
 
 Verze 0.5.4 - 11. listopadu 2026
 

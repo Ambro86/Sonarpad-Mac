@@ -1,8 +1,10 @@
 Änderungsprotokoll
 
-Version 0.5.5 – 11. November 2026
+Version 0.5.5 – 12. November 2026
 
 Die Aktion Öffnen in der Suche nach Orten und Unternehmen wurde korrigiert: Der ausgewählte Ort wird nun beim ersten Versuch direkt im Editor geöffnet, mit dem Cursor am Anfang. Die Verwaltung der Such- und Ergebnisdialoge sowie der Seitenwechsel wurde ebenfalls verbessert.
+
+Das Öffnen der Cloud-Synchronisierung über das Menü Datei wurde korrigiert: Das Synchronisierungsfenster wird nun korrekt aufgerufen.
 
 Version 0.5.4 – 11. November 2026
 

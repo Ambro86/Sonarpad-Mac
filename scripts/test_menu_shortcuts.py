@@ -43,6 +43,17 @@ class MenuShortcutTests(unittest.TestCase):
             )
             subprocess.run([str(binary)], check=True)
 
+    def test_cloud_sync_is_dispatched_by_the_frame_menu_handler(self):
+        handler_start = MAIN.index('frame.on_menu(move |event| {')
+        command = MAIN.index('if event_id == 18970 {', handler_start)
+        command_end = MAIN.index('\n            }', command)
+        handler = MAIN[command:command_end]
+        self.assertIn('cloud_sync_window::open(&f_menu, &settings_menu)', handler)
+        self.assertIn('mark_articles_menu_dirty(&article_menu_state_menu)', handler)
+        self.assertIn('radio_menu_state_menu.lock().unwrap().dirty = true', handler)
+        self.assertIn('podcast_menu_state_menu.lock().unwrap().dirty = true', handler)
+        self.assertNotIn('if let Some(item) = cloud_sync_item', MAIN)
+
     def test_every_fixed_menu_command_uses_registry(self):
         calls = set(re.findall(
             r"\.append_command\(\s*((?:documents::)?ID_\w+)\s*,", MAIN

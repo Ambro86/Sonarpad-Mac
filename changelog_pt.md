@@ -1,8 +1,10 @@
 Registo de alterações
 
-Versão 0.5.5 - 11 de novembro de 2026
+Versão 0.5.5 - 12 de novembro de 2026
 
 Corrigida a ação Abrir na pesquisa de locais e estabelecimentos: o local selecionado é agora aberto no editor à primeira tentativa, com o cursor no início. Melhorada também a gestão das janelas de pesquisa e resultados, bem como a navegação entre páginas.
+
+Corrigida a abertura da sincronização na nuvem pelo menu Ficheiro: a janela de sincronização é agora aberta corretamente.
 
 Versão 0.5.4 - 11 de novembro de 2026
 

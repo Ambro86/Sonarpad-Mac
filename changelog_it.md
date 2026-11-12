@@ -1,8 +1,10 @@
 Changelog
 
-Versione 0.5.5 - 11 novembre 2026
+Versione 0.5.5 - 12 novembre 2026
 
 Corretto Apri nella ricerca di luoghi e attività: il luogo selezionato viene aperto nell'editor al primo tentativo, con il cursore all'inizio. Migliorata anche la gestione delle finestre di ricerca e dei risultati e il passaggio tra le pagine.
+
+Corretta l’apertura di Sincronizzazione cloud dal menu File: la finestra di sincronizzazione ora viene richiamata correttamente.
 
 Versione 0.5.4 - 11 novembre 2026
 

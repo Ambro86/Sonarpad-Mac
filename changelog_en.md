@@ -1,8 +1,10 @@
 Changelog
 
-Version 0.5.5 - November 11, 2026
+Version 0.5.5 - November 12, 2026
 
 Fixed Open in Find places and businesses: the selected place now opens in the editor on the first attempt, with the cursor at the beginning. Also improved search and results dialog handling and pagination.
+
+Fixed opening Cloud sync from the File menu: the synchronization window is now invoked correctly.
 
 Version 0.5.4 - November 11, 2026
 
