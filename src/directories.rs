@@ -1121,7 +1121,8 @@ pub fn show_directory_results(
     dialog.destroy();
 
     if let Some(body) = opened_detail.borrow_mut().take() {
-        tc_main.set_value(&body);
+        // Use native newlines so macOS does not display CRLF as two line breaks.
+        tc_main.set_value(&body.replace("\r\n", "\n"));
         tc_main.set_insertion_point(0);
         tc_main.set_focus();
     } else if let Some(response) = next_page_result.borrow_mut().take() {
