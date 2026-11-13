@@ -1,5 +1,11 @@
 Registo de alterações
 
+Versão 0.5.6 - 13 de novembro de 2026
+
+Sincronização na nuvem: adicionados os favoritos SonarMusic entre Windows, Mac e dispositivos móveis, incluindo músicas, álbuns, artistas e listas de reprodução. As listas existentes são unidas e as remoções explícitas são sincronizadas.
+
+Podcasts: os marcadores automáticos e a posição de reprodução são sincronizados entre Windows, Mac e dispositivos móveis, incluindo episódios reproduzidos a partir da cache do Windows. As posições antigas não substituem as mais recentes; a conclusão e a remoção de marcadores também são sincronizadas.
+
 Versão 0.5.5 - 12 de novembro de 2026
 
 Corrigida a ação Abrir na pesquisa de locais e estabelecimentos: o local selecionado é agora aberto no editor à primeira tentativa, com o cursor no início. Melhorada também a gestão das janelas de pesquisa e resultados, bem como a navegação entre páginas.

@@ -17,13 +17,16 @@ mod imp {
         ipc_path: PathBuf,
         process_id: u32,
         stream_url: String,
+        title: String,
+        last_bookmark_position: Cell<Option<u64>>,
+        last_bookmark_check: Cell<std::time::Instant>,
         ipc: RefCell<UnixStream>,
         child: RefCell<Option<Child>>,
         next_request_id: Cell<u64>,
     }
 
     impl PodcastPlayer {
-        pub fn new(url: &str) -> Result<Self, String> {
+        pub fn new(url: &str, title: &str) -> Result<Self, String> {
             let stream_url = url.trim();
             if stream_url.is_empty() {
                 return Err("URL podcast vuoto".to_string());
@@ -32,7 +35,10 @@ mod imp {
             let mpv_executable =
                 bundled_mpv_executable_path().unwrap_or_else(|| PathBuf::from("mpv"));
             let mpv_input_conf = bundled_mpv_input_conf_path();
-            let enable_bookmarks = crate::media_bookmarks_enabled();
+            let settings = crate::Settings::load();
+            let enable_bookmarks = settings.auto_media_bookmark;
+            let saved_position =
+                crate::podcast_bookmarks::position(&settings.podcast_bookmarks, stream_url);
             let mpv_config_dir = crate::prepare_mpv_runtime_dirs(enable_bookmarks)?;
             let ipc_path = podcast_ipc_socket_path();
             remove_stale_socket(&ipc_path, "podcast.mpv.socket_prep_failed")?;
@@ -70,6 +76,12 @@ mod imp {
                 command.arg("--resume-playback=no");
             }
 
+            if enable_bookmarks && let Some(seconds) = saved_position {
+                command
+                    .arg("--resume-playback=no")
+                    .arg(format!("--start={seconds}"));
+            }
+
             let mut child = command
                 .spawn()
                 .map_err(|err| format!("avvio mpv podcast fallito: {err}"))?;
@@ -101,6 +113,9 @@ mod imp {
                         ipc_path,
                         process_id,
                         stream_url: stream_url.to_string(),
+                        title: title.to_string(),
+                        last_bookmark_position: Cell::new(Some(saved_position.unwrap_or(0))),
+                        last_bookmark_check: Cell::new(std::time::Instant::now()),
                         ipc: RefCell::new(ipc),
                         child: RefCell::new(Some(child)),
                         next_request_id: Cell::new(2),
@@ -144,6 +159,7 @@ mod imp {
 
         pub fn pause(&self) -> Result<(), String> {
             self.send_command(json!(["set_property", "pause", true]))?;
+            self.save_bookmark(true);
             Ok(())
         }
 
@@ -169,6 +185,47 @@ mod imp {
                     .filter(|value| value.is_finite() && *value > 0.0)),
                 Value::Null => Ok(None),
                 _ => Ok(None),
+            }
+        }
+
+        pub fn save_bookmark(&self, force: bool) {
+            if !force && self.last_bookmark_check.get().elapsed() < Duration::from_secs(5) {
+                return;
+            }
+            self.last_bookmark_check.set(std::time::Instant::now());
+            let Ok(position) = self.get_property_f64("time-pos") else {
+                return;
+            };
+            let mut settings = crate::Settings::load();
+            if !settings.auto_media_bookmark {
+                return;
+            }
+            let duration = self.get_property_f64("duration").ok();
+            let finished = duration.is_some_and(|d| {
+                d > 0.0
+                    && if d > 600.0 {
+                        d - position < 30.0
+                    } else {
+                        position / d > 0.95
+                    }
+            });
+            let seconds = if finished {
+                0
+            } else {
+                position.max(0.0) as u64
+            };
+            if self.last_bookmark_position.get() == Some(seconds) {
+                return;
+            }
+            // A paused player must not overwrite a newer point received by sync.
+            self.last_bookmark_position.set(Some(seconds));
+            if crate::podcast_bookmarks::save(
+                &mut settings.podcast_bookmarks,
+                &self.stream_url,
+                &self.title,
+                seconds,
+            ) {
+                settings.save();
             }
         }
 
@@ -205,6 +262,7 @@ mod imp {
 
     impl Drop for PodcastPlayer {
         fn drop(&mut self) {
+            self.save_bookmark(true);
             let quit_result = {
                 let mut ipc = self.ipc.borrow_mut();
                 send_mpv_command_with_stream(&mut ipc, &self.ipc_path, 1, json!(["quit"]))
@@ -382,9 +440,11 @@ mod imp {
     pub struct PodcastPlayer;
 
     impl PodcastPlayer {
-        pub fn new(_url: &str) -> Result<Self, String> {
+        pub fn new(_url: &str, _title: &str) -> Result<Self, String> {
             Err("Player podcast interno disponibile solo su macOS".to_string())
         }
+
+        pub fn save_bookmark(&self, _force: bool) {}
 
         pub fn play(&self) -> Result<(), String> {
             Err("Player podcast interno disponibile solo su macOS".to_string())

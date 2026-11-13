@@ -729,9 +729,9 @@ jobs:
             <key>CFBundleIdentifier</key>
             <string>com.sonarpad.minimal</string>
           <key>CFBundleVersion</key>
-          <string>0.5.5</string>
+          <string>0.5.6</string>
           <key>CFBundleShortVersionString</key>
-          <string>0.5.5</string>
+          <string>0.5.6</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleExecutable</key>

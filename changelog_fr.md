@@ -1,5 +1,11 @@
 Journal des nouveautés
 
+Version 0.5.6 - 13 novembre 2026
+
+Synchronisation cloud : ajout des favoris SonarMusic entre Windows, Mac et mobile, y compris les titres, albums, artistes et playlists. Les listes existantes sont fusionnées et les suppressions explicites sont synchronisées.
+
+Podcasts : les signets automatiques et la position d’écoute sont désormais synchronisés entre Windows, Mac et mobile, y compris pour les épisodes lus depuis le cache Windows. Les anciennes positions ne remplacent pas les plus récentes ; la fin de lecture et la suppression des signets sont également synchronisées.
+
 Version 0.5.5 - 12 novembre 2026
 
 Correction de l'action Ouvrir dans la recherche de lieux et d'établissements : le lieu sélectionné s'ouvre désormais dans l'éditeur dès la première tentative, avec le curseur au début. Gestion des fenêtres de recherche, des résultats et de la pagination également améliorée.

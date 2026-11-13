@@ -688,7 +688,9 @@ pub(crate) fn open(
         if let Some(item) = item {
             {
                 let mut settings = settings_f.lock().unwrap();
+                let before = settings.clone();
                 music::remove_favorite(&mut settings.sonarmusic_favorites, &item);
+                crate::record_explicit_cloud_deletions(&before, &settings);
                 *saved.borrow_mut() = music::favorite_items(&settings.sonarmusic_favorites);
                 settings.save();
             }

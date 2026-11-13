@@ -1,5 +1,11 @@
 Änderungsprotokoll
 
+Version 0.5.6 – 13. November 2026
+
+Cloud-Synchronisierung: SonarMusic-Favoriten werden jetzt zwischen Windows, Mac und Mobilgeräten synchronisiert, einschließlich Songs, Alben, Künstlern und Playlists. Bestehende Listen werden zusammengeführt und ausdrückliche Löschungen synchronisiert.
+
+Podcasts: Automatische Lesezeichen und Wiedergabepositionen werden zwischen Windows, Mac und Mobilgeräten synchronisiert, auch bei Episoden aus dem Windows-Cache. Ältere Positionen überschreiben keine neueren; auch das Wiedergabeende und das Entfernen von Lesezeichen werden synchronisiert.
+
 Version 0.5.5 – 12. November 2026
 
 Die Aktion Öffnen in der Suche nach Orten und Unternehmen wurde korrigiert: Der ausgewählte Ort wird nun beim ersten Versuch direkt im Editor geöffnet, mit dem Cursor am Anfang. Die Verwaltung der Such- und Ergebnisdialoge sowie der Seitenwechsel wurde ebenfalls verbessert.

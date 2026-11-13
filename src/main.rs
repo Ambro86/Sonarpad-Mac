@@ -37,6 +37,7 @@ mod batch_audiobooks;
 mod batch_audiobooks_engine;
 mod batch_audiobooks_render;
 mod podcast_player;
+mod podcast_bookmarks;
 mod podcast_recording;
 mod podcast_recording_engine;
 mod podcasts;
@@ -478,6 +479,8 @@ struct Settings {
     #[serde(default)]
     sonarmusic_favorites: Vec<serde_json::Value>,
     #[serde(default)]
+    podcast_bookmarks: Vec<serde_json::Value>,
+    #[serde(default)]
     tv_favorites: Vec<TvFavorite>,
     #[serde(default)]
     rai_luce_code: String,
@@ -639,6 +642,7 @@ impl Settings {
             sonartube_search_type: 0,
             sonarmusic_search_type: String::new(),
             sonarmusic_favorites: Vec::new(),
+            podcast_bookmarks: Vec::new(),
             tv_favorites: Vec::new(),
             rai_luce_code: String::new(),
             auto_media_bookmark: false,
@@ -11585,7 +11589,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
 const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.5 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.6 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {
@@ -31163,6 +31167,9 @@ fn main() {
 
         let automatic_sync = Rc::new(RefCell::new(cloud_sync_window::Automatic::new()));
         timer_tick.on_tick(move |_| {
+            if let Some(player) = podcast_playback_timer.borrow().player.as_ref() {
+                player.save_bookmark(false);
+            }
             automatic_sync.borrow_mut().tick(&settings_timer);
             if std::mem::take(&mut automatic_sync.borrow_mut().changed) {
                 article_menu_state_timer.lock().unwrap().dirty = true;
@@ -32407,7 +32414,7 @@ fn main() {
                         .eq_ignore_ascii_case(&episode.audio_url);
 
                 if needs_new_player {
-                    match podcast_player::PodcastPlayer::new(&episode.audio_url) {
+                    match podcast_player::PodcastPlayer::new(&episode.audio_url, &episode.title) {
                         Ok(player) => {
                             log_podcast_player_snapshot(
                                 &player,
@@ -32640,7 +32647,7 @@ fn main() {
                         .eq_ignore_ascii_case(&episode.audio_url);
 
                 if needs_new_player {
-                    match podcast_player::PodcastPlayer::new(&episode.audio_url) {
+                    match podcast_player::PodcastPlayer::new(&episode.audio_url, &episode.title) {
                         Ok(player) => {
                             log_podcast_player_snapshot(
                                 &player,

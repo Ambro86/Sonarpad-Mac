@@ -1,5 +1,11 @@
 Changelog
 
+Version 0.5.6 - November 13, 2026
+
+Cloud sync: added SonarMusic favorites across Windows, Mac and mobile, including songs, albums, artists and playlists. Existing lists are merged and explicit removals are synchronized.
+
+Podcasts: automatic bookmarks and listening positions now sync between Windows, Mac and mobile, including episodes played from the Windows cache. Older positions cannot overwrite newer ones; completion and bookmark removal also sync.
+
 Version 0.5.5 - November 12, 2026
 
 Fixed Open in Find places and businesses: the selected place now opens in the editor on the first attempt, with the cursor at the beginning. Also improved search and results dialog handling and pagination.

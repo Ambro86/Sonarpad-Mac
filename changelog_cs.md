@@ -1,5 +1,11 @@
 Seznam změn
 
+Verze 0.5.6 - 13. listopadu 2026
+
+Cloudová synchronizace: přidány oblíbené položky SonarMusic mezi Windows, Macem a mobilními zařízeními, včetně skladeb, alb, interpretů a playlistů. Existující seznamy se sloučí a výslovná odstranění se synchronizují.
+
+Podcasty: automatické záložky a pozice přehrávání se synchronizují mezi Windows, Macem a mobilními zařízeními, i při přehrávání epizod z mezipaměti Windows. Starší pozice nepřepíšou novější; synchronizuje se také dokončení přehrávání a odstranění záložek.
+
 Verze 0.5.5 - 12. listopadu 2026
 
 Opraveno tlačítko Otevřít při hledání míst a podniků: vybrané místo se nyní otevře v editoru hned napoprvé a kurzor se přesune na začátek. Vylepšena také správa dialogů vyhledávání a výsledků i přecházení mezi stránkami.
