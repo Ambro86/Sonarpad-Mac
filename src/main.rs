@@ -25,6 +25,7 @@ mod developer_report_dialog;
 mod directories;
 mod edge_gec_v2;
 mod edge_tts;
+mod gemini_tts;
 mod edge_tts_support;
 mod file_loader;
 mod faster_whisper_bridge;
@@ -414,6 +415,10 @@ struct Settings {
     voice_engine: String,
     #[serde(default)]
     system_voice: String,
+    #[serde(default)]
+    gemini_voice: String,
+    #[serde(default)]
+    gemini_language: String,
     #[serde(default = "default_media_seek_seconds")]
     media_seek_seconds: u32,
     #[serde(default = "default_true")]
@@ -608,6 +613,8 @@ impl Settings {
             voice: "".to_string(),
             voice_engine: default_voice_engine(),
             system_voice: String::new(),
+            gemini_voice: "Kore".to_string(),
+            gemini_language: String::new(),
             media_seek_seconds: default_media_seek_seconds(),
             announce_media_duration_on_seek: true,
             transcription_audio_language: String::new(),
@@ -1018,6 +1025,7 @@ struct UiStrings {
     media_seek_step_label: String,
     announce_media_duration_on_seek_label: String,
     voice_language_label: String,
+    gemini_language_auto_label: String,
     voice_label: String,
     rate_label: String,
     pitch_label: String,
@@ -9669,11 +9677,31 @@ fn build_language_list(voices: &[edge_tts::VoiceInfo], ui_language: &str) -> Vec
 }
 
 fn normalized_voice_engine(value: &str) -> String {
-    if value == "system" {
-        "system".to_string()
+    if value == "system" || value == "gemini" {
+        value.to_string()
     } else {
         default_voice_engine()
     }
+}
+
+fn ensure_gemini_voice_key(
+    engine: &str, dialog_parent: &dyn WxWidget, main_parent: &Frame,
+    settings: &Arc<Mutex<Settings>>, voices: &Arc<Mutex<Vec<edge_tts::VoiceInfo>>>,
+) -> bool {
+    if engine != "gemini" || gemini_tts::credentials_available(&settings.lock().unwrap()) {
+        return true;
+    }
+    let Ok(runtime) = Runtime::new() else { return false; };
+    audio_description::open_gemini_key_dialog(dialog_parent, main_parent, settings, &Arc::new(runtime), voices);
+    gemini_tts::credentials_available(&settings.lock().unwrap())
+}
+
+fn voice_engine_index(engine: &str) -> u32 {
+    match engine { "system" => 1, "gemini" => 2, _ => 0 }
+}
+
+fn voice_engine_from_index(index: u32) -> &'static str {
+    match index { 1 => "system", 2 => "gemini", _ => "microsoft" }
 }
 
 fn is_system_voice_engine(value: &str) -> bool {
@@ -10006,6 +10034,10 @@ fn synthesize_voice_chunk_blocking(
     volume: i32,
     rt: &Runtime,
 ) -> Result<Vec<u8>, String> {
+    if engine == "gemini" {
+        return rt.block_on(gemini_tts::synthesize_cancellable(text, voice, rate, pitch, volume, || true))?
+            .ok_or_else(|| "cancelled".to_string());
+    }
     if is_system_voice_engine(engine) {
         synthesize_system_voice_to_mp3(text, voice, rate, pitch, volume)
     } else {
@@ -10025,6 +10057,7 @@ fn normalize_settings_data(settings: &mut Settings) {
         settings.last_youtube_save_format = default_youtube_save_format();
     }
     settings.voice_engine = normalized_voice_engine(&settings.voice_engine);
+    if settings.gemini_voice.trim().is_empty() { settings.gemini_voice = "Kore".into(); }
     settings.transcription_audio_language = settings
         .transcription_audio_language
         .trim()
@@ -10047,12 +10080,7 @@ fn normalize_settings_data(settings: &mut Settings) {
     if settings.audio_description_language.is_empty() {
         settings.audio_description_language = default_audio_description_language();
     }
-    settings.audio_description_tts_engine =
-        if is_system_voice_engine(&settings.audio_description_tts_engine) {
-            "system".to_string()
-        } else {
-            "microsoft".to_string()
-        };
+    settings.audio_description_tts_engine = normalized_voice_engine(&settings.audio_description_tts_engine);
     settings.audio_description_tts_rate = settings
         .audio_description_tts_rate
         .map(|value| value.clamp(-100, 100));
@@ -10143,7 +10171,7 @@ fn normalize_settings_data(settings: &mut Settings) {
         .retain(|favorite| !favorite.title.trim().is_empty() && !favorite.url.trim().is_empty());
     settings
         .tv_favorites
-        .retain(|favorite| !favorite.name.trim().is_empty() && !favorite.url.trim().is_empty());
+        .retain(|favorite| !favorite.name.trim().is_empty());
     let mut seen_stream_urls = HashSet::new();
     settings
         .radio_favorites
@@ -14258,7 +14286,9 @@ fn play_voice_preview(
             append_podcast_log("settings.voice_preview.runtime_failed");
             return;
         };
-        let result = if is_system_voice_engine(&engine) {
+        let result = if engine == "gemini" {
+            rt.block_on(gemini_tts::synthesize_cancellable(&text, &voice, rate, pitch, volume, is_active))
+        } else if is_system_voice_engine(&engine) {
             synthesize_system_voice_to_mp3(&text, &voice, rate, pitch, volume).map(Some)
         } else {
             rt.block_on(edge_tts_support::synthesize_preview_cancellable(
@@ -14730,14 +14760,16 @@ fn open_settings_dialog(
 
     choice_voice_engine.append(&ui.voice_engine_microsoft);
     choice_voice_engine.append(&ui.voice_engine_system);
+    choice_voice_engine.append("Gemini");
     let initial_voice_engine = normalized_voice_engine(&settings_before.voice_engine);
-    if is_system_voice_engine(&initial_voice_engine) {
-        choice_voice_engine.set_selection(1);
-    } else {
-        choice_voice_engine.set_selection(0);
-    }
+    choice_voice_engine.set_selection(voice_engine_index(&initial_voice_engine));
 
     let selected_voice = Rc::new(RefCell::new(settings_before.voice.clone()));
+    let selected_gemini_language = Rc::new(RefCell::new(settings_before.gemini_language.clone()));
+    let selected_gemini_language_fill = Rc::clone(&selected_gemini_language);
+    let selected_gemini_voice = Rc::new(RefCell::new(settings_before.gemini_voice.clone()));
+    let selected_gemini_voice_init = Rc::clone(&selected_gemini_voice);
+    let gemini_voices_snapshot = gemini_tts::voices();
     let selected_system_voice = Rc::new(RefCell::new(settings_before.system_voice.clone()));
     let selected_voice_engine = Rc::new(RefCell::new(initial_voice_engine));
     let active_languages = Rc::new(RefCell::new(Vec::<(String, String)>::new()));
@@ -14757,10 +14789,16 @@ fn open_settings_dialog(
         let use_system = is_system_voice_engine(engine);
         let active_voices = if use_system {
             &system_voices_snapshot
+        } else if engine == "gemini" {
+            &gemini_voices_snapshot
         } else {
             &voices_snapshot
         };
-        let language_list = if use_system {
+        let language_list = if engine == "gemini" {
+            let mut choices = vec![(ui_strings(&ui_language_for_voice).gemini_language_auto_label.clone(), String::new())];
+            choices.extend(interface_language_options(&ui_language_for_voice).into_iter().map(|(label, code)| (label, code.to_string())));
+            choices
+        } else if use_system {
             build_language_list(active_voices, &ui_language_for_voice)
         } else {
             languages_snapshot.clone()
@@ -14774,10 +14812,15 @@ fn open_settings_dialog(
 
         let preferred_voice = if use_system {
             selected_system_voice_init.borrow().clone()
+        } else if engine == "gemini" {
+            selected_gemini_voice_init.borrow().clone()
         } else {
             selected_voice_init.borrow().clone()
         };
-        let selected_lang = lang_sel
+        let gemini_lang = if engine == "gemini" {
+            Some(language_list.iter().position(|(_, code)| *code == *selected_gemini_language_fill.borrow()).unwrap_or(0) as u32)
+        } else { None };
+        let selected_lang = lang_sel.or(gemini_lang)
             .map(|sel| sel as usize)
             .filter(|sel| *sel < language_list.len())
             .or_else(|| {
@@ -14811,9 +14854,12 @@ fn open_settings_dialog(
             .get(selected_lang)
             .map(|(_, locale)| locale.clone())
             .unwrap_or_default();
+        if engine == "gemini" {
+            *selected_gemini_language_fill.borrow_mut() = locale.clone();
+        }
         let voice_list: Vec<_> = active_voices
             .iter()
-            .filter(|voice| voice.locale == locale)
+            .filter(|voice| engine == "gemini" || voice.locale == locale)
             .cloned()
             .collect();
         choice_voices_fill.clear();
@@ -14823,6 +14869,8 @@ fn open_settings_dialog(
 
         let preferred = if use_system {
             selected_system_voice_init.borrow().clone()
+        } else if engine == "gemini" {
+            selected_gemini_voice_init.borrow().clone()
         } else {
             selected_voice_init.borrow().clone()
         };
@@ -14835,6 +14883,8 @@ fn open_settings_dialog(
             choice_voices_fill.set_selection(0);
             if use_system {
                 *selected_system_voice_init.borrow_mut() = first.short_name.clone();
+            } else if engine == "gemini" {
+                *selected_gemini_voice_init.borrow_mut() = first.short_name.clone();
             } else {
                 *selected_voice_init.borrow_mut() = first.short_name.clone();
             }
@@ -14853,14 +14903,14 @@ fn open_settings_dialog(
     let populate_voices_engine = Rc::clone(&populate_voices);
     let selected_voice_engine_evt = Rc::clone(&selected_voice_engine);
     let choice_voice_engine_evt = choice_voice_engine;
+    let gemini_key_parent = *parent;
+    let gemini_key_settings = Arc::clone(settings);
+    let gemini_key_voices = Arc::clone(voices_data);
     choice_voice_engine.on_selection_changed(move |_| {
-        let engine = if choice_voice_engine_evt.get_selection().unwrap_or(0) == 1 {
-            "system"
-        } else {
-            "microsoft"
-        };
+        let engine = voice_engine_from_index(choice_voice_engine_evt.get_selection().unwrap_or(0));
         *selected_voice_engine_evt.borrow_mut() = engine.to_string();
         populate_voices_engine(engine, None);
+        ensure_gemini_voice_key(engine, &dialog, &gemini_key_parent, &gemini_key_settings, &gemini_key_voices);
     });
 
     let populate_voices_evt = Rc::clone(&populate_voices);
@@ -14873,6 +14923,7 @@ fn open_settings_dialog(
 
     let filtered_voices_choice = Rc::clone(&filtered_voices);
     let selected_voice_choice = Rc::clone(&selected_voice);
+    let selected_gemini_voice_choice = Rc::clone(&selected_gemini_voice);
     let selected_system_voice_choice = Rc::clone(&selected_system_voice);
     let selected_voice_engine_choice = Rc::clone(&selected_voice_engine);
     choice_voices.on_selection_changed(move |_| {
@@ -14881,6 +14932,8 @@ fn open_settings_dialog(
         {
             if is_system_voice_engine(&selected_voice_engine_choice.borrow()) {
                 *selected_system_voice_choice.borrow_mut() = voice.short_name.clone();
+            } else if *selected_voice_engine_choice.borrow() == "gemini" {
+                *selected_gemini_voice_choice.borrow_mut() = voice.short_name.clone();
             } else {
                 *selected_voice_choice.borrow_mut() = voice.short_name.clone();
             }
@@ -14888,6 +14941,7 @@ fn open_settings_dialog(
     });
 
     let selected_voice_preview = Rc::clone(&selected_voice);
+    let selected_gemini_voice_preview = Rc::clone(&selected_gemini_voice);
     let selected_system_voice_preview = Rc::clone(&selected_system_voice);
     let selected_voice_engine_preview = Rc::clone(&selected_voice_engine);
     let settings_title_preview = ui.settings_title.clone();
@@ -14914,10 +14968,16 @@ fn open_settings_dialog(
     let dialog_voice_preview = dialog;
     let voice_preview_generation = Arc::new(AtomicU64::new(0));
     let voice_preview_generation_click = Arc::clone(&voice_preview_generation);
+    let gemini_preview_parent = *parent;
+    let gemini_preview_settings = Arc::clone(settings);
+    let gemini_preview_voices = Arc::clone(voices_data);
     voice_preview_button.on_click(move |_| {
         let engine = selected_voice_engine_preview.borrow().clone();
+        if !ensure_gemini_voice_key(&engine, &dialog_voice_preview, &gemini_preview_parent, &gemini_preview_settings, &gemini_preview_voices) { return; }
         let voice = if is_system_voice_engine(&engine) {
             selected_system_voice_preview.borrow().clone()
+        } else if engine == "gemini" {
+            selected_gemini_voice_preview.borrow().clone()
         } else {
             selected_voice_preview.borrow().clone()
         };
@@ -14982,15 +15042,21 @@ fn open_settings_dialog(
                 &updated.article_sources,
             );
         }
-        updated.voice_engine = if choice_voice_engine.get_selection().unwrap_or(0) == 1 {
-            "system".to_string()
-        } else {
-            default_voice_engine()
-        };
+        updated.voice_engine = voice_engine_from_index(choice_voice_engine.get_selection().unwrap_or(0)).to_string();
+        updated.gemini_voice = selected_gemini_voice.borrow().clone();
+        updated.gemini_language = selected_gemini_language.borrow().clone();
+        // A nested credential dialog may have saved the shared key meanwhile.
+        {
+            let current = settings.lock().unwrap();
+            updated.audio_description_gemini_api_key = current.audio_description_gemini_api_key.clone();
+            updated.audio_description_use_sonarpad_ai = current.audio_description_use_sonarpad_ai;
+            updated.sonarpad_ai_access_code = current.sonarpad_ai_access_code.clone();
+            updated.sonarpad_ai_device_id = current.sonarpad_ai_device_id.clone();
+        }
         if let Some(sel) = choice_lang.get_selection()
             && let Some((name, _)) = active_languages.borrow().get(sel as usize)
         {
-            updated.language = name.clone();
+            if updated.voice_engine != "gemini" { updated.language = name.clone(); }
         }
         let chosen_voice = selected_voice.borrow().clone();
         if !chosen_voice.is_empty() {
@@ -15038,6 +15104,8 @@ fn open_settings_dialog(
         let refresh_needed = settings_before.voice_engine != updated.voice_engine
             || settings_before.voice != updated.voice
             || settings_before.system_voice != updated.system_voice
+            || settings_before.gemini_voice != updated.gemini_voice
+            || settings_before.gemini_language != updated.gemini_language
             || settings_before.rate != updated.rate
             || settings_before.pitch != updated.pitch
             || settings_before.volume != updated.volume;
@@ -25627,7 +25695,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             if !settings
                 .tv_favorites
                 .iter()
-                .any(|favorite| favorite.url == channel.url)
+                .any(|favorite| favorite.url == channel.url || favorite.name.trim().to_lowercase() == channel.name.trim().to_lowercase())
             {
                 settings.tv_favorites.push(TvFavorite {
                     name: channel.name.clone(),
@@ -25685,7 +25753,7 @@ fn open_tv_channels_dialog(parent: &Frame, channels: Vec<tv::TvChannel>) {
             if settings
                 .tv_favorites
                 .iter()
-                .any(|favorite| favorite.url == url)
+                .any(|favorite| favorite.url == url || favorite.name.trim().to_lowercase() == name.trim().to_lowercase())
             {
                 show_message_subdialog(
                     &dialog_add_channel,
@@ -31828,7 +31896,7 @@ fn main() {
                 open_convert_media_folder_dialog(&f_menu);
                 refresh_remembered_module_settings(&settings_menu);
             } else if event.get_id() == ID_TOOLS_BATCH_AUDIOBOOKS {
-                batch_audiobooks::open_dialog(&f_menu, &settings_menu, &rt_audio_description_menu);
+                batch_audiobooks::open_dialog(&f_menu, &settings_menu, &rt_audio_description_menu, &voices_audio_description_menu);
                 tc_menu.set_focus();
                 wxdragon::call_after(Box::new(move || tc_menu.set_focus()));
             } else if event.get_id() == ID_TOOLS_RECORD_PODCAST {
@@ -32530,6 +32598,7 @@ fn main() {
             }
         });
 
+        let voices_p_start = Arc::clone(&voices_data);
         let rt_p_start = Arc::clone(&rt);
         let pb_p_start = Arc::clone(&playback);
         let tc_p_start = text_ctrl;
@@ -32748,11 +32817,14 @@ fn main() {
                 let engine = normalized_voice_engine(&s.voice_engine);
                 let voice = if is_system_voice_engine(&engine) {
                     s.system_voice.clone()
+                } else if engine == "gemini" {
+                    s.gemini_voice.clone()
                 } else {
                     s.voice.clone()
                 };
                 (engine, voice, s.rate, s.pitch, s.volume)
             };
+            if !ensure_gemini_voice_key(&engine, &f_play_start, &f_play_start, &s_play_start, &voices_p_start) { return; }
             let mut pb = pb_p_start.lock().unwrap();
             let tts_started = Instant::now();
             append_podcast_log(&format!(
@@ -32936,7 +33008,12 @@ fn main() {
                                 pitch,
                                 volume
                             ));
-                            let synth_result = if is_system_voice_engine(&engine_download) {
+                            let synth_result = if engine_download == "gemini" {
+                                gemini_tts::synthesize_cancellable(&chunk, &voice_download, rate, pitch, volume, || {
+                                    let pb = pb_download.lock().unwrap();
+                                    !audio_tx.is_closed() && pb.generation == playback_generation && pb.status != PlaybackStatus::Stopped
+                                }).await.map(|audio| audio.map(|data| (data, None))).map_err(|e| anyhow::anyhow!(e))
+                            } else if is_system_voice_engine(&engine_download) {
                                 synthesize_system_voice_to_mp3(
                                     &chunk,
                                     &voice_download,
@@ -33199,6 +33276,7 @@ fn main() {
         let tc_s = text_ctrl;
         let f_save = frame;
         let s_save = Arc::clone(&settings);
+        let voices_save = Arc::clone(&voices_data);
         let podcast_playback_save = Rc::clone(&podcast_playback);
         #[cfg(target_os = "macos")]
         let tc_save_text = text_ctrl;
@@ -33285,6 +33363,8 @@ fn main() {
                 let engine = normalized_voice_engine(&s.voice_engine);
                 let voice = if is_system_voice_engine(&engine) {
                     s.system_voice.clone()
+                } else if engine == "gemini" {
+                    s.gemini_voice.clone()
                 } else {
                     s.voice.clone()
                 };
@@ -33297,6 +33377,8 @@ fn main() {
                     s.disable_blank_line_pauses,
                 )
             };
+            if !ensure_gemini_voice_key(&engine, &f_save, &f_save, &s_save, &voices_save) { return; }
+
             let audiobook_file_not_saved = ui.audiobook_file_not_saved.clone();
             let audiobook_conversion_failed = ui.audiobook_conversion_failed.clone();
             let audiobook_ffmpeg_missing = ui.audiobook_ffmpeg_missing.clone();
@@ -33397,7 +33479,7 @@ fn main() {
                 let save_state_thread = Arc::clone(&save_state);
                 let chunks = Arc::new(chunks);
                 std::thread::spawn(move || {
-                    let cache = if is_system_voice_engine(&engine) {
+                    let cache = if is_system_voice_engine(&engine) || engine == "gemini" {
                         None
                     } else {
                         match edge_tts_support::AudiobookCache::open(
@@ -33427,7 +33509,9 @@ fn main() {
                     };
                     let next_index = Arc::new(Mutex::new(0usize));
                     let results = Arc::new(Mutex::new(vec![None; chunks.len()]));
-                    let worker_count = if is_system_voice_engine(&engine) {
+                    let worker_count = if engine == "gemini" {
+                        gemini_tts::MAX_PARALLEL_REQUESTS
+                    } else if is_system_voice_engine(&engine) {
                         1
                     } else {
                         chunks.len().clamp(1, AUDIOBOOK_SAVE_THREADS)
@@ -33483,7 +33567,10 @@ fn main() {
                                     save_state_worker.lock().unwrap().completed_chunks += 1;
                                     continue;
                                 }
-                                let result = if is_system_voice_engine(&engine_worker) {
+                                let result = if engine_worker == "gemini" {
+                                    rt_worker.block_on(gemini_tts::synthesize_cancellable(&chunk, &voice_worker, rate, pitch, volume,
+                                        || !abort_worker.load(Ordering::Relaxed) && !failed_worker.load(Ordering::Relaxed)))
+                                } else if is_system_voice_engine(&engine_worker) {
                                     synthesize_system_voice_to_mp3(
                                         &chunk,
                                         &voice_worker,

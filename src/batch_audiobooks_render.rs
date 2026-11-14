@@ -18,6 +18,8 @@ impl Voice {
         let engine = crate::normalized_voice_engine(&settings.voice_engine);
         let name = if crate::is_system_voice_engine(&engine) {
             settings.system_voice.clone()
+        } else if engine == "gemini" {
+            settings.gemini_voice.clone()
         } else {
             settings.voice.clone()
         };
@@ -67,7 +69,7 @@ pub fn render(
     if chunks.is_empty() {
         return Err("Document contains no speakable text".into());
     }
-    let cache = if system {
+    let cache = if system || voice.engine == "gemini" {
         None
     } else {
         match crate::edge_tts_support::AudiobookCache::open(
@@ -89,12 +91,36 @@ pub fn render(
     let mut writer =
         std::io::BufWriter::new(std::fs::File::create(&source).map_err(|e| e.to_string())?);
     let mut duration = 0.0;
+    let mut gemini_batch = std::collections::VecDeque::new();
     for (index, chunk) in chunks.iter().enumerate() {
+        if voice.engine == "gemini" && gemini_batch.is_empty() {
+            let end = (index + crate::gemini_tts::MAX_PARALLEL_REQUESTS).min(chunks.len());
+            gemini_batch = runtime
+                .block_on(async {
+                    futures_util::future::join_all(chunks[index..end].iter().map(|text| {
+                        crate::gemini_tts::synthesize_cancellable(
+                            text,
+                            &voice.name,
+                            voice.rate,
+                            voice.pitch,
+                            voice.volume,
+                            || !cancel.load(Ordering::Relaxed),
+                        )
+                    }))
+                    .await
+                })
+                .into();
+        }
         check(cancel)?;
         let audio = if let Some(audio) = cache.as_ref().and_then(|c| c.load(index)) {
             audio
         } else {
-            let audio = if system {
+            let audio = if voice.engine == "gemini" {
+                gemini_batch
+                    .pop_front()
+                    .ok_or("Missing Gemini chunk")??
+                    .ok_or("__CANCELLED__")?
+            } else if system {
                 crate::synthesize_system_voice_to_mp3(
                     chunk,
                     &voice.name,

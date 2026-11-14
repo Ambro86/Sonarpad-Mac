@@ -1,0 +1,851 @@
+//! Gemini speech through the selected audio-description AI provider.
+use base64::Engine;
+use serde_json::{Value, json};
+use std::io::Cursor;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::Duration;
+
+use crate::edge_tts::VoiceInfo;
+
+pub(crate) const MAX_PARALLEL_REQUESTS: usize = 8;
+static REQUEST_SLOTS: tokio::sync::Semaphore =
+    tokio::sync::Semaphore::const_new(MAX_PARALLEL_REQUESTS);
+
+const MODEL: &str = "gemini-3.8-flash-tts";
+const VOICES: &[&str] = &[
+    "Zephyr",
+    "Puck",
+    "Charon",
+    "Kore",
+    "Fenrir",
+    "Leda",
+    "Orus",
+    "Aoede",
+    "Callirrhoe",
+    "Autonoe",
+    "Enceladus",
+    "Iapetus",
+    "Umbriel",
+    "Algieba",
+    "Despina",
+    "Erinome",
+    "Algenib",
+    "Rasalgethi",
+    "Laomedeia",
+    "Achernar",
+    "Alnilam",
+    "Schedar",
+    "Gacrux",
+    "Pulcherrima",
+    "Achird",
+    "Zubenelgenubi",
+    "Vindemiatrix",
+    "Sadachbia",
+    "Sadaltager",
+    "Sulafat",
+];
+
+pub fn voices() -> Vec<VoiceInfo> {
+    VOICES
+        .iter()
+        .map(|name| VoiceInfo {
+            short_name: (*name).to_string(),
+            locale: "mul".to_string(),
+            friendly_name: (*name).to_string(),
+            suggested_codec: "audio-24khz-48kbitrate-mono-mp3".to_string(),
+        })
+        .collect()
+}
+
+fn language_instruction(language: &str) -> &'static str {
+    match language.trim().to_ascii_lowercase().as_str() {
+        "it" | "it-it" => "Utilizza esclusivamente un timbro e una pronuncia italiani.",
+        "en" | "en-us" => "Use exclusively an American English vocal timbre and pronunciation.",
+        "es" | "es-es" => {
+            "Utiliza exclusivamente un timbre y una pronunciación del español de España."
+        }
+        "pt" | "pt-pt" => "Utiliza exclusivamente um timbre e uma pronúncia do português europeu.",
+        "pt-br" => "Utilize exclusivamente um timbre e uma pronúncia do português brasileiro.",
+        "sv-se" => "Använd uteslutande svensk röstklang och svenskt uttal.",
+        "vi-vn" => "Chỉ sử dụng âm sắc và cách phát âm tiếng Việt.",
+        "cs" | "cs-cz" => "Používej výhradně české zabarvení hlasu a českou výslovnost.",
+        "pl" | "pl-pl" => "Używaj wyłącznie polskiej barwy głosu i polskiej wymowy.",
+        "fr" | "fr-fr" => "Utilise exclusivement un timbre et une prononciation français.",
+        "sr-rs" => "Користи искључиво српску боју гласа и српски изговор.",
+        "uk-ua" => "Використовуй виключно український тембр голосу та українську вимову.",
+        "lt-lt" => "Naudok tik lietuvišką balso tembrą ir lietuvišką tarimą.",
+        "ru-ru" => "Используй исключительно русский тембр голоса и русское произношение.",
+        "zh-cn" => "仅使用标准普通话的音色和发音。",
+        "hi-in" => "केवल हिंदी स्वर और हिंदी उच्चारण का उपयोग करें।",
+        "de" | "de-de" => {
+            "Verwende ausschließlich eine deutsche Stimmfärbung und deutsche Aussprache."
+        }
+        "id-id" => "Gunakan hanya warna suara dan pelafalan bahasa Indonesia.",
+        _ => "",
+    }
+}
+
+fn request_body(text: &str, voice: &str, rate: i32, pitch: i32, language: &str) -> Value {
+    let mut part = json!({"text": text});
+    let mut style = language_instruction(language).to_string();
+    if rate != 0 || pitch != 0 {
+        if style.is_empty() {
+            style.push_str("Read in the original language.");
+        }
+        style.push_str(&format!(
+            " Speaking speed: {} percent of normal. Pitch: {:+} semitones relative to normal.",
+            100 + rate.clamp(-90, 100),
+            pitch.clamp(-12, 12)
+        ));
+    }
+    if !style.is_empty() {
+        part["speech_metadata"] = json!({"style": style});
+    }
+    json!({
+        "contents": [{"role": "user", "parts": [part]}],
+        "generationConfig": {
+            "responseModalities": ["AUDIO"],
+            "speechConfig": {"voiceConfig": {"voice": voice}}
+        }
+    })
+}
+
+fn response_audio(response: &Value, volume: i32) -> Result<Vec<u8>, String> {
+    let finish = response["candidates"][0]["finishReason"]
+        .as_str()
+        .unwrap_or("");
+    let blocked = response["promptFeedback"]["blockReason"]
+        .as_str()
+        .unwrap_or("");
+    if !blocked.is_empty() || matches!(finish, "SAFETY" | "PROHIBITED_CONTENT" | "RECITATION") {
+        return Err("Gemini TTS: blocked response.".to_string());
+    }
+    if finish == "MALFORMED_RESPONSE" {
+        return Err("Gemini TTS: malformed response.".to_string());
+    }
+    if finish == "MAX_TOKENS" {
+        return Err("Gemini TTS: audio generation was truncated.".to_string());
+    }
+    let encoded = response["candidates"][0]["content"]["parts"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find_map(|part| part["inlineData"]["data"].as_str())
+        .ok_or_else(|| "Gemini TTS: no audio returned.".to_string())?;
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(encoded)
+        .map_err(|_| "Gemini TTS: invalid audio encoding.".to_string())?;
+    let mut reader = hound::WavReader::new(Cursor::new(&bytes))
+        .map_err(|_| "Gemini TTS: invalid WAV audio.".to_string())?;
+    let spec = reader.spec();
+    if spec.bits_per_sample != 16
+        || spec.sample_format != hound::SampleFormat::Int
+        || reader.duration() == 0
+    {
+        return Err("Gemini TTS: unsupported or empty audio.".to_string());
+    }
+    let samples = reader
+        .samples::<i16>()
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|_| "Gemini TTS: invalid WAV samples.".to_string())?;
+    if !samples.iter().any(|sample| *sample != 0) {
+        return Err("Gemini TTS: empty WAV signal.".to_string());
+    }
+    if volume == 100 {
+        return Ok(bytes);
+    }
+    let mut output = Cursor::new(Vec::new());
+    {
+        let mut writer = hound::WavWriter::new(&mut output, spec).map_err(|e| e.to_string())?;
+        let gain = volume.clamp(0, 200) as f32 / 100.0;
+        for sample in samples {
+            writer
+                .write_sample((f32::from(sample) * gain) as i16)
+                .map_err(|e| e.to_string())?;
+        }
+        writer.finalize().map_err(|e| e.to_string())?;
+    }
+    Ok(output.into_inner())
+}
+
+pub(crate) fn credentials_available(settings: &crate::Settings) -> bool {
+    if settings.audio_description_use_sonarpad_ai {
+        !settings.sonarpad_ai_access_code.trim().is_empty()
+    } else {
+        !settings.audio_description_gemini_api_key.trim().is_empty()
+    }
+}
+
+pub async fn synthesize_wav_bytes(
+    text: &str,
+    voice: &str,
+    rate: i32,
+    pitch: i32,
+    volume: i32,
+    cancel: &AtomicBool,
+) -> Result<Vec<u8>, String> {
+    let settings = crate::Settings::load();
+    if !credentials_available(&settings) {
+        return Err("Configure the selected AI provider in Create audio descriptions.".into());
+    }
+    if !VOICES.contains(&voice) {
+        return Err("Gemini TTS: unknown voice.".to_string());
+    }
+    if cancel.load(Ordering::Relaxed) {
+        return Err("Cancelled".to_string());
+    }
+    let client = reqwest::Client::builder()
+        // Same timeout and transient-error retry interval as audio-description analysis.
+        .timeout(Duration::from_secs(8 * 60))
+        .build()
+        .map_err(|e| e.to_string())?;
+    let body = request_body(text, voice, rate, pitch, &settings.gemini_language);
+    let request_key = format!("speech-{}", uuid::Uuid::new_v4());
+    let refreshed = AtomicBool::new(false);
+    retry_synthesis(|| async {
+        let _permit = REQUEST_SLOTS.acquire().await.map_err(|_| SynthesisError {
+            message: "Gemini TTS: request queue closed.".into(), retry: false,
+        })?;
+        if settings.audio_description_use_sonarpad_ai {
+            let data = sonarpad_speech_request(&client, SONARPAD_AI_BASE,
+                settings.sonarpad_ai_access_code.trim(), settings.sonarpad_ai_device_id.trim(),
+                "Sonarpad Mac", &body, &request_key, &refreshed).await?;
+            // Paid audio is not retained server-side. Never mint a new request
+            // automatically after a billed but empty/malformed response.
+            return response_audio(&data, volume).map_err(|_| SynthesisError {
+                message: "Sonarpad AI: invalid speech response; request not repeated.".into(), retry: false,
+            });
+        }
+        let response = client
+            .post(format!("https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent"))
+            .header("x-goog-api-key", settings.audio_description_gemini_api_key.trim())
+            .json(&body).send().await.map_err(transport_error)?;
+        let status = response.status();
+        if !status.is_success() {
+            // Inspect only to classify; never expose response text or credentials in logs.
+            let data: Value = response.json().await.unwrap_or(Value::Null);
+            let exhausted_credit = data["error"]["message"].as_str().is_some_and(|message|
+                message.to_ascii_lowercase().contains("prepayment credits are depleted"));
+            return Err(SynthesisError {
+                message: format!("Gemini TTS: HTTP {}", status.as_u16()),
+                retry: !exhausted_credit && retryable_status(status.as_u16()),
+            });
+        }
+        let data: Value = response.json().await.map_err(transport_error)?;
+        response_audio(&data, volume).map_err(|message| SynthesisError {
+            retry: true, message,
+        })
+    }, cancel, Duration::from_secs(5)).await
+}
+
+const SONARPAD_AI_BASE: &str = "https://sonarpad.com/sonarpad-ai/v1";
+struct SonarpadSession {
+    base: String,
+    code: String,
+    device: String,
+    token: String,
+}
+static SONARPAD_SESSION: tokio::sync::Mutex<Option<SonarpadSession>> =
+    tokio::sync::Mutex::const_new(None);
+
+fn sonarpad_error(status: u16, data: &Value) -> SynthesisError {
+    let code = data["error"].as_str().unwrap_or("");
+    let message = match code {
+        "insufficient_credit"
+        | "provider_spend_cap_reached"
+        | "global_provider_spend_cap_reached"
+        | "device_limit_reached"
+        | "invalid_session"
+        | "invalid_access_code"
+        | "billing_reconciliation_required"
+        | "speech_audio_not_retained"
+        | "generation_in_progress"
+        | "maintenance" => format!("Sonarpad AI: {code} (HTTP {status})"),
+        _ => format!("Sonarpad AI: HTTP {status}"),
+    };
+    SynthesisError {
+        message,
+        retry: retryable_status(status),
+    }
+}
+
+async fn sonarpad_token(
+    client: &reqwest::Client,
+    base: &str,
+    code: &str,
+    device: &str,
+    device_name: &str,
+) -> Result<String, SynthesisError> {
+    let mut cached = SONARPAD_SESSION.lock().await;
+    if let Some(session) = cached.as_ref()
+        && session.base == base
+        && session.code == code
+        && session.device == device
+    {
+        return Ok(session.token.clone());
+    }
+    let response = client
+        .post(format!("{base}/activate"))
+        .json(&json!({"code":code,"device_id":device,"device_name":device_name}))
+        .send()
+        .await
+        .map_err(transport_error)?;
+    let status = response.status().as_u16();
+    let data: Value = response.json().await.map_err(transport_error)?;
+    if status != 200 {
+        return Err(sonarpad_error(status, &data));
+    }
+    let token = data["session_token"]
+        .as_str()
+        .filter(|s| s.starts_with("sst_"))
+        .ok_or_else(|| SynthesisError {
+            message: "Sonarpad AI: invalid session response".into(),
+            retry: false,
+        })?
+        .to_string();
+    *cached = Some(SonarpadSession {
+        base: base.into(),
+        code: code.into(),
+        device: device.into(),
+        token: token.clone(),
+    });
+    Ok(token)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn sonarpad_speech_request(
+    client: &reqwest::Client,
+    base: &str,
+    code: &str,
+    device: &str,
+    device_name: &str,
+    body: &Value,
+    request_key: &str,
+    refreshed: &AtomicBool,
+) -> Result<Value, SynthesisError> {
+    let token = sonarpad_token(client, base, code, device, device_name).await?;
+    let response = client
+        .post(format!("{base}/generate"))
+        .bearer_auth(&token)
+        .header("X-Idempotency-Key", request_key)
+        .json(body)
+        .send()
+        .await
+        .map_err(transport_error)?;
+    let status = response.status().as_u16();
+    let data: Value = response.json().await.map_err(transport_error)?;
+    if status == 401 && !refreshed.swap(true, Ordering::Relaxed) {
+        let mut cached = SONARPAD_SESSION.lock().await;
+        if cached
+            .as_ref()
+            .is_some_and(|session| session.token == token)
+        {
+            *cached = None;
+        }
+        return Err(SynthesisError {
+            message: "Sonarpad AI: refreshing expired session".into(),
+            retry: true,
+        });
+    }
+    if status != 200 {
+        return Err(sonarpad_error(status, &data));
+    }
+    Ok(data)
+}
+
+#[derive(Debug)]
+struct SynthesisError {
+    message: String,
+    retry: bool,
+}
+
+fn retryable_status(status: u16) -> bool {
+    matches!(status, 408 | 429 | 500 | 502 | 503 | 504)
+}
+
+fn transport_error(error: reqwest::Error) -> SynthesisError {
+    SynthesisError {
+        retry: error.is_timeout()
+            || error.is_connect()
+            || error.is_body()
+            || error.is_decode()
+            || error.is_request(),
+        message: format!("Gemini TTS: {}", error.without_url()),
+    }
+}
+
+async fn retry_synthesis<F, Fut>(
+    mut operation: F,
+    cancel: &AtomicBool,
+    delay: Duration,
+) -> Result<Vec<u8>, String>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<Vec<u8>, SynthesisError>>,
+{
+    let mut attempt = 0u64;
+    loop {
+        if cancel.load(Ordering::Relaxed) {
+            return Err("Cancelled".into());
+        }
+        let result = tokio::select! {
+            result = operation() => result,
+            () = async {
+                while !cancel.load(Ordering::Relaxed) {
+                    tokio::time::sleep(Duration::from_millis(100)).await;
+                }
+            } => return Err("Cancelled".into()),
+        };
+        match result {
+            Ok(bytes) => return Ok(bytes),
+            Err(error) if error.retry => {
+                attempt = attempt.saturating_add(1);
+                crate::append_podcast_log(&format!(
+                    "Gemini TTS: retry {attempt}; {}",
+                    error.message
+                ));
+                if !sleep_with_cancellation(cancel, delay).await {
+                    return Err("Cancelled".into());
+                }
+            }
+            Err(error) => return Err(error.message),
+        }
+    }
+}
+
+async fn sleep_with_cancellation(cancel: &AtomicBool, delay: Duration) -> bool {
+    let started = std::time::Instant::now();
+    while started.elapsed() < delay {
+        if cancel.load(Ordering::Relaxed) {
+            return false;
+        }
+        tokio::time::sleep((delay - started.elapsed().min(delay)).min(Duration::from_millis(75)))
+            .await;
+    }
+    !cancel.load(Ordering::Relaxed)
+}
+
+// The existing Mac reading/audiobook pipeline consumes MP3 chunks. Reuse the
+// audio-description encoder, leaving speech pace entirely to Gemini synthesis.
+pub async fn synthesize_cancellable<F: Fn() -> bool>(
+    text: &str,
+    voice: &str,
+    rate: i32,
+    pitch: i32,
+    volume: i32,
+    active: F,
+) -> Result<Option<Vec<u8>>, String> {
+    use std::sync::Arc;
+    if !active() {
+        return Ok(None);
+    }
+    let cancel = Arc::new(AtomicBool::new(false));
+    let request_cancel = cancel.clone();
+    let work = async {
+        let wav =
+            synthesize_wav_bytes(text, voice, rate, pitch * 12 / 100, volume, &request_cancel)
+                .await?;
+        tokio::task::spawn_blocking(move || {
+            let dir =
+                std::env::temp_dir().join(format!("sonarpad-gemini-{}", uuid::Uuid::new_v4()));
+            std::fs::create_dir(&dir).map_err(|e| e.to_string())?;
+            let result = (|| {
+                let input = dir.join("speech.wav");
+                let output = dir.join("speech.mp3");
+                std::fs::write(&input, wav).map_err(|e| e.to_string())?;
+                crate::audio_description::encode_mp3(&input, &output, &request_cancel)?;
+                std::fs::read(output).map_err(|e| e.to_string())
+            })();
+            if let Err(error) = std::fs::remove_dir_all(&dir) {
+                crate::append_podcast_log(&format!("Gemini TTS cleanup: {error}"));
+            }
+            result.map(Some)
+        })
+        .await
+        .map_err(|e| e.to_string())?
+    };
+    tokio::select! {
+        result = work => result,
+        () = async { while active() { tokio::time::sleep(Duration::from_millis(75)).await; } } => {
+            cancel.store(true, Ordering::Relaxed);
+            Ok(None)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn gemini_retry_recovers_same_segment_after_transient_errors() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let mut calls = 0;
+        let audio = rt
+            .block_on(retry_synthesis(
+                || {
+                    calls += 1;
+                    std::future::ready(if calls < 5 {
+                        Err(SynthesisError {
+                            message: "Gemini TTS: HTTP 503".into(),
+                            retry: true,
+                        })
+                    } else {
+                        Ok(vec![1, 2, 3])
+                    })
+                },
+                &AtomicBool::new(false),
+                Duration::ZERO,
+            ))
+            .unwrap();
+        assert_eq!(calls, 5);
+        assert_eq!(audio, vec![1, 2, 3]);
+        for status in [408, 429, 500, 502, 503, 504] {
+            assert!(retryable_status(status));
+        }
+        for status in [400, 401, 403, 404] {
+            assert!(!retryable_status(status));
+        }
+    }
+
+    #[test]
+    fn gemini_retry_stops_on_permanent_errors_and_recovers_invalid_audio() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        for message in [
+            "Gemini TTS: blocked response.",
+            "Gemini TTS: malformed response.",
+            "Gemini TTS: no audio returned.",
+            "Gemini TTS: unsupported or empty audio.",
+            "Gemini TTS: audio generation was truncated.",
+        ] {
+            let mut calls = 0;
+            let result = rt
+                .block_on(retry_synthesis(
+                    || {
+                        calls += 1;
+                        std::future::ready(if calls < 10 {
+                            Err(SynthesisError {
+                                message: message.into(),
+                                retry: true,
+                            })
+                        } else {
+                            Ok(vec![1, 2])
+                        })
+                    },
+                    &AtomicBool::new(false),
+                    Duration::ZERO,
+                ))
+                .unwrap();
+            assert_eq!(calls, 10);
+            assert_eq!(result, vec![1, 2]);
+        }
+        let mut calls = 0;
+        assert!(
+            rt.block_on(retry_synthesis(
+                || {
+                    calls += 1;
+                    std::future::ready(Err(SynthesisError {
+                        message: "Gemini TTS: HTTP 403".into(),
+                        retry: false,
+                    }))
+                },
+                &AtomicBool::new(false),
+                Duration::ZERO
+            ))
+            .is_err()
+        );
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn gemini_retry_cancellation_interrupts_requests_and_waits() {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            for in_flight in [true, false] {
+                let cancel = AtomicBool::new(false);
+                let stop = async {
+                    tokio::time::sleep(Duration::from_millis(20)).await;
+                    cancel.store(true, Ordering::Relaxed);
+                };
+                let request = retry_synthesis(
+                    || async {
+                        if in_flight {
+                            std::future::pending::<()>().await;
+                        }
+                        Err(SynthesisError {
+                            message: "timeout".into(),
+                            retry: true,
+                        })
+                    },
+                    &cancel,
+                    Duration::from_secs(5),
+                );
+                let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+                    tokio::join!(request, stop)
+                })
+                .await
+                .expect("cancellation must be prompt");
+                assert_eq!(result.unwrap_err(), "Cancelled");
+            }
+        });
+    }
+
+    #[test]
+    fn language_instruction_is_localized_and_never_spoken() {
+        for language in ["it", "en", "fr", "es", "pt", "cs", "pl", "de"] {
+            let body = request_body(
+                "Harry Potter e la pietra filosofale",
+                "Leda",
+                0,
+                0,
+                language,
+            );
+            let part = &body["contents"][0]["parts"][0];
+            assert_eq!(part["text"], "Harry Potter e la pietra filosofale");
+            assert!(!language_instruction(language).is_empty());
+            assert_eq!(
+                part["speech_metadata"]["style"],
+                language_instruction(language)
+            );
+            assert!(
+                body["generationConfig"]["speechConfig"]
+                    .get("languageCode")
+                    .is_none()
+            );
+        }
+        let tuned = request_body("viziosa", "Leda", 15, -2, "it");
+        let style = tuned["contents"][0]["parts"][0]["speech_metadata"]["style"]
+            .as_str()
+            .unwrap();
+        assert!(style.starts_with("Utilizza esclusivamente un timbro e una pronuncia italiani."));
+        assert!(style.contains("115 percent"));
+    }
+
+    #[test]
+    fn gemini_parallel_requests_are_bounded_ordered_and_cancellable() {
+        use std::sync::atomic::AtomicUsize;
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(async {
+            let active = AtomicUsize::new(0);
+            let peak = AtomicUsize::new(0);
+            let results = futures_util::future::join_all((0..32).map(|index| {
+                let active = &active;
+                let peak = &peak;
+                async move {
+                    let _permit = REQUEST_SLOTS.acquire().await.unwrap();
+                    let count = active.fetch_add(1, Ordering::SeqCst) + 1;
+                    peak.fetch_max(count, Ordering::SeqCst);
+                    tokio::time::sleep(Duration::from_millis((8 - index % 8) * 2)).await;
+                    active.fetch_sub(1, Ordering::SeqCst);
+                    index
+                }
+            }))
+            .await;
+            assert_eq!(peak.load(Ordering::SeqCst), 8);
+            assert_eq!(results, (0..32).collect::<Vec<_>>());
+            let held = REQUEST_SLOTS.acquire_many(8).await.unwrap();
+            let cancel = AtomicBool::new(false);
+            let request = retry_synthesis(
+                || async {
+                    let _permit = REQUEST_SLOTS.acquire().await.unwrap();
+                    Ok(vec![1])
+                },
+                &cancel,
+                Duration::ZERO,
+            );
+            let stop = async {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+                cancel.store(true, Ordering::Relaxed);
+            };
+            let (result, ()) = tokio::time::timeout(Duration::from_secs(1), async {
+                tokio::join!(request, stop)
+            })
+            .await
+            .unwrap();
+            assert_eq!(result.unwrap_err(), "Cancelled");
+            drop(held);
+            assert_eq!(REQUEST_SLOTS.available_permits(), 8);
+        });
+    }
+
+    #[test]
+    fn gemini_rejects_empty_silent_and_invalid_media() {
+        for samples in [vec![], vec![0i16; 32]] {
+            let mut wav = Cursor::new(Vec::new());
+            {
+                let mut writer = hound::WavWriter::new(
+                    &mut wav,
+                    hound::WavSpec {
+                        channels: 1,
+                        sample_rate: 24000,
+                        bits_per_sample: 16,
+                        sample_format: hound::SampleFormat::Int,
+                    },
+                )
+                .unwrap();
+                for sample in samples {
+                    writer.write_sample(sample).unwrap();
+                }
+                writer.finalize().unwrap();
+            }
+            let response = json!({"candidates": [{"content": {"parts": [{"inlineData": {
+                "data": base64::engine::general_purpose::STANDARD.encode(wav.into_inner())
+            }}]}}]});
+            assert!(response_audio(&response, 100).is_err());
+        }
+        let response = json!({"candidates": [{"content": {"parts": [{"inlineData": {
+            "data": base64::engine::general_purpose::STANDARD.encode(b"invalid media")
+        }}]}}]});
+        assert!(response_audio(&response, 100).is_err());
+    }
+
+    #[test]
+    fn transcript_and_style_are_separate() {
+        let body = request_body("Ciao, mondo!", "Puck", 20, -2, "");
+        assert_eq!(body["contents"][0]["parts"][0]["text"], "Ciao, mondo!");
+        assert_eq!(
+            body["generationConfig"]["speechConfig"]["voiceConfig"]["voice"],
+            "Puck"
+        );
+        assert!(body["contents"][0]["parts"][0]["speech_metadata"].is_object());
+        assert!(
+            request_body("Hello", "Kore", 0, 0, "")["contents"][0]["parts"][0]
+                .get("speech_metadata")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn audio_response_preserves_wav_and_adjusts_volume() {
+        let mut wav = Cursor::new(Vec::new());
+        {
+            let mut writer = hound::WavWriter::new(
+                &mut wav,
+                hound::WavSpec {
+                    channels: 1,
+                    sample_rate: 24000,
+                    bits_per_sample: 16,
+                    sample_format: hound::SampleFormat::Int,
+                },
+            )
+            .unwrap();
+            writer.write_sample(1000i16).unwrap();
+            writer.finalize().unwrap();
+        }
+        let original = wav.into_inner();
+        let response = json!({"candidates": [{"finishReason": "STOP", "content": {"parts": [{
+            "inlineData": {"mimeType": "audio/wav", "data": base64::engine::general_purpose::STANDARD.encode(&original)}
+        }]}}]});
+        assert_eq!(response_audio(&response, 100).unwrap(), original);
+        let adjusted = response_audio(&response, 50).unwrap();
+        let mut reader = hound::WavReader::new(Cursor::new(adjusted)).unwrap();
+        assert_eq!(reader.spec().sample_rate, 24000);
+        assert_eq!(reader.samples::<i16>().next().unwrap().unwrap(), 500);
+        assert!(response_audio(&json!({"steps": []}), 100).is_err());
+    }
+
+    #[test]
+    fn gemini_sonarpad_transport_refreshes_and_preserves_paid_request_key() {
+        use std::io::{BufRead, BufReader, Read, Write};
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", listener.local_addr().unwrap());
+        let server = std::thread::spawn(move || {
+            let steps = [
+                ("/activate", 200, json!({"session_token":"sst_first"})),
+                ("/generate", 401, json!({"error":"invalid_session"})),
+                ("/activate", 200, json!({"session_token":"sst_second"})),
+                ("/generate", 503, json!({"error":"generation_in_progress"})),
+                ("/generate", 200, json!({"ok":true})),
+                ("/generate", 402, json!({"error":"insufficient_credit"})),
+                (
+                    "/generate",
+                    409,
+                    json!({"error":"speech_audio_not_retained"}),
+                ),
+            ];
+            for (index, (path, status, response)) in steps.into_iter().enumerate() {
+                let (mut stream, _) = listener.accept().unwrap();
+                stream
+                    .set_read_timeout(Some(Duration::from_secs(5)))
+                    .unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                reader.read_line(&mut line).unwrap();
+                assert!(line.starts_with(&format!("POST {path} ")));
+                let mut headers = String::new();
+                let mut length = 0;
+                loop {
+                    line.clear();
+                    reader.read_line(&mut line).unwrap();
+                    if line == "\r\n" {
+                        break;
+                    }
+                    let lower = line.to_ascii_lowercase();
+                    if let Some(value) = lower.strip_prefix("content-length:") {
+                        length = value.trim().parse::<usize>().unwrap();
+                    }
+                    headers.push_str(&lower);
+                }
+                let mut bytes = vec![0; length];
+                reader.read_exact(&mut bytes).unwrap();
+                let body: Value = serde_json::from_slice(&bytes).unwrap();
+                assert!(!headers.contains("x-goog-api-key"));
+                if path == "/activate" {
+                    assert_eq!(body["code"], "sp_mock");
+                    assert_eq!(body["device_id"], "device_mock");
+                } else {
+                    assert!(headers.contains("x-idempotency-key: speech-stable-mock"));
+                    assert!(headers.contains(if index == 1 {
+                        "authorization: bearer sst_first"
+                    } else {
+                        "authorization: bearer sst_second"
+                    }));
+                    assert_eq!(body["generationConfig"]["responseModalities"][0], "AUDIO");
+                }
+                let response = response.to_string();
+                write!(stream, "HTTP/1.1 {status} Test\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{response}", response.len()).unwrap();
+            }
+        });
+        tokio::runtime::Runtime::new().unwrap().block_on(async {
+            let client = reqwest::Client::builder()
+                .timeout(Duration::from_secs(5))
+                .build()
+                .unwrap();
+            let refreshed = AtomicBool::new(false);
+            let body = request_body("Test", "Kore", 0, 0, "it");
+            for expected in [401, 503, 200, 402, 409] {
+                let result = sonarpad_speech_request(
+                    &client,
+                    &base,
+                    "sp_mock",
+                    "device_mock",
+                    "Test",
+                    &body,
+                    "speech-stable-mock",
+                    &refreshed,
+                )
+                .await;
+                match expected {
+                    200 => assert_eq!(result.unwrap()["ok"], true),
+                    401 | 503 => assert!(result.unwrap_err().retry),
+                    _ => assert!(!result.unwrap_err().retry),
+                }
+            }
+        });
+        server.join().unwrap();
+    }
+
+    #[test]
+    fn gemini_credentials_follow_selected_provider_without_fallback() {
+        let mut settings = crate::Settings::default();
+        settings.audio_description_gemini_api_key = "personal_mock".into();
+        assert!(credentials_available(&settings));
+        settings.audio_description_use_sonarpad_ai = true;
+        assert!(!credentials_available(&settings));
+        settings.sonarpad_ai_access_code = "sp_mock".into();
+        settings.audio_description_gemini_api_key.clear();
+        assert!(credentials_available(&settings));
+        settings.audio_description_use_sonarpad_ai = false;
+        assert!(!credentials_available(&settings));
+    }
+}

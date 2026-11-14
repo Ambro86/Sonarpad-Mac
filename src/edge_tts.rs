@@ -136,7 +136,7 @@ impl fmt::Display for EdgeHttpFailure {
 impl std::error::Error for EdgeHttpFailure {}
 
 pub fn is_edge_text_usable(text: &str) -> bool {
-    normalize_for_tts(text).chars().any(char::is_alphanumeric)
+    normalize_edge_for_tts(text).chars().any(char::is_alphanumeric)
 }
 
 fn is_permanent_edge_message(message: &str) -> bool {
@@ -717,7 +717,7 @@ pub async fn synthesize_text_chunk(
     pitch: i32,
     volume: i32,
 ) -> Result<Vec<u8>> {
-    let normalized_text = normalize_for_tts(text);
+    let normalized_text = normalize_edge_for_tts(text);
     if !normalized_text.chars().any(char::is_alphanumeric) {
         return Ok(Vec::new());
     }
@@ -772,7 +772,7 @@ impl EdgeRealtimeSession {
         volume: i32,
     ) -> Result<Vec<u8>> {
         let started = Instant::now();
-        let normalized_text = normalize_for_tts(text);
+        let normalized_text = normalize_edge_for_tts(text);
         if !normalized_text.chars().any(char::is_alphanumeric) {
             return Ok(Vec::new());
         }
@@ -1130,10 +1130,182 @@ pub fn escape_xml(text: &str) -> String {
         .replace('\'', "&apos;")
 }
 
+
+
+// Keep these sanitizers identical to Windows tts_engine.rs.
+fn normalize_weird_spaces(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        match ch {
+            // Remove zero-width formatting chars that can confuse TTS segmentation.
+            '\u{200B}' | '\u{200C}' | '\u{200D}' | '\u{2060}' | '\u{FEFF}' => {}
+            // Convert uncommon Unicode spaces to ASCII space.
+            '\u{00A0}' | '\u{1680}' | '\u{2000}' | '\u{2001}' | '\u{2002}' | '\u{2003}'
+            | '\u{2004}' | '\u{2005}' | '\u{2006}' | '\u{2007}' | '\u{2008}' | '\u{2009}'
+            | '\u{200A}' | '\u{202F}' | '\u{205F}' | '\u{3000}'
+            // Visible symbols for spaces/tabs used in some copied texts.
+            | '\u{2420}' | '\u{2423}' | '\u{2409}' => out.push(' '),
+            // Visible symbols for LF/CR/newline.
+            '\u{240A}' | '\u{240D}' | '\u{2424}' => out.push('\n'),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+fn normalize_tts_strict_chars(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    for ch in text.chars() {
+        let mapped = match ch {
+            // Smart/directional double quotes -> plain quote
+            '“' | '”' | '„' | '‟' | '«' | '»' | '〝' | '〞' => '"',
+            // Smart/directional single quotes/apostrophes -> plain apostrophe
+            '‘' | '’' | '‚' | '‛' | '‹' | '›' | '`' | '´' => '\'',
+            // Long dashes/minus variants -> hyphen-minus
+            '–' | '—' | '―' | '−' => '-',
+            _ => ch,
+        };
+
+        // Horizontal ellipsis -> three dots
+        if mapped == '…' {
+            out.push_str("...");
+            continue;
+        }
+
+        // Keep only letters/digits/whitespace and a conservative punctuation set.
+        let safe_punct = matches!(
+            mapped,
+            '.' | ','
+                | ';'
+                | ':'
+                | '!'
+                | '?'
+                | '"'
+                | '\''
+                | '-'
+                | '('
+                | ')'
+                | '['
+                | ']'
+                | '{'
+                | '}'
+                | '/'
+                | '\\'
+                | '@'
+                | '#'
+                | '%'
+                | '&'
+                | '+'
+                | '='
+                | '*'
+                | '_'
+                | '<'
+                | '>'
+                | '|'
+                | '~'
+        );
+
+        if mapped.is_alphanumeric() || mapped.is_whitespace() || safe_punct {
+            out.push(mapped);
+        } else {
+            out.push(' ');
+        }
+    }
+    out
+}
+
+fn sanitize_edge_text(text: &str) -> String {
+    let normalized_spaces = normalize_weird_spaces(text);
+    let mut out = String::with_capacity(normalized_spaces.len());
+    let mut dot_run = 0usize;
+    let mut bang_run = 0usize;
+    let mut question_run = 0usize;
+
+    for ch in normalized_spaces.chars() {
+        if ch == '.' {
+            dot_run += 1;
+            continue;
+        }
+        if ch == '!' {
+            bang_run += 1;
+            continue;
+        }
+        if ch == '?' {
+            question_run += 1;
+            continue;
+        }
+
+        flush_edge_punctuation_runs(&mut out, &mut dot_run, &mut bang_run, &mut question_run);
+        let code = ch as u32;
+        if (0..=8).contains(&code) || (11..=12).contains(&code) || (14..=31).contains(&code) {
+            out.push(' ');
+        } else {
+            out.push(ch);
+        }
+    }
+    flush_edge_punctuation_runs(&mut out, &mut dot_run, &mut bang_run, &mut question_run);
+    normalize_edge_terminal_punctuation(&out)
+}
+
+fn normalize_edge_terminal_punctuation(text: &str) -> String {
+    // Edge can fail on some terminal combinations coming from headlines, e.g. `...":`.
+    // Keep behavior minimal: only normalize dot + quote + colon sequences to a plain sentence end.
+    text.replace(".\":", ". ")
+        .replace(".':", ". ")
+        .replace(".”:", ". ")
+        .replace(".’:", ". ")
+}
+
+fn flush_edge_punctuation_runs(
+    out: &mut String,
+    dot_run: &mut usize,
+    bang_run: &mut usize,
+    question_run: &mut usize,
+) {
+    let trim_trailing_spaces = |s: &mut String| {
+        while s.chars().last().is_some_and(|ch| ch.is_whitespace()) {
+            s.pop();
+        }
+    };
+    if *dot_run >= 3 {
+        trim_trailing_spaces(out);
+        out.push('.');
+    } else if *dot_run > 0 {
+        trim_trailing_spaces(out);
+        out.extend(std::iter::repeat_n('.', *dot_run));
+    }
+    if *bang_run >= 3 {
+        trim_trailing_spaces(out);
+        out.push('!');
+    } else if *bang_run > 0 {
+        trim_trailing_spaces(out);
+        out.extend(std::iter::repeat_n('!', *bang_run));
+    }
+    if *question_run >= 3 {
+        trim_trailing_spaces(out);
+        out.push('?');
+    } else if *question_run > 0 {
+        trim_trailing_spaces(out);
+        out.extend(std::iter::repeat_n('?', *question_run));
+    }
+    *dot_run = 0;
+    *bang_run = 0;
+    *question_run = 0;
+}
+
 fn normalize_for_tts(text: &str) -> String {
-    let normalized = sanitize_symbols_for_tts(&decode_html_entities_for_tts(text))
-        .replace("\r\n", "\n")
-        .replace('\r', "\n");
+    normalize_tts_spacing(&sanitize_symbols_for_tts(&decode_html_entities_for_tts(text)))
+}
+
+fn normalize_edge_for_tts(text: &str) -> String {
+    // Preserve Mac paragraph boundaries; Windows sanitizes each audiobook chunk.
+    let decoded = decode_html_entities_for_tts(text).replace("\r\n", "\n").replace('\r', "\n");
+    let paragraphs: Vec<_> = decoded.split("\n\n").map(sanitize_edge_text).collect();
+    normalize_tts_spacing(&paragraphs.join("\n\n"))
+}
+
+fn normalize_tts_spacing(text: &str) -> String {
+    let normalized = text.replace("\r\n", "\n").replace('\r', "\n");
     let mut out = String::with_capacity(normalized.len());
     let mut chars = normalized.chars().peekable();
     let mut pending_space = false;
@@ -1609,7 +1781,7 @@ fn split_edge_text_with_limits(
     first_max_bytes: usize,
     max_bytes: usize,
 ) -> Vec<String> {
-    let normalized = normalize_for_tts(text);
+    let normalized = normalize_edge_for_tts(text);
     let mut out = Vec::new();
     let mut current = String::new();
     for paragraph in normalized.split("\n\n") {
@@ -1664,49 +1836,10 @@ fn split_edge_text_with_limits(
 }
 
 pub fn normalize_edge_audiobook_text(text: &str) -> String {
-    let normalized = normalize_for_tts(text);
-    let strict: String = normalized
-        .chars()
-        .map(|ch| {
-            let safe_punctuation = matches!(
-                ch,
-                '.' | ','
-                    | ';'
-                    | ':'
-                    | '!'
-                    | '?'
-                    | '"'
-                    | '\''
-                    | '-'
-                    | '('
-                    | ')'
-                    | '['
-                    | ']'
-                    | '{'
-                    | '}'
-                    | '/'
-                    | '\\'
-                    | '@'
-                    | '#'
-                    | '%'
-                    | '&'
-                    | '+'
-                    | '='
-                    | '*'
-                    | '_'
-                    | '<'
-                    | '>'
-                    | '|'
-                    | '~'
-            );
-            if ch.is_alphanumeric() || ch.is_whitespace() || safe_punctuation {
-                ch
-            } else {
-                ' '
-            }
-        })
-        .collect();
-    normalize_for_tts(&strict)
+    // Windows uses Strict first, then sanitize_edge_text before sending SSML.
+    let decoded = decode_html_entities_for_tts(text);
+    let strict = normalize_tts_strict_chars(&normalize_weird_spaces(&decoded));
+    normalize_edge_for_tts(&strict)
 }
 
 pub fn split_text_edge_audiobook(text: &str, voice: &str) -> Vec<String> {
@@ -2621,4 +2754,32 @@ mod tests {
 
         assert_eq!(merge_short_tts_chunks(chunks, 120, 10).len(), 2);
     }
+    #[test]
+    fn edge_normalizes_ascii_ellipsis_to_single_dot() {
+        assert_eq!(sanitize_edge_text("Ciao... come va..."), "Ciao. come va.");
+    }
+
+    #[test]
+    fn edge_sanitize_handles_weird_spaces_and_symbols() {
+        assert_eq!(
+            sanitize_edge_text("ciao\u{00A0}\u{200B}mondo\u{2409}!!!???"),
+            "ciao mondo!?"
+        );
+    }
+
+    #[test]
+    fn edge_sanitize_normalizes_dot_quote_colon_sequences() {
+        let text = "\"Addio Juve, secondo me andrà...\": parla chi gli ha cambiato la vita";
+        let sanitized = sanitize_edge_text(text);
+        assert!(!sanitized.contains(".\":"));
+        assert!(sanitized.contains("andrà."));
+    }
+
+#[test]
+fn edge_mapping_preserves_words_quotes_and_apostrophes() {
+ assert_eq!(normalize_edge_audiobook_text("«Ciao» l’acqua `sì`…"), "\"Ciao\" l'acqua 'sì'.");
+ assert_eq!(normalize_edge_for_tts("a.\u{200b}.. b"), "a. b");
+ assert_eq!(normalize_edge_audiobook_text("Prima.\n\nSeconda."), "Prima.\n\nSeconda.");
+}
+
 }

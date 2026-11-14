@@ -55,6 +55,7 @@ pub fn open_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<crate::Settings>>,
     runtime: &Arc<tokio::runtime::Runtime>,
+    voices: &Arc<Mutex<Vec<crate::edge_tts::VoiceInfo>>>,
 ) {
     let labels = Rc::new(strings());
     let title = tr(&labels, "batch_title");
@@ -279,6 +280,8 @@ pub fn open_dialog(
     let j = job.clone();
     let rt = runtime.clone();
     let settings = settings.clone();
+    let voices = voices.clone();
+    let main_parent = *parent;
     start.on_click(move |_| {
         if b.get() {
             return;
@@ -304,6 +307,7 @@ pub fn open_dialog(
         let extension = engine::FORMATS[format.get_selection().unwrap_or(0) as usize];
         let subfolders = subfolders.get_value();
         let voice = Voice::from_settings(&settings.lock().unwrap());
+        if !crate::ensure_gemini_voice_key(&voice.engine, &dialog, &main_parent, &settings, &voices) { return; }
         c.store(false, Ordering::Relaxed);
         *j.lock().unwrap() = Progress::new(&inputs);
         b.set(true);

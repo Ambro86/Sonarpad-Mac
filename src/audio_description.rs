@@ -2744,11 +2744,15 @@ where
         return Err(TTS_EMPTY_AFTER_DICTIONARY.to_string());
     }
 
-    let is_edge = !crate::is_system_voice_engine(tts.engine);
+    let is_edge = !crate::is_system_voice_engine(tts.engine) && tts.engine != "gemini";
     let retry_count = Cell::new(0_usize);
     let result = tts_retry::run(
         || {
-            let mp3 = if is_edge {
+            let mp3 = if tts.engine == "gemini" {
+                rt.block_on(crate::gemini_tts::synthesize_cancellable(&spoken_text, tts.voice, tts.rate, tts.pitch, tts.volume, &is_active))
+                    .map_err(tts_retry::AttemptError::Permanent)?
+                    .ok_or_else(|| tts_retry::AttemptError::Permanent("cancelled".into()))?
+            } else if is_edge {
                 // One cancellable transport attempt per outer iteration avoids
                 // hidden nested retries. The mobile AD policy retries this cue
                 // after five seconds, honoring a longer server Retry-After.
@@ -2879,7 +2883,9 @@ where
 }
 
 fn audio_description_tts_parallelism(engine: &str, task_count: usize) -> usize {
-    let requested = if crate::is_system_voice_engine(engine) {
+    let requested = if engine == "gemini" {
+        crate::gemini_tts::MAX_PARALLEL_REQUESTS
+    } else if crate::is_system_voice_engine(engine) {
         1
     } else {
         EDGE_AUDIO_DESCRIPTION_PARALLELISM
@@ -2930,7 +2936,7 @@ where
                     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                         let pcm = match synthesize_text_pcm_while_active(
                             &task.text,
-                            TtsParameters { rate: task.tts_rate_override.unwrap_or(tts.rate), ..tts },
+                            TtsParameters { rate: if tts.engine == "gemini" { tts.rate } else { task.tts_rate_override.unwrap_or(tts.rate) }, ..tts },
                             rt,
                             dir,
                             task.synthesis_index,
@@ -2948,6 +2954,12 @@ where
                             }
                             Err(error) => return Err(error),
                         };
+                        let pcm = if tts.engine == "gemini" {
+                            if let Some(rate) = task.tts_rate_override {
+                                accelerate_description_pcm(&pcm,
+                                    ((f64::from(rate) + 100.0) / (f64::from(tts.rate) + 100.0)).clamp(1.0, 1.2), &cancel)?
+                            } else { pcm }
+                        } else { pcm };
                         let duration_sec =
                             pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
                         Ok::<Option<SynthesizedDescription>, String>(Some(SynthesizedDescription {
@@ -3076,6 +3088,28 @@ fn subtract_reserved(free: &[(f64, f64)], reserved: &[(f64, f64)]) -> Vec<(f64, 
         }
     }
     out
+}
+
+#[cfg(test)]
+#[test]
+fn maximum_description_space_matches_actual_reserved_gap() {
+    let free = subtract_reserved(&[(1050.406, 1053.695)], &[(1050.406, 1050.806)]);
+    let available = maximum_description_space(&free, 1050.331);
+    assert!((available - 2.889).abs() < 0.00001);
+    assert!(choose_slot(&free, 1050.406, 1050.331, 3.120).is_none());
+    assert!(choose_slot(&free, 1050.406, 1050.331, available - 0.001).is_some());
+    assert_eq!(maximum_description_space(&[(0.0, 3.0)], 20.0), 0.0);
+    assert_eq!(maximum_description_space(&[(0.0, 10.0)], 8.0), 7.0);
+}
+
+// Use the same visual-start bounds as choose_slot, on gaps after reservations.
+fn maximum_description_space(free: &[(f64, f64)], visual_start: f64) -> f64 {
+    let lower = (visual_start - MAX_SHIFT_SEC).max(0.0);
+    let upper = visual_start + MAX_SHIFT_SEC;
+    free.iter().filter_map(|(start, end)| {
+        let start = start.max(lower);
+        (start <= upper && *end > start).then_some(*end - start)
+    }).fold(0.0, f64::max)
 }
 
 fn choose_slot(
@@ -3225,6 +3259,7 @@ fn schedule_descriptions(
 }
 
 fn recover_deferred_descriptions<F>(
+    gemini_tempo: Option<&Arc<AtomicBool>>,
     candidates: &[BridgeDescription],
     first_index: usize,
     protected_intervals: &[BridgeInterval],
@@ -3293,7 +3328,7 @@ where
             false,
         );
         scheduled.extend(accepted);
-        recover_descriptions_with_native_rate(
+        recover_descriptions_with_native_rate(gemini_tempo,
             std::slice::from_ref(&cue),
             protected_intervals,
             duration_sec,
@@ -3313,7 +3348,38 @@ where
 }
 
 // Called only after the normal scheduler has finished. Accepted cues are never moved.
+// Use the existing bundled FFmpeg runner; never ask Gemini to regenerate faster.
+fn accelerate_description_pcm(
+    pcm: &[i16], factor: f64, cancel: &Arc<AtomicBool>,
+) -> Result<Arc<[i16]>, String> {
+    if !factor.is_finite() || !(1.0..=1.200001).contains(&factor) || pcm.is_empty() {
+        return Err("Invalid description tempo input".into());
+    }
+    if cancel.load(Ordering::Relaxed) { return Err("cancelled".into()); }
+    let dir = cache_dir("gemini_tempo")?;
+    let result = (|| {
+        let input = dir.join("original.wav");
+        let output = dir.join("accelerated.wav");
+        let mut writer = WavWriter::create(&input, WavSpec {
+            channels: MIX_CHANNELS, sample_rate: MIX_SAMPLE_RATE,
+            bits_per_sample: 16, sample_format: SampleFormat::Int,
+        }).map_err(|e| e.to_string())?;
+        for &sample in pcm { writer.write_sample(sample).map_err(|e| e.to_string())?; }
+        writer.finalize().map_err(|e| e.to_string())?;
+        run_ffmpeg(&["-y".into(), "-i".into(), input.to_string_lossy().into_owned(),
+            "-af".into(), format!("atempo={factor:.8}"), "-c:a".into(), "pcm_s16le".into(),
+            output.to_string_lossy().into_owned()], cancel)?;
+        let mut reader = WavReader::open(&output).map_err(|e| e.to_string())?;
+        let samples = reader.samples::<i16>().collect::<Result<Vec<_>, _>>().map_err(|e| e.to_string())?;
+        if !audio_description_pcm_has_signal(&samples) { return Err("Empty tempo audio".into()); }
+        Ok(Arc::from(samples))
+    })();
+    let _ = fs::remove_dir_all(dir);
+    result
+}
+
 fn recover_descriptions_with_native_rate<F>(
+    gemini_tempo: Option<&Arc<AtomicBool>>,
     descriptions: &[SynthesizedDescription],
     protected_intervals: &[BridgeInterval],
     duration_sec: f64,
@@ -3347,7 +3413,7 @@ where
         })
         .collect();
     let mut remaining = Vec::new();
-    for rejected in dropped.iter() {
+    'rejected: for rejected in dropped.iter() {
         let Some(original) = descriptions
             .iter()
             .find(|cue| cue.original_index == rejected.original_index)
@@ -3355,7 +3421,7 @@ where
             remaining.push(rejected.clone());
             continue;
         };
-        // A saved accelerated cue must not gain another 10-15% on each export.
+        // A saved accelerated cue must not gain another 10-20% on each export.
         if original.tts_rate_override.is_some() {
             remaining.push(rejected.clone());
             continue;
@@ -3366,12 +3432,15 @@ where
         } else {
             available
         };
-        let selected_rate = [110_i64, 115].into_iter().find_map(|percent| {
+        let rates = [110_i64, 115, 120].into_iter().filter_map(|percent| {
             let baseline = i64::from(base_rate) + 100;
             let rate = i32::try_from(baseline * percent / 100 - 100).ok()?;
             if rate <= base_rate {
                 return None;
             }
+            // Gemini must validate the rendered audio, including after a text edit.
+            // Never skip local tempo attempts on the basis of the duration estimate.
+            if gemini_tempo.is_some() { return Some(rate); }
             let multiplier = (f64::from(rate) + 100.0) / baseline as f64;
             choose_slot(
                 &candidates,
@@ -3381,62 +3450,63 @@ where
             )
             .map(|_| rate)
         });
-        let Some(rate) = selected_rate else {
-            remaining.push(rejected.clone());
-            continue;
-        };
-        let pcm = match resynthesize(original, rate) {
-            Ok(audio) => audio,
-            Err(error) if error == "cancelled" => return Err(error),
-            Err(error) => {
-                append_podcast_log(&format!(
-                    "Audio description: native-rate fallback failed cue={} rate={} error={error}",
-                    original.original_index, rate,
-                ));
-                remaining.push(rejected.clone());
-                continue;
-            }
-        };
-        let actual = pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
-        let start = if actual > 0.0 && audio_description_pcm_has_signal(&pcm) {
-            choose_slot(
-                &candidates,
-                original.desired_start_sec,
-                original.visual_start_sec,
+        for rate in rates {
+            let audio = if let Some(cancel) = gemini_tempo {
+                accelerate_description_pcm(&original.pcm,
+                    (f64::from(rate) + 100.0) / (f64::from(base_rate) + 100.0), cancel)
+            } else { resynthesize(original, rate) };
+            let pcm = match audio {
+                Ok(audio) => audio,
+                Err(error) if error == "cancelled" => return Err(error),
+                Err(error) => {
+                    append_podcast_log(&format!(
+                        "Audio description: native-rate fallback failed cue={} rate={} error={error}",
+                        original.original_index, rate,
+                    ));
+                    break;
+                }
+            };
+            let actual = pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
+            let start = if actual > 0.0 && audio_description_pcm_has_signal(&pcm) {
+                choose_slot(
+                    &candidates,
+                    original.desired_start_sec,
+                    original.visual_start_sec,
+                    actual,
+                )
+            } else {
+                None
+            };
+            append_podcast_log(&format!(
+                "Audio description: native-rate fallback cue={} base_rate={} retry_rate={} original={:.3}s actual={:.3}s accepted={}",
+                original.original_index,
+                base_rate,
+                rate,
+                rejected.duration_sec,
                 actual,
-            )
-        } else {
-            None
-        };
-        append_podcast_log(&format!(
-            "Audio description: native-rate fallback cue={} base_rate={} retry_rate={} original={:.3}s actual={:.3}s accepted={}",
-            original.original_index,
-            base_rate,
-            rate,
-            rejected.duration_sec,
-            actual,
-            start.is_some(),
-        ));
-        if let Some(start) = start {
-            reserved.push((start, start + actual));
-            scheduled.push(ScheduledDescription {
-                tts_rate_override: Some(rate),
-                original_index: original.original_index,
-                text: original.text.clone(),
-                desired_start_sec: original.visual_start_sec,
-                visual_evidence_time_sec: original.visual_evidence_time_sec,
-                start_sec: start,
-                pcm,
-                duration_sec: actual,
-                mandatory: original.mandatory,
-                slot_id: original.slot_id.clone(),
-                slot_start_sec: original.slot_start_sec,
-                slot_end_sec: original.slot_end_sec,
-                extended_pause: false,
-            });
-        } else {
-            remaining.push(rejected.clone());
+                start.is_some(),
+            ));
+            if let Some(start) = start {
+                reserved.push((start, start + actual));
+                scheduled.push(ScheduledDescription {
+                    tts_rate_override: Some(rate),
+                    original_index: original.original_index,
+                    text: original.text.clone(),
+                    desired_start_sec: original.visual_start_sec,
+                    visual_evidence_time_sec: original.visual_evidence_time_sec,
+                    start_sec: start,
+                    pcm,
+                    duration_sec: actual,
+                    mandatory: original.mandatory,
+                    slot_id: original.slot_id.clone(),
+                    slot_start_sec: original.slot_start_sec,
+                    slot_end_sec: original.slot_end_sec,
+                    extended_pause: false,
+                });
+                continue 'rejected;
+            }
         }
+        remaining.push(rejected.clone());
     }
     *dropped = remaining;
     scheduled.sort_by(|left, right| left.start_sec.total_cmp(&right.start_sec));
@@ -3633,7 +3703,7 @@ fn render_mix(
     Ok(output_frames as f64 / MIX_SAMPLE_RATE as f64)
 }
 
-fn encode_mp3(wav: &Path, output: &Path, cancel: &Arc<AtomicBool>) -> Result<(), String> {
+pub(crate) fn encode_mp3(wav: &Path, output: &Path, cancel: &Arc<AtomicBool>) -> Result<(), String> {
     let args = vec![
         "-hide_banner".into(),
         "-loglevel".into(),
@@ -4593,7 +4663,7 @@ fn create_audio_description_attempt(
             analysis.duration_sec,
             job.allow_extended_pauses && !job.create_video_output,
         );
-        recover_descriptions_with_native_rate(
+        recover_descriptions_with_native_rate((job.tts_engine == "gemini").then_some(&cancel),
             &synthesized, &analysis.protected_intervals, analysis.duration_sec,
             job.rate, &mut scheduled, &mut dropped,
             |cue, rate| synthesize_text_pcm_while_active(
@@ -4603,7 +4673,7 @@ fn create_audio_description_attempt(
                 rt, &work, cue.original_index, &cancel, || true, None,
             ),
         )?;
-        dropped.extend(recover_deferred_descriptions(
+        dropped.extend(recover_deferred_descriptions((job.tts_engine == "gemini").then_some(&cancel),
             &analysis.deferred_descriptions, analysis.descriptions.len(),
             &analysis.protected_intervals, analysis.duration_sec, job.rate, &mut scheduled,
             |cue, index, rate| synthesize_text_pcm_while_active(
@@ -5511,6 +5581,7 @@ fn language_choices() -> Vec<(String, &'static str)> {
 }
 
 fn voice_matches_language(voice: &VoiceInfo, language: &str) -> bool {
+    if voice.locale == "mul" { return true; }
     let wanted = language
         .split('-')
         .next()
@@ -5924,6 +5995,8 @@ fn open_audio_description_voice_settings(
     current: AudioDescriptionVoiceSettings,
     description_language: &str,
     voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
+    personal_key_available: bool,
+    missing_key: Rc<Cell<bool>>,
 ) -> Option<AudioDescriptionVoiceSettings> {
     let d = Dialog::builder(parent, &tr("audio_description.voice_settings.title"))
         .with_style(DialogStyle::DefaultDialogStyle | DialogStyle::ResizeBorder)
@@ -5944,7 +6017,8 @@ fn open_audio_description_voice_settings(
     let engine = Choice::builder(&p).build();
     engine.append(&tr("audio_description.engine.edge"));
     engine.append(&tr("audio_description.engine.system"));
-    let initial_engine = if crate::is_system_voice_engine(&current.engine) { 1 } else { 0 };
+    engine.append("Gemini");
+    let initial_engine = crate::voice_engine_index(&current.engine);
     engine.set_selection(initial_engine);
     engine_row.add(&engine, 1, SizerFlag::Expand | SizerFlag::All, 5);
     root.add_sizer(&engine_row, 0, SizerFlag::Expand, 0);
@@ -6026,6 +6100,7 @@ fn open_audio_description_voice_settings(
 
     let voices_edge = voices_data.lock().unwrap().clone();
     let voices_system = crate::load_system_voices();
+    let voices_gemini = crate::gemini_tts::voices();
     let active_voices = Rc::new(RefCell::new(Vec::<VoiceInfo>::new()));
     let preferred_voice = current.voice.clone();
 
@@ -6060,7 +6135,7 @@ fn open_audio_description_voice_settings(
         Rc::new(move |engine_idx, lang_idx, preferred| {
             voice_c.clear();
             let code = langs.get(lang_idx as usize).map(|item| item.1).unwrap_or("it");
-            let source = if engine_idx == 1 { &voices_system } else { &voices_edge };
+            let source = match engine_idx { 1 => &voices_system, 2 => &voices_gemini, _ => &voices_edge };
             let list = source
                 .iter()
                 .filter(|item| voice_matches_language(item, code))
@@ -6104,7 +6179,13 @@ fn open_audio_description_voice_settings(
 
     let fill_engine = fill_voice.clone();
     let preferred_engine = preferred_voice.clone();
+    let missing_key_engine = Rc::clone(&missing_key);
     engine.on_selection_changed(move |_| {
+        if engine.get_selection().unwrap_or(0) == 2 && !personal_key_available {
+            missing_key_engine.set(true);
+            d.end_modal(ID_CANCEL);
+            return;
+        }
         fill_engine(
             engine.get_selection().unwrap_or(0),
             language.get_selection().unwrap_or(0),
@@ -6126,16 +6207,18 @@ fn open_audio_description_voice_settings(
     let active_test = active_voices.clone();
     let rates_test = rate_items.clone();
     let volumes_test = volume_items.clone();
+    let missing_key_test = Rc::clone(&missing_key);
     test.on_click(move |_| {
+        if engine.get_selection().unwrap_or(0) == 2 && !personal_key_available {
+            missing_key_test.set(true);
+            d.end_modal(ID_CANCEL);
+            return;
+        }
         let voice_index = voice.get_selection().unwrap_or(0) as usize;
         let Some(selected_voice) = active_test.borrow().get(voice_index).cloned() else {
             return;
         };
-        let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
-            "system".to_string()
-        } else {
-            "microsoft".to_string()
-        };
+        let engine_value = crate::voice_engine_from_index(engine.get_selection().unwrap_or(0)).to_string();
         let rate_value = rates_test
             .get(rate.get_selection().unwrap_or(0) as usize)
             .map(|item| item.1)
@@ -6162,17 +6245,18 @@ fn open_audio_description_voice_settings(
     let volumes_ok = volume_items.clone();
     let d_ok = d;
     ok.on_click(move |_| {
+        if engine.get_selection().unwrap_or(0) == 2 && !personal_key_available {
+            missing_key.set(true);
+            d_ok.end_modal(ID_CANCEL);
+            return;
+        }
         let voice_index = voice.get_selection().unwrap_or(0) as usize;
         let Some(selected_voice) = active_ok.borrow().get(voice_index).cloned() else {
             show_error(&d_ok, &tr("audio_description.error.voice"));
             voice.set_focus();
             return;
         };
-        let engine_value = if engine.get_selection().unwrap_or(0) == 1 {
-            "system".to_string()
-        } else {
-            "microsoft".to_string()
-        };
+        let engine_value = crate::voice_engine_from_index(engine.get_selection().unwrap_or(0)).to_string();
         let rate_value = rates_ok
             .get(rate.get_selection().unwrap_or(0) as usize)
             .map(|item| item.1)
@@ -6211,7 +6295,7 @@ pub fn open_create_dialog(
     rt: &Arc<Runtime>,
     voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
 ) {
-    open_create_dialog_impl(parent, parent, settings, rt, voices_data, None);
+    open_create_dialog_impl(parent, parent, settings, rt, voices_data, None, false);
 }
 
 pub fn open_create_dialog_with_input(
@@ -6229,7 +6313,15 @@ pub fn open_create_dialog_with_input(
         rt,
         voices_data,
         Some(input_path),
+        false,
     );
+}
+
+pub fn open_gemini_key_dialog(
+    dialog_parent: &dyn WxWidget, main_parent: &Frame, settings: &Arc<Mutex<Settings>>,
+    rt: &Arc<Runtime>, voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
+) {
+    open_create_dialog_impl(dialog_parent, main_parent, settings, rt, voices_data, None, true);
 }
 
 fn open_create_dialog_impl(
@@ -6239,6 +6331,7 @@ fn open_create_dialog_impl(
     rt: &Arc<Runtime>,
     voices_data: &Arc<Mutex<Vec<VoiceInfo>>>,
     initial_input: Option<PathBuf>,
+    focus_gemini_key: bool,
 ) {
     let saved = settings.lock().unwrap().clone();
     let d = Dialog::builder(dialog_parent, &tr("audio_description.title"))
@@ -6781,21 +6874,22 @@ fn open_create_dialog_impl(
     // Keep the voice controls out of the main creation window, as on Windows.
     // Until the user opens "Regola voce", rate and volume deliberately inherit
     // the global speech settings so existing installations behave exactly as before.
-    let initial_voice_engine = if crate::is_system_voice_engine(&saved.audio_description_tts_engine) {
-        "system".to_string()
-    } else {
-        "microsoft".to_string()
-    };
+    let initial_voice_engine = crate::normalized_voice_engine(&saved.audio_description_tts_engine);
     let voices_edge = voices_data.lock().unwrap().clone();
     let voices_system = crate::load_system_voices();
+    let voices_gemini = crate::gemini_tts::voices();
     let initial_voice_source = if crate::is_system_voice_engine(&initial_voice_engine) {
         &voices_system
+    } else if initial_voice_engine == "gemini" {
+        &voices_gemini
     } else {
         &voices_edge
     };
     let mut initial_voice = if saved.audio_description_tts_voice.trim().is_empty() {
         if crate::is_system_voice_engine(&initial_voice_engine) {
             saved.system_voice.clone()
+        } else if initial_voice_engine == "gemini" {
+            saved.gemini_voice.clone()
         } else {
             saved.voice.clone()
         }
@@ -7070,6 +7164,7 @@ fn open_create_dialog_impl(
     let voice_settings_language = voice_settings.clone();
     let voices_edge_language = voices_edge.clone();
     let voices_system_language = voices_system.clone();
+    let voices_gemini_language = crate::gemini_tts::voices();
     let langs_voice_language = langs.clone();
     language.on_selection_changed(move |_| {
         let language_code = langs_voice_language
@@ -7079,6 +7174,8 @@ fn open_create_dialog_impl(
         let mut selected = voice_settings_language.borrow_mut();
         let source = if crate::is_system_voice_engine(&selected.engine) {
             &voices_system_language
+        } else if selected.engine == "gemini" {
+            &voices_gemini_language
         } else {
             &voices_edge_language
         };
@@ -7095,6 +7192,7 @@ fn open_create_dialog_impl(
     let langs_voice = langs.clone();
     let d_voice = d;
     let preview_voice_dialog = mix_preview.clone();
+    let api_value_voice = Rc::clone(&api_value);
     voice_settings_button.on_click(move |_| {
         preview_voice_dialog.stop();
         let description_language = langs_voice
@@ -7102,12 +7200,25 @@ fn open_create_dialog_impl(
             .map(|item| item.1)
             .unwrap_or("it");
         let current = voice_settings_dialog.borrow().clone();
+        let key_available = !api_value_voice().trim().is_empty();
+        {
+            let mut st = settings_voice.lock().unwrap();
+            st.audio_description_gemini_api_key = api_value_voice().trim().to_string();
+            st.save();
+        }
+        let missing_key = Rc::new(Cell::new(false));
         if let Some(selected) = open_audio_description_voice_settings(
             &d_voice,
             current,
             description_language,
             &voices_voice,
+            key_available,
+            Rc::clone(&missing_key),
         ) {
+            if selected.engine == "gemini" && api.get_value().trim().is_empty() && api_visible.get_value().trim().is_empty() {
+                api_label.show(true); api.show(true); api_get.show(true); show_api_key.show(true);
+                d_voice.layout(); api.set_focus();
+            }
             *voice_settings_dialog.borrow_mut() = selected.clone();
             let mut st = settings_voice.lock().unwrap();
             st.audio_description_tts_engine = selected.engine;
@@ -7118,6 +7229,11 @@ fn open_create_dialog_impl(
             st.save();
         }
         voice_settings_button.set_focus();
+        if missing_key.get() {
+            api_label.show(true); api.show(true); api_get.show(true); show_api_key.show(true);
+            d_voice.layout(); api.set_focus();
+        }
+
     });
     let open_project_requested = Rc::new(Cell::new(false));
     let open_project_requested_button = Rc::clone(&open_project_requested);
@@ -7318,6 +7434,17 @@ fn open_create_dialog_impl(
         };
         let use_sonarpad_ai = ai_access.get_selection().unwrap_or(0) == 1;
         let personal_api_key_value = api_value_start().trim().to_string();
+        if voice_settings.borrow().engine == "gemini" && !use_sonarpad_ai && personal_api_key_value.is_empty() {
+            api_label.show(true); api.show(true); api_get.show(true); show_api_key.show(true);
+            d.layout(); api.set_focus();
+            return;
+        }
+        {
+            let mut st = settings_run.lock().unwrap();
+            st.audio_description_gemini_api_key = personal_api_key_value.clone();
+            st.save();
+        }
+
         let sonarpad_code_value = sonarpad_code_value_start().trim().to_string();
         if use_sonarpad_ai && sonarpad_code_value.is_empty() {
             show_error(&d, &tr("audio_description.error.sonarpad_code"));
@@ -7395,7 +7522,19 @@ fn open_create_dialog_impl(
     if initial_sonarpad_ai {
         request_sonarpad_balance();
     }
+    if focus_gemini_key {
+        if initial_sonarpad_ai { sonarpad_code.set_focus(); } else { api.set_focus(); }
+    }
     d.show_modal();
+    // Persist the shared personal key even when the user only opens this form
+    // to enter credentials, without starting an audio-description job.
+    {
+        let mut current = settings.lock().unwrap();
+        current.audio_description_gemini_api_key = api_value().trim().to_string();
+        current.audio_description_use_sonarpad_ai = ai_access.get_selection().unwrap_or(0) == 1;
+        current.sonarpad_ai_access_code = sonarpad_code_value().trim().to_string();
+        current.save();
+    }
     mix_preview.stop();
     balance_timer.stop();
     d.destroy();
@@ -7496,7 +7635,7 @@ fn synthesize_project_text_duration_with_voice(
             TtsParameters {
                 engine: &project.tts_engine,
                 voice: tts_voice,
-                rate: project.descriptions.get(index).and_then(|d| d.tts_rate_override).unwrap_or(project.tts_rate),
+                rate: if project.tts_engine == "gemini" { project.tts_rate } else { project.descriptions.get(index).and_then(|d| d.tts_rate_override).unwrap_or(project.tts_rate) },
                 pitch: project.tts_pitch,
                 volume: project.tts_volume,
             },
@@ -7505,6 +7644,12 @@ fn synthesize_project_text_duration_with_voice(
             index,
             &cancel,
         )?;
+        let pcm = if project.tts_engine == "gemini" {
+            if let Some(rate) = project.descriptions.get(index).and_then(|d| d.tts_rate_override) {
+                accelerate_description_pcm(&pcm,
+                    ((f64::from(rate) + 100.0) / (f64::from(project.tts_rate) + 100.0)).clamp(1.0, 1.2), &cancel)?
+            } else { pcm }
+        } else { pcm };
         Ok(pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64))
     })();
     let _ = fs::remove_dir_all(&dir);
@@ -7526,8 +7671,15 @@ struct ProjectVoiceFitError {
     actual_sec: f64,
 }
 
+#[derive(Clone, Debug)]
+struct ProjectVoiceRepair {
+    time: f64, actual: f64, available: f64, text: String,
+    reply: mpsc::Sender<Option<String>>,
+}
+
 #[derive(Clone, Debug, Default)]
 struct ProjectVoiceValidationState {
+    repair: Option<ProjectVoiceRepair>,
     progress: i32,
     done: Option<Result<AudioDescriptionProject, String>>,
     fit_error: Option<ProjectVoiceFitError>,
@@ -7555,7 +7707,11 @@ fn change_project_voice(
             .iter()
             .enumerate()
             .map(|(index, description)| AudioDescriptionSynthesisTask {
-                tts_rate_override: description.tts_rate_override,
+                // A new Gemini voice starts from its original recording, not a
+                // saved acceleration belonging to the previous voice.
+                tts_rate_override: if tts_engine == "gemini" || project.tts_engine == "gemini" {
+                    None
+                } else { description.tts_rate_override },
                 original_index: index,
                 synthesis_index: index,
                 text: description.text.clone(),
@@ -7604,24 +7760,59 @@ fn change_project_voice(
                 end_sec: interval.end_sec,
             })
             .collect::<Vec<_>>();
-        let (scheduled, dropped) = schedule_descriptions(
+        let (mut scheduled, mut dropped) = schedule_descriptions(
             &synthesized,
             &protected,
             source_duration,
             project.allow_extended_pauses && !project.output_is_video,
         );
-        if let Some(first) = dropped.first() {
-            let source_start_sec = project
-                .descriptions
-                .get(first.original_index)
-                .map(|description| description.source_start_sec)
-                .unwrap_or(first.desired_start_sec);
-            state.lock().unwrap().fit_error = Some(ProjectVoiceFitError {
-                source_start_sec,
-                actual_sec: first.duration_sec,
-            });
-            return Err("voice_does_not_fit".to_string());
+        recover_descriptions_with_native_rate((tts_engine == "gemini").then_some(&cancel), &synthesized, &protected, source_duration,
+            project.tts_rate, &mut scheduled, &mut dropped, |cue, rate| {
+                synthesize_text_pcm(&cue.text, TtsParameters { engine: tts_engine, voice: tts_voice,
+                    rate, pitch: project.tts_pitch, volume: project.tts_volume }, rt, &work, cue.original_index, &cancel)
+            })?;
+        while !dropped.is_empty() {
+            let first = dropped.remove(0);
+            let index = first.original_index;
+            let mut cue = synthesized.iter().find(|cue| cue.original_index == index)
+                .cloned().ok_or("Description not found")?;
+            let mut actual = first.duration_sec;
+            loop {
+                let free = free_intervals(&normalize_intervals(&protected, source_duration), source_duration);
+                let reserved: Vec<_> = scheduled.iter().map(|d| (d.start_sec,
+                    d.start_sec + if d.extended_pause { MIN_EXTENDED_ANCHOR_SEC } else { d.duration_sec })).collect();
+                let available = maximum_description_space(&subtract_reserved(&free, &reserved), cue.visual_start_sec);
+                let (tx, rx) = mpsc::channel();
+                state.lock().unwrap().repair = Some(ProjectVoiceRepair {
+                    time: project.descriptions[index].source_start_sec, actual,
+                    available,
+                    text: cue.text.clone(), reply: tx,
+                });
+                let Some(text) = rx.recv().map_err(|_| "cancelled")? else { return Err("cancelled".into()); };
+                if text.trim().is_empty() { continue; }
+                cue.text = text.trim().to_string();
+                cue.tts_rate_override = None;
+                cue.pcm = synthesize_text_pcm(&cue.text, TtsParameters {
+                    engine: tts_engine, voice: tts_voice, rate: project.tts_rate,
+                    pitch: project.tts_pitch, volume: project.tts_volume,
+                }, rt, &work, index, &cancel)?;
+                cue.duration_sec = cue.pcm.len() as f64 / (MIX_CHANNELS as f64 * MIX_SAMPLE_RATE as f64);
+                let mut occupied = protected.clone();
+                occupied.extend(scheduled.iter().map(|d| BridgeInterval { start_sec: d.start_sec,
+                    end_sec: d.start_sec + if d.extended_pause { MIN_EXTENDED_ANCHOR_SEC } else { d.duration_sec } }));
+                let (accepted, mut rejected) = schedule_descriptions(std::slice::from_ref(&cue), &occupied,
+                    source_duration, project.allow_extended_pauses && !project.output_is_video);
+                scheduled.extend(accepted);
+                recover_descriptions_with_native_rate((tts_engine == "gemini").then_some(&cancel), std::slice::from_ref(&cue), &protected, source_duration,
+                    project.tts_rate, &mut scheduled, &mut rejected, |cue, rate| {
+                        synthesize_text_pcm(&cue.text, TtsParameters { engine: tts_engine, voice: tts_voice,
+                            rate, pitch: project.tts_pitch, volume: project.tts_volume }, rt, &work, index, &cancel)
+                    })?;
+                if rejected.is_empty() { break; }
+                actual = rejected[0].duration_sec;
+            }
         }
+        scheduled.sort_by(|a, b| a.start_sec.total_cmp(&b.start_sec));
         if scheduled.len() != project.descriptions.len() {
             return Err("voice_does_not_fit".to_string());
         }
@@ -7676,10 +7867,10 @@ fn change_project_voice(
             descriptions.push(ProjectDescription {
                 tts_rate_override: scheduled_description.tts_rate_override,
                 id: new_id,
-                text: old.text.clone(),
+                text: scheduled_description.text.clone(),
                 original_text: old.original_text.clone(),
-                rendered_text: old.text.clone(),
-                modified: old.text != old.original_text,
+                rendered_text: scheduled_description.text.clone(),
+                modified: scheduled_description.text != old.original_text,
                 gemini_start_sec: old.gemini_start_sec,
                 visual_evidence_time_sec: old.visual_evidence_time_sec,
                 mandatory: old.mandatory,
@@ -7723,6 +7914,36 @@ fn change_project_voice(
     }
     let _ = fs::remove_dir_all(&work);
     result
+}
+
+fn edit_voice_repair_text(parent: &Dialog, repair: &ProjectVoiceRepair) -> Option<String> {
+    let message = trf("audio_description.project.repair_text", &[
+        ("time", format_mmss(repair.time)), ("actual", format!("{:.3}", repair.actual)),
+        ("available", format!("{:.3}", repair.available)),
+    ]);
+    let question = MessageDialog::builder(parent, &message, &tr("audio_description.project.text"))
+        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion).build();
+    if question.show_modal() != ID_YES { return None; }
+    let dialog = Dialog::builder(parent, &tr("audio_description.project.text")).with_size(600, 320).build();
+    let panel = Panel::builder(&dialog).build();
+    let root = BoxSizer::builder(Orientation::Vertical).build();
+    let label = StaticText::builder(&panel).with_label(&tr("audio_description.project.text")).build();
+    root.add(&label, 0, SizerFlag::All, 8);
+    let input = TextCtrl::builder(&panel).with_style(TextCtrlStyle::MultiLine).build();
+    input.set_value(&repair.text);
+    root.add(&input, 1, SizerFlag::Expand | SizerFlag::All, 8);
+    let row = BoxSizer::builder(Orientation::Horizontal).build();
+    let ok = Button::builder(&panel).with_id(ID_OK).with_label(&tr("audio_description.voice_settings.ok")).build();
+    let cancel = Button::builder(&panel).with_id(ID_CANCEL).with_label(&tr("audio_description.voice_settings.cancel")).build();
+    row.add(&ok, 0, SizerFlag::All, 8); row.add(&cancel, 0, SizerFlag::All, 8);
+    root.add_sizer(&row, 0, SizerFlag::Expand, 0); panel.set_sizer(root, true);
+    dialog.set_affirmative_id(ID_OK); dialog.set_escape_id(ID_CANCEL);
+    ok.on_click(move |_| { if !input.get_value().trim().is_empty() { dialog.end_modal(ID_OK); } });
+    cancel.on_click(move |_| dialog.end_modal(ID_CANCEL));
+    dialog.on_close(move |event| { event.skip(false); dialog.end_modal(ID_CANCEL); });
+    input.set_focus();
+    let result = if dialog.show_modal() == ID_OK { Some(input.get_value().trim().to_string()) } else { None };
+    dialog.destroy(); result
 }
 
 fn run_project_voice_validation_with_progress(
@@ -7788,6 +8009,13 @@ fn run_project_voice_validation_with_progress(
     let result_tick = Rc::clone(&result);
     let dialog_tick = progress_dialog;
     timer_tick.on_tick(move |_| {
+        let repair = state_tick.lock().unwrap().repair.take();
+        if let Some(repair) = repair {
+            timer_handle.stop();
+            let reply = edit_voice_repair_text(&dialog_tick, &repair);
+            let _ = repair.reply.send(reply);
+            timer_handle.start(100, false);
+        }
         let snapshot = state_tick.lock().unwrap().clone();
         gauge.set_value(snapshot.progress.clamp(0, 99));
         if let Some(done) = snapshot.done {
@@ -8692,7 +8920,7 @@ fn rebuild_project(
             )
         };
         if !fixed_timeline {
-            recover_descriptions_with_native_rate(
+            recover_descriptions_with_native_rate((project.tts_engine == "gemini").then_some(&cancel),
                 &synthesized, &protected, duration, project.tts_rate,
                 &mut scheduled, &mut dropped,
                 |cue, rate| synthesize_text_pcm_while_active(
@@ -9150,11 +9378,8 @@ pub fn open_project_editor(
     let engine = Choice::builder(&panel).build();
     engine.append(&tr("audio_description.engine.edge"));
     engine.append(&tr("audio_description.engine.system"));
-    let initial_project_engine = if crate::is_system_voice_engine(&project.borrow().tts_engine) {
-        1
-    } else {
-        0
-    };
+    engine.append("Gemini");
+    let initial_project_engine = crate::voice_engine_index(&project.borrow().tts_engine);
     engine.set_selection(initial_project_engine);
     let engine_row = BoxSizer::builder(Orientation::Horizontal).build();
     engine_row.add(
@@ -9171,6 +9396,7 @@ pub fn open_project_editor(
     let voice = Choice::builder(&panel).build();
     let voices_edge = voices_data.lock().unwrap().clone();
     let voices_system = crate::load_system_voices();
+    let voices_gemini = crate::gemini_tts::voices();
     let project_language = project.borrow().language_code.clone();
     let project_voices = Rc::new(RefCell::new(Vec::<VoiceInfo>::new()));
     let fill_project_voices: Rc<dyn Fn(u32, Option<String>)> = {
@@ -9183,6 +9409,8 @@ pub fn open_project_editor(
             voice_control.clear();
             let source = if engine_index == 1 {
                 &voices_system
+            } else if engine_index == 2 {
+                &voices_gemini
             } else {
                 &voices_edge
             };
@@ -9414,15 +9642,18 @@ pub fn open_project_editor(
 
     let project_engine = Rc::clone(&project);
     let fill_project_voices_engine = Rc::clone(&fill_project_voices);
+    let key_project_parent = *parent;
+    let key_project_settings = Arc::clone(settings);
+    let key_project_voices = Arc::clone(voices_data);
     engine.on_selection_changed(move |_| {
         let selected_engine = engine.get_selection().unwrap_or(0);
-        let selected_is_system = selected_engine == 1;
+
         let current = project_engine.borrow();
-        let current_is_system = crate::is_system_voice_engine(&current.tts_engine);
-        let preferred = (selected_is_system == current_is_system)
+        let preferred = (selected_engine == crate::voice_engine_index(&current.tts_engine))
             .then(|| current.tts_voice.clone());
         drop(current);
         fill_project_voices_engine(selected_engine, preferred);
+        crate::ensure_gemini_voice_key(crate::voice_engine_from_index(selected_engine), &dialog, &key_project_parent, &key_project_settings, &key_project_voices);
     });
 
     let project_voice = Rc::clone(&project);
@@ -9435,6 +9666,9 @@ pub fn open_project_editor(
     let pending_text_voice = Rc::clone(&pending_text_edits);
     let reanalyzed_ids_voice = Rc::clone(&reanalyzed_description_ids);
     let last_selected_voice = Rc::clone(&last_selected_description);
+    let voice_key_parent = *parent;
+    let voice_key_settings = Arc::clone(settings);
+    let voice_key_voices = Arc::clone(voices_data);
     change_voice.on_click(move |_| {
         let selected_description_index =
             selected_project_description_index(&choice, &display_order_voice).unwrap_or(0);
@@ -9472,23 +9706,15 @@ pub fn open_project_editor(
             return;
         };
         let selected_engine_index = engine.get_selection().unwrap_or(0);
-        let candidate_engine = if selected_engine_index == 1 {
-            "system".to_string()
-        } else {
-            "microsoft".to_string()
-        };
+        let candidate_engine = crate::voice_engine_from_index(selected_engine_index).to_string();
 
+        if !crate::ensure_gemini_voice_key(&candidate_engine, &dialog_voice, &voice_key_parent, &voice_key_settings, &voice_key_voices) { return; }
         let snapshot = project_voice.borrow().clone();
-        let same_engine = crate::is_system_voice_engine(&candidate_engine)
-            == crate::is_system_voice_engine(&snapshot.tts_engine);
+        let same_engine = candidate_engine == crate::normalized_voice_engine(&snapshot.tts_engine);
         if same_engine && candidate.short_name == snapshot.tts_voice {
             return;
         }
-        let previous_engine_index = if crate::is_system_voice_engine(&snapshot.tts_engine) {
-            1
-        } else {
-            0
-        };
+        let previous_engine_index = crate::voice_engine_index(&snapshot.tts_engine);
         let previous_voice = snapshot.tts_voice.clone();
 
         let (validation, fit_error) = run_project_voice_validation_with_progress(
@@ -9548,6 +9774,7 @@ pub fn open_project_editor(
                     previous_engine_index,
                     Some(previous_voice.clone()),
                 );
+                if error == "cancelled" { return; }
                 let message = if error == "voice_does_not_fit" {
                     fit_error.map_or_else(
                         || tr("audio_description.project.voice_change_failed"),
@@ -9918,11 +10145,31 @@ pub fn open_project_editor(
             &snapshot.tts_engine,
             &preview_text,
             &snapshot.tts_voice,
-            snapshot.descriptions[index].tts_rate_override.unwrap_or(snapshot.tts_rate),
+            if snapshot.tts_engine == "gemini" { snapshot.tts_rate } else { snapshot.descriptions[index].tts_rate_override.unwrap_or(snapshot.tts_rate) },
             snapshot.tts_pitch,
             snapshot.tts_volume,
             &rt_play,
-        ) {
+        ).and_then(|bytes| {
+            if snapshot.tts_engine != "gemini" { return Ok(bytes); }
+            let Some(rate) = snapshot.descriptions[index].tts_rate_override else { return Ok(bytes); };
+            let dir = cache_dir("preview_tempo")?;
+            let cancel = Arc::new(AtomicBool::new(false));
+            let result = (|| {
+                let pcm = convert_mp3_bytes_to_pcm(&bytes, &dir, index, &cancel)?;
+                let pcm = accelerate_description_pcm(&pcm,
+                    ((f64::from(rate) + 100.0) / (f64::from(snapshot.tts_rate) + 100.0)).clamp(1.0, 1.2), &cancel)?;
+                let mut buffer = std::io::Cursor::new(Vec::new());
+                let mut writer = WavWriter::new(&mut buffer, WavSpec {
+                    channels: MIX_CHANNELS, sample_rate: MIX_SAMPLE_RATE,
+                    bits_per_sample: 16, sample_format: SampleFormat::Int,
+                }).map_err(|e| e.to_string())?;
+                for &sample in pcm.iter() { writer.write_sample(sample).map_err(|e| e.to_string())?; }
+                writer.finalize().map_err(|e| e.to_string())?;
+                Ok(buffer.into_inner())
+            })();
+            let _ = fs::remove_dir_all(dir);
+            result
+        }) {
             Ok(bytes) => bytes,
             Err(error) => {
                 show_error(

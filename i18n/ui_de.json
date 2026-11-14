@@ -48,6 +48,7 @@
   "media_seek_step_label": "Sprungintervall für Mediendateien:",
   "announce_media_duration_on_seek_label": "Beim Springen auch die Gesamtdauer ansagen",
   "voice_language_label": "Sprache der Stimme:",
+  "gemini_language_auto_label": "Automatisch",
   "voice_label": "Stimme:",
   "rate_label": "Sprechgeschwindigkeit:",
   "pitch_label": "Tonhöhe:",
@@ -566,5 +567,6 @@
     "Kanäle",
     "Kurse",
     "Podcasts"
-  ]
+  ],
+  "audio_description.project.repair_text": "Die Beschreibung bei {time} dauert {actual} s; verfügbar sind {available} s. Möchten Sie den Text kürzen?"
 }

@@ -2,6 +2,8 @@ Seznam změn
 
 Verze 0.5.6 - 13. listopadu 2026
 
+**Novinka: hlasy Gemini v celém Sonarpadu!** Přirozené a výrazné hlasy blízké lidskému hlasu pro tvorbu audioknih a audiopopisů, čtení zpráv, knih a dokumentů a hlasový výstup ve funkcích programu. Můžete zvolit Sonarpad AI se svým přístupovým kódem nebo osobní klíč Gemini API: nepotřebujete obojí.
+
 Cloudová synchronizace: přidány oblíbené položky SonarMusic mezi Windows, Macem a mobilními zařízeními, včetně skladeb, alb, interpretů a playlistů. Existující seznamy se sloučí a výslovná odstranění se synchronizují.
 
 Podcasty: automatické záložky a pozice přehrávání se synchronizují mezi Windows, Macem a mobilními zařízeními, i při přehrávání epizod z mezipaměti Windows. Starší pozice nepřepíšou novější; synchronizuje se také dokončení přehrávání a odstranění záložek.

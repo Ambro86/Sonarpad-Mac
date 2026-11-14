@@ -48,6 +48,7 @@
   "media_seek_step_label": "Regola spostamento nei file media:",
   "announce_media_duration_on_seek_label": "Annuncia anche la durata totale durante avanti e indietro nei media",
   "voice_language_label": "Lingua voce:",
+  "gemini_language_auto_label": "Automatico",
   "voice_label": "Voce:",
   "rate_label": "Velocità:",
   "pitch_label": "Tono:",
@@ -559,5 +560,6 @@
   "record_mic_permission": "Consenti l’accesso al microfono per Sonarpad in Impostazioni di Sistema → Privacy e sicurezza → Microfono, poi riprova.",
   "record_system_permission": "Impossibile avviare l’audio di sistema. Controlla l’autorizzazione alla registrazione dello schermo e dell’audio per Sonarpad in Impostazioni di Sistema → Privacy e sicurezza, poi riprova.",
   "youtube_search_type": "Tipo di ricerca",
-  "youtube_search_types": ["Tutti", "Video", "Playlist", "Canali", "Corsi", "Podcast"]
+  "youtube_search_types": ["Tutti", "Video", "Playlist", "Canali", "Corsi", "Podcast"],
+  "audio_description.project.repair_text": "La descrizione a {time} dura {actual} s; lo spazio disponibile è {available} s. Vuoi accorciare il testo?"
 }

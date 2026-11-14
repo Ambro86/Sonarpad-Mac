@@ -48,6 +48,7 @@
   "media_seek_step_label": "Krok posunu v mediálních souborech:",
   "announce_media_duration_on_seek_label": "Při posunu v médiích oznamovat také celkovou délku",
   "voice_language_label": "Jazyk hlasu:",
+  "gemini_language_auto_label": "Automaticky",
   "voice_label": "Hlas:",
   "rate_label": "Rychlost:",
   "pitch_label": "Výška hlasu:",
@@ -559,5 +560,6 @@
   "record_mic_permission": "Povolte Sonarpadu přístup k mikrofonu v Nastavení systému → Soukromí a zabezpečení → Mikrofon a zkuste to znovu.",
   "record_system_permission": "Systémový zvuk se nepodařilo spustit. Zkontrolujte oprávnění Sonarpadu k nahrávání obrazovky a zvuku v Nastavení systému → Soukromí a zabezpečení a zkuste to znovu.",
   "youtube_search_type": "Typ hledání",
-  "youtube_search_types": ["Vše", "Videa", "Playlisty", "Kanály", "Kurzy", "Podcasty"]
+  "youtube_search_types": ["Vše", "Videa", "Playlisty", "Kanály", "Kurzy", "Podcasty"],
+  "audio_description.project.repair_text": "Popis v čase {time} trvá {actual} s; k dispozici je {available} s. Chcete text zkrátit?"
 }

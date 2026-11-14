@@ -48,6 +48,7 @@
   "media_seek_step_label": "Krok przewijania w plikach multimedialnych:",
   "announce_media_duration_on_seek_label": "Podczas przewijania multimediów ogłaszaj także całkowity czas trwania",
   "voice_language_label": "Język głosu:",
+  "gemini_language_auto_label": "Automatycznie",
   "voice_label": "Głos:",
   "rate_label": "Prędkość:",
   "pitch_label": "Wysokość głosu:",
@@ -559,5 +560,6 @@
   "record_mic_permission": "Zezwól Sonarpadowi na dostęp do mikrofonu w Ustawieniach systemowych → Prywatność i ochrona → Mikrofon, a następnie spróbuj ponownie.",
   "record_system_permission": "Nie można uruchomić dźwięku systemowego. Sprawdź uprawnienia Sonarpadu do nagrywania ekranu i dźwięku w Ustawieniach systemowych → Prywatność i ochrona, a następnie spróbuj ponownie.",
   "youtube_search_type": "Typ wyszukiwania",
-  "youtube_search_types": ["Wszystkie", "Filmy", "Playlisty", "Kanały", "Kursy", "Podcasty"]
+  "youtube_search_types": ["Wszystkie", "Filmy", "Playlisty", "Kanały", "Kursy", "Podcasty"],
+  "audio_description.project.repair_text": "Opis w {time} trwa {actual} s; dostępny czas to {available} s. Czy chcesz skrócić tekst?"
 }

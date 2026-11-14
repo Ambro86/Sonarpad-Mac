@@ -2,6 +2,8 @@ Changelog
 
 Version 0.5.6 - November 13, 2026
 
+**New: Gemini voices throughout Sonarpad!** Natural, expressive voices with a human-like sound for creating audiobooks and audio descriptions, reading news, books and documents, and using text-to-speech across the application. Choose Sonarpad AI with your access code or your personal Gemini API key: you do not need both.
+
 Cloud sync: added SonarMusic favorites across Windows, Mac and mobile, including songs, albums, artists and playlists. Existing lists are merged and explicit removals are synchronized.
 
 Podcasts: automatic bookmarks and listening positions now sync between Windows, Mac and mobile, including episodes played from the Windows cache. Older positions cannot overwrite newer ones; completion and bookmark removal also sync.

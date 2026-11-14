@@ -48,6 +48,7 @@
   "media_seek_step_label": "Pas de déplacement dans les fichiers média :",
   "announce_media_duration_on_seek_label": "Annoncer aussi la durée totale lors des déplacements dans les médias",
   "voice_language_label": "Langue de la voix :",
+  "gemini_language_auto_label": "Automatique",
   "voice_label": "Voix :",
   "rate_label": "Vitesse :",
   "pitch_label": "Hauteur :",
@@ -559,5 +560,6 @@
   "record_mic_permission": "Autorisez Sonarpad à accéder au microphone dans Réglages Système → Confidentialité et sécurité → Microphone, puis réessayez.",
   "record_system_permission": "Impossible de démarrer l’audio du système. Vérifiez l’autorisation d’enregistrement de l’écran et de l’audio de Sonarpad dans Réglages Système → Confidentialité et sécurité, puis réessayez.",
   "youtube_search_type": "Type de recherche",
-  "youtube_search_types": ["Tous", "Vidéos", "Playlists", "Chaînes", "Cours", "Podcasts"]
+  "youtube_search_types": ["Tous", "Vidéos", "Playlists", "Chaînes", "Cours", "Podcasts"],
+  "audio_description.project.repair_text": "La description à {time} dure {actual} s ; le temps disponible est de {available} s. Voulez-vous raccourcir le texte ?"
 }

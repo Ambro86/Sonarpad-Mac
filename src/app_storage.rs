@@ -50,7 +50,8 @@ pub fn merge_settings(current: &Value, before: &Value, edited: &Value) -> Value 
             continue;
         }
         let identity = match key.as_str() {
-            "youtube_favorites" | "tv_favorites" | "podcast_sources" | "article_sources" => "url",
+            "youtube_favorites" | "podcast_sources" | "article_sources" => "url",
+            "tv_favorites" => "name",
             "radio_favorites" => "stream_url",
             "sonarmusic_favorites" => "id",
             "article_folders" => "",
@@ -63,6 +64,8 @@ pub fn merge_settings(current: &Value, before: &Value, edited: &Value) -> Value 
             Value::Array(values.as_array().into_iter().flatten().map(|item| {
                 let id = if identity.is_empty() {
                     item.clone()
+                } else if key == "tv_favorites" {
+                    json!(item["name"].as_str().unwrap_or("").trim().to_lowercase())
                 } else if key == "sonarmusic_favorites" {
                     json!([item["kind"], item[identity]])
                 } else {
@@ -170,7 +173,7 @@ mod tests {
     fn stale_collection_edits_keep_new_items_and_honor_specific_removals() {
         for (key, identity) in [
             ("youtube_favorites", "url"),
-            ("tv_favorites", "url"),
+            ("tv_favorites", "name"),
             ("radio_favorites", "stream_url"),
             ("podcast_sources", "url"),
             ("article_sources", "url"),
@@ -194,6 +197,23 @@ mod tests {
                 json!({key:[item("b"),item("local")]})
             );
         }
+    }
+
+    #[test]
+    fn tv_name_only_favorites_survive_save_reload_and_individual_removal() {
+        let before = json!({"tv_favorites":[{"name":"Rai 1","url":""},{"name":"Rai 2","url":""}]});
+        let current = json!({"tv_favorites":[{"name":"Rai 1","url":""},{"name":"Rai 2","url":""},{"name":"Rai 3","url":""}]});
+        let edited = json!({"tv_favorites":[{"name":"Rai 2","url":""},{"name":"Rai 4","url":""}]});
+        let merged = merge_settings(&current, &before, &edited);
+        assert_eq!(merged, json!({"tv_favorites":[{"name":"Rai 2","url":""},{"name":"Rai 4","url":""},{"name":"Rai 3","url":""}]}));
+        let path = test_directory().join("tv-roundtrip.json");
+        write_atomically(&path, &serde_json::to_vec(&merged).unwrap()).unwrap();
+        let reloaded: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        assert_eq!(merge_settings(&reloaded, &edited, &edited), merged);
+        let resolved = json!({"tv_favorites":[{"name":" RAI 2 ","url":"https://example.org/live"},{"name":"Rai 4","url":""}]});
+        let updated = merge_settings(&reloaded, &edited, &resolved);
+        assert_eq!(updated["tv_favorites"].as_array().unwrap().len(), 3);
+        assert_eq!(updated["tv_favorites"][0]["url"], "https://example.org/live");
     }
 
     #[test]

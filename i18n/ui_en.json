@@ -48,6 +48,7 @@
   "media_seek_step_label": "Media file seek step:",
   "announce_media_duration_on_seek_label": "Also announce total duration when seeking in media",
   "voice_language_label": "Voice language:",
+  "gemini_language_auto_label": "Automatic",
   "voice_label": "Voice:",
   "rate_label": "Rate:",
   "pitch_label": "Pitch:",
@@ -559,5 +560,6 @@
   "record_mic_permission": "Allow microphone access for Sonarpad in System Settings → Privacy & Security → Microphone, then try again.",
   "record_system_permission": "Unable to start system audio. Check Sonarpad’s screen and audio recording permission in System Settings → Privacy & Security, then try again.",
   "youtube_search_type": "Search type",
-  "youtube_search_types": ["All", "Videos", "Playlists", "Channels", "Courses", "Podcasts"]
+  "youtube_search_types": ["All", "Videos", "Playlists", "Channels", "Courses", "Podcasts"],
+  "audio_description.project.repair_text": "The description at {time} lasts {actual} s; the available space is {available} s. Would you like to shorten the text?"
 }

@@ -2,6 +2,8 @@ Registo de alterações
 
 Versão 0.5.6 - 13 de novembro de 2026
 
+**Novidade: vozes Gemini em todo o Sonarpad!** Vozes naturais e expressivas, próximas da voz humana, para criar audiolivros e audiodescrições, ler notícias, livros e documentos e utilizar a síntese de voz nas funções do programa. Pode escolher Sonarpad AI com o seu código de acesso ou a sua chave API Gemini pessoal: não precisa de ambos.
+
 Sincronização na nuvem: adicionados os favoritos SonarMusic entre Windows, Mac e dispositivos móveis, incluindo músicas, álbuns, artistas e listas de reprodução. As listas existentes são unidas e as remoções explícitas são sincronizadas.
 
 Podcasts: os marcadores automáticos e a posição de reprodução são sincronizados entre Windows, Mac e dispositivos móveis, incluindo episódios reproduzidos a partir da cache do Windows. As posições antigas não substituem as mais recentes; a conclusão e a remoção de marcadores também são sincronizadas.

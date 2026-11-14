@@ -2,6 +2,8 @@
 
 Version 0.5.6 – 13. November 2026
 
+**Neu: Gemini-Stimmen in ganz Sonarpad!** Natürliche, ausdrucksstarke Stimmen, die der menschlichen Stimme nahekommen, zum Erstellen von Hörbüchern und Audiodeskriptionen, zum Vorlesen von Nachrichten, Büchern und Dokumenten sowie für die Sprachausgabe in den Programmfunktionen. Wählen Sie Sonarpad AI mit Ihrem Zugangscode oder Ihren persönlichen Gemini-API-Schlüssel: Beides zusammen ist nicht erforderlich.
+
 Cloud-Synchronisierung: SonarMusic-Favoriten werden jetzt zwischen Windows, Mac und Mobilgeräten synchronisiert, einschließlich Songs, Alben, Künstlern und Playlists. Bestehende Listen werden zusammengeführt und ausdrückliche Löschungen synchronisiert.
 
 Podcasts: Automatische Lesezeichen und Wiedergabepositionen werden zwischen Windows, Mac und Mobilgeräten synchronisiert, auch bei Episoden aus dem Windows-Cache. Ältere Positionen überschreiben keine neueren; auch das Wiedergabeende und das Entfernen von Lesezeichen werden synchronisiert.
