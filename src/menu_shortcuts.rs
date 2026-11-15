@@ -82,6 +82,15 @@ pub fn label(id: i32, title: &str) -> String {
         return title.to_string();
     };
     let mut caption = title.split('\t').next().unwrap_or(title);
+    // These shortcuts are handled by the native document event monitor and
+    // handle_shortcut_event. Keep their symbols in the caption: passing them
+    // as wx accelerators can display ; / : on an Italian keyboard layout.
+    if id == crate::documents::ID_NEXT_DOCUMENT {
+        return format!("{caption} (Command + <)");
+    }
+    if id == crate::documents::ID_PREVIOUS_DOCUMENT {
+        return format!("{caption} (Command + >)");
+    }
     if id == crate::ID_SETTINGS {
         caption = caption.strip_suffix(" (Cmd+,)").unwrap_or(caption);
     }
@@ -152,5 +161,12 @@ mod tests {
             "Impostazioni\tCtrl+,"
         );
         assert_eq!(label(-99999, "Titolo dinamico"), "Titolo dinamico");
+    }
+    #[test]
+    fn document_labels_show_literal_symbols_without_layout_remapping() {
+        assert_eq!(label(crate::documents::ID_NEXT_DOCUMENT, "Documento successivo"),
+            "Documento successivo (Command + <)");
+        assert_eq!(label(crate::documents::ID_PREVIOUS_DOCUMENT, "Documento precedente\tOld"),
+            "Documento precedente (Command + >)");
     }
 }

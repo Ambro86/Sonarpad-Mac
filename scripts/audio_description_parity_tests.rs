@@ -129,21 +129,22 @@ fn native_cue(duration: f64) -> SynthesizedDescription {
 }
 
 #[test]
-fn native_rate_recovery_uses_one_synthesis_and_real_duration() {
+fn native_rate_recovery_retries_up_to_twenty_percent_and_checks_real_duration() {
     for (original, actual, expected_rate, accepted) in [
-        (3.2, 2.9, Some(10), true), (3.4, 2.95, Some(15), true),
-        (3.5, 2.9, None, false), (3.2, 3.1, Some(10), false),
-        (3.2, 0.0, Some(10), false), (2.9, 2.9, None, true),
+        (3.2, 2.9, vec![10], true), (3.4, 2.95, vec![15], true),
+        (3.5, 2.9, vec![20], true), (3.7, 2.9, vec![], false),
+        (3.2, 3.1, vec![10, 15, 20], false),
+        (3.2, 0.0, vec![10, 15, 20], false), (2.9, 2.9, vec![], true),
     ] {
         let cues = [native_cue(original)];
         let (mut scheduled, mut dropped) = schedule_descriptions(&cues, &[], 5.0, false);
         let mut rates = Vec::new();
-        recover_descriptions_with_native_rate(&cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
+        recover_descriptions_with_native_rate(None, &cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
             |_, rate| { rates.push(rate); Ok(native_cue(actual).pcm) }).unwrap();
-        assert_eq!(rates, expected_rate.into_iter().collect::<Vec<_>>());
+        assert_eq!(rates, expected_rate);
         assert_eq!(scheduled.len(), usize::from(accepted));
         assert_eq!(dropped.len(), usize::from(!accepted));
-        if accepted { assert_eq!(scheduled[0].tts_rate_override, expected_rate); }
+        if accepted { assert_eq!(scheduled[0].tts_rate_override, expected_rate.last().copied()); }
     }
 }
 
@@ -153,12 +154,12 @@ fn native_rate_does_not_take_accepted_space_or_compound_saved_rate() {
     cues[1].original_index = 11;
     let (mut scheduled, mut dropped) = schedule_descriptions(&cues, &[], 5.0, false);
     let pcm = scheduled[0].pcm.clone();
-    recover_descriptions_with_native_rate(&cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
+    recover_descriptions_with_native_rate(None, &cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
         |_, _| panic!("no space remains")).unwrap();
     assert!(Arc::ptr_eq(&pcm, &scheduled[0].pcm));
     scheduled.clear();
     cues[0].tts_rate_override = Some(10);
-    recover_descriptions_with_native_rate(&cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
+    recover_descriptions_with_native_rate(None, &cues, &[], 5.0, 0, &mut scheduled, &mut dropped,
         |_, _| panic!("never compound saved acceleration")).unwrap();
     assert_eq!(dropped.len(), 1);
 }
@@ -168,7 +169,7 @@ fn native_rate_cancellation_and_errors_keep_the_rejected_cue() {
     for error in ["cancelled", "voice unavailable"] {
         let cues = [native_cue(3.2)];
         let (mut scheduled, mut dropped) = schedule_descriptions(&cues, &[], 5.0, false);
-        let result = recover_descriptions_with_native_rate(&cues, &[], 5.0, 0,
+        let result = recover_descriptions_with_native_rate(None, &cues, &[], 5.0, 0,
             &mut scheduled, &mut dropped, |_, _| Err(error.into()));
         assert_eq!(result.is_err(), error == "cancelled");
         assert!(scheduled.is_empty());
@@ -221,7 +222,7 @@ fn deferred_tts_fallback_preserves_normal_cues_and_reuses_native_rates() -> Resu
             schedule_descriptions(&[normal], &protected, 20.0, false);
         let original = scheduled[0].clone();
         let mut calls = Vec::new();
-        let rejected = recover_deferred_descriptions(
+        let rejected = recover_deferred_descriptions(None,
             &[deferred_test_candidate(2.0)],
             100,
             &protected,
@@ -258,8 +259,8 @@ fn deferred_tts_fallback_preserves_normal_cues_and_reuses_native_rates() -> Resu
             assert_eq!(rejected.len(), 1);
         }
         assert_eq!(calls[0], 0);
-        assert!(calls.len() <= 2);
-        assert!(calls.iter().all(|rate| [0, 10, 15].contains(rate)));
+        assert!(calls.len() <= 4);
+        assert!(calls.iter().all(|rate| [0, 10, 15, 20].contains(rate)));
     }
     Ok(())
 }
@@ -273,7 +274,7 @@ fn deferred_tts_fallback_skips_missing_nearby_space_and_keeps_new_cues_separate(
     }];
     let mut scheduled = Vec::new();
     let mut calls = 0;
-    let rejected = recover_deferred_descriptions(
+    let rejected = recover_deferred_descriptions(None,
         &[
             deferred_test_candidate(1.0),
             deferred_test_candidate(1.5),
@@ -301,12 +302,12 @@ fn deferred_tts_fallback_handles_errors_cancellation_and_empty_legacy_results() 
         serde_json::from_str(r#"{"ok":true,"descriptions":[]}"#).unwrap();
     assert!(legacy.deferred_descriptions.is_empty());
     let mut scheduled = Vec::new();
-    recover_deferred_descriptions(&[], 0, &[], 10.0, 0, &mut scheduled, |_, _, _| {
+    recover_deferred_descriptions(None, &[], 0, &[], 10.0, 0, &mut scheduled, |_, _, _| {
         panic!("empty fallback must not synthesize")
     })
     .unwrap();
     let candidate = deferred_test_candidate(1.0);
-    let result = recover_deferred_descriptions(
+    let result = recover_deferred_descriptions(None,
         std::slice::from_ref(&candidate),
         0,
         &[],
@@ -317,7 +318,7 @@ fn deferred_tts_fallback_handles_errors_cancellation_and_empty_legacy_results() 
     );
     assert!(result.is_ok());
     assert!(scheduled.is_empty());
-    let result = recover_deferred_descriptions(
+    let result = recover_deferred_descriptions(None,
         &[candidate],
         0,
         &[],

@@ -24,6 +24,9 @@ def main():
               "fn tr(key: &str) -> String { key.into() }",
               "fn append_podcast_log(_: &str) {}",
               "fn audio_description_pcm_has_signal(pcm: &[i16]) -> bool { pcm.iter().any(|v| *v != 0) }"]
+    # Native-rate tests must not invoke the bundled macOS media processor.
+    # Fail loudly if a fixture accidentally enables the Gemini tempo branch.
+    pieces.append("fn accelerate_description_pcm(_: &[i16], _: f64, _: &Arc<AtomicBool>) -> Result<Arc<[i16]>, String> { panic!(\"Gemini tempo is outside the native-rate harness\") }")
     for name in ("AudioDescriptionPreparedChunk", "BridgeCharacter", "BridgeDescription",
                  "AudioDescriptionBridgeResume", "BridgeInterval", "AudioDescriptionBridgeResult"):
         pieces.append(item(bridge, "pub struct " + name, True))
