@@ -6467,7 +6467,7 @@ fn open_create_dialog_impl(
     tmdb_row.add(&tmdb_title, 1, SizerFlag::Expand | SizerFlag::All, 5);
     let tmdb_year_label = StaticText::builder(&p).with_label(&tr("audio_description.tmdb.year")).build();
     tmdb_row.add(&tmdb_year_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
-    let tmdb_year = TextCtrl::builder(&p).with_size(80, -1).build();
+    let tmdb_year = TextCtrl::builder(&p).with_size(Size::new(80, -1)).build();
     tmdb_year.set_accessibility_label(&tr("audio_description.tmdb.year"));
     tmdb_row.add(&tmdb_year, 0, SizerFlag::All, 5);
     root.add_sizer(&tmdb_row, 0, SizerFlag::Expand, 0);
