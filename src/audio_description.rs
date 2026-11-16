@@ -32,6 +32,8 @@ mod timeline_fallback;
 mod fallbacks;
 #[path = "audio_description_ffmpeg_recovery.rs"]
 mod ffmpeg_recovery;
+#[path = "audio_description_tmdb.rs"]
+mod tmdb;
 
 const CHUNK_SECONDS: f64 = 180.0;
 const GEMINI_MAX_CHUNK_BYTES: u64 = 2 * 1024 * 1024 * 1024;
@@ -767,6 +769,8 @@ fn normalized_catalog_character(character: &BridgeCharacter) -> Option<BridgeCha
         return None;
     }
     Some(BridgeCharacter {
+        tmdb: character.tmdb.clone(),
+        provisional: character.provisional,
         id: character.id.trim().to_string(),
         name,
         description,
@@ -790,6 +794,9 @@ fn find_catalog_identity(
     characters: &[BridgeCharacter],
     candidate: &BridgeCharacter,
 ) -> Option<usize> {
+    if candidate.tmdb.is_some() {
+        return characters.iter().position(|entry| entry.tmdb.is_some() && entry.id == candidate.id);
+    }
     let candidate_id = candidate.id.trim().to_lowercase();
     if !candidate_id.is_empty() {
         let mut matches = characters
@@ -915,6 +922,11 @@ fn merge_catalog(
             continue;
         };
         if let Some(index) = find_catalog_identity(&merged, &candidate) {
+            if merged[index].tmdb.is_some() && candidate.tmdb.is_none() { continue; }
+            if merged[index].provisional && merged[index].tmdb.is_none() {
+                merged[index] = candidate;
+                continue;
+            }
             merged[index].description =
                 merge_catalog_description(&merged[index].description, &candidate.description);
             if merged[index].id.is_empty() && !candidate.id.is_empty() {
@@ -931,6 +943,11 @@ fn merge_catalog(
             continue;
         };
         if let Some(index) = find_catalog_identity(&merged, &candidate) {
+            if merged[index].tmdb.is_some() && candidate.tmdb.is_none() { continue; }
+            if merged[index].provisional && merged[index].tmdb.is_none() {
+                merged[index] = candidate;
+                continue;
+            }
             merged[index].description =
                 merge_catalog_description(&merged[index].description, &candidate.description);
             if index >= authoritative_count
@@ -6442,6 +6459,20 @@ fn open_create_dialog_impl(
         .build();
     recognize.set_value(saved.audio_description_recognize_characters);
     root.add(&recognize, 0, SizerFlag::Expand | SizerFlag::All, 5);
+    let tmdb_row = BoxSizer::builder(Orientation::Horizontal).build();
+    let tmdb_title_label = StaticText::builder(&p).with_label(&tr("audio_description.tmdb.title")).build();
+    tmdb_row.add(&tmdb_title_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let tmdb_title = TextCtrl::builder(&p).build();
+    tmdb_title.set_accessibility_label(&tr("audio_description.tmdb.title"));
+    tmdb_row.add(&tmdb_title, 1, SizerFlag::Expand | SizerFlag::All, 5);
+    let tmdb_year_label = StaticText::builder(&p).with_label(&tr("audio_description.tmdb.year")).build();
+    tmdb_row.add(&tmdb_year_label, 0, SizerFlag::AlignCenterVertical | SizerFlag::All, 5);
+    let tmdb_year = TextCtrl::builder(&p).with_size(80, -1).build();
+    tmdb_year.set_accessibility_label(&tr("audio_description.tmdb.year"));
+    tmdb_row.add(&tmdb_year, 0, SizerFlag::All, 5);
+    root.add_sizer(&tmdb_row, 0, SizerFlag::Expand, 0);
+    tmdb_title.enable(recognize.get_value());
+    tmdb_year.enable(recognize.get_value());
     let recognize_screen_text = CheckBox::builder(&p)
         .with_label(&tr("audio_description.recognize_screen_text"))
         .build();
@@ -7083,6 +7114,8 @@ fn open_create_dialog_impl(
     let dialog_recognize = d;
     recognize.on_toggled(move |_| {
         let on = recognize.get_value();
+        tmdb_title.enable(on);
+        tmdb_year.enable(on);
         keep_catalog_show.show(on);
         if !on {
             keep_catalog_show.set_value(false);
@@ -7412,7 +7445,7 @@ fn open_create_dialog_impl(
             voice_settings_button.set_focus();
             return;
         }
-        let catalog = if keep_catalog.get_value() {
+        let mut catalog = if keep_catalog.get_value() {
             let sel = catalog_choice.get_selection().unwrap_or(0) as usize;
             if sel == 0 {
                 let name = catalog_name.get_value().trim().to_string();
@@ -7465,6 +7498,34 @@ fn open_create_dialog_impl(
         } else {
             model_value.clone()
         };
+        if recognize.get_value() && !tmdb_title.get_value().trim().is_empty() {
+            let title = tmdb_title.get_value().trim().to_string();
+            let year = tmdb_year.get_value().trim().to_string();
+            if !year.is_empty() && (year.len() != 4 || !year.bytes().all(|b| b.is_ascii_digit())) {
+                show_error(&d, &tr("audio_description.tmdb.invalid_year"));
+                tmdb_year.set_focus();
+                return;
+            }
+            match tmdb::resolve(&d, title.clone(), year) {
+                Ok(Some(characters)) => {
+                    if characters.iter().any(|entry| entry.tmdb.as_ref().is_some_and(|item| item.animation)) {
+                        let message = MessageDialog::builder(&d, &tr("audio_description.tmdb.animation"), "TMDB")
+                            .with_style(MessageDialogStyle::OK).build();
+                        message.show_modal();
+                    }
+                    let target = catalog.get_or_insert_with(|| CharacterCatalog { name: title, path: PathBuf::new(), characters: Vec::new() });
+                    target.characters.retain(|item| item.tmdb.is_none());
+                    target.characters.extend(characters);
+                }
+                Ok(None) => return,
+                Err(error) => {
+                    let message = format!("{}\n\n{error}", tr("audio_description.tmdb.continue_without"));
+                    let question = MessageDialog::builder(&d, &message, "TMDB")
+                        .with_style(MessageDialogStyle::YesNo | MessageDialogStyle::IconQuestion).build();
+                    if question.show_modal() != ID_YES { return; }
+                }
+            }
+        }
         let job = CreateJob {
             input_path,
             output_path,

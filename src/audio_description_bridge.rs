@@ -26,6 +26,27 @@ pub struct BridgeCharacter {
     pub name: String,
     #[serde(default)]
     pub description: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tmdb: Option<TmdbCharacterReference>,
+    #[serde(default)]
+    pub provisional: bool,
+}
+
+/// Cast metadata is a candidate identity, never a verified face identification.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct TmdbCharacterReference {
+    pub actor_name: String,
+    pub person_id: i64,
+    pub credit_id: String,
+    pub production_id: i64,
+    pub production_title: String,
+    pub production_year: Option<i64>,
+    pub media_type: String,
+    pub season_number: Option<i64>,
+    pub episode_number: Option<i64>,
+    pub profile_image_url: Option<String>,
+    pub animation: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]

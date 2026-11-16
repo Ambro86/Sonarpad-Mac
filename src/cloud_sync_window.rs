@@ -57,8 +57,12 @@ impl Automatic {
         let Some(dir) = path.parent() else {
             return;
         };
-        let Ok(meta) = Session::metadata(dir) else {
-            return;
+        let meta = match Session::metadata(dir) {
+            Ok(meta) => meta,
+            Err(error) => {
+                diagnostic("metadata_read", error);
+                return;
+            }
         };
         if !meta["group_id"].is_string() {
             return;
@@ -90,17 +94,31 @@ fn label(it: &'static str, en: &'static str) -> &'static str {
         en
     }
 }
-fn snapshot_for_sync() -> Result<Value, String> {
-    let data = read_app_storage_text("settings.json").ok_or("storage_error")?;
-    let mut settings: Settings = serde_json::from_str(&data).map_err(|_| "storage_error")?;
+fn diagnostic(stage: &str, error: impl std::fmt::Display) -> String {
+    // Callers pass error codes or I/O errors, never settings or credentials.
+    let error = error.to_string();
+    append_podcast_log(&format!("CloudSync stage={stage} error={error}"));
+    error
+}
+
+fn normalize_sync_settings(settings: &mut Settings) {
     settings.ui_language = normalize_ui_language(&settings.ui_language);
     settings.news_language = normalize_news_language(&settings.news_language);
-    normalize_settings_data(&mut settings);
+    normalize_settings_data(settings);
+}
+
+fn snapshot_for_sync() -> Result<Value, String> {
+    let data = read_app_storage_text("settings.json")
+        .ok_or_else(|| diagnostic("settings_read", "settings_read_error"))?;
+    let mut settings: Settings = serde_json::from_str(&data)
+        .map_err(|_| diagnostic("settings_parse", "settings_parse_error"))?;
+    normalize_sync_settings(&mut settings);
     snapshot(&settings)
 }
 
 pub(crate) fn snapshot(settings: &Settings) -> Result<Value, String> {
-    let mut value = serde_json::to_value(settings).map_err(|_| "storage_error")?;
+    let mut value = serde_json::to_value(settings)
+        .map_err(|_| diagnostic("snapshot_serialize", "settings_serialize_error"))?;
     value["_cloud_default_urls"] = json!(
         articles::default_sources_for_news_language(&settings.news_language)
             .iter()
@@ -126,7 +144,8 @@ pub fn open(parent: &Frame, settings: &Arc<Mutex<Settings>>) {
     loop {
         let meta = match Session::metadata(&dir) {
             Ok(meta) => meta,
-            Err(_) => {
+            Err(error) => {
+                diagnostic("metadata_read", error);
                 show_message_dialog(
                     parent,
                     title,
@@ -421,7 +440,8 @@ fn run(
 }
 
 fn request(action: usize, code: String, before: Value, dir: PathBuf) -> Result<Outcome, String> {
-    let mut session = Session::load(&dir)?;
+    let mut session = Session::load(&dir)
+        .map_err(|error| diagnostic("session_load", error))?;
     if action >= 5 {
         let enabled = session.toggle_scope(action == 5)?;
         append_podcast_log(if enabled {
@@ -473,16 +493,19 @@ fn finish(
 ) -> Result<(Session, Option<String>), String> {
     let (mut session, remote, invitation) = outcome;
     if let Some(mut remote) = remote {
-        let mut locked = settings.lock().map_err(|_| "storage_error")?;
+        let mut locked = settings.lock()
+            .map_err(|_| diagnostic("settings_lock", "storage_lock_error"))?;
         let mut current = snapshot_for_sync()?;
         let merged = session.merge_response(
             &remote,
             &session.select(&cloud_sync::export(&current, true)),
-        )?;
+        ).map_err(|error| diagnostic("response_merge", error))?;
         let old_language = cloud_sync::language(&current, true);
-        cloud_sync::apply(&mut current, &merged, true)?;
+        cloud_sync::apply(&mut current, &merged, true)
+            .map_err(|error| diagnostic("response_apply", error))?;
         let mut updated: Settings =
-            serde_json::from_value(current).map_err(|_| "invalid_response")?;
+            serde_json::from_value(current)
+                .map_err(|_| diagnostic("response_parse", "invalid_response"))?;
         if old_language != updated.news_language {
             updated.article_sources = replace_default_article_sources_for_news_language(
                 &updated.article_sources,
@@ -493,19 +516,25 @@ fn finish(
                 .is_some()
             {
                 let mut current = snapshot(&updated)?;
-                cloud_sync::reconcile_news_language(&session, &mut current, &mut remote, true)?;
-                updated = serde_json::from_value(current).map_err(|_| "invalid_response")?;
+                cloud_sync::reconcile_news_language(&session, &mut current, &mut remote, true)
+                    .map_err(|error| diagnostic("news_language_reconcile", error))?;
+                updated = serde_json::from_value(current)
+                    .map_err(|_| diagnostic("response_parse", "invalid_response"))?;
             }
         }
+        // Normalize before writing, exactly as snapshot_for_sync does on readback.
+        // Otherwise valid canonicalization (e.g. feed URLs/folders) looks like data loss.
+        normalize_sync_settings(&mut updated);
         // Use the existing storage path and propagate write failures before the checkpoint.
         write_app_storage_text(
             "settings.json",
-            &serde_json::to_string_pretty(&updated).map_err(|_| "storage_error")?,
+            &serde_json::to_string_pretty(&updated)
+                .map_err(|_| diagnostic("settings_serialize", "settings_serialize_error"))?,
         )
-        .map_err(|_| "storage_error")?;
+        .map_err(|error| diagnostic("settings_write", error))?;
         let persisted = snapshot_for_sync()?;
         if cloud_sync::export(&persisted, true) != cloud_sync::export(&snapshot(&updated)?, true) {
-            return Err("storage_error".into());
+            return Err(diagnostic("settings_verify", "settings_verification_mismatch"));
         }
         cloud_sync::log_collection_reductions(
             &session.select(&cloud_sync::export(&snapshot(&locked)?, true)),
@@ -515,7 +544,7 @@ fn finish(
         );
         updated.remember_storage_snapshot();
         *locked = updated;
-        session.finish(remote)?;
+        session.finish(remote).map_err(|error| diagnostic("checkpoint_finish", error))?;
     }
     Ok((session, invitation))
 }

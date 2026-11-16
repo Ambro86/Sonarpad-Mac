@@ -1,12 +1,14 @@
 Journal des nouveautés
 
-Version 0.5.6 - 13 novembre 2026
+Version 0.5.6 - 16 novembre 2026
 
-**Nouveauté : les voix Gemini dans tout Sonarpad !** Des voix naturelles et expressives, proches de la voix humaine, pour créer des livres audio et des audiodescriptions, lire les actualités, les livres et les documents et utiliser la synthèse vocale dans les fonctions du programme. Choisissez Sonarpad AI avec votre code d’accès ou votre clé API Gemini personnelle : les deux ne sont pas nécessaires.
+1. Audiodescriptions avec distribution et photos TMDB : saisissez le titre du film ou de la série et une année facultative, puis choisissez la production, la saison et l’épisode. Gemini utilise les noms et photos des acteurs comme indices, sans les considérer comme des identités certaines. Les catalogues conservent les liens des photos pour les réutiliser. Pour les contenus animés, l’audiodescription ne peut pas utiliser ce service, car il fournit des photos des comédiens de doublage, qui n’aideraient pas à reconnaître les personnages des dessins animés. La mise en œuvre de ce système ne garantit pas une reconnaissance des personnages à 100 %, car TMDB ne fournit parfois pas de photos pour tous les personnages de la distribution. Elle améliore toutefois considérablement la fiabilité de la reconnaissance.
 
-Synchronisation cloud : ajout des favoris SonarMusic entre Windows, Mac et mobile, y compris les titres, albums, artistes et playlists. Les listes existantes sont fusionnées et les suppressions explicites sont synchronisées.
+2. **Nouveauté : les voix Gemini dans tout Sonarpad !** Des voix naturelles et expressives, proches de la voix humaine, pour créer des livres audio et des audiodescriptions, lire les actualités, les livres et les documents et utiliser la synthèse vocale dans les fonctions du programme. Choisissez Sonarpad AI avec votre code d’accès ou votre clé API Gemini personnelle.
 
-Podcasts : les signets automatiques et la position d’écoute sont désormais synchronisés entre Windows, Mac et mobile, y compris pour les épisodes lus depuis le cache Windows. Les anciennes positions ne remplacent pas les plus récentes ; la fin de lecture et la suppression des signets sont également synchronisées.
+3. Synchronisation cloud : ajout des favoris SonarMusic entre Windows, Mac et mobile, y compris les titres, albums, artistes et playlists. Les listes existantes sont fusionnées et les suppressions explicites sont synchronisées.
+
+4. Podcasts : les signets automatiques et la position d’écoute sont désormais synchronisés entre Windows, Mac et mobile, y compris pour les épisodes lus depuis le cache Windows. Les anciennes positions ne remplacent pas les plus récentes ; la fin de lecture et la suppression des signets sont également synchronisées.
 
 Version 0.5.5 - 12 novembre 2026
 

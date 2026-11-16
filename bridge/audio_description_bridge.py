@@ -238,6 +238,10 @@ def _normalise_initial_character_glossary(value) -> list[dict]:
             # their descriptions to the short context limit used elsewhere.
             "description": description,
         }
+        if isinstance(item.get("tmdb"), dict):
+            candidate["tmdb"] = item["tmdb"]
+        if item.get("provisional") is True:
+            candidate["provisional"] = True
         existing = merged.get(key)
         if existing is None:
             merged[key] = candidate
@@ -245,7 +249,11 @@ def _normalise_initial_character_glossary(value) -> list[dict]:
             if not candidate["id"]:
                 candidate["id"] = existing["id"]
             merged[key] = candidate
-    return list(merged.values())[:96]
+    # Keep the established-catalog limit, without letting a full catalog hide
+    # the optional TMDB candidates and their reference photographs.
+    rows = list(merged.values())
+    return ([item for item in rows if not item.get("tmdb")][:96]
+            + [item for item in rows if item.get("tmdb")][:96])
 
 
 def _configure_omni(request: dict) -> None:

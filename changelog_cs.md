@@ -1,12 +1,14 @@
 Seznam změn
 
-Verze 0.5.6 - 13. listopadu 2026
+Verze 0.5.6 - 16. listopadu 2026
 
-**Novinka: hlasy Gemini v celém Sonarpadu!** Přirozené a výrazné hlasy blízké lidskému hlasu pro tvorbu audioknih a audiopopisů, čtení zpráv, knih a dokumentů a hlasový výstup ve funkcích programu. Můžete zvolit Sonarpad AI se svým přístupovým kódem nebo osobní klíč Gemini API: nepotřebujete obojí.
+1. Audiopopis s obsazením a fotografiemi z TMDB: zadejte název filmu nebo seriálu a volitelně rok, poté vyberte produkci, řadu a díl. Gemini dostane jména a fotografie herců jako vodítka, nikoli potvrzené identity. Katalogy ukládají odkazy na fotografie pro další použití. U animovaného obsahu nemůže audiopopis tuto službu využívat, protože poskytuje fotografie dabérů, které by nepomohly rozpoznat animované postavy. Zavedení tohoto systému nezaručuje stoprocentní rozpoznání postav, protože TMDB někdy neposkytuje fotografie všech postav z obsazení. Výrazně však zvyšuje spolehlivost rozpoznávání.
 
-Cloudová synchronizace: přidány oblíbené položky SonarMusic mezi Windows, Macem a mobilními zařízeními, včetně skladeb, alb, interpretů a playlistů. Existující seznamy se sloučí a výslovná odstranění se synchronizují.
+2. **Novinka: hlasy Gemini v celém Sonarpadu!** Přirozené a výrazné hlasy blízké lidskému hlasu pro tvorbu audioknih a audiopopisů, čtení zpráv, knih a dokumentů a hlasový výstup ve funkcích programu. Můžete zvolit Sonarpad AI se svým přístupovým kódem nebo osobní klíč Gemini API.
 
-Podcasty: automatické záložky a pozice přehrávání se synchronizují mezi Windows, Macem a mobilními zařízeními, i při přehrávání epizod z mezipaměti Windows. Starší pozice nepřepíšou novější; synchronizuje se také dokončení přehrávání a odstranění záložek.
+3. Cloudová synchronizace: přidány oblíbené položky SonarMusic mezi Windows, Macem a mobilními zařízeními, včetně skladeb, alb, interpretů a playlistů. Existující seznamy se sloučí a výslovná odstranění se synchronizují.
+
+4. Podcasty: automatické záložky a pozice přehrávání se synchronizují mezi Windows, Macem a mobilními zařízeními, i při přehrávání epizod z mezipaměti Windows. Starší pozice nepřepíšou novější; synchronizuje se také dokončení přehrávání a odstranění záložek.
 
 Verze 0.5.5 - 12. listopadu 2026
 

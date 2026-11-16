@@ -14,6 +14,7 @@ from ..models import config_model
 from . import speech_detector, language_detector
 from . import gemini_helpers as gemini
 from .gemini_helpers import ContentBlockedError, GeminiAPIError, TokenLimitError
+from .tmdb_references import with_references, LOCALIZATION_RULE, ACTIVE_CAST_RULE
 
 # --- CONSTANTS ---
 GLOSSARY_MAX_DURATION_SEC = 3000  # 50 minutes, typical limit for raw video processing
@@ -45,6 +46,8 @@ _BLOCKED_CHUNK_FALLBACK_DURATION_SEC = 60.0
 # 180.06900000000041s).
 _BLOCKED_CHUNK_FALLBACK_MIN_DURATION_SEC = 0.5
 _REPEATED_SUBJECT_NAME_MAX_GAP_SEC = 20.0
+
+_SUBJECT_CLARITY_RULE = 'SUBJECT CLARITY FOR LISTENERS: Always make it clear who performs each action. Use the recognized character name, or a concise identifying visual description when the identity is unknown. A pronoun or omitted subject is allowed only when the referent is immediately and unambiguously clear from the spoken descriptions alone, without seeing the video. Repeat the explicit subject after a scene change, a change of acting character, an intervening description of someone else, or a pause that makes the reference unclear. When several people are present, name or identify the acting person whenever a pronoun could refer to more than one of them. Clarity takes priority over avoiding repetition: repeating a name is preferable to an ambiguous subject. Do not mechanically omit a name just because it appeared in the previous description. Do not invent an identity or add words that violate the available timing budget.'
 _LANGUAGE_DETECTION_MIN_CONFIDENCE = 0.75
 _AUDIO_CONTEXT_ONLY_RULE = (
     "The soundtrack and dialogue are context only. You may use spoken names, titles, "
@@ -823,7 +826,7 @@ def _merge_character_descriptions(existing, observed, max_chars=2000):
 
 
 def _update_character_continuity(known_characters, chunk_glossary,
-                                 max_characters=32):
+                                 max_characters=32, provisional=False):
     """Merge named characters while preserving established catalog identities."""
     for item in chunk_glossary or []:
         if not isinstance(item, dict):
@@ -852,7 +855,7 @@ def _update_character_continuity(known_characters, chunk_glossary,
             known_characters.pop(existing_key)
             if existing_key is not None else None
         )
-        if existing:
+        if existing and not existing.get("provisional"):
             # The saved/previously established identity is authoritative. Gemini
             # may call Anna Robinson simply "Anna", but that must not manufacture
             # a new `anna` identity or rename the established catalog entry.
@@ -869,6 +872,8 @@ def _update_character_continuity(known_characters, chunk_glossary,
             "name": name,
             "description": description,
         }
+        if (existing and existing.get("provisional")) or (not existing and (provisional or item.get("provisional"))):
+            known_characters[key]["provisional"] = True
     while len(known_characters) > max(1, int(max_characters)):
         del known_characters[next(iter(known_characters))]
     return known_characters
@@ -926,14 +931,14 @@ def _items_for_minute(items, minute_start, minute_end, local_origin):
 
 
 def _narration_restart_ranges(dialogue_intervals, duration, chunk_start, chunk_end, minimum_pause):
-    """Reuse the existing clipped-request path after 45s without a usable pause."""
+    """Reuse the existing clipped-request path after 35s without a usable pause."""
     cuts = []
     previous_end = 0.0
     for start, end in speech_detector.speech_free_intervals(dialogue_intervals or [], duration):
         if end - start < minimum_pause:
             continue
-        if (start - previous_end >= 45.0
-                and start - chunk_start >= 45.0
+        if (start - previous_end >= 35.0
+                and start - chunk_start >= 35.0
                 and chunk_end - start >= minimum_pause):
             cuts.append(start)
         previous_end = end
@@ -1031,6 +1036,7 @@ def _generate_blocked_chunk_by_minutes(
             model_name,
             minute_windows_text,
             speech_detector.format_intensive_slots_for_prompt(minute_slots),
+            tmdb_reference_context=bool(getattr(client, "_sonarpad_character_references", None)),
             intensive_mode=intensive_mode,
             extended_anchors_text=(
                 speech_detector.format_extended_anchors_for_prompt(
@@ -1075,7 +1081,7 @@ def _generate_blocked_chunk_by_minutes(
                     response = gemini.generate_content_with_retry(
                         client,
                         model=model_name,
-                        contents=[prompt_text, minute_video_part],
+                        contents=with_references(client, [prompt_text, minute_video_part]),
                         config=config_obj,
                         status_callback=status_update_callback,
                         prohibited_content_max_attempts=1,
@@ -1154,7 +1160,10 @@ def _generate_blocked_chunk_by_minutes(
             if enable_glossary:
                 recovered_glossary.extend(glossary or [])
                 if glossary:
-                    _update_character_continuity(character_continuity, glossary)
+                    _update_character_continuity(
+                        character_continuity, glossary, max_characters=96,
+                        provisional=bool(getattr(client, "_sonarpad_character_references", None))
+                    )
             app_logger.info(
                 "Blocked chunk %d fallback minute %d kept %d descriptions.",
                 chunk_number, minute_label, len(normalized),
@@ -1249,6 +1258,7 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
     all_token_usage = []
     temporary_chunk_paths = []
     per_chunk_uploaded_files = []
+    reference_files = []
 
     try:
         client = gemini.get_gemini_client()
@@ -1305,9 +1315,15 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
         _update_status(_("Processing video..."))
 
         enable_glossary = config_model.get_setting("enable_character_glossary")
+        if enable_glossary:
+            from .tmdb_references import prepare
+            references, reference_files = prepare(client, initial_character_glossary or [])
+            if references:
+                client._sonarpad_character_references = references
+
         if enable_glossary and initial_character_glossary:
             _update_character_continuity(
-                character_continuity, initial_character_glossary, max_characters=96
+                character_continuity, [item for item in initial_character_glossary if not item.get("tmdb")], max_characters=96
             )
         if enable_glossary and resume_character_glossary:
             _update_character_continuity(
@@ -1437,6 +1453,7 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
             system_instruction, user_prompt_text = _build_unified_prompts(
                 user_prompt, model_name_to_use, chunk_free_windows,
                 intensive_slots_text,
+                tmdb_reference_context=bool(getattr(client, "_sonarpad_character_references", None)),
                 intensive_mode=intensive_mode,
                 extended_anchors_text=extended_anchors_text,
                 extended_mode=extended_mode,
@@ -1544,7 +1561,7 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                     "Return top-level verified_nonverbal_ids array alongside your "
                     "normal JSON keys. Return [] if none can be verified."
                 )
-            api_contents = [chunk_prompt_text, video_part]
+            api_contents = with_references(client, [chunk_prompt_text, video_part])
 
             _update_status(
                 _("Chunk %d/%d: asking Gemini for descriptions…") % (i + 1, num_chunks)
@@ -1609,7 +1626,7 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                                 per_chunk_uploaded_files.remove(current_chunk_file_obj)
                             current_chunk_file_obj = None
                             video_part = _build_inline_video_part(current_chunk_path)
-                            api_contents = [chunk_prompt_text, video_part]
+                            api_contents = with_references(client, [chunk_prompt_text, video_part])
                             response = gemini.generate_content_with_retry(
                                 client, model=model_name_to_use, contents=api_contents,
                                 config=gen_config, status_callback=_update_status,
@@ -1714,7 +1731,8 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
                 character_glossary.extend(chunk_glossary)
                 before_count = len(character_continuity)
                 _update_character_continuity(
-                    character_continuity, chunk_glossary, max_characters=96
+                    character_continuity, chunk_glossary, max_characters=96,
+                    provisional=bool(getattr(client, "_sonarpad_character_references", None))
                 )
                 app_logger.info(
                     "Chunk %d character continuity: before=%d after=%d names=%s.",
@@ -1880,6 +1898,10 @@ def generate_descriptions_chunked(video_path, chunk_duration_sec, user_prompt=""
         raise
     finally:
         _cleanup_uploaded_file(client, video_file_obj, _update_status)
+        if isinstance(getattr(client, "_sonarpad_character_references", None), list):
+            client._sonarpad_character_references = []
+        for reference in reference_files:
+            _cleanup_uploaded_file(client, reference, _update_status)
         for uploaded_file in list(per_chunk_uploaded_files):
             _cleanup_uploaded_file(client, uploaded_file, _update_status)
         for chunk_path in list(temporary_chunk_paths):
@@ -2596,14 +2618,9 @@ def _recover_large_chunk_gaps(
     enable_glossary = bool(
         config_model.get_setting("enable_character_glossary")
     )
-    recovery_subject_rule = (
-        "When consecutive descriptions keep the same character as their clear subject, use "
-        "the character's full name only in the first one; then use a natural pronoun or omit "
-        "the subject when the target language allows it. Repeat the name after a scene or "
-        "subject change, a long interval, or whenever omission could be ambiguous. "
-        if enable_glossary else
-        "Do not identify or name characters and do not infer identity across clips. Use concise "
-        "generic visual references, with pronouns or omitted subjects only when they remain clear. "
+    recovery_subject_rule = _SUBJECT_CLARITY_RULE + (
+        " " if enable_glossary else
+        " Do not identify or name characters and do not infer identity across clips; use clear generic visual references. "
     )
     system_instruction = (
         "You recover missing coverage in long-form audio description. Inspect only the explicitly "
@@ -3014,16 +3031,32 @@ def _suppress_repeated_leading_character_names(
     coordinated subjects ("Janet and Mark"), different subjects, and names
     after a long gap remain untouched.
     """
+    if _target_language_details()[0] != "it":
+        return list(descriptions_list or [])
     names = _character_names_from_glossary(character_glossary)
     if not descriptions_list or not names:
         return list(descriptions_list or [])
 
+    # Catalogs often store full names while narration uses only the first name.
+    # Keep the full name as identity, and accept a short form only if unambiguous.
+    first_names = {}
+    for name in names:
+        first_names.setdefault(name.split()[0].casefold(), []).append(name)
+    aliases = {name: name for name in names}
+    for first_name, matches in first_names.items():
+        if len(matches) == 1:
+            aliases.setdefault(matches[0].split()[0], matches[0])
+        else:
+            aliases = {
+                alias: name for alias, name in aliases.items()
+                if alias.casefold() != first_name
+            }
     patterns = [
         (
-            name,
-            re.compile(rf"^({re.escape(name)})(?=\s|,)", re.IGNORECASE),
+            aliases[alias],
+            re.compile(rf"^({re.escape(alias)})(?=\s|,)", re.IGNORECASE),
         )
-        for name in names
+        for alias in sorted(aliases, key=len, reverse=True)
     ]
     cleaned = []
     active_name = None
@@ -3339,7 +3372,7 @@ def _request_json_repair_from_gemini(
         is_json_response=True,
         enable_thinking=False,
     )
-    api_contents = [user_prompt, video_part]
+    api_contents = with_references(client, [user_prompt, video_part])
     response = gemini.generate_content_with_retry(
         client,
         model=model_name,
@@ -3474,7 +3507,8 @@ def _build_unified_prompts(user_prompt, model_name_to_use, dialogue_free_windows
                            intensive_slots_text="", intensive_mode=False,
                            character_continuity_text="",
                            recent_descriptions_text="",
-                           extended_anchors_text="", extended_mode=False):
+                           extended_anchors_text="", extended_mode=False,
+                           tmdb_reference_context=False):
     """Builds the system and user prompts for the unified generation API call."""
     _target_language_code, target_language_name, language_examples = (
         _target_language_details()
@@ -3490,15 +3524,12 @@ def _build_unified_prompts(user_prompt, model_name_to_use, dialogue_free_windows
             "catalog is authoritative. Reuse an established catalog name and ID when the "
             "person is confidently recognized, even if that name is not spoken again in this "
             "clip. For a genuinely new character, use a proper name only after it is clearly "
-            "revealed in dialogue. Do not invent names or duplicate an established identity."
+            "revealed in dialogue and clearly linked to that person. A name merely mentioned "
+            "in dialogue does not identify the person on screen. If the link between a name "
+            "and a person is uncertain, use a concise visual label rather than forcing a name. "
+            "Do not invent names or duplicate an established identity."
         )
-        subject_repetition_directive = (
-            "6.  **AVOID REPEATING THE SUBJECT'S NAME:** When immediately consecutive "
-            "descriptions clearly keep the same character as their subject, write the full "
-            "name only in the first description. Then use a natural pronoun or omit the subject "
-            "when the target language allows it. Repeat the name after a scene or subject change, "
-            "a long gap, or whenever omission could be unclear."
-        )
+        subject_repetition_directive = "6.  **MAKE THE ACTING SUBJECT CLEAR:** " + _SUBJECT_CLARITY_RULE
         system_mission = (
             "You are an expert Audio Describer. Analyze the provided video and generate "
             "a character glossary plus timed audio descriptions in one JSON object."
@@ -3506,7 +3537,22 @@ def _build_unified_prompts(user_prompt, model_name_to_use, dialogue_free_windows
         glossary_schema = f"""1.  **"character_glossary":** An array of objects, where each object represents a distinct character. Each character object must contain:
     *   `"id"`: The permanent identity key. If the character matches an established saved-catalog entry, return EXACTLY that existing ID, character-for-character. Never shorten it, regenerate it from the visible/spoken name, or create an alias ID. Only a genuinely new character may receive a new unique descriptive ID (e.g., "man_in_red_shirt").
     *   `"description"`: For a genuinely new character, provide a definitive physical description in {target_language_name}. For an ESTABLISHED catalog character, do NOT rewrite, summarize, correct, or paraphrase the saved biography. Return only genuinely NEW visual appearance information observed in this clip (for example a new outfit, hat, bandage, glasses, injury, or other distinguishing visible detail). If there is no genuinely new visual fact, repeat the established description exactly rather than inventing a variation. Never add or alter relationships, names, ages, roles, backstory, or other non-visual facts for an established character.
-    *   `"name"`: For an established character, keep the established catalog name. For a genuinely new character, use a proper name only if it is spoken clearly in the video; otherwise use a concise visual label."""
+    *   `"name"`: For an established character, keep the established catalog name. For a genuinely new character, use a proper name only if it is spoken clearly in the video and unambiguously linked to that person; a mere mention is not enough. Otherwise use a concise visual label."""
+        if tmdb_reference_context:
+            reference_identity_rule = (
+                " OPTIONAL TMDB EXCEPTION TO THE SPOKEN-NAME RULE: A supplied cast name "
+                "may also be used without being spoken if the actual video and a supplied "
+                "actor portrait support a confident visual match. A cast listing or a weak "
+                "resemblance alone is never sufficient. Portraits may show a different age, "
+                "hairstyle or costume. When uncertain use a neutral visual label. Voice-actor "
+                "portraits must never identify animated characters. Only user-confirmed "
+                "catalog entries are authoritative: all TMDB candidates and provisional "
+                "identities inferred in previous chunks can be corrected by later evidence. "
+                "Do not invent a name based on familiarity with an actor or the plot."
+            )
+            reference_identity_rule += f" {LOCALIZATION_RULE} Target language: {target_language_name}. {ACTIVE_CAST_RULE}"
+            character_name_directive += reference_identity_rule
+            glossary_schema += reference_identity_rule
         example_glossary_json = json.dumps(
             [{"id": "man_in_suit", "description": glossary_example, "name": "David"}],
             ensure_ascii=False,
@@ -3519,9 +3565,8 @@ def _build_unified_prompts(user_prompt, model_name_to_use, dialogue_free_windows
             "such as the man, the woman, the child, or the driver."
         )
         subject_repetition_directive = (
-            "6.  **AVOID REPETITIVE SUBJECT LABELS:** When consecutive descriptions clearly "
-            "keep the same person as their subject, use a pronoun or omit the subject when this "
-            "remains clear. Do not introduce a name or infer identity across clips."
+            "6.  **MAKE THE ACTING SUBJECT CLEAR:** " + _SUBJECT_CLARITY_RULE
+            + " Do not introduce a name or infer identity across clips; use clear generic visual references."
         )
         system_mission = (
             "You are an expert Audio Describer. Analyze the provided video and generate "
@@ -3698,7 +3743,9 @@ Your entire output MUST be a single JSON object with {output_keys}.
         (
             "*   **Target language for every natural-language output field "
             "(`description_text` and `character_glossary[].description`):** "
-            f"{target_language_name}. Names and JSON keys must remain unchanged."
+            f"{target_language_name}. "
+            + ("Character names follow the TMDB localization rule; IDs and JSON keys remain unchanged."
+               if tmdb_reference_context and enable_glossary else "Names and JSON keys must remain unchanged.")
         ),
         f"*   **Verbosity Level:** {verbosity_instruction}",
     ]
@@ -3799,14 +3846,19 @@ Your entire output MUST be a single JSON object with {output_keys}.
             "genuinely new visible appearance fact from this clip; otherwise copy the established "
             "description exactly. Do not 'correct' the catalog from visual guesswork.",
         ])
+    if '"provisional":true' in character_continuity_text:
+        user_prompt_parts.append(
+            "EXCEPTION: Entries marked provisional are hypotheses, NOT authoritative identities. "
+            "Reassess them against current video evidence and correct mistakes. The preceding "
+            "identity-preservation instructions apply only to entries not marked provisional."
+        )
     if recent_descriptions_text:
         user_prompt_parts.extend([
             "*   **RECENT DESCRIPTIONS IMMEDIATELY BEFORE THIS CLIP:** "
             + recent_descriptions_text,
-            "*   These entries are context only and must not be returned again. If this clip "
-            "directly continues the same scene with the same clear subject, follow the rule against "
-            "repeating that subject's name. After a scene or subject change, restore an explicit "
-            "name whenever needed for clarity.",
+            "*   These entries are context only and must not be returned again. Prioritize subject "
+            "clarity for listeners over avoiding repeated names. Repeat the explicit subject whenever "
+            "the acting person could be ambiguous, including after a scene change or a pause.",
         ])
     if user_prompt and user_prompt.strip():
         user_prompt_parts.append(f"*   **User's Specific Focus:** {user_prompt.strip()}")

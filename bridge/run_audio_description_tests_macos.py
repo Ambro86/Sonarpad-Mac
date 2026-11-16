@@ -17,6 +17,7 @@ MODULES = (
     "test_audio_description_logging",
     "test_audio_description_bridge_spec",
     "test_bridge_protocol",
+    "test_tmdb_references",
     "test_chunk_timestamps",
     "test_gemini_models",
     "test_gemini_retry",

@@ -887,14 +887,14 @@ impl Session {
         let path = dir.join("cloud_sync.json");
         match std::fs::read(&path) {
             Ok(bytes) => {
-                let meta: Value = serde_json::from_slice(&bytes).map_err(|_| "storage_error")?;
+                let meta: Value = serde_json::from_slice(&bytes).map_err(|_| "sync_metadata_parse_error")?;
                 if !meta.is_object() {
-                    return Err("storage_error".into());
+                    return Err("sync_metadata_not_object".into());
                 }
                 Ok(meta)
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(json!({})),
-            Err(_) => Err("storage_error".into()),
+            Err(e) => Err(format!("sync_metadata_read_error:{:?}", e.kind())),
         }
     }
     pub fn load(dir: &Path) -> Result<Self, String> {
@@ -919,18 +919,18 @@ impl Session {
     pub fn save(&self) -> Result<(), String> {
         let temp = self.path.with_extension("json.tmp");
         if let Some(dir) = self.path.parent() {
-            std::fs::create_dir_all(dir).map_err(|_| "storage_error")?;
+            std::fs::create_dir_all(dir).map_err(|e| format!("sync_metadata_directory_error:{:?}", e.kind()))?;
         }
-        let mut f = std::fs::File::create(&temp).map_err(|_| "storage_error")?;
+        let mut f = std::fs::File::create(&temp).map_err(|e| format!("sync_metadata_create_error:{:?}", e.kind()))?;
         f.write_all(
             serde_json::to_string(&self.meta)
-                .map_err(|_| "storage_error")?
+                .map_err(|_| "sync_metadata_serialize_error")?
                 .as_bytes(),
         )
-        .map_err(|_| "storage_error")?;
-        f.sync_all().map_err(|_| "storage_error")?;
+        .map_err(|e| format!("sync_metadata_write_error:{:?}", e.kind()))?;
+        f.sync_all().map_err(|e| format!("sync_metadata_flush_error:{:?}", e.kind()))?;
         drop(f);
-        std::fs::rename(temp, &self.path).map_err(|_| "storage_error".into())
+        std::fs::rename(temp, &self.path).map_err(|e| format!("sync_metadata_replace_error:{:?}", e.kind()))
     }
     pub fn select(&self, state: &Value) -> Value {
         let mut selected = json!({});

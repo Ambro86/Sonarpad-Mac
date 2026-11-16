@@ -1,12 +1,14 @@
 Changelog
 
-Versione 0.5.6 - 13 novembre 2026
+Versione 0.5.6 - 16 novembre 2026
 
-**Novità: voci Gemini in tutto Sonarpad!** Voci naturali ed espressive, vicine alla voce umana, per creare audiolibri e audiodescrizioni, leggere notizie, libri e documenti e usare la sintesi vocale nelle funzioni del programma. Puoi scegliere Sonarpad AI con il tuo codice di accesso oppure la tua chiave API Gemini personale: non servono entrambe.
+1. Audiodescrizioni con cast e foto da TMDB: inserisci il titolo del film o della serie e, facoltativamente, l’anno; scegli la produzione, la stagione e l’episodio. Gemini riceve nomi e foto degli attori come aiuto al riconoscimento, senza considerarli identificazioni certe. Conservando il catalogo salvi i link delle foto, che saranno recuperate ai successivi utilizzi. Per i contenuti animati l’audiodescrizione non può utilizzare questo servizio, in quanto fornisce le foto dei doppiatori, che non aiuterebbero a riconoscere i personaggi dei cartoni animati. L'implementazione di questo sistema non garantisce che i personaggi siano riconosciuti al 100%, in quanto a volte TMDB non fornisce le foto di tutti i personaggi del cast. Tuttavia aumenta enormemente l'affidabilità di riconoscimento.
 
-Sincronizzazione cloud: aggiunti i preferiti SonarMusic tra Windows, Mac e mobile, inclusi brani, album, artisti e playlist. Le liste esistenti vengono unite e le rimozioni esplicite vengono sincronizzate.
+2. **Novità: voci Gemini in tutto Sonarpad!** Voci naturali ed espressive, vicine alla voce umana, per creare audiolibri e audiodescrizioni, leggere notizie, libri e documenti e usare la sintesi vocale nelle funzioni del programma. Puoi scegliere Sonarpad AI con il tuo codice di accesso oppure la tua chiave API Gemini personale.
 
-Podcast: aggiunta la sincronizzazione dei segnalibri automatici e del punto di ascolto tra Windows, Mac e mobile, anche quando Windows riproduce un episodio dalla cache. Le posizioni più vecchie non sovrascrivono quelle più recenti; anche il completamento e la rimozione di un segnalibro vengono sincronizzati.
+3. Sincronizzazione cloud: aggiunti i preferiti SonarMusic tra Windows, Mac e mobile, inclusi brani, album, artisti e playlist. Le liste esistenti vengono unite e le rimozioni esplicite vengono sincronizzate.
+
+4. Podcast: aggiunta la sincronizzazione dei segnalibri automatici e del punto di ascolto tra Windows, Mac e mobile, anche quando Windows riproduce un episodio dalla cache. Le posizioni più vecchie non sovrascrivono quelle più recenti; anche il completamento e la rimozione di un segnalibro vengono sincronizzati.
 
 Versione 0.5.5 - 12 novembre 2026
 

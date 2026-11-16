@@ -27,7 +27,7 @@ def main():
     # Native-rate tests must not invoke the bundled macOS media processor.
     # Fail loudly if a fixture accidentally enables the Gemini tempo branch.
     pieces.append("fn accelerate_description_pcm(_: &[i16], _: f64, _: &Arc<AtomicBool>) -> Result<Arc<[i16]>, String> { panic!(\"Gemini tempo is outside the native-rate harness\") }")
-    for name in ("AudioDescriptionPreparedChunk", "BridgeCharacter", "BridgeDescription",
+    for name in ("AudioDescriptionPreparedChunk", "BridgeCharacter", "TmdbCharacterReference", "BridgeDescription",
                  "AudioDescriptionBridgeResume", "BridgeInterval", "AudioDescriptionBridgeResult"):
         pieces.append(item(bridge, "pub struct " + name, True))
     for name in ("AudioDescriptionPartialCatalog", "AudioDescriptionChunkLayout",

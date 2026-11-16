@@ -84,6 +84,30 @@ fn checkpoint_round_trip_keeps_compatibility_mode_and_vocal_verifications() {
 }
 
 #[test]
+fn checkpoint_round_trip_keeps_tmdb_cast_and_provisional_observations() {
+    let mut raw = legacy_checkpoint();
+    let cast = serde_json::json!({
+        "id":"tmdb_1", "name":"Athena", "description":"Cast candidate", "provisional":true,
+        "tmdb":{"actor_name":"Actor", "person_id":1, "production_id":2,
+            "production_title":"Film", "media_type":"movie", "animation":false,
+            "profile_image_url":"https://image.tmdb.org/t/p/w185/photo.jpg"}
+    });
+    raw["character_catalog"] = serde_json::json!({"name":"Film", "path":"", "characters":[cast.clone()]});
+    raw["character_glossary"] = serde_json::json!([
+        {"id":"tmdb_1", "name":"Atena", "description":"Velo chiaro", "provisional":true}
+    ]);
+    let saved: AudioDescriptionPartialCheckpoint = serde_json::from_value(raw).unwrap();
+    let restored: AudioDescriptionPartialCheckpoint = serde_json::from_slice(&serde_json::to_vec(&saved).unwrap()).unwrap();
+    let reference = &restored.character_catalog.as_ref().unwrap().characters[0];
+    assert_eq!(reference.name, "Athena");
+    assert_eq!(reference.tmdb.as_ref().unwrap().profile_image_url.as_deref(), Some("https://image.tmdb.org/t/p/w185/photo.jpg"));
+    let resume = restored.resume_for_chunks(&chunks(&[0.0, 180.0, 360.0])).unwrap();
+    assert_eq!(resume.completed_chunks, 1);
+    assert_eq!(resume.character_glossary[0].name, "Atena");
+    assert!(resume.character_glossary[0].provisional);
+}
+
+#[test]
 fn actual_mix_adjusts_only_movie_volume_and_preserves_ducking() {
     let work = tempfile::tempdir().unwrap();
     let source = work.path().join("source.wav");

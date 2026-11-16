@@ -1,12 +1,14 @@
 Lista zmian
 
-Wersja 0.5.6 - 13 listopada 2026
+Wersja 0.5.6 - 16 listopada 2026
 
-**Nowość: głosy Gemini w całym Sonarpad!** Naturalne i ekspresyjne głosy, zbliżone do ludzkiego głosu, do tworzenia audiobooków i audiodeskrypcji, czytania wiadomości, książek i dokumentów oraz korzystania z syntezy mowy w funkcjach programu. Wybierz Sonarpad AI ze swoim kodem dostępu lub osobisty klucz API Gemini: nie potrzebujesz obu.
+1. Audiodeskrypcja z obsadą i zdjęciami z TMDB: wpisz tytuł filmu lub serialu oraz opcjonalny rok, a następnie wybierz produkcję, sezon i odcinek. Gemini otrzymuje nazwiska, imiona postaci i zdjęcia aktorów jako wskazówki, nie jako potwierdzone tożsamości. Katalogi zapisują odnośniki do zdjęć do ponownego użycia. W przypadku treści animowanych audiodeskrypcja nie może korzystać z tej usługi, ponieważ dostarcza ona zdjęcia aktorów głosowych, które nie pomogłyby w rozpoznawaniu postaci z kreskówek. Wdrożenie tego systemu nie gwarantuje stuprocentowego rozpoznawania postaci, ponieważ TMDB czasami nie udostępnia zdjęć wszystkich postaci z obsady. Znacznie zwiększa jednak niezawodność rozpoznawania.
 
-Synchronizacja w chmurze: dodano ulubione SonarMusic między Windows, Mac i urządzeniami mobilnymi, w tym utwory, albumy, wykonawców i playlisty. Istniejące listy są łączone, a świadome usunięcia synchronizowane.
+2. **Nowość: głosy Gemini w całym Sonarpad!** Naturalne i ekspresyjne głosy, zbliżone do ludzkiego głosu, do tworzenia audiobooków i audiodeskrypcji, czytania wiadomości, książek i dokumentów oraz korzystania z syntezy mowy w funkcjach programu. Wybierz Sonarpad AI ze swoim kodem dostępu lub osobisty klucz API Gemini.
 
-Podcasty: automatyczne zakładki i pozycja odtwarzania są synchronizowane między Windows, Mac i urządzeniami mobilnymi, także przy odtwarzaniu odcinków z pamięci podręcznej Windows. Starsze pozycje nie nadpisują nowszych; zakończenie odtwarzania i usunięcie zakładki również są synchronizowane.
+3. Synchronizacja w chmurze: dodano ulubione SonarMusic między Windows, Mac i urządzeniami mobilnymi, w tym utwory, albumy, wykonawców i playlisty. Istniejące listy są łączone, a świadome usunięcia synchronizowane.
+
+4. Podcasty: automatyczne zakładki i pozycja odtwarzania są synchronizowane między Windows, Mac i urządzeniami mobilnymi, także przy odtwarzaniu odcinków z pamięci podręcznej Windows. Starsze pozycje nie nadpisują nowszych; zakończenie odtwarzania i usunięcie zakładki również są synchronizowane.
 
 Wersja 0.5.5 - 12 listopada 2026
 
