@@ -770,6 +770,7 @@ fn normalized_catalog_character(character: &BridgeCharacter) -> Option<BridgeCha
     }
     Some(BridgeCharacter {
         tmdb: character.tmdb.clone(),
+        anilist: character.anilist.clone(),
         provisional: character.provisional,
         id: character.id.trim().to_string(),
         name,
@@ -794,8 +795,8 @@ fn find_catalog_identity(
     characters: &[BridgeCharacter],
     candidate: &BridgeCharacter,
 ) -> Option<usize> {
-    if candidate.tmdb.is_some() {
-        return characters.iter().position(|entry| entry.tmdb.is_some() && entry.id == candidate.id);
+    if candidate.has_reference() {
+        return characters.iter().position(|entry| entry.has_reference() && entry.id == candidate.id);
     }
     let candidate_id = candidate.id.trim().to_lowercase();
     if !candidate_id.is_empty() {
@@ -922,8 +923,8 @@ fn merge_catalog(
             continue;
         };
         if let Some(index) = find_catalog_identity(&merged, &candidate) {
-            if merged[index].tmdb.is_some() && candidate.tmdb.is_none() { continue; }
-            if merged[index].provisional && merged[index].tmdb.is_none() {
+            if merged[index].has_reference() && !candidate.has_reference() { continue; }
+            if merged[index].provisional && !merged[index].has_reference() {
                 merged[index] = candidate;
                 continue;
             }
@@ -943,8 +944,8 @@ fn merge_catalog(
             continue;
         };
         if let Some(index) = find_catalog_identity(&merged, &candidate) {
-            if merged[index].tmdb.is_some() && candidate.tmdb.is_none() { continue; }
-            if merged[index].provisional && merged[index].tmdb.is_none() {
+            if merged[index].has_reference() && !candidate.has_reference() { continue; }
+            if merged[index].provisional && !merged[index].has_reference() {
                 merged[index] = candidate;
                 continue;
             }
@@ -7508,13 +7509,11 @@ fn open_create_dialog_impl(
             }
             match tmdb::resolve(&d, title.clone(), year) {
                 Ok(Some(characters)) => {
-                    if characters.iter().any(|entry| entry.tmdb.as_ref().is_some_and(|item| item.animation)) {
-                        let message = MessageDialog::builder(&d, &tr("audio_description.tmdb.animation"), "TMDB")
-                            .with_style(MessageDialogStyle::OK).build();
-                        message.show_modal();
+                    if characters.is_empty() {
+                        crate::announce_voiceover_message(&tr("audio_description.references.unavailable"));
                     }
                     let target = catalog.get_or_insert_with(|| CharacterCatalog { name: title, path: PathBuf::new(), characters: Vec::new() });
-                    target.characters.retain(|item| item.tmdb.is_none());
+                    target.characters.retain(|item| !item.has_reference());
                     target.characters.extend(characters);
                 }
                 Ok(None) => return,

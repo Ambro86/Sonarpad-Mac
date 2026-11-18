@@ -1,5 +1,9 @@
 Changelog
 
+Version 0.5.7 - November 18, 2026
+
+1. When TMDB identifies an animated film or series, Sonarpad automatically searches AniList. Gemini uses character illustrations to help identify who is on screen. If no reliable match or images are available, audio description continues as usual.
+
 Version 0.5.6 - November 16, 2026
 
 1. Audio descriptions with TMDB cast and photos: enter a film or series title and an optional year, then choose the production, season and episode. Gemini receives cast names and actor photos as supporting evidence, never as confirmed identities. Saved catalogs retain image links for reuse. For animated content, audio description cannot use this service because it provides photos of voice actors, which would not help identify animated characters. Implementing this system does not guarantee 100% character recognition, as TMDB sometimes does not provide photos for every character in the cast. However, it greatly increases recognition reliability.

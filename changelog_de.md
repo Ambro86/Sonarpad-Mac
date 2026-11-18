@@ -1,5 +1,9 @@
 Änderungsprotokoll
 
+Version 0.5.7 – 18. November 2026
+
+1. Erkennt TMDB einen Animationsfilm oder eine animierte Serie, sucht Sonarpad den Titel automatisch bei AniList. Die Figurenbilder helfen Gemini dabei, die Figuren in einer Szene zu erkennen. Fehlt ein eindeutiger Treffer oder sind keine Bilder verfügbar, läuft die Audiodeskription wie gewohnt weiter.
+
 Version 0.5.6 – 16. November 2026
 
 1. Audiodeskription mit TMDB-Besetzung und Fotos: Film- oder Serientitel und optional ein Jahr eingeben, dann Produktion, Staffel und Episode auswählen. Gemini erhält Namen und Schauspielerfotos als Hinweise, nicht als bestätigte Identitäten. Gespeicherte Kataloge behalten die Fotolinks zur Wiederverwendung. Bei animierten Inhalten kann die Audiodeskription diesen Dienst nicht nutzen, da er Fotos der Synchronsprecher bereitstellt, die nicht beim Erkennen der Zeichentrickfiguren helfen würden. Die Einführung dieses Systems garantiert keine hundertprozentige Erkennung der Figuren, da TMDB manchmal nicht für alle Figuren der Besetzung Fotos bereitstellt. Es erhöht jedoch die Zuverlässigkeit der Erkennung erheblich.

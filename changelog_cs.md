@@ -1,5 +1,9 @@
 Seznam změn
 
+Verze 0.5.7 - 18. listopadu 2026
+
+1. Když TMDB označí film nebo seriál jako animovaný, Sonarpad automaticky vyhledá titul na AniListu. Gemini využije ilustrace postav jako pomůcku při jejich rozpoznávání ve scéně. Pokud titul nelze spolehlivě určit nebo chybějí obrázky, tvorba audiopopisu pokračuje jako obvykle.
+
 Verze 0.5.6 - 16. listopadu 2026
 
 1. Audiopopis s obsazením a fotografiemi z TMDB: zadejte název filmu nebo seriálu a volitelně rok, poté vyberte produkci, řadu a díl. Gemini dostane jména a fotografie herců jako vodítka, nikoli potvrzené identity. Katalogy ukládají odkazy na fotografie pro další použití. U animovaného obsahu nemůže audiopopis tuto službu využívat, protože poskytuje fotografie dabérů, které by nepomohly rozpoznat animované postavy. Zavedení tohoto systému nezaručuje stoprocentní rozpoznání postav, protože TMDB někdy neposkytuje fotografie všech postav z obsazení. Výrazně však zvyšuje spolehlivost rozpoznávání.

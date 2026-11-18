@@ -1,4 +1,6 @@
-//! Optional cast lookup. All requests use the existing Sonarpad Cinema proxy.
+//! Optional TMDB cast lookup and AniList character illustrations.
+#[path = "audio_description_anilist.rs"]
+mod anilist;
 use super::*;
 use crate::audio_description_bridge::{BridgeCharacter, TmdbCharacterReference};
 use serde_json::Value;
@@ -67,6 +69,34 @@ fn lookup(
         .iter()
         .any(|genre| number(genre, "id") == 16);
     let production_title = text(&details, if *kind == "movie" { "title" } else { "name" });
+    if animation {
+        let original = text(
+            &details,
+            if *kind == "movie" {
+                "original_title"
+            } else {
+                "original_name"
+            },
+        );
+        let date = text(
+            &details,
+            if *kind == "movie" {
+                "release_date"
+            } else {
+                "first_air_date"
+            },
+        );
+        return Ok(anilist::lookup(
+            &[&production_title, &original],
+            date.get(..4).unwrap_or(year),
+            kind,
+            &mut choose,
+        )
+        .unwrap_or_else(|e| {
+            crate::append_podcast_log(&format!("Optional AniList lookup: {e}"));
+            Vec::new()
+        }));
+    }
     let mut season_number = None;
     let mut episode_number = None;
     let mut action = format!("{kind}_credits");
@@ -162,6 +192,7 @@ fn lookup(
                     reference.actor_name
                 ),
                 tmdb: Some(reference),
+                anilist: None,
                 provisional: true,
             });
         }

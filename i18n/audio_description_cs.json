@@ -12,6 +12,7 @@
   "audio_description.tmdb.no_results": "Nebyl nalezen odpovídající film ani seriál.",
   "audio_description.tmdb.no_cast": "Informace o obsazení nejsou k dispozici.",
   "audio_description.tmdb.continue_without": "Vyhledávání TMDB se nezdařilo. Pokračovat se standardním audiopopisem?",
+  "audio_description.references.unavailable": "Obrázky postav nejsou dostupné. Pokračuje standardní audiopopis.",
   "audio_description.tmdb.animation": "Jde o animovaný obsah. Fotografie herců nepomáhají identifikovat animované postavy a nebudou odeslány. Audiopopis bude pokračovat normálně.",
   "audio_description.allow_dialogue_overlap": "Povolit audiopopis během dialogů a komentáře",
   "audio_description.error.dialogue_overlap_bridge": "Aktualizujte modul audiopopisu, aby bylo možné popisovat během dialogů a komentáře.",

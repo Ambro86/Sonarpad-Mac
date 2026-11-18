@@ -12,6 +12,7 @@
   "audio_description.tmdb.no_results": "Kein passender Film oder keine passende Serie gefunden.",
   "audio_description.tmdb.no_cast": "Keine Besetzungsdaten verfügbar.",
   "audio_description.tmdb.continue_without": "Die TMDB-Suche ist fehlgeschlagen. Mit der normalen Audiodeskription fortfahren?",
+  "audio_description.references.unavailable": "Keine Figurenbilder verfügbar. Die normale Audiodeskription wird fortgesetzt.",
   "audio_description.tmdb.animation": "Dies ist animierter Inhalt. Schauspielerfotos helfen nicht bei der Erkennung animierter Figuren und werden nicht gesendet. Die Audiodeskription wird normal fortgesetzt.",
   "audio_description.allow_dialogue_overlap": "Audiodeskriptionen während Dialogen und Kommentaren zulassen",
   "audio_description.error.dialogue_overlap_bridge": "Aktualisieren Sie die Audiodeskriptions-Bridge, um Beschreibungen während Dialogen und Kommentaren zuzulassen.",

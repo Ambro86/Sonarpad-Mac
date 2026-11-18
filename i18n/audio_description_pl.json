@@ -12,6 +12,7 @@
   "audio_description.tmdb.no_results": "Nie znaleziono pasującego filmu ani serialu.",
   "audio_description.tmdb.no_cast": "Brak informacji o obsadzie.",
   "audio_description.tmdb.continue_without": "Nie udało się ukończyć wyszukiwania TMDB. Kontynuować standardową audiodeskrypcję?",
+  "audio_description.references.unavailable": "Brak ilustracji postaci. Standardowa audiodeskrypcja będzie kontynuowana.",
   "audio_description.tmdb.animation": "To treść animowana. Zdjęcia aktorów nie identyfikują animowanych postaci i nie zostaną wysłane. Audiodeskrypcja będzie kontynuowana normalnie.",
   "audio_description.allow_dialogue_overlap": "Zezwalaj na audiodeskrypcję podczas dialogów i komentarza",
   "audio_description.error.dialogue_overlap_bridge": "Zaktualizuj moduł audiodeskrypcji, aby zezwolić na opisy podczas dialogów i komentarza.",

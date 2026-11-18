@@ -28,8 +28,25 @@ pub struct BridgeCharacter {
     pub description: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tmdb: Option<TmdbCharacterReference>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub anilist: Option<AniListReference>,
     #[serde(default)]
     pub provisional: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct AniListReference {
+    pub media_id: i64,
+    pub media_title: String,
+    pub source_character_id: i64,
+    pub role: String,
+    pub aliases: Vec<String>,
+    pub image_urls: Vec<String>,
+}
+impl BridgeCharacter {
+    pub fn has_reference(&self) -> bool {
+        self.tmdb.is_some() || self.anilist.is_some()
+    }
 }
 
 /// Cast metadata is a candidate identity, never a verified face identification.

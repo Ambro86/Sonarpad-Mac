@@ -305,6 +305,7 @@ struct RadioMenuState {
     stations_by_language: HashMap<String, Vec<RadioStation>>,
     station_commands: HashMap<i32, RadioMenuCommand>,
     open_search_requested: bool,
+    delete_favorite_requested: bool,
     search_ever_opened: bool,
 }
 
@@ -6419,6 +6420,44 @@ fn open_edit_radio_favorite_dialog(
     result
 }
 
+fn delete_radio_favorite(
+    parent: &Frame,
+    settings: &Arc<Mutex<Settings>>,
+    radio_menu_state: &Arc<Mutex<RadioMenuState>>,
+) {
+    let ui = current_ui_strings();
+    append_podcast_log("radio.favorite.delete.begin");
+    if let Some(index) = open_delete_radio_favorite_dialog(parent, settings) {
+        let removed = {
+            let mut settings = settings.lock().unwrap();
+            if index < settings.radio_favorites.len() {
+                let before_cloud_delete = settings.clone();
+                let removed = settings.radio_favorites.remove(index);
+                record_explicit_cloud_deletions(&before_cloud_delete, &settings);
+                normalize_settings_data(&mut settings);
+                settings.save();
+                Some(removed)
+            } else {
+                None
+            }
+        };
+        if let Some(removed) = removed {
+            append_podcast_log("radio.favorite.delete.saved");
+            show_message_dialog(
+                parent,
+                &ui.menu_radio.replace('&', ""),
+                &if Settings::load().ui_language == "it" {
+                    format!("{} rimossa dai preferiti.", removed.name)
+                } else {
+                    format!("{} removed from favorites.", removed.name)
+                },
+            );
+            radio_menu_state.lock().unwrap().dirty = true;
+            append_podcast_log("radio.favorite.delete.completed");
+        }
+    }
+}
+
 fn open_delete_radio_favorite_dialog(
     parent: &Frame,
     settings: &Arc<Mutex<Settings>>,
@@ -11617,7 +11656,7 @@ fn refresh_all_radio_languages(radio_menu_state: &Arc<Mutex<RadioMenuState>>) {
 const COMMUNITY_NEWS_SOURCES_URL: &str = "https://sonarpad.com/api/get_community_news_sources.php";
 const ADD_COMMUNITY_NEWS_SOURCE_URL: &str =
     "https://sonarpad.com/api/add_community_news_source.php";
-const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.6 (https://sonarpad.com)";
+const COMMUNITY_NEWS_USER_AGENT: &str = "SonarpadMac/0.5.7 (https://sonarpad.com)";
 
 #[derive(Debug, Clone)]
 struct CommunityArticleSource {
@@ -30810,6 +30849,7 @@ fn main() {
         stations_by_language: initial_radio_stations,
         station_commands: HashMap::new(),
         open_search_requested: false,
+        delete_favorite_requested: false,
         search_ever_opened: false,
     }));
     let podcast_playback = Rc::new(RefCell::new(PodcastPlaybackState {
@@ -31491,6 +31531,14 @@ fn main() {
             if open_search {
                 println!("DEBUG: Opening Radio Search Dialog from Timer");
                 open_radio_search_dialog(&frame_timer, &settings_timer, &radio_menu_state_timer);
+            }
+
+            let delete_favorite = {
+                let mut state = radio_menu_state_timer.lock().unwrap();
+                std::mem::take(&mut state.delete_favorite_requested)
+            };
+            if delete_favorite {
+                delete_radio_favorite(&frame_timer, &settings_timer, &radio_menu_state_timer);
             }
 
             let auto_update_result = {
@@ -32293,33 +32341,10 @@ fn main() {
                     );
                 }
             } else if event.get_id() == ID_RADIO_DELETE_FAVORITE {
-                if let Some(index) = open_delete_radio_favorite_dialog(&f_menu, &settings_menu) {
-                    let removed = {
-                        let mut settings = settings_menu.lock().unwrap();
-                        if index < settings.radio_favorites.len() {
-                            let before_cloud_delete = settings.clone();
-                            let removed = settings.radio_favorites.remove(index);
-                            record_explicit_cloud_deletions(&before_cloud_delete, &settings);
-                            normalize_settings_data(&mut settings);
-                            settings.save();
-                            Some(removed)
-                        } else {
-                            None
-                        }
-                    };
-                    if let Some(removed) = removed {
-                        radio_menu_state_menu.lock().unwrap().dirty = true;
-                        show_message_dialog(
-                            &f_menu,
-                            &ui.menu_radio.replace('&', ""),
-                            &if Settings::load().ui_language == "it" {
-                                format!("{} rimossa dai preferiti.", removed.name)
-                            } else {
-                                format!("{} removed from favorites.", removed.name)
-                            },
-                        );
-                    }
-                }
+                // Modal dialogs must outlive the menu callback before its menu
+                // items can be rebuilt (including by automatic cloud sync).
+                radio_menu_state_menu.lock().unwrap().delete_favorite_requested = true;
+                append_podcast_log("radio.favorite.delete.requested");
             } else if let Some((category_index, result_index)) =
                 decode_podcast_category_podcast_menu_id(event.get_id())
             {
